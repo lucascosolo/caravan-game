@@ -1,4 +1,4 @@
-# Chunk 17 — Unit acquisition: refugee drip & mercenary recruit
+# Chunk 18 — Unit acquisition: refugee drip & mercenary recruit
 
 **Depends on:** 05, 16. **Status:** not started.
 Read `/roadmap/GUARDRAILS.md` in full first.

@@ -12,10 +12,20 @@ from QA are closed out.)
 any chunk that depends on it. Independent chunks may proceed in parallel.
 
 **Settled decisions** (not in PROJECT.md; agreed during roadmap planning):
-TypeScript monorepo with a pure, dependency-free fixed-point resolver package.
-Web-first, mobile-shaped. The grid is a placement lattice only; battles are
-continuous free movement with attacks and abilities on automatic cooldowns —
-one ability per unit type, from six archetypes.
+
+- TypeScript monorepo with a pure, dependency-free fixed-point resolver package.
+  Web-first, mobile-shaped.
+- **Presentation:** 2D isometric, on a natural island with decorative topographical
+  tiers and cliff edges. The play area is **flat level ground in the center**; the
+  tiers are inert scenery the resolver never sees. The grid is shown **only while
+  something is being dragged onto it**, on every surface.
+- **Battles** are continuous free movement with attacks and abilities on automatic
+  cooldowns — one ability per unit type, from six archetypes. A healer archetype
+  exists deliberately, bounded by finite non-regenerating charges so attrition
+  still bites.
+- **Three modes of one wagon circle**: home screen (static, merging, chunk 17),
+  defense builder (placement, chunk 08), battle/replay (continuous, chunk 13).
+  One camp scene renderer, built in chunk 08, reused by all of them.
 
 ---
 
@@ -39,9 +49,10 @@ one ability per unit type, from six archetypes.
 | 14 | [Matchmaking & scouting](chunks/14-matchmaking-and-scouting.md) | Reputation-banded target selection, 3 candidates, free time-gated reroll, post-raid shield, away-caravans excluded. | 04, 08 | not started |
 | 15 | [Trip loop](chunks/15-trip-loop.md) | Stop chaining, bank/push, cross-stop attrition, untargetable-while-away, hourly trip cap. | 09, 13, 14 | not started |
 | 16 | [Economy: Coin](chunks/16-economy-coin.md) | Earn/spend/passive trickle/storage cap, and the merge system it pays for. | 02, 03 | not started |
-| 17 | [Unit acquisition](chunks/17-unit-acquisition.md) | Refugee drip (choice of 3, Coin reroll) and mercenary recruit (exact pick, Coin) — both gated by the web. | 05, 16 | not started |
-| 18 | [Stakes & loss wiring](chunks/18-stakes-and-loss.md) | Per-death merge-level regression, full loss on wipe, unbanked-Coin transfer capped by defender storage. | 13, 15, 16 | not started |
-| 19 | [Monetization packs](chunks/19-monetization-packs.md) | Weekly rotating $5/$10/$25 packs, fixed and previewed contents, sandboxed purchase flow. | 16 | not started |
+| 17 | [Home screen](chunks/17-home-screen.md) | Parked wagon circle: static merge board, the mine visualizing passive Coin, and navigation to everything else. | 03, 08, 16 | not started |
+| 18 | [Unit acquisition](chunks/18-unit-acquisition.md) | Refugee drip (choice of 3, Coin reroll) and mercenary recruit (exact pick, Coin) — both gated by the web. | 05, 16 | not started |
+| 19 | [Stakes & loss wiring](chunks/19-stakes-and-loss.md) | Per-death merge-level regression, full loss on wipe, unbanked-Coin transfer capped by defender storage. | 13, 15, 16 | not started |
+| 20 | [Monetization packs](chunks/20-monetization-packs.md) | Weekly rotating $5/$10/$25 packs, fixed and previewed contents, sandboxed purchase flow. | 16 | not started |
 
 ---
 
@@ -58,8 +69,12 @@ one ability per unit type, from six archetypes.
   code, and it should not be started until 11 is `QA'd`.
 - **Chunk 01 must be right the first time.** The account-vs-caravan split is a
   migration hazard, not a refactor.
+- **Chunk 17 (home screen) has two open questions** flagged in its file — whether the
+  merge board and the garrison layout are one grid or two, and whether the mine is
+  ever upgradeable. Both have proposed defaults; the first is expensive to retrofit
+  either way, so confirm it before that chunk starts.
 - **Parallelizable pairs:** 06 with 07; 09 with 10; 16 with 14.
-- **Chunk 18 is the last integration chunk** — it wires together the resolver, the
+- **Chunk 19 is the last integration chunk** — it wires together the resolver, the
   trip loop, and the economy. Expect it to surface findings in all three.
 
 ## Deferred — do not build

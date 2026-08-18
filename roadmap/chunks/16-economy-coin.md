@@ -6,7 +6,7 @@ Read `/roadmap/GUARDRAILS.md` in full first.
 ## Goal
 
 Coin: earning, spending, the storage cap, the passive trickle — and the merge system
-that Coin exists to pace. Losing Coin is chunk 18; buying it is chunk 19.
+that Coin exists to pace. Losing Coin is chunk 19; buying it is chunk 20.
 
 ## Design constraints that apply here
 

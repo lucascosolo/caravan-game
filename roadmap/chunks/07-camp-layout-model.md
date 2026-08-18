@@ -30,6 +30,35 @@ distances measured in cells, and may be fractional. This chunk owns the lattice 
 the initial continuous positions derived from it; the resolver owns everything after
 tick zero.
 
+**The playfield is flat. The scenery is not — and it is not this chunk's concern.**
+
+The camp is presented in 2D isometric on a natural-island setting with multiple
+topographical tiers and visible cliff edges, for visual interest and depth. **None of
+that is playable.** The active area is **level ground in the center of the island**,
+and the wagon circle always sits on it. The tiers, cliffs, and coastline are framing
+*around* the play area.
+
+This means:
+
+- **There is no elevation in the layout model, and none in the resolver.** No height
+  per cell, no ramps, no slope cost, no line-of-sight rules, no cliff collision.
+  The playfield is a flat lattice, exactly as if the island weren't there.
+- **Decorative terrain lives in a presentation layer** — an art/scenery descriptor
+  the client reads and the layout model does not. The resolver must not be able to
+  reach it at all, on the same principle that keeps billing state out of the resolver:
+  if scenery could influence a fight, one player's island would be worth more than
+  another's, and no unlock-web progress would have earned it.
+- **Scenery can therefore vary freely per region** with no balance implications,
+  because it is not in the play area. That variety is free; take it.
+- The isometric view is a **rendering projection of the same square lattice**, not a
+  different coordinate system. Nothing about pathing, distance, or determinism changes.
+
+One legibility caveat for whoever builds the art: **attackers may approach from any
+side**, so the scenery at the approach edges must read as walkable — open ground,
+shallow banks, trails. Dramatic cliffs belong behind and between the approach angles.
+If terrain *looks* impassable where it isn't, players will misjudge which approaches
+are viable, which is a legibility failure even though the geometry is fair.
+
 Thematically: preparing camp for the night, Old West — a wagon train circling for
 defense against raiders. **Configured asynchronously, persists until the player
 edits it** — it is not re-configured every "night", and there is no expiry.
@@ -101,6 +130,9 @@ edits it** — it is not re-configured every "night", and there is no expiry.
       float anywhere in the model or its serialization.
 - [ ] `FIXED_POINT_SCALE` is defined exactly once and exported for every downstream
       chunk to use.
+- [ ] The layout model contains **no elevation, no scenery, and no terrain data**.
+      Decorative island geometry is referenced only by an opaque scenery id that the
+      client resolves; a test asserts the resolver's input type cannot carry it.
 - [ ] `parked` vs `away` state gates targetability (behavior lands in chunk 14/15,
       the flag lives here and in chunk 01).
 
@@ -113,6 +145,11 @@ edits it** — it is not re-configured every "night", and there is no expiry.
 - **Determinism:** fixed-point throughout, with no floats in the model or its
   serialization? One distance metric used consistently? Any iteration-order
   dependence in serialization?
+- **Scenery has not leaked into the sim:** confirm no elevation, cliff, ramp, or
+  terrain value reaches the layout model or the resolver. Decorative island geometry
+  that could influence a fight would hand some players a defensive advantage they
+  never earned through the unlock web — the same failure class as pay-to-win, arriving
+  through the art pipeline instead of the store.
 - **The two spaces stayed separate:** does anything in the layout model assume units
   will be locked to cells during a fight, or encode a movement rule? Placement is
   discrete; the battle is continuous. A model that bakes in tile-locked movement
