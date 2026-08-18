@@ -1,12 +1,28 @@
 # Caravan Vaults — Design Document
 *Status: Core design complete. Ready for implementation planning.*
 
+> **Revision note.** §1, §2, §9, §10, §12, §13 and §17 were rewritten after the
+> original draft to correct an inverted core loop. The original had the player
+> actively raiding other players' parked camps, with their own camp defending
+> passively — and described that camp as a circled wagon train, which is a formation a
+> train adopts *out on the trail*, not at home. The polarity is now reversed to match:
+> **the active experience is defense.** Mechanically almost everything survived the
+> correction with the roles swapped; the deterministic resolver, the trip chain,
+> bank-or-push, scouting, the unlock webs, merging, and the economy are unchanged in
+> substance. Anything not listed above was not affected.
+
 ## 1. Concept & Core Hooks
 
-Build-then-async-resolve game. Players configure a defense (their camp) and an offense (a raiding party) as separate puzzles, then send the raiding party out; outcomes resolve deterministically, no live simulation, no real-time reaction required from either player.
+Build-then-async-resolve game, with the genre's usual polarity reversed.
+
+**The active player experience is defense.** A player escorts their caravan on a trip and, at each encounter along the way, arranges their wagon circle against a specific, scoutable attacking party. This is the analog of a Clash of Clans attack — the thing you actually sit down and play — except you are the one being attacked, and your skill expression is reading an incoming force and countering it.
+
+**The passive side is offense.** Each player separately maintains a raiding party, configured at leisure and left standing. It is served as an encounter in other players' trips, and its owner checks later where it struck and how it fared. This is the analog of a base sitting there getting attacked while you're offline.
+
+Outcomes resolve deterministically; no live simulation, no real-time reaction required from either player.
 
 Design is anchored on two player-tested hooks:
-- **The King of Thieves hook:** designing a hard-to-beat defense, and the asynchronous tension of checking who raided you and how they did it.
+- **The King of Thieves hook:** designing a hard-to-beat *raiding party*, and the asynchronous tension of checking where it struck and how it did — plus, on the active side, the tension of a trip you might not survive.
 - **The merge/loadout-game hook:** optimizing a loadout against enemy compositions, and collection growth over time — not the merge tap-mechanic itself as a standalone draw.
 
 Hard design constraints carried through every system below:
@@ -17,26 +33,26 @@ Hard design constraints carried through every system below:
 
 ## 2. Core Loop Overview
 
-The active player loop is a **trip**: a caravan sets out toward a destination, encountering a chain of individually matchmade, individually scoutable opponent camps along the way. This is not a map/travel layer — there is no geography, no route-picking on a spatial overworld. "Region" is a one-time account/caravan-level choice (see §4), unrelated to trip structure.
+The active player loop is a **trip**: a caravan sets out toward a destination, encountering a chain of individually matchmade, individually scoutable **attacking parties** along the way. This is not a map/travel layer — there is no geography, no route-picking on a spatial overworld. "Region" is a one-time account/caravan-level choice (see §4), unrelated to trip structure.
 
 A trip:
-1. Player locks in a raiding party (composition + per-unit stance) for the whole trip. No swapping mid-trip.
-2. Matchmaking presents a scoutable candidate camp (see §17).
-3. Player chooses an approach and starting positions against that specific camp, then resolves the fight (see §11).
-4. On a clear: **bank** (end trip, keep everything earned) or **push** (matchmaking serves the next stop; party carries forward whatever damage/losses it has — no healing until the trip ends).
-5. Trip ends on: voluntary bank, full party wipe, or a tick-cap stalemate (favors the defender).
+1. Player locks in what the caravan carries — its living units, traps, and fence materials — for the whole trip. No resupplying mid-trip; you fight the rest of the trail with what you packed.
+2. Matchmaking presents a scoutable attacking party (see §17).
+3. Player arranges the wagon circle against that specific party — fence placement, trap placement, garrison positions and stances — then resolves the fight (see §11).
+4. On surviving: **bank** (end trip, deliver, keep everything earned) or **push** (matchmaking serves the next encounter; the caravan carries forward whatever damage/losses it has — no repair or healing until the trip ends).
+5. Trip ends on: voluntary bank, the caravan being overrun, or a tick-cap stalemate (the attackers give up and withdraw — favors the caravan).
 
-One trip, regardless of how many stops it includes, consumes one use of an hourly trip cap (exact number TBD in balancing).
+One trip, regardless of how many encounters it includes, consumes one use of an hourly trip cap (exact number TBD in balancing).
 
-A successfully completed trip is thematically the "delivery" referenced in early notes — reaching the end and banking *is* the delivery.
+A successfully completed trip is the **delivery** — reaching the end and banking *is* the delivery. This is what the caravan is out there to do; every encounter is something standing between it and arriving.
 
 ## 3. Unit Pools
 
 Three pools, each with its own visible, non-random unlock web:
 
-- **Living units** — shared between offense and defense, but carry two distinct stat profiles (offense rating, defense rating) that are not equal, so the best raider isn't automatically the best guard. **Region-locked**: a desert unit is mechanically distinct from a mountain unit, not a reskin.
-- **Traps** — defense-only, universal across regions.
-- **Siege equipment** — offense-only, universal across regions. Functions mechanically as a **counter to fences and traps** — specific siege pieces reduce or bypass specific fence/trap categories, making siege loadout a real pre-trip decision informed by scouting.
+- **Living units** — shared between offense and defense, but carry two distinct stat profiles (offense rating, defense rating) that are not equal, so the best raider isn't automatically the best guard. A unit's defense rating governs it when posted in the wagon circle; its offense rating governs it in a standing raiding party. **Region-locked**: a desert unit is mechanically distinct from a mountain unit, not a reskin.
+- **Traps** — defense-only, universal across regions. Used by the caravan, so this pool belongs to the **active** side of the game.
+- **Siege equipment** — offense-only, universal across regions. Used by standing raiding parties, so this pool belongs to the **passive** side. Functions mechanically as a **counter to fences and traps** — specific siege pieces reduce or bypass specific fence/trap categories. A party's owner picks its siege blind to any particular caravan, which is what makes the counter relationships a standing bet rather than a reaction.
 
 ## 4. Regions
 
@@ -72,23 +88,31 @@ Capped at **level 5**.
 
 This split must be correct in the initial schema — retrofitting it after multi-caravan ships would require a painful migration.
 
-## 9. Camp Defense Setup (what a defender configures)
+## 9. The Wagon Circle (the active per-encounter puzzle)
 
-Thematically: preparing camp for the night, Old West setting — a wagon train circling for defense against raiders. Configured asynchronously, persists until the player edits it (not re-configured every "night").
+Thematically: a wagon train circling for defense out on the trail, Old West setting. **This is the game's active skill expression** — the player arranges it fresh at each encounter, having scouted the specific party bearing down on them.
 
-**The caravan is a single entity serving both roles, not two separate systems that happen to share units.** When parked, it presents the defensive posture below and is raidable. The moment a player sends it out on a trip (§12), it is **not present and not targetable** by matchmaking — there is genuinely nothing there to raid, not an undefended camp free for the taking. It becomes raidable again the instant the trip ends, whether by bank or wipe.
+Two different lifetimes, and the split is the whole design:
 
-- **Fence perimeter** with per-segment HP. Fences are breakable, not permanent walls. Defenders may **deliberately leave gaps** — a resource-allocation puzzle (full-ring costs more unlock investment than most builds sustain early; gaps save budget but expose that approach angle). The layout is visible to scouting raiders — this is the intended read-the-camp skill expression.
+- **Locked for the trip** — what the caravan is carrying: which living units, which traps, how much fence material. Packed before departure, never resupplied mid-trail.
+- **Chosen fresh per encounter** — how it is all arranged: where the fence goes, where traps are laid, where units are posted and with what stance. This is the decision the player actually makes, against a known, scouted attacker.
+
+**The caravan is a single entity serving both roles, not two separate systems that happen to share units** — the same units that fight for it here are the ones a player merges and manages back home.
+
+- **Fence perimeter** with per-segment HP. Fences are breakable, not permanent walls. The player may **deliberately leave gaps** — a resource-allocation puzzle (a full ring costs more material than most loadouts can sustain; gaps save budget but expose that approach angle). Since the attacking party is scouted first, choosing *where* to leave the gap against *this* attacker is the core read.
 - **Traps** — single-trigger, fire once on contact.
-- **Garrisoned living units** — each has an **aggro radius** (how close an attacker must get to be noticed) and a **leash distance** (how far the defender will chase from its post before disengaging and returning). Garrison units are mobile within their leash, not static like fences/traps.
-- Attackers may approach from any side, or split their party across multiple sides.
+- **Posted living units** — each has an **aggro radius** (how close an attacker must get to be noticed) and a **leash distance** (how far it will chase from its post before disengaging and returning). Posted units are mobile within their leash, not static like fences/traps.
+- Attackers may approach from any side, or split their party across multiple sides — so a circle is genuinely a circle, with no safe rear.
 
-## 10. Raid Party Setup (what an attacker configures)
+## 10. Raid Party Setup (the passive, asynchronous side)
+
+A player's raiding party is configured at leisure back in town, persists until edited, and is served as an encounter in **other players' trips**. Its owner is never online for the fight — they check afterward where it struck and how it did. This is the structural analog of a base in a base-raider: a standing artifact other people run into.
 
 - Composition of living units + siege equipment.
-- Starting position(s) along the chosen approach edge(s) — chosen fresh at each stop, based on that stop's scouted layout.
-- Per-unit **targeting stance**, locked in before the fight and never changed live: nearest enemy, prioritize traps, or beeline for the caravan core.
-- Composition and stances are locked for the **entire trip**, not reset per stop.
+- Per-unit **targeting stance**, locked in and never changed live: nearest enemy, prioritize traps, or beeline for the caravan core.
+- Approach edge(s) and starting positions, which the party commits to as part of its standing configuration.
+- **The party is a template, not an expedition.** It is not consumed, and its units are never lost, however many trips it turns up in — exactly as a base's buildings are not destroyed when it is raided. Its owner risks nothing by leaving it standing, which is what makes the passive side low-friction. What it earns is Coin and Reputation when it succeeds.
+- Because it is scouted by the player it attacks, it must be **fully inspectable** before that player commits to arranging their circle against it.
 
 ## 11. Raid Resolution Algorithm
 
@@ -100,30 +124,41 @@ Each tick:
 - Traps crossed this tick fire once (deterministic tie-break by unit order if multiple units cross simultaneously), applying damage/effect or being nullified by matching siege, then are spent.
 - Engaged units (attacker vs. garrison) trade damage each tick via the offense/defense ratio formula: `damage = offense × offense / (offense + defense)`, modified by a type/affinity layer (2–4 damage categories tied to regional unit flavor and trap classes, to prevent pure stat-total optimization from being the whole story) until one side dies or the defender hits its leash limit.
 
-**End conditions:**
-- Full party wipe → raid fails this stop, loot scaled to depth reached.
-- An attacker reaches the caravan core → full clear, full loot/Reputation for this stop.
-- Tick cap reached with neither outcome → stalemate, favors the defender (safety valve against infinite kiting).
+**End conditions** (stated from the caravan's point of view, since that is the player who is present):
+- The attacking party is wiped → **the caravan holds**. It may bank or push. The party's owner earns a reduced share scaled to the depth it reached before dying.
+- An attacker reaches the caravan core → **the caravan is overrun**. The trip ends per §13, and the party's owner takes the full reward and Reputation.
+- Tick cap reached with neither outcome → **stalemate; the attackers withdraw.** Favors the caravan, and is the safety valve against a party that cannot win but can stall. The caravan may bank or push, carrying its accumulated damage forward.
 
 ## 12. Trip Structure (the outer loop)
 
 See §2 for the sequence. Key mechanical notes:
-- Party composition/stances are fixed for the trip; only approach/positioning is chosen fresh per stop.
-- Damage and unit deaths **carry forward** between stops within a trip — no healing until the trip ends (via bank or wipe).
-- After every clear: **bank** (lock in gains, end trip) or **push** (next matched stop, with whatever's left of the party).
-- Trip = one use of the hourly trip cap, regardless of stop count.
-- **The caravan is untargetable for the full duration of the trip** — from the moment it starts until it's banked or wiped (§9). No separate travel timer; "in progress" is simply the state between those two points. This adds a minor secondary pull toward pushing further (it also extends how long the home camp stays safe), layered on top of — but not replacing — the loss risk that actually balances the bank/push decision.
+- What the caravan carries is fixed for the trip; only the arrangement of the circle is chosen fresh per encounter.
+- Damage, destroyed fence segments, spent traps, and unit deaths **carry forward** between encounters within a trip — no repair, no resupply, no healing until the trip ends (via bank or being overrun).
+- After surviving every encounter: **bank** (deliver, lock in gains, end trip) or **push** (next matched attacker, with whatever's left).
+- Trip = one use of the hourly trip cap, regardless of encounter count.
+- **Pushing is straightforwardly risky.** Each further encounter is another chance to lose the cargo and the caravan, against a party that arrives fresh while yours does not. There is no safety bonus for staying out — the escalating reward is the only reason to push, and mounting attrition is the only reason to stop. That opposition is what makes bank-or-push a real decision.
+- Between trips the caravan is home in town and cannot be attacked at all (§9a). There is no asynchronous raid against a player's caravan; the asynchronous layer is entirely on the offense side (§10).
+
+## 12a. Home Town (the hub)
+
+The player's permanent settlement — an Old West town — distinct from the wagon circle in every way. **It is never raided.** It holds the full unit roster and the merge board, the mine that produces the passive Coin trickle (§14), unit acquisition (§15), and the unlock webs (§6).
+
+- The **roster is much larger than what a caravan can carry**; choosing what to pack for a trip, under the deployment slot cap (§20), is a real loadout decision made here.
+- Because banked Coin lives here and the town cannot be attacked, **banking genuinely means safe** (§13) — nothing can reach a delivered payload afterward.
+- The town is **account-level** and persists across future caravans (§8); a second caravan in a second region would ride out from the same town.
 
 ## 13. Stakes & Loss Consequences
 
 Two independent resources are at risk, operating at different scopes — this dual structure is deliberate, not redundant:
 
 **Coin (trip-scoped, all-or-nothing):**
-If a trip ends in a wipe, **all of that trip's unbanked Coin is lost**, and transfers to the specific defender whose camp landed the final blow (capped by that defender's Coin storage cap, so one kill can't overflow their economy). Banking before a wipe locks the Coin in permanently.
+If a caravan is overrun, **all of that trip's unbanked Coin is lost**, and transfers to the owner of the raiding party that landed the final blow (capped by that owner's Coin storage cap, so one kill can't overflow their economy). Banking before that happens locks the Coin in permanently — it goes home to a town that cannot be attacked.
 
 **Units (per-death, granular):**
-- Any unit that **dies in any stop** of a trip — regardless of whether the trip is ultimately banked or wiped — **permanently loses one merge level**, floored at level 1 (a unit type can never be fully erased by this alone).
-- Units **still alive at the moment a trip's final wipe occurs** are **lost completely** (permadeath), not just de-merged.
+- Any unit that **dies in any encounter** of a trip — regardless of whether the trip is ultimately banked or lost — **permanently loses one merge level**, floored at level 1 (a unit type can never be fully erased by this alone).
+- Units **still alive at the moment the caravan is overrun** are **lost completely** (permadeath), not just de-merged.
+- Units left behind in town are never at risk. Only what was packed for the trip can be lost, which is what bounds the blast radius to the deployment slot cap.
+- The **attacking party's owner loses nothing** — their party is a standing template (§10), not an expedition. Asymmetric by design: the player who is present and playing is the one with something on the line.
 
 This is deliberately harsh but bounded and fair, because:
 1. Loss is never RNG-driven — every push-or-bank decision is made with full information from a deterministic, scoutable system, so a wipe is a foreseeable consequence, not bad luck.
@@ -159,12 +194,13 @@ Two paths to get a base (level-1) copy of an already-unlocked unit type:
 
 ## 17. Matchmaking
 
-Not player-pairing in real time — it's **target selection**. The defender never needs to be online — though they do need to not currently be mid-trip themselves (§9, §12); the candidate pool naturally excludes any caravan that's currently away. This is expected to make the pool size fluctuate somewhat rather than something to correct for.
+Not player-pairing in real time — it's **encounter selection**. Matchmaking draws from the pool of **standing raiding parties** (§10) and serves them as the attackers a caravan meets on its trip. A party's owner never needs to be online, and never needs to be doing anything at all; their party stands whether they play or not, so the pool is always deep.
 
 - Candidates are banded by the single, volatile **Reputation** number (§5), not by mirrored builds — two players at equal Reputation can have very different pool investments and regions, which is intentional diversity, not an imbalance to fix.
-- Presents a short list of **3 candidates** per search.
+- Presents a short list of **3 candidates** per search, each fully scoutable before the player commits to arranging their circle against it.
 - Re-roll (search again) is **free but time-gated**, not resource-gated — keeps search behavior identical for paying and non-paying players.
-- A camp gets a **temporary shield/cooldown** after being successfully raided, preventing immediate re-farming before the defender has a chance to notice and rebuild.
+- A **recent-opponent exclusion** prevents the same party from being served repeatedly to the same player in a short window, so a trip feels like a varied trail rather than one gang over and over.
+- Because a party is a standing template rather than a caravan that can be away, **nothing needs to be excluded from the pool for being busy**. This is simpler than the reverse arrangement would have been.
 
 ## 18. Technical Architecture
 
@@ -209,7 +245,14 @@ These are intentionally unresolved in this document — they're balancing consta
 ### Maker Agent — role and constraints
 - This document is the source of truth. Do not invent new mechanics or silently deviate from anything in §1–19; where a *number* is unspecified (§20), propose a reasonable default and flag it explicitly as tunable rather than blocking on it.
 - Work in scoped chunks, each ending in a working, testable state — not partial/broken intermediate commits.
-- Suggested chunk breakdown, roughly in dependency order:
+
+> **Superseded.** The chunk list below is the original sketch. The live roadmap is
+> `/roadmap/INDEX.md`, with one self-contained brief per chunk in `/roadmap/chunks/`
+> and the cross-cutting rules in `/roadmap/GUARDRAILS.md`. Work from those; this list
+> is kept only to show where they came from. The guardrail and QA checklists further
+> down this section are still current and are distilled into every chunk brief.
+
+- Original suggested chunk breakdown, roughly in dependency order:
   1. Account/caravan data model (§8), including auth scaffolding.
   2. Unlock web data structures + UI for the three pools (§6).
   3. Living unit / trap / siege content data — placeholder balance numbers per §20, clearly commented as tunable.
@@ -239,7 +282,7 @@ Engage at the end of every chunk above, and again before declaring MVP-complete.
 - Are there any grind walls — points where free-path progress is slow enough that the paid path stops feeling optional? This is the specific failure mode called out in §16; check it explicitly, don't assume the guardrails prevent it by construction.
 
 **Bug/edge-case checks:**
-- Race conditions in the job queue (simultaneous trip resolutions, concurrent raids against the same camp).
+- Race conditions in the job queue (simultaneous trip resolutions; the same standing raiding party being served into several players' encounters at once; a party edited by its owner while it is mid-resolution in someone else's trip).
 - Tick-resolution edge cases: simultaneous trap triggers, garrison units at exact leash-limit boundaries, ties in the deterministic tie-break rules.
 - Data model violations of the account/caravan split (§8) — anything reading or writing living-unit progress at the account level, or trap/siege progress at the caravan level, is a bug.
 

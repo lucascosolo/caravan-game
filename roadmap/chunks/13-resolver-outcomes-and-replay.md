@@ -13,10 +13,12 @@ checked against.
 
 **End conditions — exactly three:**
 
-- **Full party wipe** → raid fails this stop, **loot scaled to depth reached**.
-- **An attacker reaches the caravan core** → full clear, full loot/Reputation for
-  this stop.
-- **Tick cap reached with neither outcome** → **stalemate, favors the defender**
+- **The attacking party is wiped** → **the caravan holds** and may bank or push. The
+  party's owner earns a reduced share, **scaled to the depth it reached**.
+- **An attacker reaches the caravan core** → **the caravan is overrun**. The trip ends
+  per chunk 19; the party's owner takes the full reward and Reputation.
+- **Tick cap reached with neither outcome** → **the attackers withdraw; favors the
+  caravan**
   (this is the safety valve against infinite kiting).
 
 **Replay:**
@@ -42,25 +44,30 @@ checked against.
 - This supports the "provably fair" claim: the log plus the inputs is a complete,
   checkable account of what happened.
 - The log must be stored alongside the **layout snapshot and loadout snapshot** used
-  (chunk 02), so a defender editing their camp afterwards doesn't alter history.
+  (chunk 02), so a party's owner editing it afterwards doesn't alter history.
 - Record the **resolver version** on every log. A resolver change must not silently
   invalidate old replays — either keep old versions renderable or mark them explicitly.
 
-**Both players can watch.** The attacker sees how their raid went; the defender sees
-who raided them and how they did it — this asynchronous tension is one of the two
-founding hooks of the game and the replay is how it's delivered. A log that only
-serves the attacker misses half the point.
+**Both players can watch, and they need it for different reasons.**
+
+- The **caravan's player was present**, made the arrangement, and watched it resolve.
+  For them the replay is a record and a post-mortem.
+- The **standing party's owner was not present at all.** The replay is the *only* way
+  they learn where their party struck and how it did — it is the entire feedback loop
+  for the passive side of the game, and the delivery mechanism for the King of Thieves
+  hook. A log that only serves the player who was present misses half the point, and
+  leaves the asynchronous half of the game with no feedback whatsoever.
 
 ## Tunables this chunk needs (defaults proposed — all tunable)
 
 | Name | Default | Note |
 |---|---|---|
 | `TICK_RATE` / `TICK_CAP` | 20/sec, 3,600 ticks (180s) | From chunk 10. Stalemate threshold. |
-| `DEPTH_METRIC` | fraction of the straight-line distance from the start edge to the core that the deepest attacker reached, plus fence segments broken and garrison units killed | Needs to be a legible, previewable notion of "depth" — the player should be able to reason about partial success. Keep it simple enough to explain in one sentence in the UI; a composite that can't be previewed defeats the purpose. |
+| `DEPTH_METRIC` | fraction of the straight-line distance from the start edge to the core that the deepest attacker reached, plus fence segments broken and posted units killed | Needs to be a legible, previewable notion of "depth" — the player should be able to reason about partial success. Keep it simple enough to explain in one sentence in the UI; a composite that can't be previewed defeats the purpose. |
 | `PARTIAL_LOOT_CURVE` | `loot = full_loot × depth_fraction^1.5`, floored at 0 | Sub-linear, so a near-miss is worth meaningfully less than a clear but not nothing. |
-| `STALEMATE_LOOT` | 0 for the attacker | Favors the defender. |
-| `STALEMATE_REPUTATION` | treated as an attacker loss (chunk 04's loss values) | |
-| `FULL_CLEAR_LOOT` | 100% of the stop's Coin value (chunk 16) | |
+| `STALEMATE_LOOT` | 0 for the attacking party's owner | Favors the caravan. |
+| `STALEMATE_REPUTATION` | treated as a loss for the attacking party (chunk 04) | |
+| `FULL_CLEAR_LOOT` | 100% of the encounter's Coin value (chunk 16) | |
 | `LOG_FORMAT` | versioned; event + waypoint records, not per-tick state | Renderer interpolates between waypoints. Must be self-sufficient for playback. |
 | `LOG_KEYFRAME_INTERVAL` | every 5 seconds (100 ticks) | Enables seeking and detects truncation. |
 | `LOG_SIZE_BUDGET` | 100 KB per raid, compressed | If a typical fight exceeds this, the format is wrong — revisit before shipping, not after storage bills arrive. |
@@ -78,8 +85,8 @@ serves the attacker misses half the point.
 - [ ] The renderer makes no decisions — a test or review confirms it only interpolates
       between known points and never resolves combat, targeting, or death.
 - [ ] Log stored with the layout snapshot, loadout snapshot, and resolver version.
-- [ ] Both attacker and defender can retrieve and watch the replay of a raid they
-      were part of.
+- [ ] Both the caravan's player and the attacking party's owner can retrieve and
+      watch the replay of any encounter they were part of.
 - [ ] Resolver still pure; log emission does not introduce I/O into the resolver
       (emit into a returned structure, don't write to disk from inside).
 - [ ] **Full determinism harness, and this is the deliverable that matters most:**
@@ -99,8 +106,8 @@ serves the attacker misses half the point.
   established cheaply. Run the full harness. Then try to break it: change process
   start order, run under load, run on a different machine. Byte-compare.
 - **Replay fidelity:** does the replay ever diverge from the recorded outcome? Is
-  anything re-simulated at playback time? Does a defender editing their camp after
-  the raid change what the replay shows? All three are hard bugs.
+  anything re-simulated at playback time? Does a party's owner editing it after the
+  fight change what the replay shows? All three are hard bugs.
 - **Interpolation has not become simulation:** examine the renderer specifically. Does
   it ever decide *what happens* — who gets hit, when a unit dies, where a unit turns —
   rather than only *where to draw something between two known points*? Anything the
@@ -110,13 +117,14 @@ serves the attacker misses half the point.
   rather than rendering a plausible-looking wrong fight.
 - **Tick-resolution edge cases:** confirm all of chunk 11's and chunk 12's boundary
   scenarios are in the golden corpus, not just in transient tests.
-- **Stalemate favors the defender:** verify the attacker gains nothing on a tick-cap
-  outcome. If a kiting strategy can extract value from stalemates, the safety valve
-  has failed.
+- **Stalemate favors the caravan:** verify the attacking party's owner gains nothing
+  on a tick-cap outcome. If a party that cannot win can still stall for value, the
+  safety valve has failed.
 - **Bounded stakes:** does depth-scaled loot ever exceed full-clear loot? Can any end
-  condition produce more Coin than the stop is worth?
-- **The founding hook:** can the defender actually see **who raided them and how they
-  did it**? That asynchronous tension is one of the two hooks the whole game is
-  anchored on. A replay that's attacker-only is a design regression, not a missing
-  nice-to-have.
+  condition produce more Coin than the encounter is worth?
+- **The founding hook:** can a standing party's owner actually see **where their party
+  struck and how it did**? They were never present, so this replay is their only
+  feedback — without it the passive half of the game is silent, and the King of Thieves
+  hook the design is anchored on simply isn't delivered. A replay that only serves the
+  player who was there is a design regression, not a missing nice-to-have.
 - **No pay-to-win:** the resolver still cannot see entitlement state.

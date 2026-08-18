@@ -1,41 +1,48 @@
-# Chunk 17 — Home screen: merge board, mine, and hub
+# Chunk 17 — Home town: merge board, mine, and hub
 
 **Depends on:** 03, 08, 16. **Status:** not started.
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 ## Goal
 
-The screen the player sees most: their own wagon circle, parked and stationary, on the
+The screen the player sees most: their **home town**, an Old West settlement on the
 isometric island. Units sit on a limited grid where they are merged into stronger
 copies. The mine ticks away generating Coin. Everything else in the game is reachable
-from here.
+from here — including packing a caravan and riding out.
 
-This is a **standard merge-game home screen**, in an Old West wagon-circle setting.
+This is a **standard merge-game home screen**, in an Old West town setting.
+
+**The town is not the wagon circle.** The wagon circle is a formation the caravan
+adopts out on the trail, arranged fresh at each encounter (chunks 07–08). The town is
+a permanent settlement that **is never attacked by anyone, ever**. Keeping these
+distinct in code, art, and copy matters — conflating them is the exact confusion this
+design already had to be corrected for once.
 
 ## What this screen is — and what it is not
 
-The wagon circle is one place seen in three different modes. Do not build three
-scenes; build one and switch modes.
+Three distinct places, sharing one isometric renderer (built in chunk 08). Do not
+write a second renderer, and do not merge the places.
 
-| Surface | Owner | Units | What the player does |
-|---|---|---|---|
-| **Home screen** | this chunk | present but **completely static** | merge units, watch the mine, navigate |
-| **Defense builder** | chunk 08 | placed, not moving | position fences, traps, garrison posts |
-| **Battle / replay** | chunk 13 | free continuous movement | watches; no input at all |
+| Surface | Where | Owner | Units | What the player does |
+|---|---|---|---|---|
+| **Home town** | the settlement, safe | this chunk | present but **completely static** | merge units, watch the mine, pack a caravan, navigate |
+| **Wagon circle** | on the trail, mid-trip | chunk 08 | placed per encounter | arrange fences, traps, posts against a scouted attacker |
+| **Battle / replay** | on the trail | chunk 13 | free continuous movement | watches; no input at all |
 
-**Units do not move on the home screen.** There is no wandering, no idle pathing, no
+**Units do not move in town.** There is no wandering, no idle pathing, no
 simulation of any kind here. This screen never runs the resolver and never animates
 units around the board. They sit where the player put them until the player drags one.
 
 ## Design constraints that apply here
 
-- **Presentation is the shared isometric camp scene** built in chunk 08: 2D isometric
-  projection of the square lattice, on a natural island with multiple topographical
-  tiers and cliff edges for visual depth. **Reuse that renderer — do not write a
-  second one.**
-- **The play area is flat level ground in the center of the island.** The wagon circle
-  always sits on it. The tiers and cliffs are inert scenery with no gameplay meaning,
-  and the resolver never sees them.
+- **Presentation reuses the shared isometric renderer** built in chunk 08: 2D
+  isometric projection of the square lattice, on a natural island with multiple
+  topographical tiers and cliff edges for visual depth. **Reuse it — do not write a
+  second one.** The town's *content* is its own (buildings, mine, merge board); only
+  the rendering machinery is shared.
+- **The active area is flat level ground in the center of the island.** The tiers and
+  cliffs are inert scenery with no gameplay meaning. Nothing in town is ever simulated,
+  so no scenery here can reach the resolver at all.
 - **The grid is visible only while the player is moving a unit** — or anything else
   that snaps to it. It fades in on drag start and out on drop. At rest the screen
   reads as a place, not a board. This is the same rule as every other placement
@@ -56,19 +63,18 @@ units around the board. They sit where the player put them until the player drag
   are to it, and warn before earnings would be discarded.
 - **Legibility:** merge cost and the resulting unit's stats are visible before
   committing. Nothing on this screen commits a resource without a preview.
-- The caravan's `parked` / `away` state is visible — while away, the camp is not
-  targetable at all, and the player should be able to see that plainly.
+- The caravan's `in_town` / `on_trip` state is visible — the player should be able to
+  see at a glance whether their caravan is home and refitted or currently out.
 
 ## Open questions — decide before building, flag if unsure
 
-**1. Is the merge board the same grid as the garrison layout?**
-The wagon circle is a single entity serving both roles, so the natural reading is
-**one space, two modes**: an "arrange" mode for merging and a "fortify" mode for
-defense positioning, over the same units in the same place. That is elegant and
-matches the design's framing. The alternative — a separate merge board and a separate
-defense layout — is simpler to build and lets the two grids have different sizes.
-**Proposed default: one space, two modes.** Confirm before building, because
-retrofitting either direction is expensive.
+**1. How does packing a caravan work from here?**
+The roster in town is much larger than what a caravan can carry (`DEPLOYMENT_SLOT_CAP`
+= 8 living units, plus traps and fence material). Packing is therefore a real loadout
+decision made in town before departure, and it is **locked for the whole trip**.
+**Proposed default:** a dedicated "outfit the caravan" flow launched from the town,
+showing the manifest against its caps, ending in "ride out" which starts the trip.
+It is not the merge board and not the wagon circle formation — those are separate.
 
 **2. Does the board cap conflict with the acquisition guarantee?**
 PROJECT.md is explicit that **mercenary recruit must always be available for any
@@ -104,8 +110,10 @@ detail — escalate rather than deciding it here.
 
 ## Definition of done
 
-- [ ] Home screen renders the parked wagon circle using chunk 08's isometric camp
-      scene renderer — one renderer, not two.
+- [ ] Town renders using chunk 08's isometric renderer — one renderer, not two.
+- [ ] The town is visibly a settlement, not a wagon circle, and nothing in it implies
+      it can be attacked.
+- [ ] Packing/outfitting flow: choose the manifest within its caps, then ride out.
 - [ ] Units sit on a limited board and **never move on their own**. No idle animation
       that relocates a unit, no simulation, no resolver call from this screen.
 - [ ] Grid appears only during an active drag and fades out on drop.
@@ -117,16 +125,20 @@ detail — escalate rather than deciding it here.
       earnings would be discarded.
 - [ ] Mine is presentational only — no upgrade path, no Coin sink, no rate change.
 - [ ] Acquisition never fails because the board is full; overflow handles it.
-- [ ] `parked` / `away` state is visible and honest.
+- [ ] `in_town` / `on_trip` state is visible and honest.
 - [ ] Navigation to every other surface: defense builder, unlock webs, raid party
-      builder, acquisition, packs, replays of raids against you.
+      builder, the standing raid party builder, acquisition, packs, and the results
+      feed for your standing party.
 - [ ] Touch-usable throughout: drag-to-merge, pinch-zoom, no hover-dependent affordances.
 
 ## QA guardrail checks for this chunk
 
-- **No simulation on this screen:** confirm nothing here calls the resolver, animates
-  unit movement, or runs a tick loop. This screen is static by design; a stray idle
-  behaviour would be the first step toward a second, divergent movement implementation.
+- **No simulation in town:** confirm nothing here calls the resolver, animates unit
+  movement, or runs a tick loop. The town is static by design; a stray idle behaviour
+  would be the first step toward a second, divergent movement implementation.
+- **The town is never attackable:** confirm no code path, event, or notification can
+  put the town under attack. Banked Coin lives here, and §13's promise that banking
+  is permanent depends entirely on this being airtight.
 - **No pay-to-win — the mine specifically:** is the mine purely presentational? Any
   upgrade path, Coin sink, or rate modifier would make it a progression axis outside
   the unlock web, which is Coin buying a permanently better economy. Check that its
@@ -145,5 +157,5 @@ detail — escalate rather than deciding it here.
   disagreements and support tickets.
 - **Grid visibility:** does the grid ever persist at rest, or fail to appear on drag?
   It should behave identically here, in the defense builder, and in the party builder.
-- **One renderer:** confirm this screen reuses chunk 08's camp scene rather than
+- **One renderer:** confirm the town reuses chunk 08's isometric renderer rather than
   reimplementing isometric projection and depth sorting. Two renderers will diverge.

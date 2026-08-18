@@ -23,13 +23,17 @@ one shot at a time. Nothing continuous, nothing always-on.
 - **Determinism extends to the queue.** Two resolutions of the same job must produce
   the same event stream. A job must be **idempotent**: retrying a job that already
   committed must not double-apply its effects. Use a deterministic job id derived
-  from the trip/stop identity, not a random one.
+  from the trip/encounter identity, not a random one.
 - **Concurrency is a known hazard** and is on the QA checklist: simultaneous trip
-  resolutions, and concurrent raids against the same camp. Handle it here, once,
-  rather than letting each later chunk invent its own locking.
-- Event payloads must record enough to regenerate the outcome: the loadout, the
-  layout snapshot, and the resolver version. A defender editing their camp after
-  a raid must not change what that raid's replay shows.
+  resolutions; the same standing raiding party being served into several players'
+  encounters at once; and a party edited by its owner while it is mid-resolution in
+  someone else's trip. Handle it here, once, rather than letting each later chunk
+  invent its own locking. Note that a standing party is **read-only during
+  resolution** — it is a snapshotted template, never mutated by a fight — so the
+  contention is over reading a consistent snapshot, not over shared mutable state.
+- Event payloads must record enough to regenerate the outcome: the formation, the
+  snapshotted attacking party, and the resolver version. A party's owner editing it
+  after a fight must not change what that fight's replay shows.
 
 ## Tunables this chunk needs (defaults proposed — all tunable)
 
@@ -37,7 +41,7 @@ one shot at a time. Nothing continuous, nothing always-on.
 |---|---|---|
 | `JOB_MAX_ATTEMPTS` | 3 | Retries before a job is parked for inspection. |
 | `JOB_VISIBILITY_TIMEOUT_MS` | 30,000 | Lease window for an in-flight job. |
-| `CAMP_LOCK_MODE` | row-level advisory lock on caravan id | Prevents concurrent raids corrupting shared state. |
+| `TRIP_LOCK_MODE` | row-level advisory lock on caravan id | Serializes encounter resolutions within one trip. Standing parties need no lock — they are snapshotted and never mutated by a fight. |
 | `LEDGER_SNAPSHOT_INTERVAL` | every 500 events per account | Projection checkpointing; purely a perf knob. |
 
 ## Event types to define now
@@ -47,7 +51,8 @@ At minimum, so later chunks slot in rather than inventing shapes:
 `coin_purchased`, `reputation_changed`, `ladder_progress_gained`,
 `unlock_points_granted`, `unlock_node_purchased`, `unit_acquired`, `unit_merged`,
 `unit_demerged_on_death`, `unit_lost_on_wipe`, `trip_started`, `stop_resolved`,
-`trip_banked`, `trip_wiped`, `camp_layout_saved`, `camp_shield_applied`.
+`trip_banked`, `trip_overrun`, `encounter_resolved`, `formation_committed`,
+`standing_party_saved`, `party_served_as_encounter`.
 
 Each carries: account id, caravan id (nullable per the split), timestamp, a
 deterministic causation id linking it to the job that produced it.
@@ -60,17 +65,20 @@ deterministic causation id linking it to the job that produced it.
 - [ ] Job queue: enqueue, lease, complete, retry, park. No background ticking.
 - [ ] Jobs are idempotent — replaying a completed job commits nothing new. Prove it
       with a test that runs the same job twice.
-- [ ] Concurrent raids against the same camp serialize correctly; a test drives two
-      at once and asserts a consistent final state.
+- [ ] The same standing party served into many concurrent encounters resolves
+      correctly and identically in each, and is never mutated; a test drives several
+      at once and asserts the party is byte-identical afterward.
 - [ ] Two trips resolving simultaneously for the same account do not interleave
       into an inconsistent state.
-- [ ] Resolution jobs snapshot the defender layout so later edits don't alter history.
+- [ ] Resolution jobs snapshot both the formation and the attacking party so later
+      edits by either side don't alter history.
 - [ ] The resolver version is recorded on every resolution event.
 
 ## QA guardrail checks for this chunk
 
-- **Race conditions in the job queue:** simultaneous trip resolutions; concurrent
-  raids against the same camp. Drive these deliberately, not just by inspection.
+- **Race conditions in the job queue:** simultaneous trip resolutions; one standing
+  party served into many encounters at once; a party edited mid-resolution. Drive
+  these deliberately, not just by inspection.
 - **Determinism:** does anything in job scheduling, ordering, or retry leak
   nondeterminism into an outcome? Is any job id, ordering key, or tie-break derived
   from wall-clock or randomness?

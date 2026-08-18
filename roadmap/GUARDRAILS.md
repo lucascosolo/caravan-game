@@ -1,8 +1,34 @@
 # Caravan Vaults — Guardrails
 
 **Read this in full before every work session, Maker or QA, regardless of chunk.**
-These five rules hold across the entire codebase. A chunk that ships while
+These six rules hold across the entire codebase. A chunk that ships while
 violating one of them is not done, no matter how well it implements its own goal.
+
+---
+
+## 0. Which way round the game runs
+
+Get this wrong and you will build the mirror image of the game. It is the single
+most common misreading, because the genre's convention is the opposite.
+
+- **The active experience is DEFENSE.** The player escorts a caravan on a trip and,
+  at each encounter, arranges their wagon circle against a specific, scouted
+  attacking party. This is the thing a player sits down and plays.
+- **The passive layer is OFFENSE.** Each player maintains a standing raiding party,
+  configured at leisure in town. It is served as an encounter in *other* players'
+  trips. Its owner is never present for those fights and checks results afterward.
+- **A standing party is a template, never an expedition.** It is not consumed and
+  loses no units, however many trips it appears in — exactly as a base's buildings
+  survive being raided. Only the player who is present and playing has units at risk.
+- **The home town is never attacked.** It holds the roster, the merge board, the
+  mine, and banked Coin. This is what makes banking mean something.
+- **A caravan is only ever in danger during a trip**, and only from parties served
+  to it. There is no asynchronous raid against a player's caravan.
+
+Naming discipline, because the code will be read by people who know the genre:
+*caravan* / *wagon circle* / *posted units* is the active defending side; *party* /
+*raiders* is the passive attacking side; *town* is the safe hub. Never call the
+wagon circle a "base" or the town a "camp."
 
 ---
 
@@ -10,7 +36,7 @@ violating one of them is not done, no matter how well it implements its own goal
 
 Given identical inputs, every outcome must be identical, forever.
 
-- Raid resolution is a **pure function**: `(attacker loadout, defender layout) → outcome`.
+- Resolution is a **pure function**: `(attacking party, wagon circle formation) → outcome`.
   No wall-clock reads, no `Math.random()`, no `Date.now()`, no map/set iteration
   order that depends on insertion timing, no floating-point drift across platforms,
   no parallelism that can reorder effects.
@@ -77,7 +103,7 @@ same Coin total produce exactly the same capabilities?
   the UI list. A hand-crafted request naming an unlocked-by-nobody type must be
   rejected.
 - Ladder levels and granted unlock points, once earned, are **permanent and
-  unrevocable** — no raid outcome, wipe, or loss event may reduce them.
+  unrevocable** — no fight outcome or loss event may reduce them.
 
 **QA probe:** can Coin, by any path, produce an instance of a type not present in
 the player's unlocked set? Can any failure state remove a ladder level or an
@@ -90,16 +116,18 @@ already-granted unlock point?
 If a player is about to spend Coin, units, or trip risk on it, they can inspect it
 beforehand.
 
-- **Camp layout is scoutable before raiding**: fence segments and their HP, gaps,
-  trap positions/types, garrison units and their stats. Reading the camp is the
-  intended skill expression — do not hide it to create surprise.
+- **The attacking party is scoutable before the player arranges their circle**:
+  every unit, its stats, its ability, its stance, its siege, and where it will come
+  from. Reading the incoming force and countering it **is** the game's active skill
+  expression — do not hide any of it to create surprise. A player who arranges a
+  circle blind is not playing the game that was designed.
 - **Pack contents are previewed before purchase**: exact Coin amount, exact cosmetics.
 - **Unlock costs are visible before spending**: the whole web, including nodes not
   yet affordable.
 - **Merge costs, mercenary costs, and reroll costs** are shown before commit.
 - Stakes are previewable: before choosing push-vs-bank, the player can see exactly
   what they stand to lose (unbanked Coin total, which units are alive and exposed).
-- A wipe must always be a **foreseeable consequence**, never bad luck. If the
+- Being overrun must always be a **foreseeable consequence**, never bad luck. If the
   player couldn't have known, the design is broken, not the player.
 
 **QA probe:** list everything the player commits a resource against; for each,
@@ -134,7 +162,7 @@ and confirm each lands on the correct side of the split.
 The grid and the battle are **two different spaces**. Confusing them is the most
 likely way this codebase goes wrong quietly.
 
-- **The grid is a placement lattice only.** It exists so fences, traps, garrison
+- **The grid is a placement lattice only.** It exists so fences, traps, unit
   posts, and attacker start positions snap to discrete cells. It is shown in the UI
   **only while something is being placed or snapped**, and hidden otherwise.
 - **The battle is continuous.** Once resolution runs, units move freely in
@@ -152,10 +180,13 @@ likely way this codebase goes wrong quietly.
 
 The loss system is deliberately harsh but **bounded**:
 
-- A trip can only risk **that trip's unbanked Coin** and **units within the
-  deployment slot cap**. Never a whole collection, never banked Coin.
-- Coin transferred to the killing defender is **capped by that defender's storage
-  cap** — one kill can't overflow their economy.
+- A trip can only risk **that trip's unbanked Coin** and **what was packed for it**,
+  within the deployment slot cap. Never the roster left in town, never banked Coin.
+- Coin transferred to the winning party's owner is **capped by their storage cap** —
+  one kill can't overflow their economy.
+- **The attacking party's owner risks nothing.** Their party is a standing template;
+  it loses no units and costs nothing to leave up. Any code path that destroys or
+  de-merges a standing party's units is a bug.
 - Per-death penalty is **one merge level, floored at level 1** — a unit type can
   never be erased by de-merging alone.
 - Units alive at the moment of a trip's final wipe are lost completely.

@@ -11,6 +11,14 @@ from QA are closed out.)
 **Handoff rule:** after each chunk reaches `built`, hand off to QA before starting
 any chunk that depends on it. Independent chunks may proceed in parallel.
 
+**Which way round the game runs.** The active experience is **defense**: the player
+escorts a caravan on a trip and arranges their wagon circle against each scouted
+attacking party. The passive layer is **offense**: a standing raiding party, configured
+in town, served as an encounter in other players' trips. The home town is never
+attacked. PROJECT.md was corrected for this — see its revision note — and
+[GUARDRAILS.md §0](GUARDRAILS.md) states it in full. Read that before anything else;
+building the mirror image of this game is the easiest mistake available.
+
 **Settled decisions** (not in PROJECT.md; agreed during roadmap planning):
 
 - TypeScript monorepo with a pure, dependency-free fixed-point resolver package.
@@ -23,9 +31,10 @@ any chunk that depends on it. Independent chunks may proceed in parallel.
   cooldowns — one ability per unit type, from six archetypes. A healer archetype
   exists deliberately, bounded by finite non-regenerating charges so attrition
   still bites.
-- **Three modes of one wagon circle**: home screen (static, merging, chunk 17),
-  defense builder (placement, chunk 08), battle/replay (continuous, chunk 13).
-  One camp scene renderer, built in chunk 08, reused by all of them.
+- **Three distinct places, one renderer**: the home town (static, merging, chunk 17),
+  the wagon circle on the trail (per-encounter arrangement, chunk 08), and the battle
+  replay (continuous, chunk 13). The isometric renderer is built once in chunk 08 and
+  reused; the places themselves are never merged.
 
 ---
 
@@ -39,19 +48,19 @@ any chunk that depends on it. Independent chunks may proceed in parallel.
 | 04 | [Ladders & Reputation](chunks/04-ladders-and-reputation.md) | Per-pool use-driven ladders granting permanent unlock points; separate volatile Reputation number. | 01, 02 | not started |
 | 05 | [Unlock webs (data + spend)](chunks/05-unlock-webs.md) | Three visible non-random webs; spending granted points to gain *access* (not instances). | 03, 04 | not started |
 | 06 | [Unlock web UI](chunks/06-unlock-web-ui.md) | Browsable web view for all three pools with costs visible before spending. | 05 | not started |
-| 07 | [Camp layout model](chunks/07-camp-layout-model.md) | Placement lattice, fence segments with HP and deliberate gaps, trap/garrison placement and validation. | 03 | not started |
-| 08 | [Camp builder UI](chunks/08-camp-builder-ui.md) | Defense configuration screen; persists until edited; produces the scoutable layout. | 07, 05 | not started |
-| 09 | [Raid party builder](chunks/09-raid-party-builder.md) | Trip-locked composition + per-unit stance; per-stop approach edge and start positions. | 03, 07 | not started |
+| 07 | [Wagon circle model](chunks/07-wagon-circle-model.md) | Trip-locked manifest vs. per-encounter formation; fence segments with HP and forced gaps, trap and post placement, carry-forward attrition. | 03 | not started |
+| 08 | [Encounter formation UI](chunks/08-encounter-formation-ui.md) | **The primary gameplay screen.** Scout the incoming party, arrange the circle against it, commit. Also builds the shared isometric renderer. | 07, 05, 14 | not started |
+| 09 | [Standing raid party](chunks/09-standing-raid-party.md) | The passive side: a party configured in town, never consumed, served into other players' trips, plus its results feed. | 03, 05, 07 | not started |
 | 10 | [Resolver core: tick loop & movement](chunks/10-resolver-core.md) | Fixed-timestep engine, continuous fixed-point movement, lattice pathing, fence collision. **Highest-risk chunk — build and test in isolation.** | 03, 07 | not started |
-| 11 | [Resolver combat: damage, traps, garrison](chunks/11-resolver-combat.md) | Cooldown-paced damage + affinity, swept-path trap triggers, aggro/leash pursuit, siege counters. | 10 | not started |
+| 11 | [Resolver combat: damage, traps, posted units](chunks/11-resolver-combat.md) | Cooldown-paced damage + affinity, swept-path trap triggers, posted-unit aggro/leash pursuit, siege counters. | 10 | not started |
 | 12 | [Unit abilities](chunks/12-unit-abilities.md) | Six deterministic ability archetypes firing on automatic cooldowns, one per unit type. | 11 | not started |
 | 13 | [Resolver outcomes & replay](chunks/13-resolver-outcomes-and-replay.md) | End conditions, depth-scaled loot, the event/waypoint replay log, and the determinism harness. | 12 | not started |
-| 14 | [Matchmaking & scouting](chunks/14-matchmaking-and-scouting.md) | Reputation-banded target selection, 3 candidates, free time-gated reroll, post-raid shield, away-caravans excluded. | 04, 08 | not started |
-| 15 | [Trip loop](chunks/15-trip-loop.md) | Stop chaining, bank/push, cross-stop attrition, untargetable-while-away, hourly trip cap. | 09, 13, 14 | not started |
+| 14 | [Matchmaking & scouting](chunks/14-matchmaking-and-scouting.md) | Reputation-banded selection of standing parties as encounters; 3 fully-scoutable candidates, free time-gated reroll, escalating difficulty. | 04, 09 | not started |
+| 15 | [Trip loop](chunks/15-trip-loop.md) | Encounter chaining, bank/push, carry-forward attrition with no resupply, hourly trip cap. | 07, 13, 14 | not started |
 | 16 | [Economy: Coin](chunks/16-economy-coin.md) | Earn/spend/passive trickle/storage cap, and the merge system it pays for. | 02, 03 | not started |
-| 17 | [Home screen](chunks/17-home-screen.md) | Parked wagon circle: static merge board, the mine visualizing passive Coin, and navigation to everything else. | 03, 08, 16 | not started |
+| 17 | [Home town](chunks/17-home-town.md) | The safe settlement: static merge board, the mine visualizing passive Coin, outfitting a caravan, and navigation. Never attacked. | 03, 08, 16 | not started |
 | 18 | [Unit acquisition](chunks/18-unit-acquisition.md) | Refugee drip (choice of 3, Coin reroll) and mercenary recruit (exact pick, Coin) — both gated by the web. | 05, 16 | not started |
-| 19 | [Stakes & loss wiring](chunks/19-stakes-and-loss.md) | Per-death merge-level regression, full loss on wipe, unbanked-Coin transfer capped by defender storage. | 13, 15, 16 | not started |
+| 19 | [Stakes & loss wiring](chunks/19-stakes-and-loss.md) | Per-death merge-level regression, total loss when overrun, unbanked-Coin transfer to the winning party's owner. | 13, 15, 16 | not started |
 | 20 | [Monetization packs](chunks/20-monetization-packs.md) | Weekly rotating $5/$10/$25 packs, fixed and previewed contents, sandboxed purchase flow. | 16 | not started |
 
 ---
@@ -69,10 +78,13 @@ any chunk that depends on it. Independent chunks may proceed in parallel.
   code, and it should not be started until 11 is `QA'd`.
 - **Chunk 01 must be right the first time.** The account-vs-caravan split is a
   migration hazard, not a refactor.
-- **Chunk 17 (home screen) has two open questions** flagged in its file — whether the
-  merge board and the garrison layout are one grid or two, and whether the mine is
-  ever upgradeable. Both have proposed defaults; the first is expensive to retrofit
-  either way, so confirm it before that chunk starts.
+- **Chunk 08 is the game.** It is the primary gameplay screen and deserves the most
+  design attention of any UI chunk. It depends on 14 because a formation is arranged
+  against a *scouted specific attacker* — without matchmaking there is nothing to
+  arrange against.
+- **Chunk 17 (home town) carries open questions** in its file, including whether the
+  mine ever becomes upgradeable. Proposed defaults are given; the mine one is a
+  monetization guardrail, not a feature decision.
 - **Parallelizable pairs:** 06 with 07; 09 with 10; 16 with 14.
 - **Chunk 19 is the last integration chunk** — it wires together the resolver, the
   trip loop, and the economy. Expect it to surface findings in all three.

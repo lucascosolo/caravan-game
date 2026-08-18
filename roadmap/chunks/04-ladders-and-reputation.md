@@ -14,7 +14,7 @@ unlock points at milestones.
 **These two numbers are separate and the split is load-bearing. Do not merge them.**
 
 - **Reputation** — a single number that drives matchmaking. **Volatile and
-  contestable**: successful raids can shift it. It is a **rating, not a currency —
+  contestable**: fight outcomes shift it, on both the active and passive sides. It is a **rating, not a currency —
   it is never spent.** There is one Reputation per relevant pool, following the same
   account/caravan split as everything else.
 - **Ladders** — one per pool (living-unit, trap, siege). Levels rise **only through
@@ -40,16 +40,16 @@ unlock points at milestones.
 |---|---|---|
 | `LADDER_RUNGS_PER_POOL` | 20 | MVP depth. |
 | `LADDER_CURVE` | `points_to_rung(n) = 100 × n^1.5` | Rung 1 = 100, rung 10 ≈ 3,162, rung 20 ≈ 8,944. |
-| `LADDER_GAIN_WIN` | 30 per cleared stop, per pool used | Scaled by pool participation. |
-| `LADDER_GAIN_LOSS` | 10 per failed stop, per pool used | Losses still progress — never zero. |
-| `LADDER_GAIN_STALEMATE` | 10 | Treated as a loss for the attacker. |
-| `LADDER_GAIN_DEFENSE_HELD` | 25 for trap + living pools when a defense repels a raid | Defense is "use" too. |
+| `LADDER_GAIN_WIN` | 30 per survived encounter, per pool used | Scaled by pool participation. Traps and living units earn on the active side; siege earns when your standing party wins. |
+| `LADDER_GAIN_LOSS` | 10 per lost encounter, per pool used | Losses still progress — never zero. |
+| `LADDER_GAIN_STALEMATE` | 10 | Treated as a loss for the attacking party, a win for the caravan. |
+| `LADDER_GAIN_DEFENSE_HELD` | 25 for trap + living pools when a wagon circle repels a party | The active side's main ladder path. |
 | `UNLOCK_POINTS_PER_RUNG` | 1 for rungs 1–10, 2 for rungs 11–20 | Total 30 points per pool at cap. |
 | `REPUTATION_START` | 1000 | Neutral starting rating. |
-| `REPUTATION_WIN_ATTACKER` | +25, scaled by the gap to the defender's rating | Standard Elo-ish shape; keep the scaling function pure and deterministic. |
+| `REPUTATION_WIN_ATTACKER` | +25 to the party's owner, scaled by the rating gap | Standard Elo-ish shape; keep the scaling function pure and deterministic. |
 | `REPUTATION_LOSS_ATTACKER` | −15 | |
-| `REPUTATION_DEFENDER_HELD` | +15 | |
-| `REPUTATION_DEFENDER_LOST` | −20 | |
+| `REPUTATION_CARAVAN_HELD` | +15 | |
+| `REPUTATION_CARAVAN_OVERRUN` | −20 | |
 | `REPUTATION_FLOOR` | 100 | Can't spiral to zero. |
 
 Reputation adjustment must be a **pure deterministic function** of the two ratings

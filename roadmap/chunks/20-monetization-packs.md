@@ -85,6 +85,7 @@ processing). What must be real is the guardrail enforcement, not the billing.
   optional? Compare `WEEKLY_PAY_CEILING` against a realistic free week using chunk
   16's actual numbers. **This is the specific failure mode §16 calls out.**
 - **Nothing else for sale:** confirm no pack contains or could contain unlock points,
-  unit access, trip-cap uses, slot count, matchmaking rerolls, or shields.
+  unit access, trip-cap uses, slot count, fence material, repairs, resupply, or
+  matchmaking rerolls.
 - **Determinism:** is pack rotation deterministic and identical for all players in a
   given week?

@@ -9,7 +9,7 @@ Read `/roadmap/GUARDRAILS.md` in full first.
 
 ## Goal
 
-The deterministic simulation core: given an attacker loadout and a defender layout,
+The deterministic simulation core: given an attacking party and a wagon circle formation,
 step the battle forward at a fixed timestep while units move **freely and
 continuously** toward their stance targets, pathing around fences and chipping
 through them. Combat and abilities are chunks 11–12; end conditions and the replay
@@ -20,7 +20,7 @@ log are chunk 13. This chunk is the skeleton those hang on.
 This is the part most likely to be built wrong, so it is stated first.
 
 - **The grid is a placement lattice, not a movement grid.** It positions fences,
-  traps, garrison posts, and attacker start positions. It is also the graph the
+  traps, unit posts, and attacker start positions. It is also the graph the
   coarse pathfinder routes on. It does **not** constrain movement.
 - **Units move continuously in fixed-point space.** They are **not locked to cells
   and the battle is not turn-based.** A unit advances a sub-cell distance every tick
@@ -38,7 +38,7 @@ This is the part most likely to be built wrong, so it is stated first.
 
 - **Fully deterministic. Runs once, server-side, as an internal tick pass — never
   shown live to either player.** Identical inputs always produce identical results.
-- The resolver is a **pure function**: `(attacker loadout, defender layout) → outcome`.
+- The resolver is a **pure function**: `(attacking party, formation) → outcome`.
   No I/O, no clock, no RNG, no ambient state, no dependency injection that could
   smuggle any of those in. It must be importable and runnable with zero setup.
 - **There is no live/interactive combat for either player.** Nothing in the tick loop
@@ -82,7 +82,7 @@ This is the part most likely to be built wrong, so it is stated first.
 |---|---|---|
 | `TICK_RATE` | 20 ticks/second | Fine enough that continuous movement looks smooth on playback, coarse enough to keep logs small. Fixed forever once golden logs exist — changing it invalidates every stored replay. |
 | `BATTLE_LENGTH_CAP_SECONDS` | 180 seconds | Stalemate threshold, expressed in seconds because that is what a player experiences. |
-| `TICK_CAP` | `BATTLE_LENGTH_CAP_SECONDS × TICK_RATE` = 3,600 | Derived, never authored separately. Reaching it favors the defender (chunk 13). |
+| `TICK_CAP` | `BATTLE_LENGTH_CAP_SECONDS × TICK_RATE` = 3,600 | Derived, never authored separately. Reaching it favors the caravan (chunk 13). |
 | `FIXED_POINT_SCALE` | 1/1024 cell | From chunk 07. Defined once, used everywhere. |
 | `MOVE_SPEED_DEFAULT` | 1.5 cells/second → 76.8 units/tick at scale 1024 | Per-type override from chunk 03. The resolver converts cells/second to per-tick displacement once, at setup. |
 | `PATHING` | coarse A* on the placement lattice, then continuous steering along the smoothed route | The Clash of Clans approach. Lattice A* keeps pathing cheap and deterministic; smoothing keeps movement from looking gridded. |
@@ -91,7 +91,7 @@ This is the part most likely to be built wrong, so it is stated first.
 | `PATH_SMOOTHING` | string-pulling / line-of-sight shortcut across the lattice route | Deterministic integer line-of-sight test. |
 | `FENCE_BLOCKS_PATHING` | intact segments are impassable to the pathfinder; breaking through is modeled as a traversable edge with a cost equal to the ticks needed to destroy it | Lets the pathfinder decide "break through" vs. "walk around" as a single cost comparison, rather than a hand-tuned threshold. |
 | `RETARGET_RULE` | re-evaluate the stance target only when the current target becomes invalid (dead, spent, unreachable) | Prevents oscillation. Deterministic either way. |
-| `TICK_PHASE_ORDER` | 1. retarget → 2. path recompute (if due) → 3. movement → 4. trap triggers → 5. garrison aggro/leash update → 6. attack cooldowns and damage → 7. ability cooldowns and effects → 8. death resolution | Chunks 11–12 fill phases 4–7. Fix the order now. |
+| `TICK_PHASE_ORDER` | 1. retarget → 2. path recompute (if due) → 3. movement → 4. trap triggers → 5. posted-unit aggro/leash update → 6. attack cooldowns and damage → 7. ability cooldowns and effects → 8. death resolution | Chunks 11–12 fill phases 4–7. Fix the order now. |
 | `UNIT_COLLISION` | none — units overlap | Only fences and bounds obstruct. |
 | `UNIT_RADIUS` | 0.35 cells | Used for attack-range and ability-radius checks, not for collision. |
 

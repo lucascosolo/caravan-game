@@ -11,8 +11,8 @@ that Coin exists to pace. Losing Coin is chunk 19; buying it is chunk 20.
 ## Design constraints that apply here
 
 **Coin:**
-- **Earned** via successful raid stops, successful deliveries (completed/banked
-  trips), and a **slow passive trickle up to a storage cap** — the trickle exists
+- **Earned** via surviving encounters, completed deliveries (banked trips), successful
+  fights by your standing raid party, and a **slow passive trickle up to a storage cap** — the trickle exists
   specifically to keep **something always at risk even for players who aren't
   actively pushing trips**.
 - **Spent** on merges — **this is the core power-pacing lever.**
@@ -42,8 +42,9 @@ that Coin exists to pace. Losing Coin is chunk 19; buying it is chunk 20.
 | Name | Default | Note |
 |---|---|---|
 | `COIN_STORAGE_CAP` | 50,000 | Per account. Hard ceiling on accumulation. |
-| `COIN_PER_STOP_BASE` | 400 at stop 1, ×1.25 per subsequent stop | Ties to chunk 15's escalation. |
-| `COIN_PER_BANKED_TRIP` | 500 flat completion bonus | The "delivery" reward. |
+| `COIN_PER_ENCOUNTER_BASE` | 400 at encounter 1, ×1.25 per subsequent encounter | Ties to chunk 15's escalation. |
+| `COIN_PER_BANKED_TRIP` | 500 flat completion bonus | The delivery reward. |
+| `COIN_PER_PARTY_WIN` | 300 when your standing party overruns a caravan | The passive side's earn path. Deliberately below the active path — playing should pay better than not playing. |
 | `COIN_TRICKLE_RATE` | 200/hour, ceasing at the storage cap | Keeps something always at risk. Computed lazily on read. |
 | `MERGE_COST_BY_TARGET_LEVEL` | L2: 250, L3: 900, L4: 3,000, L5: 9,500 | Steeply escalating — this is *the* pacing lever. Cost is per resulting unit. |
 | `MERGE_RECIPE_SMALL` | 2 → 1 | 2.0 units per level. |
@@ -55,7 +56,8 @@ that Coin exists to pace. Losing Coin is chunk 19; buying it is chunk 20.
 
 ## Definition of done
 
-- [ ] Coin earn on stop clear, on banked trip, and via lazy passive trickle.
+- [ ] Coin earn on surviving an encounter, on a banked trip, when your standing party
+      wins, and via the lazy passive trickle.
 - [ ] Storage cap enforced on every credit path, including the trickle and (later)
       purchases and defender transfers.
 - [ ] Trickle is deterministic and read-frequency-independent: reading the balance

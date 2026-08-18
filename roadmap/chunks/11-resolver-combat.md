@@ -1,11 +1,11 @@
-# Chunk 11 — Resolver combat: damage, traps, garrison
+# Chunk 11 — Resolver combat: damage, traps, posted units
 
 **Depends on:** 10. **Status:** not started.
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 ## Goal
 
-Fill in tick phases 4–6 and 8 of the resolver: trap triggers, garrison aggro/leash
+Fill in tick phases 4–6 and 8 of the resolver: trap triggers, posted-unit aggro/leash
 pursuit, the cooldown-paced damage exchange with its affinity layer, and death
 resolution. Abilities are chunk 12. Still pure, still isolated, still fixed-point,
 still no I/O.
@@ -19,11 +19,11 @@ still no I/O.
   unit's **swept path** between its previous and current position intersects the
   trap's trigger radius — not that its position happens to land inside it. A fast
   unit must not tunnel through a trap between ticks.
-- **Any garrison unit with an attacker inside its aggro radius begins pursuing**,
+- **Any posted unit with an attacker inside its aggro radius begins pursuing**,
   capped by its **leash distance from post**; it **disengages and returns once the
-  attacker leaves range or the leash limit is hit.** Garrison units are mobile within
+  attacker leaves range or the leash limit is hit.** Posted units are mobile within
   their leash — and, like everything else, they move continuously, not cell by cell.
-- **Engaged units (attacker vs. garrison) trade damage** via the formula:
+- **Engaged units (attacker vs. posted unit) trade damage** via the formula:
 
   ```
   damage = offense × offense / (offense + defense)
@@ -42,14 +42,14 @@ still no I/O.
 - **"Engaged" means in range, not locked together.** With continuous movement and no
   unit-unit collision, a unit attacks whatever is within `attack_range` of it; it does
   not enter an exclusive duel. Ranged units attack while a melee unit closes.
-- **Attacker units use their offense rating; garrison units use their defense
-  rating.** These are deliberately unequal per unit type. When a garrison unit deals
-  damage, the formula's `offense` term is the garrison unit's *defense* rating — it is
+- **Attacker units use their offense rating; posted units use their defense
+  rating.** These are deliberately unequal per unit type. When a posted unit deals
+  damage, the formula's `offense` term is the posted unit's *defense* rating — it is
   defending. Be explicit about which number fills which slot in every direction, and
   write it down; getting this backwards is very easy and nearly invisible in tests.
 - **Siege equipment is a counter to fences and traps**: specific pieces reduce or
   bypass specific fence/trap categories. Siege is not a general damage buff and does
-  not fight garrison units.
+  not fight posted units.
 - Everything remains **deterministic**: no randomness in damage, no variance rolls,
   no critical hits, no miss chance.
 - **No floats.** Damage, cooldowns, and ranges are fixed-point integers. Range checks
@@ -88,7 +88,7 @@ still no I/O.
       spent, tie-break by unit id.
 - [ ] Siege nullification of matching trap categories; siege multiplier on matching
       fence categories.
-- [ ] Garrison aggro acquisition, continuous pursuit within leash, disengage-and-return
+- [ ] Posted-unit aggro acquisition, continuous pursuit within leash, disengage-and-return
       with hysteresis.
 - [ ] Attack cooldowns per unit; damage fires on expiry against targets in range.
 - [ ] Damage formula in fixed-point, with the offense/defense slot assignment
@@ -97,12 +97,12 @@ still no I/O.
 - [ ] Death resolution with the simultaneity rule documented; mutual kills handled.
 - [ ] Still pure: no I/O, no clock, no RNG, no floats. The isolation and no-float
       checks from chunk 10 still pass.
-- [ ] Determinism harness extended to cover fights with traps, garrison, and affinity —
+- [ ] Determinism harness extended to cover fights with traps, posted units, and affinity —
       100× byte-identical.
 - [ ] **Boundary tests written deliberately**: unit at exactly `LEASH_DISTANCE`; unit
       at exactly `AGGRO_RADIUS`; target at exactly `ATTACK_RANGE`; a fast unit crossing
       a trap entirely between two ticks; two units crossing the same trap on the same
-      tick; two garrison units acquiring the same attacker on the same tick;
+      tick; two posted units acquiring the same attacker on the same tick;
       simultaneous mutual kill; damage reducing HP to exactly zero; a unit oscillating
       at the leash boundary.
 - [ ] A test asserts affinity actually changes outcomes — that a stat-inferior party
@@ -117,7 +117,7 @@ still no I/O.
   would miss it, and this is the failure mode continuous movement introduces.
 - **Tick-resolution edge cases — run every one of these explicitly:**
   - simultaneous trap triggers (multiple units crossing on the same tick)
-  - garrison units at the **exact** leash-limit boundary, and oscillating across it
+  - posted units at the **exact** leash-limit boundary, and oscillating across it
   - ties in every deterministic tie-break rule
   - a target just outside leash but inside aggro
   - mutual simultaneous death
@@ -128,7 +128,7 @@ still no I/O.
   player is doing versus what's designed.
 - **Affinity does real work:** can a player ignore the type layer and win on raw stat
   totals? If yes, flag it — the layer exists specifically to prevent that.
-- **Offense/defense slots:** verify by hand-calculation that the garrison unit's
+- **Offense/defense slots:** verify by hand-calculation that the posted unit's
   *defense* rating drives its damage output, not its offense rating.
 - **DPS sanity:** check a few units' `formula_result / attack_cooldown`. A unit with a
   huge hit and a long cooldown and one with a small hit and a short cooldown should be

@@ -22,11 +22,24 @@ with a seed script that creates one account, one caravan, and a chosen region.
   - siege Reputation, siege ladder level, siege unlock web state
   - Coin balance and Coin storage cap
   - auth identity, purchase records
+- **Account-level, continued:** the **home town** and its mine. The town is the safe
+  hub — never attacked — and a future second caravan rides out from the same town.
+  The **standing raiding party** (chunk 09) is also account-level: it is the player's
+  asynchronous presence, not a caravan's property.
 - **Caravan-level** (region-specific, does not transfer):
   - living-unit Reputation, living-unit ladder level, living-unit unlock web state
   - the region choice
-  - the camp/defense layout
   - owned living-unit instances and their merge levels
+  - the active **trip**, if any: its locked manifest, its accumulated attrition, and
+    its unbanked Coin
+
+**Which way round the game runs matters to this schema.** The active experience is
+defense: a caravan goes on trips and arranges a wagon circle against attackers. The
+passive layer is offense: a standing raiding party that other players' trips run into.
+So there is **no persistent per-player defensive layout to store** — a wagon circle
+formation belongs to an encounter within a trip, not to an account. Do not model a
+"base." Conversely the standing party **is** persistent and must be, since it is served
+to other players whether or not its owner ever logs in.
 
 - **Region** is chosen once at account/caravan creation, from 3–4 biome-based
   regions. Not freely swappable. Region affects *only* which living units are
@@ -41,9 +54,11 @@ with a seed script that creates one account, one caravan, and a chosen region.
   impossible or at minimum loudly guarded.
 - Two separate numbers per pool — Reputation and ladder — are distinct fields. Do
   not derive one from the other.
-- A caravan is a **single entity serving both offense and defense roles**, not two
-  records. It needs an explicit state field covering at minimum: `parked`
-  (raidable) and `away` (on a trip, not targetable at all).
+- A caravan needs an explicit state field covering at minimum: `in_town` (safe,
+  refitted, no trip in progress) and `on_trip` (out, accumulating attrition and
+  unbanked Coin). A caravan is **never attackable outside a trip**, and even on a trip
+  it is only ever fought by the parties matchmaking serves it — there is no
+  asynchronous raid against a caravan anywhere in this game.
 
 ## Tunables this chunk needs (defaults proposed — all tunable)
 
@@ -65,7 +80,7 @@ workspace layout the rest of the roadmap assumes:
   Keeping it this clean is also what keeps a later extraction to Rust/WASM cheap.
 - `packages/content` — unit/trap/siege/ability data and the tunables registry (chunk 03).
 - `apps/server` — Node, Postgres, migrations.
-- `apps/web` — the client. PixiJS for the camp and battle views. The client renders a
+- `apps/web` — the client. PixiJS for the town, wagon circle, and battle views. The client renders a
   stored log; **it never runs the simulation.**
 
 Also fill in the build/test/run section of `/AGENTS.md` once these commands exist.
@@ -87,7 +102,10 @@ That converts a whole class of QA finding into a database error.
 - [ ] A second caravan can be inserted for an account without a schema change (even
       though app logic refuses it in v1).
 - [ ] Ladder level and unlock points have no code path that decrements them.
-- [ ] Caravan `parked`/`away` state exists and defaults to `parked`.
+- [ ] Caravan `in_town`/`on_trip` state exists and defaults to `in_town`.
+- [ ] Home town and standing raiding party are account-level rows, not caravan-level.
+- [ ] No table models a persistent per-player defensive layout — a wagon circle
+      formation belongs to an encounter inside a trip, never to an account.
 - [ ] Auth: register, log in, get a session, authorize a request. Nothing fancy.
 - [ ] Seed script produces a playable-shaped account for later chunks to develop against.
 - [ ] Tests cover the split constraints and the no-decrement guarantee.

@@ -21,13 +21,16 @@ Three pools, each with its own visible, non-random unlock web:
   **Region-locked**: a desert unit is mechanically distinct from a mountain unit,
   **not a reskin**. Different stats, different affinity type, different aggro/leash
   profile — not the same row with a new name and art.
-- **Traps** — defense-only, universal across regions. Single-trigger: they fire once
-  on contact and are then spent.
+- **Traps** — defense-only, universal across regions, carried by the caravan. Belongs
+  to the **active** side. Single-trigger: they fire once on contact, are then spent,
+  and do not re-arm for later encounters in the same trip.
 - **Siege equipment** — offense-only, universal across regions. Functions
   mechanically as a **counter to fences and traps**: specific siege pieces reduce
-  or bypass **specific** fence/trap categories. This makes siege loadout a real
-  pre-trip decision informed by scouting — so the counter relationships must be
-  categorical and legible, not a flat universal bonus.
+  or bypass **specific** fence/trap categories. Siege belongs to the **passive** side:
+  a standing party's owner picks it **blind to any particular caravan**, so it is a
+  standing bet on what kinds of wagon circles the party will meet, not a reaction. The
+  counter relationships must therefore be categorical and legible — a flat universal
+  bonus would be strictly better than any counter and would collapse the choice.
 - **Type/affinity layer**: 2–4 damage categories tied to regional unit flavor and
   trap classes, existing specifically **to prevent pure stat-total optimization
   from being the whole story**. If a player can win by summing one number, the
@@ -36,7 +39,7 @@ Three pools, each with its own visible, non-random unlock web:
   during battle. Abilities are fully deterministic — no proc chance, no random
   target, no variance. They are defined as **data** here; their resolution is
   chunk 12. Abilities are part of what makes a unit's offense and defense profiles
-  differ: an ability may be useful raiding, useful garrisoning, or lopsidedly one.
+  differ: an ability may be useful in a standing raid party, useful posted in a wagon circle, or lopsidedly one.
 - **Battles are continuous, not tile-locked.** Units move freely in fixed-point
   continuous space at a speed in cells/second, and attack on a per-unit cooldown
   rather than every tick. Stats must therefore be expressed in **rates and

@@ -1,18 +1,29 @@
 # Caravan Vaults
 
-Caravan Vaults is a build-then-async-resolve game in an Old West setting. Players
-configure a defense (their camp — a wagon train circled for the night, with fences,
-traps, and garrisoned units) and an offense (a raiding party with locked-in targeting
-stances) as two separate puzzles, then send the party out on a *trip*: a chain of
-individually matchmade, individually scoutable opponent camps. Outcomes resolve
-deterministically on the server with no live input from either player — the log of a
-fight *is* the replay both players watch afterward. A battle looks like a Clash of
-Clans attack: units move freely and attack on automatic cooldowns. It just runs to
-completion server-side before anyone sees it.
+Caravan Vaults is a build-then-async-resolve game in an Old West setting, and it runs
+**the opposite way round from the genre it resembles**. In Clash of Clans you actively
+attack and your base defends itself while you're away. Here it's inverted:
 
-`PROJECT.md` at the repo root is the full design document and the source of truth.
-A few decisions were settled after it was written and live in the roadmap instead:
-the stack, the web-first target, and the addition of one ability per unit type.
+- **Active: defense.** You escort a caravan on a *trip* — a chain of individually
+  matchmade, individually scoutable attacking parties. At each encounter you scout the
+  party bearing down on you and arrange your **wagon circle** against it: fence
+  segments, traps, posted units, stances. Then it resolves. Surviving lets you bank
+  (deliver, keep everything) or push on with whatever's left. Nothing is repaired
+  mid-trip.
+- **Passive: offense.** You also keep a **standing raid party**, configured back in
+  town, which is served as an encounter in *other* players' trips. You're never there
+  for those fights; you check afterward where it struck. It is a template — it is never
+  consumed and never loses units.
+- **The home town is never attacked.** It holds your roster, merge board, and mine.
+
+Battles resolve deterministically server-side with no live input; the log of a fight
+*is* the replay. A fight looks like a Clash of Clans attack — units move freely and
+attack on automatic cooldowns — it just runs to completion before anyone sees it.
+
+`PROJECT.md` at the repo root is the full design document and the source of truth. Its
+core loop was corrected after the first draft (see its revision note) — the original
+had the polarity reversed. Decisions settled after it was written live in the roadmap:
+the stack, the web-first target, one ability per unit type, and the isometric presentation.
 
 ## Read these before starting any work
 
