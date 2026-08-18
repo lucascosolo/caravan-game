@@ -1,4 +1,4 @@
-# Chunk 15 — Economy: Coin (and the merge system)
+# Chunk 16 — Economy: Coin (and the merge system)
 
 **Depends on:** 02, 03. **Status:** not started.
 Read `/roadmap/GUARDRAILS.md` in full first.
@@ -6,7 +6,7 @@ Read `/roadmap/GUARDRAILS.md` in full first.
 ## Goal
 
 Coin: earning, spending, the storage cap, the passive trickle — and the merge system
-that Coin exists to pace. Losing Coin is chunk 17; buying it is chunk 18.
+that Coin exists to pace. Losing Coin is chunk 18; buying it is chunk 19.
 
 ## Design constraints that apply here
 
@@ -42,14 +42,14 @@ that Coin exists to pace. Losing Coin is chunk 17; buying it is chunk 18.
 | Name | Default | Note |
 |---|---|---|
 | `COIN_STORAGE_CAP` | 50,000 | Per account. Hard ceiling on accumulation. |
-| `COIN_PER_STOP_BASE` | 400 at stop 1, ×1.25 per subsequent stop | Ties to chunk 14's escalation. |
+| `COIN_PER_STOP_BASE` | 400 at stop 1, ×1.25 per subsequent stop | Ties to chunk 15's escalation. |
 | `COIN_PER_BANKED_TRIP` | 500 flat completion bonus | The "delivery" reward. |
 | `COIN_TRICKLE_RATE` | 200/hour, ceasing at the storage cap | Keeps something always at risk. Computed lazily on read. |
 | `MERGE_COST_BY_TARGET_LEVEL` | L2: 250, L3: 900, L4: 3,000, L5: 9,500 | Steeply escalating — this is *the* pacing lever. Cost is per resulting unit. |
 | `MERGE_RECIPE_SMALL` | 2 → 1 | 2.0 units per level. |
 | `MERGE_RECIPE_LARGE` | 5 → 3 | 1.67 units per level. Better rate; rewards hoarding. |
 | `MERGE_LEVEL_CAP` | 5 | Fixed by design. |
-| `MERGE_STAT_MULT_PER_LEVEL` | ×1.8 per level | From chunk 03. **Must stay below 2.0** so a merged unit is weaker than its components combined. |
+| `MERGE_STAT_MULT_PER_LEVEL` | ×1.8 per level | From chunk 03. **Must stay below 2.0** so a merged unit is weaker than its components combined. Applies to ability values too (chunk 12) — merging never grants a new or extra ability, only larger numbers on the same one. |
 | `MERGE_SLOT_COST` | 1 slot at any level | The entire benefit of merging. A level-5 unit occupies one slot where its 16 level-1 components would have needed 16. |
 | `COIN_OVERFLOW_BEHAVIOR` | earnings above the cap are discarded, with a clear warning surfaced before the trip | Do not silently void a player's earnings. |
 

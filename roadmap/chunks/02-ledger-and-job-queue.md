@@ -19,7 +19,7 @@ one shot at a time. Nothing continuous, nothing always-on.
   Ticking happens once, instantly, server-side, per resolution call — not
   continuously. Do not build a game loop, a scheduler tick, or a persistent world
   simulation. Nothing "runs" between requests except the passive Coin trickle
-  (which is computed lazily from elapsed time, not by a background tick — see chunk 15).
+  (which is computed lazily from elapsed time, not by a background tick — see chunk 16).
 - **Determinism extends to the queue.** Two resolutions of the same job must produce
   the same event stream. A job must be **idempotent**: retrying a job that already
   committed must not double-apply its effects. Use a deterministic job id derived

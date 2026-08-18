@@ -1,6 +1,6 @@
-# Chunk 18 — Monetization packs
+# Chunk 19 — Monetization packs
 
-**Depends on:** 15. **Status:** not started.
+**Depends on:** 16. **Status:** not started.
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 ## Goal
@@ -42,7 +42,7 @@ processing). What must be real is the guardrail enforcement, not the billing.
 | `PACK_TIER_PRICES` | $5 / $10 / $25 | Fixed by design. |
 | `PACK_COIN_BY_TIER` | 6,000 / 14,000 / 40,000 | Fixed week to week. Mild value scaling upward is fine; the amounts must not vary by week or by player. |
 | `WEEKLY_PAY_CEILING` | 60,000 Coin (all three tiers combined) | **This is the number the P2W guardrail is measured against, not 40,000.** |
-| `FREE_WEEKLY_EARN_ESTIMATE` | ~40,000 Coin/week for an active player | Derived from chunk 15 defaults (3 trips/hr cap + trickle). **Assumption to be validated in playtesting.** Target ratio: paying should not exceed roughly 1.5× an active free player's week. At the defaults above the ratio is ~1.5×. If either side's numbers move, re-check this. |
+| `FREE_WEEKLY_EARN_ESTIMATE` | ~40,000 Coin/week for an active player | Derived from chunk 16 defaults (3 trips/hr cap + trickle). **Assumption to be validated in playtesting.** Target ratio: paying should not exceed roughly 1.5× an active free player's week. At the defaults above the ratio is ~1.5×. If either side's numbers move, re-check this. |
 | `PACK_ROTATION_PERIOD` | 7 days, rotating cosmetics only | Coin amounts do not rotate. |
 | `PURCHASE_BACKEND` | sandbox stub for MVP — records the grant, no real charge | Real payment integration is out of scope. |
 | `PURCHASE_LIMIT` | one of each tier per week | Stackable across tiers; not stackable within a tier. |
@@ -83,7 +83,7 @@ processing). What must be real is the guardrail enforcement, not the billing.
 - **Grind wall — check explicitly, don't assume the guardrails prevent it:** are there
   points where free-path progress is slow enough that the paid path stops feeling
   optional? Compare `WEEKLY_PAY_CEILING` against a realistic free week using chunk
-  15's actual numbers. **This is the specific failure mode §16 calls out.**
+  16's actual numbers. **This is the specific failure mode §16 calls out.**
 - **Nothing else for sale:** confirm no pack contains or could contain unlock points,
   unit access, trip-cap uses, slot count, matchmaking rerolls, or shields.
 - **Determinism:** is pack rotation deterministic and identical for all players in a

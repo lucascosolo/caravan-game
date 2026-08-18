@@ -32,6 +32,15 @@ Three pools, each with its own visible, non-random unlock web:
   trap classes, existing specifically **to prevent pure stat-total optimization
   from being the whole story**. If a player can win by summing one number, the
   affinity layer has failed.
+- **Each living-unit type has exactly one ability, fired on an automatic cooldown**
+  during battle. Abilities are fully deterministic — no proc chance, no random
+  target, no variance. They are defined as **data** here; their resolution is
+  chunk 12. Abilities are part of what makes a unit's offense and defense profiles
+  differ: an ability may be useful raiding, useful garrisoning, or lopsidedly one.
+- **Battles are continuous, not tile-locked.** Units move freely in fixed-point
+  continuous space at a speed in cells/second, and attack on a per-unit cooldown
+  rather than every tick. Stats must therefore be expressed in **rates and
+  distances**, not per-tick amounts.
 - Living units cap at **merge level 5**. Stats per merge level must be defined such
   that **a merged unit is not stronger than its unmerged components combined** —
   it is more *slot-efficient*. This is a hard monetization guardrail, not a balance
@@ -65,13 +74,26 @@ Combat math:
 | `BASE_OFFENSE_RANGE` | 40–120 across unit types | Placeholder spread. |
 | `BASE_DEFENSE_RANGE` | 40–120, **independently rolled per type** | Must not correlate with offense. |
 
-Unit behavior defaults (may vary by unit type):
+Unit behavior defaults (may vary by unit type — all in fixed-point, never floats):
 
 | Name | Default | Note |
 |---|---|---|
-| `AGGRO_RADIUS_DEFAULT` | 4 tiles | Per-type override expected. |
-| `LEASH_DISTANCE_DEFAULT` | 6 tiles from post | Per-type override expected. |
-| `MOVE_SPEED_DEFAULT` | 1 tile/tick | Per-type override; keep integral for determinism. |
+| `AGGRO_RADIUS_DEFAULT` | 4.0 cells | Per-type override expected. |
+| `LEASH_DISTANCE_DEFAULT` | 6.0 cells from post | Per-type override expected. |
+| `MOVE_SPEED_DEFAULT` | 1.5 cells/second | Per-type override; range roughly 0.8–3.0 across the roster. Stored as fixed-point, converted to per-tick displacement by the resolver. |
+| `ATTACK_RANGE_DEFAULT` | 1.0 cells (melee); 4.0 cells for ranged types | Range is what makes a unit melee or ranged — there is no separate flag. |
+| `ATTACK_COOLDOWN_DEFAULT` | 1.0 second | Range 0.4–2.5s across the roster. The damage formula fires once per cooldown expiry, not once per tick. |
+| `UNIT_HP_RANGE` | 300–1,400 by type | Needed now that damage is cooldown-paced rather than per-tick. |
+
+Ability data (one per living-unit type; resolution is chunk 12):
+
+| Name | Default | Note |
+|---|---|---|
+| `ABILITIES_PER_UNIT_TYPE` | exactly 1 | Every living-unit type has one, no more. |
+| `ABILITY_COOLDOWN_RANGE` | 6–20 seconds by ability | Long relative to attack cooldowns, so an ability firing is a visible beat in the fight. |
+| `ABILITY_FIRST_USE_DELAY` | equal to the full cooldown | Units don't open with their ability. Tunable. |
+| `ABILITY_TRIGGER` | fires the moment its cooldown is ready **and** its targeting condition is satisfiable | Fully deterministic — no chance, no player input. |
+| `ABILITY_ARCHETYPES` | 6 shapes reused across the roster with per-type values: burst damage in a radius, single-target heavy strike, heal/repair allies in a radius, temporary self buff, movement dash, structure-breaker (bonus vs. fences) | Keeps the resolver's ability code to six deterministic cases rather than 32 bespoke ones. Per-type variation comes from values and affinity, not new code paths. |
 
 Trap / siege / fence values:
 
@@ -98,6 +120,13 @@ Trap / siege / fence values:
       every level, by test.
 - [ ] Content validates on load: no dangling category references, no unit missing a
       required field.
+- [ ] Every living-unit type has exactly one ability, drawn from the six archetypes,
+      with all values authored as data.
+- [ ] All rates and distances are stored as fixed-point, with the scaling factor
+      documented once and used everywhere. A test asserts no float literal reaches
+      the sim-facing content structures.
+- [ ] Speeds are in cells/second and cooldowns in seconds — not in ticks. The
+      resolver converts; the content data never encodes a tick rate.
 
 ## QA guardrail checks for this chunk
 
@@ -106,6 +135,11 @@ Trap / siege / fence values:
   recipes (2→1 and 5→3). If merging is a power gain, Coin buys power.
 - **Determinism:** are any stats, ranges, or affinity values generated at load time
   rather than authored? Any "roll a spread" helper that runs at runtime is a bug.
+  Are all values fixed-point, with no float literals anywhere in the content data?
+  Does any ability have a proc chance, a random target, or a variance roll? It must not.
+- **Ability scope creep:** is every ability one of the six archetypes with different
+  values, or has a bespoke code path crept in per unit? The latter multiplies the
+  resolver's edge-case surface by the size of the roster.
 - **Design fidelity:** are region rosters mechanically distinct or reskins with
   different names? Are offense and defense ratings actually decoupled, or has one
   become a function of the other?

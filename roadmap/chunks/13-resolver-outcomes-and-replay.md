@@ -1,6 +1,6 @@
-# Chunk 12 — Resolver outcomes & replay
+# Chunk 13 — Resolver outcomes & replay
 
-**Depends on:** 11. **Status:** not started.
+**Depends on:** 12. **Status:** not started.
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 ## Goal
@@ -24,6 +24,21 @@ checked against.
 - **The resulting tick log doubles as the replay both players can watch afterward;
   nothing is re-simulated for playback.** The log is the authoritative artifact. A
   replay player renders it; it must never call the resolver again.
+
+- **Log format, given continuous movement.** At 20 ticks/second for up to 180 seconds
+  with ~20 entities, a naive per-tick position dump is far too large to store per
+  raid. The log must therefore record **events and waypoints**, not per-tick state:
+  *"unit 7 begins moving toward (x,y) at tick 412 at speed s"*, *"unit 7 attacks
+  unit 3 at tick 480 for d"*, *"fence segment 12 breaks at tick 495"*, *"unit 4 fires
+  ability at tick 500 affecting units 8, 9"*. The renderer **interpolates between
+  waypoints**.
+  This still satisfies the design: interpolation is not simulation. The renderer makes
+  no decisions, resolves no combat, and cannot change an outcome — every decision and
+  every number is already in the log. If the renderer ever has to decide *what
+  happens*, rather than *where to draw something between two known points*, the format
+  has crossed the line and must be fixed.
+- Emit a **periodic full-state keyframe** (every few seconds) so playback can seek and
+  so a corrupted or truncated log is detectable rather than silently misrendered.
 - This supports the "provably fair" claim: the log plus the inputs is a complete,
   checkable account of what happened.
 - The log must be stored alongside the **layout snapshot and loadout snapshot** used
@@ -40,22 +55,28 @@ serves the attacker misses half the point.
 
 | Name | Default | Note |
 |---|---|---|
-| `TICK_CAP` | 600 | From chunk 10. Stalemate threshold. |
-| `DEPTH_METRIC` | fraction of the straight-line distance from the start edge to the core that the deepest attacker reached, plus fence segments broken and garrison units killed | Needs to be a legible, previewable notion of "depth" — the player should be able to reason about partial success. |
+| `TICK_RATE` / `TICK_CAP` | 20/sec, 3,600 ticks (180s) | From chunk 10. Stalemate threshold. |
+| `DEPTH_METRIC` | fraction of the straight-line distance from the start edge to the core that the deepest attacker reached, plus fence segments broken and garrison units killed | Needs to be a legible, previewable notion of "depth" — the player should be able to reason about partial success. Keep it simple enough to explain in one sentence in the UI; a composite that can't be previewed defeats the purpose. |
 | `PARTIAL_LOOT_CURVE` | `loot = full_loot × depth_fraction^1.5`, floored at 0 | Sub-linear, so a near-miss is worth meaningfully less than a clear but not nothing. |
 | `STALEMATE_LOOT` | 0 for the attacker | Favors the defender. |
 | `STALEMATE_REPUTATION` | treated as an attacker loss (chunk 04's loss values) | |
-| `FULL_CLEAR_LOOT` | 100% of the stop's Coin value (chunk 15) | |
-| `LOG_FORMAT` | versioned, compact, per-tick deltas rather than full state snapshots | Keep it small; a 600-tick full-state log per raid adds up. Must still be self-sufficient for playback. |
+| `FULL_CLEAR_LOOT` | 100% of the stop's Coin value (chunk 16) | |
+| `LOG_FORMAT` | versioned; event + waypoint records, not per-tick state | Renderer interpolates between waypoints. Must be self-sufficient for playback. |
+| `LOG_KEYFRAME_INTERVAL` | every 5 seconds (100 ticks) | Enables seeking and detects truncation. |
+| `LOG_SIZE_BUDGET` | 100 KB per raid, compressed | If a typical fight exceeds this, the format is wrong — revisit before shipping, not after storage bills arrive. |
 | `LOG_RETENTION` | 30 days or last 50 raids per caravan, whichever is larger | Storage guard; tunable. |
 
 ## Definition of done
 
 - [ ] All three end conditions implemented and distinguishable in the output.
 - [ ] Depth-scaled loot on a wipe; full loot on a clear; nothing on a stalemate.
-- [ ] Tick log emitted during resolution, sufficient to render the whole fight with
-      no re-simulation. A replay renderer is fed only the log and produces the same
-      sequence of events.
+- [ ] Event/waypoint log emitted during resolution, sufficient to render the whole
+      fight with no re-simulation. A replay renderer is fed only the log and produces
+      the same sequence of events.
+- [ ] Keyframes emitted at a fixed interval; playback can seek to any of them.
+- [ ] A typical fight's log fits the size budget; measure it, don't assume.
+- [ ] The renderer makes no decisions — a test or review confirms it only interpolates
+      between known points and never resolves combat, targeting, or death.
 - [ ] Log stored with the layout snapshot, loadout snapshot, and resolver version.
 - [ ] Both attacker and defender can retrieve and watch the replay of a raid they
       were part of.
@@ -65,8 +86,9 @@ serves the attacker misses half the point.
   - [ ] Same input × 100 runs → byte-identical logs.
   - [ ] Same input across separate processes → identical.
   - [ ] A corpus of at least 50 varied fixture scenarios (gapped camps, full rings,
-        all three stances, siege counters matched and mismatched, all three end
-        conditions, boundary cases from chunk 11) with **golden logs checked in**.
+        all three stances, siege counters matched and mismatched, all six ability
+        archetypes, all three end conditions, boundary cases from chunks 11 and 12)
+        with **golden logs checked in**.
         Any resolver change that alters a golden log must be an explicit, reviewed
         decision — not a silent diff.
   - [ ] A harness command a QA session can run in one line.
@@ -79,8 +101,15 @@ serves the attacker misses half the point.
 - **Replay fidelity:** does the replay ever diverge from the recorded outcome? Is
   anything re-simulated at playback time? Does a defender editing their camp after
   the raid change what the replay shows? All three are hard bugs.
-- **Tick-resolution edge cases:** confirm all of chunk 11's boundary scenarios are in
-  the golden corpus, not just in transient tests.
+- **Interpolation has not become simulation:** examine the renderer specifically. Does
+  it ever decide *what happens* — who gets hit, when a unit dies, where a unit turns —
+  rather than only *where to draw something between two known points*? Anything the
+  renderer decides is a decision that can diverge from the authoritative outcome, and
+  is the exact failure the "nothing is re-simulated" rule exists to prevent.
+- **Log completeness:** truncate a log mid-fight and confirm playback fails loudly
+  rather than rendering a plausible-looking wrong fight.
+- **Tick-resolution edge cases:** confirm all of chunk 11's and chunk 12's boundary
+  scenarios are in the golden corpus, not just in transient tests.
 - **Stalemate favors the defender:** verify the attacker gains nothing on a tick-cap
   outcome. If a kiting strategy can extract value from stalemates, the safety valve
   has failed.

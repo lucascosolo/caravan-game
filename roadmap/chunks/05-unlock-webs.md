@@ -15,7 +15,7 @@ reach nodes. This is **the only access gate in the game** — get the enforcemen
   from the start, including nodes not yet affordable — nothing is hidden, nothing is
   discovered, nothing is randomized.
 - **Reaching a node grants *access* to recruit/deploy that unit, trap, or siege item
-  — it does not itself grant an instance.** Getting instances is chunk 16's job.
+  — it does not itself grant an instance.** Getting instances is chunk 17's job.
   Keep the two concepts strictly separate in code and in naming; conflating them is
   how the access gate quietly leaks.
 - **The unlock web is the only gate for which units exist for a given player.**

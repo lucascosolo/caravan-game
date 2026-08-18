@@ -1,4 +1,4 @@
-# Chunk 13 — Matchmaking & scouting
+# Chunk 14 — Matchmaking & scouting
 
 **Depends on:** 04, 08. **Status:** not started.
 Read `/roadmap/GUARDRAILS.md` in full first.
@@ -34,7 +34,7 @@ shields.
   preventing immediate re-farming before the defender has a chance to notice and rebuild.
 - **Every candidate is individually scoutable** before the player commits. Scouting
   shows the camp exactly as the defender built it: fence segments and their HP, gaps,
-  trap positions and types, garrison units and their stats, aggro and leash. **This
+  trap positions and types, garrison units with their stats, abilities, aggro and leash. **This
   is the intended read-the-camp skill expression** — hiding any of it to create
   surprise is a design violation, not a difficulty knob.
 - Matchmaking selection must be **deterministic given the same pool and seed state**,
@@ -65,7 +65,7 @@ shields.
 - [ ] Reroll is free, time-gated, with the cooldown visible. No Coin path exists.
 - [ ] Post-raid shield applied on a successful raid and honored by the pool query.
 - [ ] Full scout view per candidate: fence segments + HP + gaps, traps + types,
-      garrison units + stats + aggro/leash, core position. Identical to what the
+      garrison units + stats + abilities + aggro/leash, core position. Identical to what the
       defender's builder shows.
 - [ ] Candidate menu generation is seeded and reproducible from stored state.
 - [ ] Thin/empty pool degrades honestly — widen, then say so. No fabricated targets.

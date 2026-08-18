@@ -1,6 +1,6 @@
-# Chunk 17 — Stakes & loss wiring
+# Chunk 18 — Stakes & loss wiring
 
-**Depends on:** 12, 14, 15. **Status:** not started.
+**Depends on:** 13, 15, 16. **Status:** not started.
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 ## Goal

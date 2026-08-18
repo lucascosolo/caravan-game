@@ -14,6 +14,12 @@ Given identical inputs, every outcome must be identical, forever.
   No wall-clock reads, no `Math.random()`, no `Date.now()`, no map/set iteration
   order that depends on insertion timing, no floating-point drift across platforms,
   no parallelism that can reorder effects.
+- **No floating-point arithmetic anywhere in the simulation.** Battles use continuous
+  free movement (see below), which is exactly where float drift has historically
+  killed deterministic RTS engines. All positions, velocities, distances, damage, and
+  cooldowns are **fixed-point integers**. Compare squared distances rather than
+  calling `sqrt`. `sin`, `cos`, `exp`, and `pow` are **banned** in sim code — they are
+  not correctly rounded and will differ across platforms and engine versions.
 - Ties are resolved by an **explicit, documented, stable tie-break rule** (unit id
   order or an equivalent total ordering). "It never happens in practice" is not a
   tie-break rule.
@@ -122,6 +128,25 @@ right now, even though multi-caravan is post-v1.
 and confirm each lands on the correct side of the split.
 
 ---
+
+## The simulation model (every chunk that touches the battlefield must agree)
+
+The grid and the battle are **two different spaces**. Confusing them is the most
+likely way this codebase goes wrong quietly.
+
+- **The grid is a placement lattice only.** It exists so fences, traps, garrison
+  posts, and attacker start positions snap to discrete cells. It is shown in the UI
+  **only while something is being placed or snapped**, and hidden otherwise.
+- **The battle is continuous.** Once resolution runs, units move freely in
+  fixed-point continuous space — not locked to cells, not turn-based. They path
+  around obstacles, attack on per-unit cooldowns, and fire abilities on their own
+  cooldowns. The reference feel is a Clash of Clans attack, not a tactics grid.
+- **Continuous is not the same as unticked.** Resolution is still a fixed-timestep
+  discrete tick pass, exactly as the design specifies — a high tick rate with
+  sub-cell movement per tick. "Not turn-based" describes the player's experience,
+  not the engine's structure.
+- **Units do not collide with each other**; they overlap freely. Only fences and the
+  map bounds obstruct movement.
 
 ## Bounded stakes (corollary of the above, check every time)
 

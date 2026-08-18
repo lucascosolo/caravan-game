@@ -8,9 +8,27 @@ Read `/roadmap/GUARDRAILS.md` in full first.
 The data model and validation rules for a camp: the playfield grid, the fence
 perimeter with per-segment HP and deliberate gaps, trap placement, and garrison
 placement with aggro/leash. No UI in this chunk — this is the structure the builder
-UI (08) edits and the resolver (10–12) consumes.
+UI (08) edits and the resolver (10–13) consumes.
 
 ## Design constraints that apply here
+
+**Two spaces, and keeping them distinct is the central job of this chunk:**
+
+- **The placement lattice (this chunk's grid).** Discrete integer cells. Everything a
+  player *places* snaps to it: fence segments, traps, garrison posts, and the
+  attacker's start positions. The lattice is also the graph the coarse pathfinder
+  routes on. It is shown in the UI **only while something is being placed or
+  snapped**, and hidden otherwise.
+- **The simulation space (chunks 10–13).** Continuous, fixed-point. During a battle
+  units move freely — they are **not locked to cells and do not take turns**. They
+  path around fences, attack on per-unit cooldowns, and fire abilities on their own
+  cooldowns. The reference feel is a Clash of Clans attack.
+
+So: **a garrison unit's post is a lattice cell; its position during a fight is a
+continuous fixed-point coordinate.** Aggro radius and leash distance are continuous
+distances measured in cells, and may be fractional. This chunk owns the lattice and
+the initial continuous positions derived from it; the resolver owns everything after
+tick zero.
 
 Thematically: preparing camp for the night, Old West — a wagon train circling for
 defense against raiders. **Configured asynchronously, persists until the player
@@ -49,16 +67,18 @@ edits it** — it is not re-configured every "night", and there is no expiry.
 
 | Name | Default | Note |
 |---|---|---|
-| `GRID_WIDTH` × `GRID_HEIGHT` | 24 × 24 tiles | Integer grid — keeps pathing and distance deterministic. Avoid floating-point positions entirely. |
+| `GRID_WIDTH` × `GRID_HEIGHT` | 32 × 32 cells | The placement lattice. Larger than a pure tile-based design would need, because continuous movement makes sub-cell positioning meaningful and a tight board makes pathing look cramped. |
+| `FIXED_POINT_SCALE` | 1/1024 cell | The sim's sub-cell resolution. One number, defined once, used by every system that touches continuous position. Never floats. |
 | `PERIMETER_SEGMENTS` | 32 segments forming the ring | Each independently placed or omitted. |
 | `FENCE_SEGMENT_HP_DEFAULT` | 400 | Per-tier: T1 300, T2 400, T3 650, T4 1000. |
 | `DEPLOYMENT_SLOT_CAP` | 8 | **Units per formation, offense and defense alike.** This number is the blast radius cap on catastrophic loss (§13) — it is load-bearing, not cosmetic. |
 | `TRAP_SLOT_CAP` | 6 | Separate from unit slots. |
-| `AGGRO_RADIUS_DEFAULT` | 4 tiles (per-type override) | From chunk 03. |
-| `LEASH_DISTANCE_DEFAULT` | 6 tiles from post (per-type override) | From chunk 03. |
-| `CORE_POSITION` | grid center, 2×2 tiles | Fixed, not player-placed, in MVP. |
-| `MIN_GARRISON_POST_DISTANCE` | 1 tile apart | Prevents stacking. |
-| `DISTANCE_METRIC` | Chebyshev on the integer grid | Pick one and use it everywhere — aggro, leash, and pathing must agree. |
+| `AGGRO_RADIUS_DEFAULT` | 4.0 cells (per-type override) | From chunk 03. Continuous, may be fractional. |
+| `LEASH_DISTANCE_DEFAULT` | 6.0 cells from post (per-type override) | From chunk 03. Continuous. |
+| `CORE_POSITION` | lattice center, 3×3 cells | Fixed, not player-placed, in MVP. |
+| `MIN_GARRISON_POST_DISTANCE` | 1 cell apart | Posts don't stack. Units themselves overlap freely during the fight — there is no unit-unit collision. |
+| `DISTANCE_METRIC` | **Euclidean**, compared as squared distance to avoid `sqrt` | Continuous movement makes Chebyshev look wrong. One metric everywhere — aggro, leash, attack range, and ability radii must all agree. |
+| `SPAWN_POSITION` | cell center, i.e. lattice coordinate × scale + half a cell | How a placed lattice cell becomes a continuous tick-zero position. Define once. |
 
 ## Definition of done
 
@@ -74,8 +94,14 @@ edits it** — it is not re-configured every "night", and there is no expiry.
 - [ ] Validation: slot caps, access checks against the unlock web, no overlaps, no
       out-of-bounds, no unit that is currently away on a trip.
 - [ ] Layout persists until edited; no expiry, no nightly reset.
-- [ ] All positions and distances are integers; a test asserts no float in the model.
-- [ ] `parked` vs `away` state gates targetability (behavior lands in chunk 13/14,
+- [ ] Placed objects live on integer lattice cells; the conversion from a lattice
+      cell to a continuous fixed-point tick-zero position exists here and is used by
+      the resolver rather than reinvented there.
+- [ ] All positions and distances are integers or fixed-point; a test asserts no
+      float anywhere in the model or its serialization.
+- [ ] `FIXED_POINT_SCALE` is defined exactly once and exported for every downstream
+      chunk to use.
+- [ ] `parked` vs `away` state gates targetability (behavior lands in chunk 14/15,
       the flag lives here and in chunk 01).
 
 ## QA guardrail checks for this chunk
@@ -84,8 +110,13 @@ edits it** — it is not re-configured every "night", and there is no expiry.
   supposed to see — segment HP, gaps, trap positions and types, garrison units and
   their stats? Is anything stored that is deliberately hidden from scouting? Per the
   design, camp layout is scoutable; hiding it to create surprise is a bug.
-- **Determinism:** integer grid throughout? One distance metric used consistently?
-  Any float, any iteration-order dependence in serialization?
+- **Determinism:** fixed-point throughout, with no floats in the model or its
+  serialization? One distance metric used consistently? Any iteration-order
+  dependence in serialization?
+- **The two spaces stayed separate:** does anything in the layout model assume units
+  will be locked to cells during a fight, or encode a movement rule? Placement is
+  discrete; the battle is continuous. A model that bakes in tile-locked movement
+  would force the resolver to fight it.
 - **Bounded stakes:** is `DEPLOYMENT_SLOT_CAP` enforced on both offense and defense?
   This cap is what bounds a catastrophic trip to a slot's worth of units rather than
   a whole collection.

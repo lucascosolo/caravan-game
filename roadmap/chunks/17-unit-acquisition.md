@@ -1,6 +1,6 @@
-# Chunk 16 — Unit acquisition: refugee drip & mercenary recruit
+# Chunk 17 — Unit acquisition: refugee drip & mercenary recruit
 
-**Depends on:** 05, 15. **Status:** not started.
+**Depends on:** 05, 16. **Status:** not started.
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 ## Goal
@@ -39,7 +39,7 @@ type. Both are gated by the unlock web; neither can ever reach past it.
   refugee randomness becomes a genuine frustration.
 
 Other:
-- Both paths grant a **level-1** copy. Merging up is chunk 15's job.
+- Both paths grant a **level-1** copy. Merging up is chunk 16's job.
 - Living-unit instances are **caravan-level** and region-specific.
 - Randomness in the refugee menu must be **seeded and reproducible** from stored
   state, so QA can replay it.
@@ -59,7 +59,7 @@ Other:
 | `REFUGEE_OFFER_SEED` | derived deterministically from (caravan id, refresh sequence number) | Reproducible menus. |
 | `UNIT_INVENTORY_CAP` | 200 instances per caravan | Storage guard only; must be generous enough never to block acquisition in practice. |
 
-**Sanity check against chunk 15:** at `COIN_TRICKLE_RATE` 200/hr and
+**Sanity check against chunk 16:** at `COIN_TRICKLE_RATE` 200/hr and
 `MERCENARY_COST_BASE` 600, a fully idle player can buy one unit every 3 hours. A unit
 type wiped from a level-3 unit needs 4 level-1 copies plus merge Coin to rebuild.
 If that arithmetic makes recovery feel unreasonable, these are the numbers to move —

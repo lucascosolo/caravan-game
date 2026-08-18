@@ -11,6 +11,16 @@ layout that raiders will scout.
 
 ## Design constraints that apply here
 
+**Grid visibility — the intended feel.** The camp reads as a place, not a board. The
+placement lattice is **shown only while the player is actively placing or dragging
+something that snaps to it**, and fades out otherwise. The reference is the merge-game
+home screen: grid-based topography you don't see until a unit is mid-drag. Do not
+render a persistent visible grid over the camp.
+
+**Battles are continuous.** Units are not tile-locked when the fight runs — they move
+freely and attack on cooldowns. So aggro and leash overlays are **circles at
+continuous radii**, not cell highlights, and coverage is an area, not a set of tiles.
+
 - Thematically: preparing camp for the night, Old West — a wagon train circling.
   **Configured asynchronously; persists until the player edits it.** No nightly
   re-setup ritual, no expiry.
@@ -43,7 +53,9 @@ All layout constants come from chunk 07 (`GRID_WIDTH`, `PERIMETER_SEGMENTS`,
 
 | Name | Default | Note |
 |---|---|---|
-| `SHOW_AGGRO_LEASH_OVERLAY` | on by default, toggleable | Coverage visualization. |
+| `GRID_VISIBILITY` | visible only during an active place/drag, fading in and out | Never persistently visible. |
+| `SHOW_AGGRO_LEASH_OVERLAY` | on by default, toggleable | Coverage visualization, drawn as continuous circles. |
+| `TOUCH_TARGET_MIN` | 44px | Web-first but mobile-shaped: every placement control must be usable with a thumb. |
 | `SHOW_COVERAGE_GAPS` | informational overlay, never blocking | Marks which approach edges have no fence and no garrison coverage. |
 | `EDIT_WHILE_AWAY` | allowed | Editing the camp while on a trip is harmless — the camp isn't targetable anyway. Saved layout applies on return. |
 
@@ -51,8 +63,13 @@ All layout constants come from chunk 07 (`GRID_WIDTH`, `PERIMETER_SEGMENTS`,
 
 - [ ] Place, move, and remove fence segments (with tier choice), traps, and garrison units.
 - [ ] A deliberately gapped perimeter saves cleanly with no warning framing it as an error.
-- [ ] Aggro radius and leash distance are visualized per garrison unit.
+- [ ] Aggro radius and leash distance are visualized per garrison unit, as continuous
+      circles at their true radii.
+- [ ] The lattice appears only during an active placement drag and is otherwise hidden.
 - [ ] Units show offense and defense ratings separately; defense is emphasized here.
+- [ ] Each unit's ability is shown with its effect and cooldown — a defender choosing
+      a garrison is choosing an ability as much as a stat line.
+- [ ] Layout is touch-usable: drag-to-place, pinch-zoom, no hover-dependent affordances.
 - [ ] Trap single-trigger behavior is stated in the UI.
 - [ ] Slot caps and unlock access enforced in the UI **and** re-validated server-side.
 - [ ] Approach edges shown.

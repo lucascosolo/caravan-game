@@ -53,13 +53,22 @@ with a seed script that creates one account, one caravan, and a chosen region.
 | `COIN_STORAGE_CAP` | 50,000 | Per-account cap, §14. Pure placeholder until economy tuning. |
 | `MAX_CARAVANS_PER_ACCOUNT` | 1 | v1 enforcement value only. Schema supports N. |
 
-## Suggested shape (Maker's call, but justify a deviation)
+## Stack — settled, set it up in this chunk
 
-No stack was specified in the design doc. Proposed default, chosen for the
-determinism requirement: **TypeScript monorepo** — a pure, dependency-free
-resolver package (no I/O, no clock, no RNG) that both server and tests import;
-a Node server; Postgres via a migration tool; a web client. If you pick differently,
-the non-negotiable is that the resolver is an isolated pure package.
+**TypeScript monorepo**, web-first and mobile-shaped. This chunk creates the
+workspace layout the rest of the roadmap assumes:
+
+- `packages/resolver` — the deterministic simulation. Pure, fixed-point, **zero
+  dependencies, no I/O, no clock, no RNG**. Set up the lint rules that enforce this
+  now, while the package is empty and they're free: no imports outside the package,
+  no float literals, no `Math.random`/`Date`/`sin`/`cos`/`atan2`/`exp`/`pow`.
+  Keeping it this clean is also what keeps a later extraction to Rust/WASM cheap.
+- `packages/content` — unit/trap/siege/ability data and the tunables registry (chunk 03).
+- `apps/server` — Node, Postgres, migrations.
+- `apps/web` — the client. PixiJS for the camp and battle views. The client renders a
+  stored log; **it never runs the simulation.**
+
+Also fill in the build/test/run section of `/AGENTS.md` once these commands exist.
 
 Suggested tables: `account`, `caravan`, `pool_progress` (keyed by owner scope +
 pool, so the split is enforced by a constraint rather than by convention),
@@ -82,6 +91,10 @@ That converts a whole class of QA finding into a database error.
 - [ ] Auth: register, log in, get a session, authorize a request. Nothing fancy.
 - [ ] Seed script produces a playable-shaped account for later chunks to develop against.
 - [ ] Tests cover the split constraints and the no-decrement guarantee.
+- [ ] Monorepo workspace set up with the four packages above.
+- [ ] `packages/resolver` exists with its isolation lint rules active and passing,
+      even though it is still empty.
+- [ ] `/AGENTS.md`'s build/test/run section filled in with real commands.
 
 ## QA guardrail checks for this chunk
 

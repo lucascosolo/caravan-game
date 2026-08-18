@@ -30,6 +30,14 @@ Other constraints:
 - Living units are the **same pool** as garrison units, but here they use their
   **offense rating** — which is deliberately not equal to their defense rating. The
   best guard isn't automatically the best raider. Show both, emphasize offense.
+- **Each unit type has one ability on an automatic cooldown.** It fires by itself
+  during the fight — the player never triggers it. Since the party is locked for the
+  whole trip, the ability mix is a real loadout decision and must be legible while
+  building: effect, radius, and cooldown all visible before committing.
+- **Start positions snap to the placement lattice**, and the lattice is shown **only
+  while the player is dragging a unit into position** — not persistently. Once the
+  fight runs, units move freely in continuous space; they are not tile-locked and do
+  not take turns.
 - **Siege equipment is offense-only** and functions as a **counter to fences and
   traps**: specific pieces reduce or bypass specific fence/trap categories. This
   makes siege loadout a **real pre-trip decision informed by scouting** — so the
@@ -52,7 +60,9 @@ Other constraints:
 | `SIEGE_SLOT_CAP` | 3 | Separate from unit slots. |
 | `STANCES` | `nearest`, `traps`, `core` | Fixed by design — exactly these three. |
 | `MAX_APPROACH_EDGES` | 4 (all sides) | Splitting across all four is legal. |
-| `START_POSITION_BAND` | outermost 2 tiles of the chosen edge | Where units may be placed. |
+| `START_POSITION_BAND` | outermost 2 cells of the chosen edge | Where units may be placed; snaps to the lattice. |
+| `GRID_VISIBILITY` | visible only during an active place/drag | Same rule as the camp builder. |
+| `TOUCH_TARGET_MIN` | 44px | Web-first, mobile-shaped. |
 
 ## Definition of done
 
@@ -68,6 +78,10 @@ Other constraints:
 - [ ] Current party damage and losses are visible when positioning at a later stop
       (no healing between stops).
 - [ ] Merge level and its slot cost are shown, making slot efficiency legible.
+- [ ] Each unit's ability — effect, radius, cooldown — is visible while building.
+- [ ] Attack range and cooldown are shown, so a player can tell a melee unit from a
+      ranged one without guessing.
+- [ ] Lattice shown only during an active placement drag; touch-usable throughout.
 - [ ] Unlock access validated server-side.
 - [ ] Units garrisoned at the camp are handled coherently — a unit is in one place at a time.
 
