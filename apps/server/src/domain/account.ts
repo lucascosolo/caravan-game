@@ -9,12 +9,23 @@ import type { RegionId } from "@caravan/content";
  */
 export interface Account {
   readonly id: string;
+  /** Account-level, per GUARDRAILS.md #5. Never a caravan field. */
+  readonly coinBalance: number;
+  /** Cursor for the lazy passive trickle — the last instant its accrual was
+   * settled into coinBalance. Advanced only by domain/coin.ts's
+   * computeTrickle, never by a background tick (chunk 16, ECON-02). */
+  readonly coinLastTrickleAt: string;
 }
+
+export type CaravanState = "in_town" | "on_trip";
 
 export interface Caravan {
   readonly id: string;
   readonly accountId: string;
   readonly region: RegionId;
+  /** A caravan is never attackable outside a trip, and only ever fought by
+   * parties matchmaking serves it while on_trip (GUARDRAILS.md #0). */
+  readonly state: CaravanState;
 }
 
 /**

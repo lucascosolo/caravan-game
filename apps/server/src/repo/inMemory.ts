@@ -1,17 +1,40 @@
+import { TUNABLES } from "@caravan/content";
 import type { UnlockedAccess } from "@caravan/content";
-import type { UnitInstance } from "../domain/account.js";
+import type { UnitInstance, Account } from "../domain/account.js";
 import type { StandingParty } from "../domain/standingParty.js";
 import type { Replay, ResolutionRecord } from "../domain/replay.js";
+import type { LedgerEvent } from "../domain/ledger.js";
 
 /**
  * In-memory repositories standing in for chunk 01's Postgres layer. Each
  * store holds immutable rows — `save` always replaces the whole entry, never
  * mutates a returned object in place — so a caller who already holds a
- * reference (an in-flight resolution, a stored snapshot) is never affected by
- * a later `save`. Swapping these for real Postgres-backed implementations
- * later should not require changing any caller, since the interfaces are the
- * contract.
+ * reference is never affected by a later `save`.
+ *
+ * This version extends the original with Account, Ledger, and Manifest stores
+ * needed for the Home Town / Economy layer (chunks 16-17).
  */
+
+// --- Account --------------------------------------------------------------
+
+export interface AccountRepository {
+  get(id: string): Account | undefined;
+  save(account: Account): void;
+}
+
+export class InMemoryAccountRepository implements AccountRepository {
+  private rows = new Map<string, Account>();
+
+  get(id: string): Account | undefined {
+    return this.rows.get(id);
+  }
+
+  save(account: Account): void {
+    this.rows.set(account.id, account);
+  }
+}
+
+// --- Standing Party -------------------------------------------------------
 
 export interface StandingPartyRepository {
   get(id: string): StandingParty | undefined;
@@ -35,10 +58,14 @@ export class InMemoryStandingPartyRepository implements StandingPartyRepository 
   }
 }
 
+// --- Unit Instance --------------------------------------------------------
+
 export interface UnitInstanceRepository {
   get(id: string): UnitInstance | undefined;
   listByCaravan(caravanId: string): readonly UnitInstance[];
   save(instance: UnitInstance): void;
+  /** Remove a unit instance from the store (used by merge to consume units). */
+  delete(id: string): void;
 }
 
 export class InMemoryUnitInstanceRepository implements UnitInstanceRepository {
@@ -55,7 +82,13 @@ export class InMemoryUnitInstanceRepository implements UnitInstanceRepository {
   save(instance: UnitInstance): void {
     this.rows.set(instance.id, instance);
   }
+
+  delete(id: string): void {
+    this.rows.delete(id);
+  }
 }
+
+// --- Replay ---------------------------------------------------------------
 
 export interface ReplayRepository {
   get(id: string): Replay | undefined;
@@ -77,6 +110,8 @@ export class InMemoryReplayRepository implements ReplayRepository {
   }
 }
 
+// --- Resolution Record ----------------------------------------------------
+
 export interface ResolutionRecordRepository {
   save(record: ResolutionRecord): void;
   listByParty(partyId: string): readonly ResolutionRecord[];
@@ -93,6 +128,8 @@ export class InMemoryResolutionRecordRepository implements ResolutionRecordRepos
     return this.rows.filter((r) => r.partyId === partyId);
   }
 }
+
+// --- Access ---------------------------------------------------------------
 
 export interface AccessRepository {
   getForAccount(accountId: string): UnlockedAccess;
@@ -114,5 +151,29 @@ export class InMemoryAccessRepository implements AccessRepository {
         trapTypeIds: new Set(),
       }
     );
+  }
+}
+
+// --- Ledger ---------------------------------------------------------------
+
+export interface LedgerRepository {
+  append(event: LedgerEvent): void;
+  listByAccount(accountId: string): readonly LedgerEvent[];
+  all(): readonly LedgerEvent[];
+}
+
+export class InMemoryLedgerRepository implements LedgerRepository {
+  private rows: LedgerEvent[] = [];
+
+  append(event: LedgerEvent): void {
+    this.rows.push(event);
+  }
+
+  listByAccount(accountId: string): readonly LedgerEvent[] {
+    return this.rows.filter((e) => e.accountId === accountId);
+  }
+
+  all(): readonly LedgerEvent[] {
+    return [...this.rows];
   }
 }
