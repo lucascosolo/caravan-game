@@ -91,11 +91,23 @@ The client **never runs the simulation** — it renders a stored log.
 
 ## Build / test / run
 
-*Nothing is implemented yet — chunk 01 sets this up and fills this in.*
+npm workspaces, four packages/apps: `packages/resolver`, `packages/content`,
+`apps/server`, `apps/web` (not yet started). Node 20+.
 
 ```
-# install       — TBD
-# run (dev)     — TBD
-# test          — TBD
-# resolver determinism harness — TBD (chunk 13; this one matters most)
+npm install              # installs and links all workspaces
+npm test                 # vitest run, across every package/app
+npx vitest                # watch mode
+npm run typecheck        # tsc -b — project-referenced, incremental
+npm run build             # tsc -b each package/app to dist/
 ```
+
+Tests resolve `@caravan/content` and `@caravan/resolver` straight to their
+`src/` via a Vitest alias (see `vitest.config.ts`), so `npm test` never
+depends on a prior build. `npm run build` is what production and any
+non-Vitest consumer use — it populates each package's `dist/` from its
+`package.json` `main`/`types`.
+
+Standing raid party tests live in `apps/server/src/__tests__/`; the resolver's
+determinism harness (still a stub pending chunks 10-13) lives at
+`packages/resolver/src/index.test.ts`.

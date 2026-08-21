@@ -1,0 +1,8 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/resolver" },
+    { "path": "packages/content" },
+    { "path": "apps/server" }
+  ]
+}
