@@ -1711,3 +1711,40 @@ Conflicts and how they were resolved:
   hand the resolver the UNSCALED rating (ratings never scale, only HP and damage output —
   `roadmap/qa/03-punchlist.md` B1). `screens/trail/stats.ts` now shows the type's defense
   and the manifest's (merge-scaled) HP; `stats.test.ts` pins both.
+### 2026-10-11 — Chunk 14 QA round 1, fixer half: S1, S2, S3, S6, N3, N4, N5 closed; D1–D3 recorded
+
+Fixer worked in worktree `agent-a51623e635a344309` off `roadmap/phase-2-spec` @ `1b8ad8a`
+(Record chunk 14 QA punch list). The chunk 25 Maker is closing B1, B2, S4, S5, N1, N2
+concurrently in `authored.ts`, band.ts's authored allowance, `routes/auth.ts`, migration
+009's `is_system` bits and the seed — none of those were touched here. The one band.ts
+change is the gap computation (`gapBeyondBand`), as the split allowed.
+
+- **S1** `enqueueEncounterResolution` requires `party`; the live-snapshot fallback is
+  deleted (omitting it throws a TypeError before any write; a snapshot of another owner is
+  refused). Chunk 02 tests (`jobs`, `concurrency`, `qa02-regressions`, `party`) take their
+  own `snapshotStandingParty` inside the enqueuing transaction.
+- **S2** `loadPool` bounds the scan in SQL: `pp.reputation BETWEEN centre ∓
+  REPUTATION_BAND_WIDTH_MAX OR a.is_system`; migration 009 adds `pool_progress
+  (pool, reputation)` (down drops it). The stored pool is the subset; replay stays exact.
+- **S3** `gapBeyondBand(gap, band_width_used)`; every candidate carries
+  `reputation.gapBeyondBand` and its `sandbagEarnMultiplier` is computed from it. Tests:
+  pure sweep over every width; a ±550 widening pays `FIXED_ONE` where the raw gap would
+  have been floored; the fresh-player n = 6 path pays `FIXED_ONE`; the far authored
+  fallback is floored and labelled.
+- **S6** "From chunk 14" blocks appended to `chunks/15-trip-loop.md` and
+  `chunks/19-stakes-and-loss.md` (`applyEarnFloor` named as chunk 19's single apply site).
+- **N3** `snapshots.ts` header: skip-at-generation, never re-scout. **N4** client view built
+  from `CandidateView` (owner = `{displayName, authored}`), `skippedPartyIds` row-only;
+  `snapshot.ownerAccountId` still published (flagged in the chunk file). **N5**
+  `authoredShare {authored, of, shareBp, maxShareBp}`; `usedAuthoredFallback` →
+  `authoredOutsideBand` in the view only.
+- **D1–D3** recorded in the chunk 14 file ("QA round 1"); PHASE-2 §25's QA check amended
+  per D3. Punch list items marked `[closed]` / `[recorded]`. `INDEX.md` untouched (the
+  coordinator flips the status after the chunk 25 half lands and the re-audit).
+
+**Test command:** `cd apps/server && TEST_DATABASE_URL=postgres://caravan:caravan@localhost:5432/caravan_test_f14 npx vitest run`
+→ 24 files, 461 tests passing (was 438; `matchmaking.test.ts` 20, `matchmaking-pure.test.ts`
+17). `pnpm typecheck`, `pnpm lint`, `pnpm test:boundary` clean. Observation, not a change:
+`packages/circle test/formation.test.ts` "QA S8 … capped at MAX_ISSUES" failed once under
+the full parallel `pnpm test` run (timing, 118 ms) and passed on every rerun of the
+package alone — a flaky duration assertion, chunk 07's file.

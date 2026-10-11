@@ -8,6 +8,7 @@ import { withTransaction } from "../src/db/pool.js";
 import type { ResolutionJobRow } from "../src/db/types.js";
 import { DEFAULT_HANDLERS, PLACEHOLDER_HANDLERS, enqueueEncounterResolution } from "../src/jobs/handlers/encounterResolution.js";
 import { JobInputConflictError, countJobsByStatus, encounterJobId, enqueueJob, getJob, leaseNextJob, lockJobForCompletion } from "../src/jobs/queue.js";
+import { snapshotStandingParty } from "../src/jobs/snapshots.js";
 import { JOB_MAX_ATTEMPTS } from "../src/jobs/tunables.js";
 import { drain, dryRunJob, runOnce, verifyJobReplay, type HandlerRegistry } from "../src/jobs/worker.js";
 import { canonicalJson, type Json } from "../src/ledger/events.js";
@@ -41,7 +42,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const retryBackoffMs = () => 0;
 
 async function enqueueEncounter(tripId: string, encounterIndex = 0, formation: Record<string, Json> = { fences: [{ x: 1, y: 2 }], traps: [], posts: [] }) {
-  return withTransaction(pool, (c) =>
+  // Chunk 14 QA S1: the enqueue takes the pre-taken party snapshot; bypassing matchmaking, this test takes its own.
+  return withTransaction(pool, async (c) =>
     enqueueEncounterResolution(c, {
       tripId,
       encounterIndex,
@@ -49,6 +51,7 @@ async function enqueueEncounter(tripId: string, encounterIndex = 0, formation: R
       defenderCaravanId: defender.caravanId,
       partyOwnerAccountId: owner.accountId,
       formation,
+      party: await snapshotStandingParty(c, owner.accountId),
     }),
   );
 }

@@ -385,7 +385,7 @@ describe("THE GUARANTEE: a party is never consumed, never loses a unit, never de
   it("served into twelve resolutions, half of them annihilations: roster, party row and view are byte-identical; every job saw one identical snapshot", async () => {
     await Promise.all(
       defenders.map((d, i) =>
-        withTransaction(pool, (c) =>
+        withTransaction(pool, async (c) =>
           enqueueEncounterResolution(c, {
             tripId: `trail-${i}`,
             encounterIndex: i + 1,
@@ -393,6 +393,7 @@ describe("THE GUARANTEE: a party is never consumed, never loses a unit, never de
             defenderCaravanId: d.caravanId,
             partyOwnerAccountId: owner.accountId,
             formation: { fences: [], traps: [], posts: [] },
+            party: await snapshotStandingParty(c, owner.accountId),
           }),
         ),
       ),

@@ -1,6 +1,6 @@
 /**
- * The encounter-resolution job: enqueue side (snapshot + formation_committed event) and
- * the pure handler the worker runs.
+ * The encounter-resolution job: enqueue side (formation snapshot + the pre-taken party
+ * snapshot + formation_committed event) and the pure handler the worker runs.
  *
  * The handler's outcome is a PLACEHOLDER until the resolver is wired in (chunk 13). The
  * placeholder is exported for tests; the production DEFAULT_HANDLERS entry refuses to run
@@ -20,7 +20,7 @@ import type { JsonObject, LedgerEventDraft } from "../../ledger/events.js";
 import { canonicalJson, type Json } from "../../ledger/events.js";
 import { appendEvents, lockCaravanForResolution } from "../../ledger/ledger.js";
 import { JOB_KIND_ENCOUNTER_RESOLUTION, JobInputConflictError, NonRetryableJobError, encounterJobId, enqueueJob, getJob } from "../queue.js";
-import { snapshotFormation, snapshotStandingParty, type FormationSnapshot, type StandingPartySnapshot } from "../snapshots.js";
+import { snapshotFormation, type FormationSnapshot, type StandingPartySnapshot } from "../snapshots.js";
 import type { JobHandler } from "../worker.js";
 
 export interface EncounterJobInput extends JsonObject {
@@ -44,12 +44,14 @@ export interface EnqueueEncounterInput {
   formation: JsonObject;
   /**
    * Chunk 14: the party snapshot taken ONCE when the candidate menu was generated and
-   * stored on the chosen candidate. Stored into the job input as-is, so what the defender
-   * scouted is byte-for-byte what is fought; the live party is NOT re-resolved here, and
-   * its owner editing or losing units since the search changes nothing. Omitted only by
-   * the pre-chunk-14 path (chunk 02 tests), which snapshots live at enqueue.
+   * stored on the chosen candidate (`enqueueChosenEncounter`). Stored into the job input
+   * as-is, so what the defender scouted is byte-for-byte what is fought; the live party is
+   * NEVER re-resolved here, and its owner editing or losing units since the search changes
+   * nothing. REQUIRED (chunk 14 QA S1): there is no live-snapshot fallback, so no caller —
+   * chunk 15 included — can accidentally fight a party the defender did not scout. Tests
+   * that bypass matchmaking take their own snapshot with `snapshotStandingParty`.
    */
-  party?: StandingPartySnapshot;
+  party: StandingPartySnapshot;
 }
 
 /**
@@ -76,10 +78,13 @@ export async function enqueueEncounterResolution(
     }
     return { job: existing, created: false };
   }
-  if (input.party && input.party.ownerAccountId !== input.partyOwnerAccountId) {
+  if (!input.party || typeof input.party !== "object") {
+    throw new TypeError(`encounter ${id}: a party snapshot is required; pass the chosen candidate's snapshot (enqueueChosenEncounter) — there is no live re-resolve at commit`);
+  }
+  if (input.party.ownerAccountId !== input.partyOwnerAccountId) {
     throw new Error(`party snapshot belongs to account ${input.party.ownerAccountId}, not ${input.partyOwnerAccountId}`);
   }
-  const party = input.party ?? (await snapshotStandingParty(client, input.partyOwnerAccountId));
+  const party = input.party;
   const jobInput: EncounterJobInput = {
     tripId: input.tripId,
     encounterIndex: input.encounterIndex,

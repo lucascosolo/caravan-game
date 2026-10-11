@@ -12,4 +12,5 @@ DROP TRIGGER IF EXISTS trip_guard_update ON trip;
 DROP TABLE IF EXISTS trip;
 DROP FUNCTION IF EXISTS trip_guard_delete();
 DROP FUNCTION IF EXISTS trip_guard_update();
+DROP INDEX IF EXISTS pool_progress_pool_reputation_idx;
 ALTER TABLE account DROP COLUMN IF EXISTS is_system;

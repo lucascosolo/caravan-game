@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withTransaction } from "../src/db/pool.js";
 import { PLACEHOLDER_HANDLERS, enqueueEncounterResolution } from "../src/jobs/handlers/encounterResolution.js";
 import { countJobsByStatus, enqueueJob, getJob, requeueParkedJob } from "../src/jobs/queue.js";
+import { snapshotStandingParty } from "../src/jobs/snapshots.js";
 import { drain, type HandlerRegistry, type RunOutcome } from "../src/jobs/worker.js";
 import { canonicalJson, type Json } from "../src/ledger/events.js";
 import { listEventsByCausation, listEventsForAccount } from "../src/ledger/ledger.js";
@@ -69,7 +70,7 @@ describe("one standing party served into many concurrent encounters", () => {
     // Enqueue all N concurrently (each in its own transaction), then run 4 workers at once.
     await Promise.all(
       defenders.map((d, i) =>
-        withTransaction(pool, (c) =>
+        withTransaction(pool, async (c) =>
           enqueueEncounterResolution(c, {
             tripId: `fan-${i}`,
             encounterIndex: 0,
@@ -77,6 +78,7 @@ describe("one standing party served into many concurrent encounters", () => {
             defenderCaravanId: d.caravanId,
             partyOwnerAccountId: ownerId,
             formation: { fences: [{ x: 0, y: 0 }], traps: [], posts: [] },
+            party: await snapshotStandingParty(c, ownerId),
           }),
         ),
       ),

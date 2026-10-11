@@ -151,3 +151,36 @@ Implementing this backwards would invert the game's central risk decision.
   the owner should see the opponent's rating, a band, or nothing — and if less than the
   raw number, filter at the read model, not by removing the field from the ledger (the
   ledger is the auditable record). No change was made in chunk 04.
+
+## From chunk 14 (matchmaking & scouting) — what this chunk must apply
+
+Chunk 14 computes and publishes; this chunk is the only place these take effect on Coin.
+
+- **Authored (system-account) owners, PHASE-2 §25.** The chosen candidate's owner may be a
+  system account (`account.is_system`; the candidate view says `owner.authored: true`, the
+  stored row carries `owner.accountId`). For such an owner: **destroy** Coin the caravan
+  loses instead of transferring it (no `coin_transferred_to_party_owner` to a system
+  account, ever — write a destruction event under the same causation id so the sum still
+  reconciles), **mint nothing** the party would have "earned", and **skip the owner's
+  Reputation change** (the caravan's own change still applies; chunk 04's writer takes the
+  opponent rating as a number and must not be fed a system account's row). The resolver
+  never sees the flag; it is read here, at the outcome boundary, only.
+- **The sandbagging earn floor (chunk 04 QA D2, chunk 14 QA D2/S3).** Every candidate
+  carries `reputation.sandbagEarnMultiplier` (fixed-point, `FIXED_ONE` = full), computed by
+  `sandbagEarnMultiplier(gapBeyondBand(caravanLiving − ownerSiege, band_width_used))` in
+  `matchmaking/band.ts`: only the gap BEYOND the half-width the search widened to counts,
+  so a party the server had to widen to is paid in full and only the authored-outside-band
+  fallback can be floored. Apply it to Coin earned for the encounter through **one
+  exported function, `applyEarnFloor(coinEarned, multiplier)`** (integer fixed-point:
+  `floor(coin × multiplier / FIXED_ONE)`), reading the multiplier from the CHOSEN candidate
+  row (`chosenCandidate(db, tripId, n).reputation.sandbagEarnMultiplier`) — not recomputed
+  from live ratings, so what the player saw before committing is what is applied. It
+  reduces earn only; it never touches what is lost, transferred or de-merged.
+- **Tests this chunk owes:** (1) a system-account owner receives no Coin and no
+  Reputation change while the caravan's side resolves normally; (2) `applyEarnFloor` is the
+  single apply site (a source scan that `sandbagEarnMultiplier` is read nowhere else in
+  `src/` outside `matchmaking/`); (3) the multiplier applied equals the one on the chosen
+  candidate row, including `FIXED_ONE` for a widened-to party; (4) the floor is identical
+  for every account (no purchase/entitlement read anywhere on the path).
+- **Checklist addition:** `applyEarnFloor` is named in this chunk's QA checklist as the
+  one place the earn floor lands.

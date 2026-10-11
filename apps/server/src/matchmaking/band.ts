@@ -114,6 +114,20 @@ export function sandbagEarnMultiplier(gap: number): Fixed {
   return Math.max(SANDBAG_EARN_MULT_MIN, scaled) as Fixed;
 }
 
+/**
+ * Chunk 14 QA S3: the part of a rating gap the DEFENDER can be held to. A search widens
+ * on its own when the pool is thin (and the centre is escalated per encounter), so a party
+ * up to `bandWidthUsed` below the caravan was the server's choice, not the player's: only
+ * the gap BEYOND the half-width the successful pass used feeds the sandbagging floor. Every
+ * party served from inside the band therefore pays in full; only the authored-outside-band
+ * fallback can still be floored, and the candidate shows that before the player commits.
+ */
+export function gapBeyondBand(gap: number, bandWidthUsed: number): number {
+  if (!Number.isInteger(gap)) throw new RangeError("gap must be an integer");
+  if (!Number.isInteger(bandWidthUsed) || bandWidthUsed < 0) throw new RangeError("bandWidthUsed must be a non-negative integer");
+  return Math.max(0, gap - bandWidthUsed);
+}
+
 /** One party as the draw sees it. Nothing else about a party or its owner enters selection. */
 export interface PoolEntry {
   readonly partyId: string;
