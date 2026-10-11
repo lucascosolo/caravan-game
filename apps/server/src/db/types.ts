@@ -43,6 +43,22 @@ export interface UnitInstanceRow {
   created_at: Date;
 }
 
+/** Chunk 18: one refugee menu (see migration 006). jsonb columns come back parsed. */
+export interface RefugeeMenuRow {
+  caravan_id: string;
+  sequence: number;
+  origin: "free" | "reroll";
+  window_sequence: number;
+  seed: number;
+  pool_type_ids: string[];
+  offered_type_ids: string[];
+  generated_at_ms: number;
+  claimed_type_id: string | null;
+  claimed_instance_id: string | null;
+  claimed_at_ms: number | null;
+  created_at: Date;
+}
+
 export interface SessionRow {
   id: string;
   account_id: string;

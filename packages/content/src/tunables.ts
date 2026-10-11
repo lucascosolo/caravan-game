@@ -368,6 +368,52 @@ export const TUNABLES = {
   COIN_OVERFLOW_BEHAVIOR: "discard_with_warning",
 
   // ────────────────────────────────────────────────────────────────────────────────────
+  // Chunk 18 — unit acquisition: refugee drip and mercenary recruit (GUARDRAILS §3).
+  // Both paths grant LEVEL-1 instances of types the caravan has ALREADY reached in its
+  // living web; nothing here can widen that pool. Coin buys pace and certainty only.
+  // ────────────────────────────────────────────────────────────────────────────────────
+
+  /** TUNABLE (chunk 18). The free refugee timer: a fresh menu of offers every 90 minutes. */
+  REFUGEE_REFRESH_INTERVAL_MINUTES: 90,
+  /** Fixed by design (chunk 18). A refugee menu offers exactly this many types; the player takes exactly one. */
+  REFUGEE_OFFER_COUNT: 3,
+  /**
+   * TUNABLE (chunk 18). Coin cost of the Nth reroll within one free-refresh window
+   * (index 0 = first reroll). Past the end of the table the LAST value repeats. The window
+   * — and so the index — resets on every free refresh. A reroll buys a SOONER menu from
+   * the SAME unlocked pool, never a wider or better one.
+   */
+  REFUGEE_REROLL_COST_SCHEDULE: [150, 300, 600],
+  /**
+   * Fixed by design (chunk 18). Offers are drawn uniformly, without replacement, from the
+   * caravan's unlocked living pool sorted by type id; when the pool holds fewer types than
+   * REFUGEE_OFFER_COUNT the remaining slots are drawn uniformly WITH replacement from the
+   * same pool, so a menu is always exactly REFUGEE_OFFER_COUNT offers. No type is ever
+   * weighted up, down, or excluded while it is unlocked.
+   */
+  REFUGEE_OFFER_WEIGHTING: "uniform_without_replacement",
+  /**
+   * Fixed by design (chunk 18). The menu seed is derived from (caravan id, refresh sequence
+   * number) by FNV-1a (32-bit) over `<caravan id>:<sequence>`, then drawn with xorshift32 —
+   * integer-only and stored with the menu so QA can replay any menu ever offered.
+   */
+  REFUGEE_OFFER_SEED: "fnv1a32(caravanId:sequence)",
+  /**
+   * TUNABLE (chunk 18). Coin for one guaranteed level-1 copy of any unlocked type. ALWAYS
+   * available for every unlocked type: no cooldown, no daily limit, no per-type restriction —
+   * this is the safety valve that makes the refugee drip's randomness acceptable.
+   */
+  MERCENARY_COST_BASE: 600,
+  /** Fixed in MVP (chunk 18). No scaling of the mercenary cost; if any is ever added it must never make a type unobtainable. */
+  MERCENARY_COST_SCALING: "none",
+  /**
+   * TUNABLE (chunk 18). Storage guard on unit instances per caravan — generous on purpose
+   * (a full 8-slot level-5 circle needs 128 level-1 copies in total, far fewer at once) so
+   * it never blocks acquisition in practice. Not a balance lever.
+   */
+  UNIT_INVENTORY_CAP: 200,
+
+  // ────────────────────────────────────────────────────────────────────────────────────
   // Merge recipes (PROJECT.md §7). Fixed by design; listed so the guardrail test can read them.
   // ────────────────────────────────────────────────────────────────────────────────────
   MERGE_RECIPES: [

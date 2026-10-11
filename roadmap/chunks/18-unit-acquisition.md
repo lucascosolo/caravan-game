@@ -1,6 +1,6 @@
 # Chunk 18 — Unit acquisition: refugee drip & mercenary recruit
 
-**Depends on:** 05, 16. **Status:** not started.
+**Depends on:** 05, 16. **Status:** built (2026-10-11); awaiting QA.
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 ## Goal
@@ -67,20 +67,20 @@ recovery must be real, not theoretical.
 
 ## Definition of done
 
-- [ ] Refugee drip: 3 offers from the unlocked pool, free timer refresh, player picks one.
-- [ ] Coin reroll for refugee: costs Coin, yields a new set of 3 **from the same
+- [x] Refugee drip: 3 offers from the unlocked pool, free timer refresh, player picks one.
+- [x] Coin reroll for refugee: costs Coin, yields a new set of 3 **from the same
       unlocked pool**, does not widen or improve the pool.
-- [ ] Mercenary recruit: exact type pick, Coin cost, guaranteed, **available for every
+- [x] Mercenary recruit: exact type pick, Coin cost, guaranteed, **available for every
       unlocked type at all times** with no cooldown or limit.
-- [ ] **Both paths validated server-side against `hasAccess` from chunk 05.** A direct
+- [x] **Both paths validated server-side against `hasAccess` from chunk 05.** A direct
       API call naming an un-unlocked type is rejected on both paths. Filtering the UI
       list is not enough.
-- [ ] Refugee menu generation is seeded and reproducible; the same seed yields the same 3.
-- [ ] Once the menu is shown, the player's pick determines the result with no further
+- [x] Refugee menu generation is seeded and reproducible; the same seed yields the same 3.
+- [x] Once the menu is shown, the player's pick determines the result with no further
       randomness.
-- [ ] Grants are level-1, caravan-scoped, written to the ledger.
-- [ ] Costs and the full offer are shown before commit.
-- [ ] A rebuild-a-wiped-type walkthrough exists as a test or documented scenario,
+- [x] Grants are level-1, caravan-scoped, written to the ledger.
+- [x] Costs and the full offer are shown before commit.
+- [x] A rebuild-a-wiped-type walkthrough exists as a test or documented scenario,
       showing the Coin and time required.
 
 ## QA guardrail checks for this chunk
@@ -109,3 +109,58 @@ recovery must be real, not theoretical.
 - **Legibility:** are reroll cost, mercenary cost, and the full offer set visible
   before committing?
 - **Split correctness:** unit instances are caravan-level, Coin is account-level.
+
+## Build notes (Maker, 2026-10-11)
+
+**Where it lives.** `apps/server/src/acquisition/{refugeeMenu,grant,refugees,recruit,index}.ts`,
+`apps/server/src/routes/acquisition.ts` (registered in `app.ts`), migration
+`006_refugee_menu`, chunk 18 block in `packages/content/src/tunables.ts`, tests in
+`apps/server/test/acquisition.test.ts` (41).
+
+**Routes.** `GET /me/caravans/:id/refugees` (menu, timer, next reroll cost, balance,
+inventory); `POST .../refugees/claim {unitTypeId, sequence?}`; `POST .../refugees/reroll
+{fromSequence?}`; `GET /me/caravans/:id/recruit` (every unlocked type at its cost, locked
+types listed as not for sale); `POST .../recruit {unitTypeId, requestId?}`. 201 on a new
+instance / menu, 200 on a replay. Foreign caravan → 404 (chunk 16's convention).
+
+**The boundary.** `grant.ts#grantUnit` is the only INSERT into `unit_instance` in the
+module and calls chunk 05's `hasAccess` immediately before it, inside the transaction,
+under the account append lock. A stored menu row is NOT trusted as proof of access: a
+tampered row offering a locked type is still refused (tested). Refusal code for a locked
+node, another region's unit, or a type nobody has: 409 `not_unlocked`.
+
+**Determinism.** Seed = fnv1a32(`<caravan id>:<sequence>`), draw = xorshift32 with
+rejection sampling (no modulo bias), partial Fisher–Yates over the pool sorted by type id;
+with-replacement only for slots beyond the pool size (a fresh caravan has 2 starters and
+still sees exactly 3 offers). The row stores seed + the pool it drew from + the offers, and
+`replayMenu(row)` regenerates and compares. The clock enters only as `generated_at_ms`
+for "is the free timer up".
+
+**Timer semantics (assumptions).** Lazy: the first read/claim/reroll after the interval
+generates ONE new free menu (no stockpiling), anchored at that moment; it replaces the
+current menu whether or not it was claimed and resets the reroll window. Rerolls never move
+the free timer. A due free refresh is served before a reroll is charged. Rerolling an
+unclaimed menu forfeits its offers (the view says so: `forfeitsUnclaimedOffer`). Past the
+end of `REFUGEE_REROLL_COST_SCHEDULE` the last value (600) repeats until the next free
+refresh.
+
+**Idempotency.** Claim causation `refugee_claim:<caravan>:<sequence>` (8 concurrent
+claims → 1 instance); reroll `refugee_reroll:<caravan>:<from>` (retry with the same
+`fromSequence` charged once); recruit `recruit:<caravan>:<requestId>` when the client
+sends one, else a fresh uuid per purchase (buying the same type repeatedly is legitimate:
+no cooldown, no limit).
+
+**On-trip caravans may acquire.** The instance joins the town roster, never the
+trip-locked manifest (chunk 07), so nothing is resupplied mid-trip. Chunk 15 should keep
+reading the trip's units from the manifest, not from `unit_instance`.
+
+**Rebuild walkthrough (tested).** A level-3 unit from zero via mercenary: 4 × 600 +
+2 × 250 + 900 = 3 800 Coin = 19 h of trickle, or about one banked 5-encounter trip
+(3 782). Free path with the whole 8-node web reached: a given type is on 3/8 of menus, so
+4 copies ≈ 16 h of free menus (+ 1 400 merge Coin, 7 h of trickle, overlapping); with only
+the 2 starters reached the type is on every menu: 6 h. Recovery is real.
+
+**Grind wall (for QA).** The refugee drip gives one free level-1 every 90 min (16/day) when
+the pool is ≤ 3 types; at 8 types the wanted type arrives every 4 h on average. A reroll
+at 150/300/600 is 0.75/1.5/3 h of trickle; a mercenary at 600 is 3 h. The paid path is a
+convenience against a free path that is itself fast; nothing is gated on paying.
