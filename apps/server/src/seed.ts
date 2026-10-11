@@ -13,8 +13,14 @@ import { listCaravansForAccount } from "./repo/caravans.js";
 import { createUnitInstance } from "./repo/unitInstances.js";
 import { registerAccount } from "./services/onboarding.js";
 
-export const SEED_USERNAME = "dev";
-export const SEED_PASSWORD = "devpassword";
+/**
+ * Chunk 08: SEED_USERNAME / SEED_PASSWORD may be overridden from the environment so the
+ * formation e2e can seed a run-unique account with the same roster (its trip state — a
+ * locked manifest, a committed formation — is never reset, so a fresh account per run is
+ * the only way to start from "in town"). Defaults are the dev account.
+ */
+export const SEED_USERNAME = process.env["SEED_USERNAME"] ?? "dev";
+export const SEED_PASSWORD = process.env["SEED_PASSWORD"] ?? "devpassword";
 export const SEED_REGION = REGIONS[0].id;
 
 // Real unit type ids from @caravan/content (chunk 03). Desert roster: two scouts-equivalent

@@ -8,7 +8,9 @@
  *
  * Every non-2xx response becomes an `ApiError` carrying the server's exact `{error,
  * message}` body, so a screen can surface the real reason (a 409 `insufficient_points`
- * says how many points the node costs and how many are available).
+ * says how many points the node costs and how many are available). The error's `issues`
+ * (chunk 07's per-entry validation list) and the whole `body` (chunk 14's `reroll_cooldown`
+ * carries `availableAtMs`) ride along, so a screen can show every particular exactly.
  *
  * Every 2xx body is checked against its shape (shapes.ts, QA-06 B1) before a screen sees
  * it: a body that is not JSON, or JSON of the wrong shape, becomes `ApiError(0,
@@ -17,8 +19,23 @@
  * threw) or `bad_payload`; `ErrorBox` (src/shell) words both for the player.
  */
 import { ShapeError, expectShape, type Guard } from "./shape.ts";
-import { authShape, meShape, progressionShape, spendResultShape, unlocksShape } from "./shapes.ts";
-import type { AuthResponse, ApiErrorBody, MeResponse, ProgressionResponse, SpendRequest, SpendResult, UnlocksResponse } from "./types.ts";
+import { authShape, choiceShape, formationShape, manifestShape, meShape, menuShape, progressionShape, spendResultShape, unlocksShape } from "./shapes.ts";
+import type {
+  AuthResponse,
+  ApiErrorBody,
+  CandidateMenuResponse,
+  ChoiceView,
+  FormationBody,
+  FormationResponse,
+  IssueView,
+  ManifestResponse,
+  MeResponse,
+  PackManifestRequest,
+  ProgressionResponse,
+  SpendRequest,
+  SpendResult,
+  UnlocksResponse,
+} from "./types.ts";
 
 export const API_BASE: string = import.meta.env.VITE_API_BASE ?? "/api";
 
@@ -34,6 +51,10 @@ export class ApiError extends Error {
     message: string,
     /** Developer-facing particulars (a payload path, a thrown error's text); shown small under the code. */
     public readonly detail?: string,
+    /** Chunk 07's validation errors carry every issue at once; surfaced exactly, never summarized. */
+    public readonly issues: readonly IssueView[] = [],
+    /** The whole error body as the server sent it (chunk 14's `reroll_cooldown` carries `availableAtMs`). */
+    public readonly body: Readonly<Record<string, unknown>> = {},
   ) {
     super(message);
     this.name = "ApiError";
@@ -63,10 +84,27 @@ export interface Api {
   unlocks(): Promise<UnlocksResponse>;
   progression(): Promise<ProgressionResponse>;
   spendUnlock(req: SpendRequest): Promise<SpendResult>;
+  // Wagon circle (chunk 07 routes). All owner-only; a foreign caravan is a 404.
+  packManifest(caravanId: string, req: PackManifestRequest): Promise<ManifestResponse>;
+  manifest(caravanId: string): Promise<ManifestResponse>;
+  saveFormation(caravanId: string, encounterIndex: number, formation: FormationBody): Promise<FormationResponse>;
+  formation(caravanId: string, encounterIndex: number): Promise<FormationResponse>;
+  commitFormation(caravanId: string, encounterIndex: number): Promise<FormationResponse>;
+  // Matchmaking & scouting (chunk 14 routes). The reroll is free and time-gated: a 409
+  // `reroll_cooldown` carries `availableAtMs` in `ApiError.body`; nothing here can shorten it.
+  searchCandidates(caravanId: string, encounterIndex: number): Promise<CandidateMenuResponse>;
+  candidates(caravanId: string, encounterIndex: number): Promise<CandidateMenuResponse>;
+  chooseCandidate(caravanId: string, encounterIndex: number, candidateId: string): Promise<ChoiceView>;
 }
 
 function isErrorBody(value: unknown): value is ApiErrorBody {
   return typeof value === "object" && value !== null && typeof (value as ApiErrorBody).error === "string";
+}
+
+function isIssue(value: unknown): value is IssueView {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return typeof v["code"] === "string" && typeof v["message"] === "string" && (v["subject"] === undefined || typeof v["subject"] === "string");
 }
 
 export function createApi(opts: ApiOptions): Api {
@@ -99,7 +137,10 @@ export function createApi(opts: ApiOptions): Api {
     }
     if (!res.ok) {
       if (res.status === 401) opts.onUnauthorized?.();
-      if (isErrorBody(parsed)) throw new ApiError(res.status, parsed.error, parsed.message);
+      if (isErrorBody(parsed)) {
+        const issues = Array.isArray(parsed.issues) ? parsed.issues.filter(isIssue) : [];
+        throw new ApiError(res.status, parsed.error, parsed.message, undefined, issues, parsed as unknown as Record<string, unknown>);
+      }
       throw new ApiError(res.status, "http_error", `${res.status} ${res.statusText}`.trim());
     }
     if (shape === null) return undefined as T;
@@ -111,6 +152,8 @@ export function createApi(opts: ApiOptions): Api {
     }
   }
 
+  const caravans = (caravanId: string): string => `/caravans/${encodeURIComponent(caravanId)}`;
+
   return {
     register: (input) => request("POST", "/auth/register", authShape, input),
     login: (username, password) => request("POST", "/auth/login", authShape, { username, password }),
@@ -119,5 +162,13 @@ export function createApi(opts: ApiOptions): Api {
     unlocks: () => request("GET", "/me/unlocks", unlocksShape),
     progression: () => request("GET", "/me/progression", progressionShape),
     spendUnlock: (req) => request("POST", "/me/unlocks/spend", spendResultShape, req),
+    packManifest: (caravanId, req) => request("POST", `${caravans(caravanId)}/manifest`, manifestShape, req),
+    manifest: (caravanId) => request("GET", `${caravans(caravanId)}/manifest`, manifestShape),
+    saveFormation: (caravanId, n, formation) => request("PUT", `${caravans(caravanId)}/encounters/${n}/formation`, formationShape, formation),
+    formation: (caravanId, n) => request("GET", `${caravans(caravanId)}/encounters/${n}/formation`, formationShape),
+    commitFormation: (caravanId, n) => request("POST", `${caravans(caravanId)}/encounters/${n}/formation/commit`, formationShape),
+    searchCandidates: (caravanId, n) => request("POST", `/me${caravans(caravanId)}/encounters/${n}/search`, menuShape),
+    candidates: (caravanId, n) => request("GET", `/me${caravans(caravanId)}/encounters/${n}/candidates`, menuShape),
+    chooseCandidate: (caravanId, n, candidateId) => request("POST", `/me${caravans(caravanId)}/encounters/${n}/choose`, choiceShape, { candidateId }),
   };
 }

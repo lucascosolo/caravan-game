@@ -54,7 +54,10 @@ To add a route:
    whose answer carries nothing (204 / empty).
 
 Status 0 on an `ApiError` means "no usable answer": `code` is `network` (fetch threw) or
-`bad_payload`. Any other status carries the server's exact `{error, message}`.
+`bad_payload`. Any other status carries the server's exact `{error, message}`, plus `issues`
+(chunk 07's per-entry validation list, `[]` otherwise) and `body` (the whole error body, so a
+409 `reroll_cooldown` keeps its `availableAtMs`). A body @caravan/circle already parses
+strictly (manifest, formation) is guarded by that parser, wrapped as a `Guard` in `shapes.ts`.
 
 ### 2. Error presentation: `ErrorBox` + `ErrorBoundary` (`src/shell`)
 
