@@ -2,7 +2,7 @@
  * Test fixtures shaped exactly like the server's responses (chunk 05 view.ts / spend.ts,
  * chunk 04 progression view). A fake fetch routes by method + path.
  */
-import type { MeResponse, ProgressionResponse, UnlockNodeView, UnlocksResponse, UnlockWebView } from "../api/types.ts";
+import type { MeResponse, ProgressionResponse, SpendResult, UnlockNodeView, UnlocksResponse, UnlockWebView } from "../api/types.ts";
 
 export const ACCOUNT_ID = "11111111-1111-4111-8111-111111111111";
 export const CARAVAN_ID = "22222222-2222-4222-8222-222222222222";
@@ -104,6 +104,12 @@ export function unlocksResponse(state: FixtureState = {}): UnlocksResponse {
       mk("living", LIVING_SPECS, state.livingPurchased ?? [], state.livingGranted ?? 1),
     ],
   };
+}
+
+/** What `POST /me/unlocks/spend` answers, built from the post-spend fixture state. */
+export function spendResult(pool: "living" | "trap" | "siege", nodeId: string, stateAfter: FixtureState): SpendResult {
+  const web = unlocksResponse(stateAfter).webs.find((x) => x.pool === pool)!;
+  return { created: true, webId: web.id, pool, node: web.nodes.find((n) => n.id === nodeId)!, points: web.points, nodes: web.nodes };
 }
 
 export function progressionResponse(): ProgressionResponse {

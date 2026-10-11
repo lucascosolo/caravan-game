@@ -10,19 +10,22 @@ import { defineConfig, devices } from "@playwright/test";
  *   pnpm --filter @caravan/web build && pnpm --filter @caravan/web e2e
  *
  * CARAVAN_API_URL (default http://127.0.0.1:3000) points the preview proxy at the server.
+ * E2E_WEB_PORT (default 4173) is the preview port, so two checkouts can run side by side.
  */
+const webPort = Number(process.env["E2E_WEB_PORT"] ?? 4173);
+
 export default defineConfig({
   testDir: "./e2e",
   timeout: 30_000,
   retries: 0,
   reporter: [["list"]],
   use: {
-    baseURL: "http://127.0.0.1:4173",
+    baseURL: `http://127.0.0.1:${webPort}`,
     ...devices["Pixel 5"], // portrait phone viewport: the primary target (PHASE-2 §34)
   },
   webServer: {
-    command: "pnpm exec vite preview --port 4173 --strictPort",
-    url: "http://127.0.0.1:4173",
+    command: `pnpm exec vite preview --port ${webPort} --strictPort`,
+    url: `http://127.0.0.1:${webPort}`,
     reuseExistingServer: false,
     timeout: 30_000,
   },

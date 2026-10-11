@@ -82,14 +82,15 @@ export function WebGraph({ web, selectedId, onSelect }: WebGraphProps): JSX.Elem
     <div className="graph" ref={containerRef} role="group" aria-label={STRINGS.webs.graphLabel(STRINGS.webs.poolName(web.pool))}>
       <svg className="graph__edges" aria-hidden="true" focusable="false">
         {edges.map((e) => (
-          <path key={`${e.from}->${e.to}`} className={`graph__edge${e.met ? " graph__edge--met" : ""}`} d={e.d} />
+          // Met edges are solid; unmet ones dashed as well as grey (QA-06 N2: never colour only).
+          <path key={`${e.from}->${e.to}`} className={`graph__edge ${e.met ? "graph__edge--met" : "graph__edge--unmet"}`} data-met={e.met} d={e.d} />
         ))}
       </svg>
       {tiersOf(web.nodes).map((row) => (
         <div key={row[0]!.tier} className="graph__tier" data-tier={row[0]!.tier}>
           <span className="graph__tierlabel">{STRINGS.webs.tier(row[0]!.tier)}</span>
           {row.map((n) => (
-            <NodeCard key={n.id} node={n} available={web.points.available} selected={selectedId === n.id} onSelect={onSelect} />
+            <NodeCard key={n.id} node={n} selected={selectedId === n.id} onSelect={onSelect} />
           ))}
         </div>
       ))}

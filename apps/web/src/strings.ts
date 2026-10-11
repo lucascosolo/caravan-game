@@ -9,6 +9,11 @@
  */
 import type { UnlockPool } from "./api/types.ts";
 
+/** What a node grants, for the kind-aware copy. Mirrors catalogue.ts's GrantKind. */
+export type GrantKindKey = "unit" | "trap" | "fence" | "siege";
+
+const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" : "s"}`;
+
 export const STRINGS = {
   app: {
     title: "Caravan Vaults",
@@ -17,6 +22,8 @@ export const STRINGS = {
     signOut: "Sign out",
     genericError: "Something went wrong.",
     networkError: "Could not reach the server.",
+    badPayload: "The server's answer could not be read. Nothing was changed.",
+    renderError: "This screen hit a problem and could not be drawn. Nothing was changed.",
   },
   tabs: {
     town: "Town",
@@ -54,30 +61,40 @@ export const STRINGS = {
     lblGranted: "granted",
     lblSpent: "spent",
     ladderLine: (level: number, cap: number): string => `Ladder rung ${level} of ${cap}`,
-    nextRung: (toGo: number, grants: number): string =>
-      `${toGo} ladder point${toGo === 1 ? "" : "s"} to the next rung, which grants ${grants} unlock point${grants === 1 ? "" : "s"}.`,
+    nextRung: (toGo: number, grants: number): string => `${plural(toGo, "ladder point")} to the next rung, which grants ${plural(grants, "unlock point")}.`,
     ladderCapped: "Ladder capped: every unlock point this pool will ever grant has been granted.",
     tier: (t: number): string => `Tier ${t}`,
     costFree: "Free · starting node",
-    cost: (n: number): string => `${n} pt${n === 1 ? "" : "s"}`,
+    cost: (n: number): string => plural(n, "pt"),
     requires: "Requires",
     requiresNone: "No prerequisites",
     stateReached: "Reached",
     stateAffordable: "Affordable",
     stateLocked: "Locked",
+    /** The server's `missing` list, by name. */
     lockedMissing: (names: string): string => `Needs ${names} first`,
-    lockedShort: (short: number): string => `${short} more point${short === 1 ? "" : "s"} needed`,
+    /** The server said not affordable and nothing is missing: it is the points. No arithmetic here (QA-06 S7). */
+    lockedPoints: "Not enough points yet",
     accessNote: "Reaching this node grants access to recruit or deploy this type. It does not give you one.",
-    accessGranted: "You have access to this type. Recruit it in town; this node gives no instance.",
-    unlockButton: (name: string, cost: number): string => `Unlock access to ${name} for ${cost} pt${cost === 1 ? "" : "s"}`,
+    accessGranted: (kind: GrantKindKey): string =>
+      ({
+        unit: "You have access to this unit type. Recruit it in town; this node gives no instance.",
+        trap: "You have access to this trap. Deploy it from the wagon-circle editor; this node gives no instance.",
+        fence: "You have access to this fence tier. Deploy it from the wagon-circle editor; this node gives no instance.",
+        siege: "You have access to this siege piece. Add it to your party; this node gives no instance.",
+      })[kind],
+    unlockButton: (name: string, cost: number): string => `Unlock access to ${name} for ${plural(cost, "pt")}`,
     confirmTitle: "Confirm unlock",
-    confirmBody: (name: string, cost: number, available: number): string =>
-      `Spend ${cost} of ${available} unlock points for access to ${name}? ${available - cost} will remain. Points are never refunded.`,
+    /** Cost and balance are the server's numbers from the fresh re-fetch; the remainder is quoted after the spend, from the server's answer. */
+    confirmBody: (name: string, cost: number, available: number): string => `Spend ${cost} of ${available} unlock points for access to ${name}? Points are never refunded.`,
     confirmYes: "Spend points",
     confirmNo: "Cancel",
     spending: "Spending…",
+    checking: "Checking…",
     spendFailed: "The server refused this unlock:",
-    spendDone: (name: string): string => `Access to ${name} unlocked.`,
+    spendDone: (name: string, remaining: number): string => `Access to ${name} unlocked. ${plural(remaining, "unlock point")} remain.`,
+    /** The re-fetch before the confirm found the node no longer affordable. */
+    spendStale: (name: string): string => `${name} is no longer affordable; the web was refreshed.`,
     close: "Close",
     detailsFor: (name: string): string => `${name} — details`,
     statsHeading: "Stats",
@@ -102,11 +119,23 @@ export const STRINGS = {
       damage: "Damage",
       effect: "Effect",
       effectNone: "None",
+      effectRoot: (duration: string): string => `Root for ${duration}`,
+      effectSlow: (magnitude: string, duration: string): string => `Slow ×${magnitude} for ${duration}`,
       category: "Category",
       segmentHp: "Segment HP",
       counters: "Counters",
+      countersValue: (category: string, kind: string): string => `${category} ${kind}s`,
       fenceTier: "Fence tier",
       charges: "Charges per battle",
+      radius: "Radius (cells)",
+      oneHit: (mult: string): string => `×${mult} one hit`,
+      heals: "Heals",
+      healsValue: (percent: string): string => `${percent}% of max HP`,
+      bonusDamage: "Bonus damage",
+      bonusValue: (bonus: string): string => `+${bonus}`,
+      duration: "Duration",
+      distance: "Distance (cells)",
+      fenceDamage: "Fence damage",
     },
     seconds: (s: string): string => `${s} s`,
     graphLabel: (pool: string): string => `${pool} unlock web`,

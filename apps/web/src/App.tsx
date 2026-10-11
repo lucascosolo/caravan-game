@@ -1,14 +1,21 @@
+import { useEffect } from "react";
 import { useSession, SessionProvider } from "./auth/session.tsx";
 import { LoginScreen } from "./screens/login/LoginScreen.tsx";
 import { Placeholder } from "./screens/Placeholder.tsx";
 import { WebsScreen } from "./screens/webs/WebsScreen.tsx";
 import { AppShell } from "./shell/AppShell.tsx";
-import { useRoute } from "./shell/router.tsx";
+import { ErrorBoundary } from "./shell/ErrorBoundary.tsx";
+import { navigate, useRoute } from "./shell/router.tsx";
 import { STRINGS } from "./strings.ts";
 
 function Routed(): JSX.Element {
   const { session, signOut } = useSession();
   const route = useRoute();
+  // `#/login` is not a screen once signed in (QA-06 N5): it becomes `#/town`, replaced so
+  // Back does not bounce through it. A deep link to any other route is kept across sign-in.
+  useEffect(() => {
+    if (session && route === "login") navigate("town", { replace: true });
+  }, [session, route]);
   if (!session) {
     return (
       <div className="shell">
@@ -44,7 +51,9 @@ function Routed(): JSX.Element {
 export function App({ fetchImpl }: { fetchImpl?: typeof fetch } = {}): JSX.Element {
   return (
     <SessionProvider {...(fetchImpl ? { fetchImpl } : {})}>
-      <Routed />
+      <ErrorBoundary>
+        <Routed />
+      </ErrorBoundary>
     </SessionProvider>
   );
 }

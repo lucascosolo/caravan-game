@@ -16,5 +16,6 @@ export default defineConfig({
   plugins: [react()],
   server: { host: "127.0.0.1", port: 5173, proxy },
   preview: { host: "127.0.0.1", port: 4173, proxy },
-  build: { outDir: "dist", sourcemap: true, target: "es2022" },
+  // Hidden source maps (QA-06 N1): emitted for error tooling, not referenced from the bundle.
+  build: { outDir: "dist", sourcemap: "hidden", target: "es2022" },
 });
