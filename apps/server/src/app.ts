@@ -3,6 +3,7 @@ import type pg from "pg";
 import type { AuthContext } from "./auth/sessions.js";
 import { createPool } from "./db/pool.js";
 import { authRoutes } from "./routes/auth.js";
+import { economyRoutes } from "./routes/economy.js";
 import { ledgerRoutes } from "./routes/ledger.js";
 import { meRoutes } from "./routes/me.js";
 import { AppError } from "./services/errors.js";
@@ -48,5 +49,6 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(authRoutes);
   await app.register(meRoutes);
   await app.register(ledgerRoutes);
+  await app.register(economyRoutes);
   return app;
 }

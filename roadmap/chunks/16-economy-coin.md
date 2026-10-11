@@ -1,6 +1,6 @@
 # Chunk 16 — Economy: Coin (and the merge system)
 
-**Depends on:** 02, 03. **Status:** not started.
+**Depends on:** 02, 03. **Status:** built (2026-10-11; QA pending).
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 ## Goal
@@ -50,28 +50,28 @@ that Coin exists to pace. Losing Coin is chunk 19; buying it is chunk 20.
 | `MERGE_RECIPE_SMALL` | 2 → 1 | 2.0 units per level. |
 | `MERGE_RECIPE_LARGE` | 5 → 3 | 1.67 units per level. Better rate; rewards hoarding. |
 | `MERGE_LEVEL_CAP` | 5 | Fixed by design. |
-| `MERGE_STAT_MULT_PER_LEVEL` | ×1.8 per level | From chunk 03. **Must stay below 2.0** so a merged unit is weaker than its components combined. Applies to ability values too (chunk 12) — merging never grants a new or extra ability, only larger numbers on the same one. |
+| `MERGE_STAT_MULT_PER_LEVEL` | ×1.25 per level (was ×1.8 in this brief; chunk 03 QA settled ×1.25) | From chunk 03: applies to max HP and post-formula damage OUTPUT only, never to the ratings or ability fields. Bound is k² < 5/3 for the 5→3 recipe. Merging never grants a new or extra ability. |
 | `MERGE_SLOT_COST` | 1 slot at any level | The entire benefit of merging. A level-5 unit occupies one slot where its 16 level-1 components would have needed 16. |
 | `COIN_OVERFLOW_BEHAVIOR` | earnings above the cap are discarded, with a clear warning surfaced before the trip | Do not silently void a player's earnings. |
 
 ## Definition of done
 
-- [ ] Coin earn on surviving an encounter, on a banked trip, when your standing party
+- [x] Coin earn on surviving an encounter, on a banked trip, when your standing party
       wins, and via the lazy passive trickle.
-- [ ] Storage cap enforced on every credit path, including the trickle and (later)
+- [x] Storage cap enforced on every credit path, including the trickle and (later)
       purchases and defender transfers.
-- [ ] Trickle is deterministic and read-frequency-independent: reading the balance
+- [x] Trickle is deterministic and read-frequency-independent: reading the balance
       10 times in an hour yields the same total as reading it once.
-- [ ] Merge: both recipes, Coin cost charged, level cap enforced, no branching or
+- [x] Merge: both recipes, Coin cost charged, level cap enforced, no branching or
       specialization possible.
-- [ ] **A test asserts, at every level and for both recipes, that the merged unit's
+- [x] **A test asserts, at every level and for both recipes, that the merged unit's
       stats are strictly less than the sum of the components consumed.** This is the
       single most important test in this chunk.
-- [ ] Merged units cost one slot regardless of level; slot efficiency demonstrable.
-- [ ] All movement written to the ledger; balance rebuilt from the ledger matches live.
-- [ ] Coin is account-level. Merges affect caravan-level unit instances.
-- [ ] Overflow is warned about, not silently discarded.
-- [ ] Merge cost and resulting stats are shown before the player commits.
+- [x] Merged units cost one slot regardless of level; slot efficiency demonstrable.
+- [x] All movement written to the ledger; balance rebuilt from the ledger matches live.
+- [x] Coin is account-level. Merges affect caravan-level unit instances.
+- [x] Overflow is warned about, not silently discarded.
+- [x] Merge cost and resulting stats are shown before the player commits.
 
 ## QA guardrail checks for this chunk
 
@@ -96,3 +96,22 @@ that Coin exists to pace. Losing Coin is chunk 19; buying it is chunk 20.
 - **Generous acquisition holds up:** given these numbers, is rebuilding a lost unit
   type actually recoverable in practice, not just in theory?
 - **Split correctness:** Coin at account level; unit instances at caravan level.
+
+## Built (2026-10-11)
+
+Files: `apps/server/src/economy/{coin,trickle,merge,index}.ts`, `apps/server/src/routes/economy.ts`
+(`GET /me/economy`, `POST /me/caravans/:id/merge/preview`, `POST /me/caravans/:id/merge`),
+tests `apps/server/test/economy-guards.test.ts` (pure) and `apps/server/test/economy.test.ts`
+(DB). Tunables added to `@caravan/content`: `COIN_PER_ENCOUNTER_BASE`,
+`COIN_ENCOUNTER_ESCALATION_MULT`, `COIN_PER_BANKED_TRIP`, `COIN_PER_PARTY_WIN`,
+`COIN_TRICKLE_RATE_PER_HOUR`, `COIN_TRICKLE_MS_PER_COIN`, `MERGE_COST_BY_TARGET_LEVEL`,
+`MERGE_SLOT_COST`, `COIN_OVERFLOW_BEHAVIOR`. No migration: the trickle's accrual point is
+read from the last `coin_earned{reason:"trickle"}` event's `accruedThroughMs` (else account
+creation), so the ledger alone reproduces it.
+
+Earn paths are service functions for chunks 15/19/13 to call inside their own transaction:
+`creditBankedTrip` (one `coin_earned` per survived encounter + the delivery bonus — the
+per-encounter Coin is unbanked trip state until then, so there is deliberately no
+"credit one encounter into the account now" path), `creditPartyWin`, and the generic
+batch-clamped `appendCoinCredits`. See ORCHESTRATION.md for assumptions and the grind-wall
+numbers.

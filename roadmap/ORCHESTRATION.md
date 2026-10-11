@@ -292,3 +292,88 @@ had its files staged in the shared index, so it also contains the whole of chunk
 but the original had already been pushed and history is not rewritten on this branch, so
 the pushed message stands and this note is the correction. Lesson applied from here on:
 the orchestrator commits only via `git commit <explicit paths>` with `--only`.
+
+### 2026-10-11 — Chunk 16 (economy: Coin and merges): `not started` → `built`
+
+**Built.** `apps/server/src/economy/{coin,trickle,merge,index}.ts`, route module
+`apps/server/src/routes/economy.ts` (registered in `app.ts`, append-only), tunables added to
+`packages/content/src/tunables.ts` (chunk 16 section only; the file was concurrently edited
+by chunk 03 QA and chunk 07 — this commit stages only the chunk 16 hunk). No migration.
+
+- **Earn paths** (`economy/coin.ts`): pure integer schedule `coinForEncounter(n)` =
+  400 × 1.25^(n−1) floored per step (400, 500, 625, 781, 976, 1220, …); `creditBankedTrip`
+  writes one `coin_earned{reason:"encounter_survived"}` per survived encounter plus
+  `{reason:"trip_banked"}` 500; `creditPartyWin` writes `{reason:"party_win"}` 300 to the
+  standing party's OWNER (never present, risks nothing). All go through `appendCoinCredits`,
+  which reads the room ONCE under the account append lock and consumes it credit by credit, so
+  a batch cannot overshoot the cap the way two independently clamped `coinCreditDraft`s could.
+  Every clamped event records `overflowDiscarded`. `overflowForecast(balance, cap, earn)` is
+  the pre-trip warning data (`GET /me/economy?prospectiveEarn=N` → `overflow.warn`).
+- **Trickle** (`economy/trickle.ts`): no background tick. `computeTrickle` is pure: whole
+  coins every `COIN_TRICKLE_MS_PER_COIN` (18 000 ms = 200/h), accrual point advances only by
+  the time those coins consumed (remainder carried) → read-frequency independent. The accrual
+  point is the last trickle event's `accruedThroughMs` (else account `created_at`): ledger-
+  derived, no column. At the cap the coins are written as `amount:0, overflowDiscarded:N` and
+  the point jumps to now, so idling at the cap never banks a backlog. Causation id
+  `trickle:<account>:<fromMs>` makes a window unrepeatable; concurrent reads serialize on the
+  account lock and the second sees the new point. The wall clock enters in exactly one place
+  (`accrueTrickle`'s default `nowMs`); every function takes `nowMs` injectable.
+- **Merge** (`economy/merge.ts`): recipes from `TUNABLES.MERGE_RECIPES` (2→1, 5→3), selected
+  by input count; cost `MERGE_COST_BY_TARGET_LEVEL[target] × produce` (L2 250, L3 900, L4
+  3000, L5 9500 per resulting unit); cap 5 from content, refused with `merge_cap`.
+  `previewMerge` (read-only) returns cost, balance, affordability, consumed/produced counts
+  and slots, per-unit and combined stats (HP and reference hit by content's multiplier;
+  ratings shown unchanged per chunk 03 QA's `MERGE_MULT_APPLIES_TO`), and the ability
+  (same one, no new ability). `performMerge` is one transaction: account append lock →
+  trickle accrual (so the balance checked is the balance shown) → `FOR UPDATE` on the inputs
+  → ownership/type/level/recipe/cap validation → `insufficient_coin` (409) → DELETE inputs
+  (row count must equal `spend`) → INSERT outputs → `coin_spent` + `unit_merged` under
+  causation `merge:<caravan>:<sorted ids>`. No multiplier is applied in economy code.
+
+**Test command:** `cd apps/server && TEST_DATABASE_URL=postgres://caravan:caravan@localhost:5432/caravan_test_c16 npx vitest run`
+— 13 files, 162 tests passing (includes chunk 04's and chunk 07's in-flight files). Chunk 16:
+`economy-guards.test.ts` (17) and `economy.test.ts` (17). Proven: no credit path past the cap
+(banked trip near cap, party win at cap, 12 concurrent writers, direct DB overshoot refused
+by CHECK); trickle idempotent (60 irregular reads == one read; 8 concurrent reads credit one
+window once; ceases at cap; resumes from last read after a spend); recipe arithmetic;
+merged strength (HP × hit) < consumed for every unit type, every roster defense, both
+recipes, every level; merge cost charged exactly once with 6 racing merges of the same
+instances (1 success, 5 × 404, one `coin_spent`); insufficient Coin leaves roster and
+ledger untouched; cross-account/caravan inputs refused; HTTP preview/commit flow; a source
+scan of `src/economy/*` and `routes/economy.ts` for entitlement/billing/pack vocabulary and
+`coin_purchased`, and that every `account` read names only Coin columns or `created_at`.
+`pnpm typecheck` in `apps/server` is clean for chunk 16 files (one error in chunk 04's
+in-flight `test/progression-pure.test.ts`, not mine). Content tests (34) still pass.
+
+**Grind wall (QA asked to check, not infer):** one L5 unit from sixteen L1 via 2→1 costs
+21 100 Coin (8×250 + 4×900 + 2×3000 + 9500). Trickle alone: ~105 h (4.4 days) of wall-clock
+idling. Active: a 5-encounter banked trip pays 3 782 (3 282 + 500), so ~6 banked trips.
+The 5→3 recipe at L5 costs 28 500 for three L5 units — also under the 50 000 cap, so no
+merge is unreachable because of the cap. Whether 6 trips feels optional-paid is a play-data
+question; the numbers are all in TUNABLES.
+
+**Assumptions made:**
+- Per-encounter Coin is unbanked trip state (chunk 15's) until the trip banks; it enters the
+  account balance only via `creditBankedTrip`. There is deliberately no immediate
+  per-encounter credit, because the bounded-stakes rule says that Coin is at risk until
+  banked. Chunk 19's `coin_transferred_to_defender` should size the transfer from
+  `coinForEncountersSurvived(n)` and clamp via `appendCoinCredits`-style room logic (the
+  ledger's `coinCreditDraft` is fine for a single credit).
+- The merge preview's stats follow chunk 03 QA's revised semantics (multiplier on max HP and
+  damage output only, ×1.25/level). If chunk 11 applies it differently, the preview must
+  follow chunk 11, not the other way round.
+- `GET /me/economy` has a write side effect (materializing the trickle). That is the design:
+  reading the balance IS the accrual; there is no other moment.
+- The trickle at the cap writes `amount: 0` events at most once per 18 s of reads. Accepted
+  as the price of keeping the accrual point in the ledger rather than a column.
+- `MERGE_COST_BY_TARGET_LEVEL` is indexed by target level with `[0, 0, …]` padding so index
+  == level, matching `MERGE_STAT_MULT_BY_LEVEL`'s convention.
+- Chunk 17 (home town) is expected to call `accrueTrickle` for the mine and
+  `previewMerge`/`performMerge` for the merge board; the API is already shaped for the UI
+  (cost, slots, stats, ability all in the preview).
+
+**Next:** hand to adversarial QA against GUARDRAILS §2 (grep the economy for anything
+reading what an account has paid for; try to overshoot the cap with a trickle racing a
+party win racing a bank), §4 (is every number the preview shows the number the ledger
+records?), §5 (Coin account-level, roster caravan-level — the tests assert the event scopes),
+and the trickle's read-frequency independence under adversarial clocks.
