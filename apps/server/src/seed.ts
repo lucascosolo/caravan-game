@@ -7,6 +7,7 @@
  */
 import { REGIONS, isUnitTypeId } from "@caravan/content";
 import { createPool } from "./db/pool.js";
+import { seedAuthoredParties } from "./matchmaking/authored.js";
 import { findAccountByUsername } from "./repo/accounts.js";
 import { listCaravansForAccount } from "./repo/caravans.js";
 import { createUnitInstance } from "./repo/unitInstances.js";
@@ -31,6 +32,10 @@ for (const u of SEED_UNIT_TYPES) {
 async function main(): Promise<void> {
   const pool = createPool();
   try {
+    // Chunk 14: the authored cold-start parties (PHASE-2 §25), so a fresh database serves
+    // three scoutable candidates from the first search. Idempotent.
+    const authored = await seedAuthoredParties(pool);
+    console.log(`Authored parties: ${authored.created.length} created, ${authored.existing.length} already present.`);
     const existing = await findAccountByUsername(pool, SEED_USERNAME);
     if (existing) {
       const caravans = await listCaravansForAccount(pool, existing.id);

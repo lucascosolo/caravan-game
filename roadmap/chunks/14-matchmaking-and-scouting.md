@@ -1,6 +1,6 @@
 # Chunk 14 — Matchmaking & scouting
 
-**Depends on:** 04, 09. **Status:** not started.
+**Depends on:** 04, 09. **Status:** built (server search / scout / choose, trip + candidate persistence, authored cold-start seam, tests — 2026-10-11).
 Read `/roadmap/GUARDRAILS.md` in full first, including §0 on which way round the game runs.
 
 ## Goal
@@ -123,3 +123,102 @@ availability logic that no longer has a reason to exist.
   - Chunk 04 blunts the rating side only: a loss is scaled by at least ×0.5
     (`REPUTATION_GAP_MULT_MIN_LOSS`) and a win by at least ×0.25, so tanking a rating takes
     roughly twice as many losses as climbing back takes wins. Nothing structural changed.
+
+## Build notes (2026-10-11)
+
+**Where it lives.** `apps/server/src/matchmaking/{band,service,trips,exclusions,authored}.ts`,
+`routes/matchmaking.ts` (`POST /me/caravans/:id/encounters/:n/search`, `GET …/candidates`,
+`POST …/choose`), migration `009_matchmaking` (`account.is_system`, `trip`,
+`encounter_candidates`), the chunk 14 tunables block in `packages/content/src/tunables.ts`,
+and the `party` input on `enqueueEncounterResolution`. Tests: `test/matchmaking-pure.test.ts`
+(16) and `test/matchmaking.test.ts` (17).
+
+**The snapshot contract (chunk 09 QA blocker, settled here — chunk 15 builds on it):**
+1. `snapshotStandingParty` runs **exactly once per candidate, at menu generation**
+   (`searchCandidates`); the `StandingPartySnapshot` is stored on the candidate inside the
+   `encounter_candidates` row.
+2. The scout view is `scoutParty(partyFromJson(snapshot.composition))` over that stored
+   snapshot — never a live resolve. A test proves it is byte-identical to the owner's own
+   `GET /me/party` preview at search time.
+3. `chooseCandidate` marks the menu row chosen. It does **not** re-resolve the live party:
+   the stored snapshot is the party that will be fought.
+4. `enqueueChosenEncounter(client, caravan, n, formation)` — the seam chunk 15 calls after
+   `commitFormation` — passes the chosen snapshot as `party` to `enqueueEncounterResolution`,
+   which stores it as-is (the live-snapshot path survives only for callers that omit
+   `party`, i.e. the chunk 02 tests). Tests prove `job.input.party` is byte-identical to the
+   scouted snapshot and that `scoutParty` over it equals what the defender saw.
+5. `StandingPartyInvalidError` can therefore only surface at generation: the party is
+   skipped, its id recorded in `skipped_party_ids`, and the draw re-runs without it (so the
+   stored inputs still replay to the stored menu).
+6. The snapshot is a copy: the owner editing, de-merging or losing units between search and
+   resolution changes nothing. Tested both ways (edit-then-choose, lose-unit-then-choose).
+   This supersedes the brief's "refuse and re-scout if the party became invalid between
+   scouting and choosing": refusing would punish the defender for the owner's roster
+   changes and would make the arrangement they built against a scouted party worthless.
+
+**Decisions and assumptions (confirm in QA):**
+- **Ratings (chunk 04 QA D1):** caravan = its living Reputation (`pool_progress` on the
+  caravan); party = its owner's siege Reputation (account). The pool query joins only
+  `standing_party`, `account` (username, `is_system`) and the siege row. Region, build and
+  any notion of the owner being online/busy are not read (a source scan asserts it).
+- **Band centre** = caravan living Reputation + `floor(SPAN × DIFFICULTY_ESCALATION_BP ×
+  (n − 1) / 10000)`, SPAN = 2 × `REPUTATION_BAND_WIDTH` = 300, so **+15 per encounter**
+  ("~5% of band width" read as 5% of the full span; ±7 if read as the half-width — a
+  one-number change). The menu reports `escalation.applied/perEncounter/nextEncounter` so
+  the player sees that pushing means a harder party before deciding.
+- **Widening:** half-widths 150, 250, 350, 450, 550, 600; a pass fails when live + allowed
+  authored in band < 3. `EMPTY_POOL_BEHAVIOR`: after ±600, authored parties outside the
+  band nearest the centre fill the menu; live parties outside never do. If even that cannot
+  reach 3 the search is `503 pool_empty` (only possible before `pnpm db:seed`).
+- **Authored share cap:** in a band with L live parties at most `floor(L × 0.3 / 0.7)`
+  authored join the draw (seeded choice of which), never fewer than needed to reach 3. So
+  with ≥ 7 live parties in band, 3 authored join a 10+ pool (≤ 30%); with 0–2 live, authored
+  fill the rest. "Weighted down" is implemented as a pool cap rather than a per-encounter
+  served-ratio ledger; chunk 25 may replace it with a measured ratio.
+- **Seed** = `fnv1a32(caravanId:tripId:encounterIndex:searchSeq)`, drawn with xorshift32
+  (chunk 18's helpers, now exported). Each row stores seed, centre, the eligible pool (after
+  exclusions), the excluded and skipped party ids and the candidates; `replaySearch(row)`
+  recomputes the picks and a test asserts they match.
+- **Exclusions:** self (always); linked accounts through `LinkedAccountsResolver`
+  (`exclusions.ts`, v1 returns none — PHASE-2 §31 fills it; injectable, tested with a stub);
+  the last `RECENT_OPPONENT_EXCLUSION` (5) parties the **account** committed to (chosen
+  rows across all its caravans and trips, newest first). Parties with no units are not
+  served (every fresh account's party is empty; there would be nothing to fight).
+- **Reroll:** the first search of an encounter is immediate; each later one is free and
+  waits `REROLL_COOLDOWN_SECONDS` (180) after the previous, measured by the caller-supplied
+  `nowMs` (routes pass `Date.now()`; the service never reads the clock). `409
+  reroll_cooldown` carries `availableAtMs`, `retryAfterSeconds`, `Retry-After` and
+  `gate: "time"`. Once a candidate is chosen, searching again is `409 already_chosen`.
+  No Coin, cost, price, purchase or entitlement word appears on the matchmaking path (scan).
+- **Choose:** only the CURRENT menu is choosable; an id from a rerolled-away menu is `409
+  stale_candidate`, an unknown id `404`. Idempotent for the same candidate; a different one
+  after choosing is `409 already_chosen`. The chosen row is frozen by trigger; one chosen
+  row per encounter by partial unique index; the CHECK refuses an id that was not offered.
+- **Trip seam:** `trips.ts` `createTrip(client, caravanId)` (needs the open manifest; one
+  open trip per caravan) and `endTrip`. Chunk 15 owns the trip cap, `caravan.state`,
+  closing the manifest, `trip_started` and the bank/push loop; tests here call these two
+  directly. Encounter index n is valid only while n = `manifest.encounters_resolved + 1`.
+- **Sandbagging earn floor (chunk 04 QA D2):** `sandbagEarnMultiplier(gap)` with
+  `SANDBAG_EARN_GAP_START` 300 and `SANDBAG_EARN_MULT_MIN` 0.25 is published on every
+  candidate (`reputation.sandbagEarnMultiplier`, fixed-point) so the player sees before
+  committing that a far-weaker party pays less. **Chunk 19 applies it** to Coin earned; it
+  reads ratings only.
+- **Authored cold-start (PHASE-2 §25 seam):** `seedAuthoredParties` (called by `pnpm
+  db:seed`) creates 12 system accounts (`sys_outfit_01..12`, `is_system`, unusable random
+  passwords) — 3 per band for bands 0–3 (REPUTATION_START is in band 3), across all four
+  regions, all three stances, 1/2/4-edge splits, sizes 3–8, merge levels 1–4, on each
+  region's two free starting types and the starting siege piece only (the web is the only
+  access gate; authored content gets no bypass — chunk 25 can purchase nodes for them).
+  Their parties are ordinary rows through `saveParty`; the snapshot carries nothing that
+  marks them authored (asserted). Chunk 19 must read `is_system` to destroy rather than
+  bank Coin lost to one and to skip their Reputation.
+- **No ledger event is added here.** Searching and choosing are recorded in
+  `encounter_candidates`; the `formation_committed` event (chunk 02) already carries the
+  party version at enqueue. Chunk 15 appends `trip_started`.
+- **Routes are under `/me/caravans/:id/…`** as the assignment specified, alongside chunk
+  07's `/caravans/:id/…`; a later pass may unify the prefix.
+
+**Deferred / for QA:** the UI (chunk 08 renders this menu); `linkedAccounts` is a stub;
+the authored set is 12 parties, not 12 per band; the share cap is a pool cap, not a served
+ratio; migration 009's `is_system` column means `pnpm db:migrate` must re-apply roles.sql
+(it does) so the app role keeps column-level UPDATE on `account`.

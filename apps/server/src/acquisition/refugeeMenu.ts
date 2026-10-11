@@ -35,7 +35,7 @@ export function menuSeed(caravanId: string, sequence: number): number {
 }
 
 /** xorshift32. State must be non-zero; a zero seed is nudged to a fixed non-zero constant. */
-function xorshift32(state: number): number {
+export function xorshift32(state: number): number {
   let x = state >>> 0;
   if (x === 0) x = 0x9e3779b9;
   x ^= (x << 13) >>> 0;
@@ -49,7 +49,7 @@ function xorshift32(state: number): number {
  * Uniform integer in [0, k) by rejection sampling, so no modulo bias however small the
  * pool. Returns the value and the advanced generator state.
  */
-function uniformBelow(state: number, k: number): { value: number; state: number } {
+export function uniformBelow(state: number, k: number): { value: number; state: number } {
   if (!Number.isInteger(k) || k < 1) throw new RangeError(`k must be a positive integer, got ${String(k)}`);
   const limit = U32 - (U32 % k);
   let s = state;
