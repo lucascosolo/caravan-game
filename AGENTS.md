@@ -137,7 +137,7 @@ pnpm --filter @caravan/web e2e                        # Playwright smoke vs a ru
 pnpm e2e                     # the same, self-contained: seeds E2E_DATABASE_URL (dev + a run-unique formation account, packed and put on the trail), starts the BUILT server on :3917, runs the e2e, stops it (run `pnpm build` first)
 
 pnpm determinism             # resolver determinism harness (chunk 10 started it; chunk 13 adds goldens): every fixture scenario 100× byte-identical in-process, then 3 separate Node processes compared by sha256; refuses golden-log changes without a RESOLVER_VERSION bump
-pnpm --filter @caravan/resolver test   # the resolver alone: 134 tests, no DB, no network, ~25 s (the 100× determinism harness is most of it)
+pnpm --filter @caravan/resolver test   # the resolver alone: 170 tests, no DB, no network, ~25 s (the 100× determinism harness is most of it)
 pnpm test:boundary           # resolver dependency-boundary check (zero deps, imports stay inside packages/resolver/src)
 pnpm build                   # esbuild → apps/server/dist (index.js, db/migrate.js, seed.js); workspace packages inlined, npm deps external; then vite build → apps/web/dist
 pnpm start                   # run the built server: node apps/server/dist/index.js
@@ -154,9 +154,12 @@ chunk 09 and the matchmaking routes of chunk 14 (`POST /me/caravans/:id/encounte
 `GET …/candidates`, `POST …/choose`). `pnpm db:seed` also creates the authored cold-start
 parties (`src/matchmaking/authored.ts`, chunk 25: 12 per Reputation band, bands 0–7, owned
 by `sys_outfit_*` system accounts that cannot log in or hold Coin), so a fresh database
-serves three scoutable candidates at every band from the first search. Migration 009 refuses
-to roll back while system accounts exist: `DELETE FROM account WHERE is_system` first if a
-`db:reset` of a seeded database is really wanted (the test suite does this itself).
+serves three scoutable candidates at every band from the first search. Migrations 011 and 009
+refuse to roll back while system accounts exist, and a multi-step `db:rollback N` or
+`db:reset` runs every down step in ONE transaction, so a refusal rolls back nothing. Before
+a `db:reset` (or a rollback past 011) of a seeded database, run
+`DELETE FROM account WHERE is_system` as the owner role, then `pnpm db:reset && pnpm db:seed`
+(the test suite empties `account` itself before its reset).
 
 **Web client** (`apps/web`, chunk 06 scaffold): Vite + React 18 + TypeScript strict. A
 typed `fetch` wrapper (`src/api/client.ts`) carries the bearer token from in-memory session

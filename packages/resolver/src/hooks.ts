@@ -1,32 +1,28 @@
 /**
  * Phase hooks (chunk 10 TICK_PHASE_ORDER). Chunk 10 fixed the order of the eight phases in
  * tick.ts and left phases 4, 5 and 7 as named seams. Chunk 11 fills 4 (traps.ts) and 5
- * (posted.ts); 7 (abilities) is chunk 12's and `endOfTick` (end conditions) chunk 13's.
+ * (posted.ts); chunk 12 fills 7 (abilities.ts); `endOfTick` (end conditions) is chunk 13's.
  * Every hook receives the whole state and the log and stays pure, integer-only and
  * id-ordered like everything else.
  *
  * Also here: the SIEGE / FENCE-DAMAGE seam the chunk 10 brief asked for.
  */
-import { atLeastOne } from "./combat.js";
-import type { LogEvent } from "./log.js";
+import { atLeastOne, dealtOutput } from "./combat.js";
 import type { FenceState, SimState, UnitState } from "./state.js";
 import { FIXED_ONE, scaleInt, type Fixed } from "./fixed.js";
 
 export { trapTriggerPhase } from "./traps.js";
 export { postedUnitPhase } from "./posted.js";
 
-/** Phase 7 — ability cooldowns and effects, six archetypes. TODO(chunk-12). */
-export function abilityPhase(_state: SimState, _log: LogEvent[]): void {
-  // no-op until chunk 12
-}
+export { abilityPhase } from "./abilities.js";
 
 /**
  * SIEGE_FENCE_DAMAGE_MULT (chunk 11): when the party carries a siege piece whose `counters`
  * is {kind: "fence", category: fence.category}, every hit on that segment is multiplied by
  * the input's siegeFenceDamageMult (×4 by default); otherwise ×1.0. Siege is a COUNTER to
  * fences and traps only — it never touches a hit on a unit (combat.ts), and it is decided
- * per fence category, not per unit. TODO(chunk-12): the structure_breaker ability is
- * ADDITIVE with this multiplier, not multiplicative.
+ * per fence category, not per unit. The structure_breaker ability (chunk 12) is ADDITIVE
+ * with this multiplier, never multiplicative (abilities.ts STRUCTURE_BREAKER_DAMAGE).
  */
 export function siegeFenceMult(state: SimState, _unit: UnitState, fence: FenceState): Fixed {
   return fence.siegeCountered ? state.siegeFenceDamageMult : FIXED_ONE;
@@ -37,11 +33,11 @@ export function siegeFenceMult(state: SimState, _unit: UnitState, fence: FenceSt
  * DAMAGE_SLOTS / DAMAGE_ROUNDING_ORDER). A fence segment has no rating, so the formula
  * o² / (o + 0) reduces to the unit's rating (its offense). Then, in order: no affinity (a
  * segment has none), × the unit's merge multiplier (damage output scales with merge level,
- * chunk 03 QA B1), × the siege multiplier, floored at each step, minimum 1 so a breach
+ * chunk 03 QA B1), × its self buff while in force (chunk 12, step 3b), × the siege multiplier, floored at each step, minimum 1 so a breach
  * always terminates (no deadlock against an intact segment).
  */
 export function fenceHitDamage(state: SimState, unit: UnitState, fence: FenceState): number {
-  const merged = scaleInt(unit.rating, unit.mergeMult);
+  const merged = dealtOutput(state, unit, unit.rating);
   return atLeastOne(scaleInt(merged, siegeFenceMult(state, unit, fence)));
 }
 

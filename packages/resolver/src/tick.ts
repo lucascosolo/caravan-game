@@ -25,7 +25,10 @@
  *                                 SIMULTANEOUS_DAMAGE: every hit this tick resolves against
  *                                 start-of-tick life — a unit whose HP hit 0 earlier in this
  *                                 phase still fires, so mutual kills happen; HP floors at 0.
- *   7. abilities                — hook, chunk 12.
+ *   7. abilities                — chunk 12 (abilities.ts): every living unit whose ability is
+ *                                 ready AND satisfiable fires, decided in ascending id against
+ *                                 the state at the start of phase 7, applied damage-first
+ *                                 (every non-heal in id order, then every heal in id order).
  *   8. death resolution         — fence destruction (hp ≤ 0 → broken; the grid is rebuilt
  *                                 and every path is recomputed next tick), then unit death
  *                                 (hp ≤ 0 → dead: `unit_died`, out of targeting; an attacker
@@ -84,14 +87,14 @@
  * lattice's single-edge comparison. Two A* runs at most, only on a recompute whose
  * lattice route breaches.
  */
-import { CORE_CENTER_CELL, cellCenter, cellDistSq, cellKey, cellOf, isCoreCell, type Cell, type FixedPoint } from "./battlefield.js";
-import { hitDamage, nearestEnemyInReach, threatInReach } from "./combat.js";
+import { CORE_CENTER_CELL, cellCenter, cellKey, cellOf, isCoreCell, type Cell, type FixedPoint } from "./battlefield.js";
+import { breachableFence, engaged, hitDamage, nearestEnemyInReach, threatInReach } from "./combat.js";
 import { COST_INFINITE, ceilDiv, isqrt } from "./fixed.js";
 import { abilityPhase, fenceHitDamage, postedUnitPhase, trapTriggerPhase } from "./hooks.js";
 import { logTarget, type LogEvent } from "./log.js";
 import { advance, effectiveSpeed, tickEffects } from "./move.js";
 import { BREACH_COST_MAX, CELL_FREE, findPath, smoothPath, type Waypoint } from "./path.js";
-import { sameTarget, type FenceState, type SimState, type Target, type UnitState } from "./state.js";
+import { sameTarget, type SimState, type Target, type UnitState } from "./state.js";
 
 export { legOffset } from "./move.js";
 
@@ -170,12 +173,6 @@ function targetCell(state: SimState, t: Target): Cell {
   return state.traps[t.index]!.cell;
 }
 
-/** Whether an attacker's unit target is inside its reach (attackRange + unitRadius, inclusive). */
-function engaged(state: SimState, u: UnitState): boolean {
-  if (u.target === null || u.target.kind !== "unit") return false;
-  const d = state.units[u.target.id]!;
-  return d.alive && distSqUnits(u, d) <= u.reachSq;
-}
 
 // ─── Phase 1 ────────────────────────────────────────────────────────────────────────
 
@@ -327,7 +324,10 @@ export function movementPhase(state: SimState, log: LogEvent[]): void {
     if (!u.alive) continue;
     let moved = false;
     u.breaching = -1;
-    u.sweep = [{ x: u.x, y: u.y }];
+    // A phase-7 dash last tick left its polyline behind (abilities.ts DASH_SPRINGS_TRAPS): this
+    // tick's sweep continues it, so phase 4 tests the dash and this tick's step as one path.
+    u.sweep = u.pendingSweep.length > 0 ? u.pendingSweep : [{ x: u.x, y: u.y }];
+    u.pendingSweep = [];
     if (!engaged(state, u)) moved = advance(state, u, effectiveSpeed(u));
     tickEffects(state, u, log);
     const holding = !moved;
@@ -343,20 +343,6 @@ export function movementPhase(state: SimState, log: LogEvent[]): void {
 }
 
 // ─── Phase 6 ────────────────────────────────────────────────────────────────────────
-
-/**
- * The fence `u` is breaching this tick and could hit now, or null: an attacker standing
- * short of an intact, not-yet-destroyed segment (phase 3 set `breaching`; a segment brought
- * to 0 HP earlier in this phase is skipped, phase 8 clears it) whose cell is orthogonally
- * adjacent to the segment's (FENCE_BREACH_RANGE).
- */
-function breachableFence(state: SimState, u: UnitState): FenceState | null {
-  if (u.side !== "attacker" || u.breaching < 0) return null;
-  const fence = state.fences[u.breaching]!;
-  if (!fence.intact || fence.hp <= 0) return null;
-  if (cellDistSq(cellOf({ x: u.x, y: u.y }), fence.cell) !== 1) return null;
-  return fence;
-}
 
 /**
  * ATTACK_COOLDOWN: the counter decrements first, then a ready unit (0) fires if it has
@@ -428,7 +414,8 @@ export function keyframe(state: SimState, log: LogEvent[]): void {
   log.push({
     t: state.tick,
     k: "keyframe",
-    units: state.units.map((u) => ({ u: u.id, x: u.x, y: u.y, hp: u.hp, alive: u.alive, cd: u.cooldownRemaining, slow: u.slowRemaining, root: u.rootRemaining })),
+    // `ab` (chunk 12): ticks from the next tick until the ability may fire (0 = ready).
+    units: state.units.map((u) => ({ u: u.id, x: u.x, y: u.y, hp: u.hp, alive: u.alive, cd: u.cooldownRemaining, slow: u.slowRemaining, root: u.rootRemaining, ab: u.abilityReadyTick > state.tick + 1 ? u.abilityReadyTick - state.tick - 1 : 0 })),
     fences: state.fences.map((f) => ({ f: f.index, hp: f.hp })),
     traps: state.traps.map((t) => ({ i: t.index, spent: t.spent })),
   });
@@ -442,7 +429,7 @@ export function runTick(state: SimState, log: LogEvent[]): void {
   trapTriggerPhase(state, log); // 4
   postedUnitPhase(state, log); // 5
   attackPhase(state, log); // 6
-  abilityPhase(state, log); // 7 (chunk 12)
+  abilityPhase(state, log); // 7
   deathPhase(state, log); // 8
   const done = state.tick + 1;
   if (done % state.keyframeInterval === 0 || done === state.tickCap) keyframe(state, log);

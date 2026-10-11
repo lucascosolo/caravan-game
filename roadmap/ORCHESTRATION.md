@@ -2081,3 +2081,112 @@ chunk 15/16 should refuse it server-side. Board positions are client-side (local
 **Next:** adversarial QA against the chunk 17 checklist (no simulation in town, never
 attackable, mine presentational, merge legibility, full board + recruit, grid visibility,
 one renderer).
+
+### 2026-10-11 — Chunk 12 (unit abilities): `not started` → `built` — `[resolver-bump]` 4 → 5
+
+**Built** in an isolated worktree branched from `roadmap/phase-2-spec` at 670e717.
+**`RESOLVER_VERSION` is now 5**; no golden corpus exists yet (`pnpm determinism`: 20 scenarios,
+3 processes × 3 runs agree). Every rule and tie-break is in `chunks/12-unit-abilities.md`
+§ "Build notes" and in the header of `packages/resolver/src/abilities.ts`. What other chunks
+need to know:
+
+- **Phase 7 is real** (`abilities.ts`): six archetype cases, decide in ascending id against
+  the start-of-phase state, apply non-heals then heals (each ascending id). **A heal never
+  saves a unit from same-tick damage.** First use waits a full cooldown
+  (`abilityFirstUseDelayMult` input, ×1.0); ready-and-satisfiable trigger; 0-HP units are never
+  targets.
+- **Damage pipeline** gained step 3b (self buff while in force, all of the caster's hits) and
+  3c (ability multiplier on the merged hit). No ability field scales with merge level.
+- **Two new rules beyond the brief's numbers, flagged for QA/orchestrator:**
+  (1) `STRUCTURE_BREAKER_SEGMENT_CAP` ×0.50 (content tunable, stated in every breaker's
+  description): one breaker hit takes at most half a segment's max HP — additive siege alone
+  still lets a level-5 Buffalo Bull deal 2336 to a 1000-HP Stacked Stone segment.
+  (2) **HEAL_CEILING = the HP a unit brought into the battle**: heals undo this fight's damage
+  only. Without it the attrition probe showed a healer circle leaving a weak encounter with
+  more HP than it entered (a between-encounter top-up, healer rule 4).
+- **Reported, not changed:** with stone siege a level-5 Buffalo Bull's NORMAL hit (292 × 4 =
+  1168) already one-shots a full Stacked Stone segment (chunk 11 / chunk 37 balance).
+- **Replay (chunk 13):** new `ability` event (`a`, `tg: [{kind, id, amount, hp}]`, plus
+  `charges` / `until` / `x, y`); a dash is a movement leg applied after the unit's own movement
+  phase (log.ts INTERPOLATION CONTRACT); keyframes carry `ab`. An attacker's dash path is tested
+  against traps in the next tick's phase 4.
+- **Input:** `ResolverTunables` gained `abilityFirstUseDelayMult` and
+  `structureBreakerSegmentCap`; circle's `resolverTunables()` builds them; ability fields are
+  bounded at both ends. `UnitState` gained ability fields and `startHp`; `engaged` /
+  `breachableFence` moved from tick.ts to combat.ts (exported from the index).
+- **QA probes as tests** (`packages/circle/test/abilities-qa.test.ts`, real content): the
+  worst-case healer turtle held 0/8 approaches in both `hold` and `guard` against 8 level-5
+  raiders; across a 3–8 raider × level 1–5 sweep healers never held > 4/8 nor added more than
+  one hold over tanks in the same slots; breaker × level × siege × tier exhaustively < segment
+  HP (≤ 50 %); attrition gate: three survived encounters leave the healer circle at 82.6–89.9 %
+  (asserted < 90 %), HP never rises across an encounter. Healing offset 7.5–16 % in full fights
+  (under the 25–35 % target; healers die early) — balance note for chunk 37.
+- **Budgets:** full load (every unit with an ability) best 69 ms alone / 77 ms under the
+  suite (< 100 ms); log 124.7 KB (was 115.5; keyframes 95.5 KB).
+
+**Verification:** resolver **170 passing** (12 files; `abilities.test.ts` 36 new), circle 99
+(5 new), content 76 (1 new), web 83, server 512 against `caravan_test_c12` (one run hit the
+known `qa02-round2` lease-trigger flake; passes alone and on rerun); `pnpm typecheck`, `pnpm
+lint`, `pnpm test:boundary` (16 src files), `pnpm determinism`, `pnpm build` clean. Six chunk
+10/11 tests that pin tick-exact movement/combat now run with `quiet()` (first ability use
+pushed past the cap). AGENTS.md's resolver test count (134) is stale; not edited.
+
+**Next:** adversarial QA against the chunk's checklist — especially the heal-ceiling and
+segment-cap decisions, the same-tick ordering, dash vs fences/traps/leash, and whether the
+scout view shows effect, radius and cooldown (chunk 14 / web, not touched here).
+### 2026-10-11 — Chunk 25 (authored cold-start parties) QA round 1 closed: B1, D1–D4, S1–S8, N1–N7
+
+Fixer in worktree `agent-afd9fc1d5a64964af` off `roadmap/phase-2-spec` @ `72b9183` (Record
+chunk 25 QA punch list). Every item `[closed]` in `roadmap/qa/25-punchlist.md` with its
+mechanism and test. Highlights:
+
+- **B1** one literal prefix (`matchmaking/reservedUsername.ts`): registration
+  `hasSystemUsernamePrefix`, seed `starts_with(username, $1)`; never LIKE.
+- **D1/D2** `AUTHORED_FILL_NEAREST_N` = 6 (new tunable): wherever authored parties FILL a
+  menu (widest pass, outside-band fallback) they are seeded among the N nearest the centre.
+  At the top edge the nearest N may sit just past ±600 (so a band edge with exactly three in
+  range no longer freezes rerolls); such a pick sets `authoredOutsideBand`. Ceiling not raised.
+- **D3** authored rosters are ledger events: `unit_acquired {source:"authored_set"}` and, on an
+  in-place update, `unit_lost_on_wipe {reason:"authored_set_update", source:"authored_set"}`.
+  **Orchestrator decision wanted:** the vocabulary has no neutral removal type; a dedicated
+  `unit_retired` would need `ledger/events.ts` + an enum migration (outside this fix's files).
+  Chunk 19 must not treat `unit_lost_on_wipe` with `reason:"authored_set_update"` as a trip
+  loss (system caravans never travel, so it cannot collide in practice).
+  `acquisition.test.ts`'s single-writer scan now allows `matchmaking/authored.ts` (source
+  `authored_set` only); `authored.test.ts` checks `hasAccess` for every authored instance.
+- **S1** 011 down refuses while system accounts exist; `migrateDown` runs a multi-step rollback
+  in ONE transaction (all or nothing). AGENTS.md: `DELETE FROM account WHERE is_system` first.
+- **S4/S5/N2** migration 011 edited in place (nothing deployed): `encounter_candidates.band`,
+  `draw_rules`, `authored_weighted_down` (immutable), index
+  `encounter_candidates_band_chosen_idx`, `account_system_idx`. Pool scan is a UNION ALL with
+  LATERAL key lookups (no seq scan at 10k parties, EXPLAIN test); the row stores only
+  `replayPool(...)`, checked to replay before insert. **Dev DBs need `db:reset`** (after the
+  delete above) and `db:seed`: the 011 shape and the set (v3, N5) changed.
+- **S6** `issueSession` throws `SystemAccountSessionError`; `authenticate` ignores system accounts.
+- **N6** authored party ids derive from usernames (`authoredPartyId`); the retire-by-ratio test
+  uses fixed UUIDs and asserts the exact reroll sequence.
+
+**Candidate menu view changes (relay to the chunk 08 fixer — `CandidateMenuView` /
+`ChoiceView` from `/me/caravans/:id/encounters/:n/{search,candidates,choose}`):**
+1. `candidates[].owner` gains **`flavor: string | null`** (outfit flavour line for authored
+   owners, `null` for live owners). Keys are now exactly `{displayName, authored, flavor}`.
+2. `candidates[].owner.displayName` for authored owners is now the **outfit name** (e.g.
+   "Dry Gulch Boys"), no longer the `sys_outfit_*` handle. Live owners: username, unchanged.
+3. `candidates[].snapshot` **loses `ownerAccountId`**: keys are now exactly
+   `{partyId, slot, savedAt, hash, composition}`. (Same for `ChoiceView.chosen.snapshot`.)
+4. `authoredOutsideBand` now means "the menu holds an authored party from outside the widest
+   band" — it can be true for a menu filled at the widest pass near the top of the set.
+5. `authoredServed.weightedDown` is now read from the stored row and is true only when the
+   served-share weight actually changed the draw (it was true whenever the band was over share).
+6. `passes[].authoredAllowed` values follow S3 (weight applies to `min(authored in band, by-ratio)`).
+No field was renamed or removed besides (3); `authoredServed`'s keys are unchanged
+(`band, window, served, authored, weightedDown`). The web's `api/shapes.ts` / `api/types.ts`
+already lag the chunk 14 fixer's shape (`owner.accountId`, `usedAuthoredFallback`).
+
+**Verification (real output):** `cd apps/server && TEST_DATABASE_URL=…/caravan_test_f25 npx
+vitest run` → 29 files, 525 tests passed (new `qa25-scale.test.ts` 3, `authored.test.ts` 15,
+`matchmaking-pure.test.ts` 27, `matchmaking.test.ts` 20). `pnpm typecheck`, `pnpm lint`,
+`pnpm test:boundary` clean; `@caravan/content` 75 passed. `caravan_dev_f25` migrated and
+seeded (96 authored, set v3); look-alike accounts `sys_outfitx_evil` / `sys0outfit0evil`
+seeded beside them and the re-seed still runs; `migrate reset` there refuses with "nothing
+was rolled back". `INDEX.md` untouched (coordinator flips status after re-audit).

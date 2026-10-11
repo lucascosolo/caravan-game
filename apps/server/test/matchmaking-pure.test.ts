@@ -21,13 +21,17 @@ import {
   candidateSeed,
   escalatedCentre,
   escalationFor,
+  AUTHORED_FILL_NEAREST_N,
+  currentDrawRules,
   gapBeyondBand,
+  nearestTo,
+  replayPool,
   sandbagEarnMultiplier,
   selectCandidates,
   type PoolEntry,
 } from "../src/matchmaking/band.js";
 import { authoredOverShare, type AuthoredServedShare } from "../src/matchmaking/band.js";
-import { AUTHORED_BANDS, AUTHORED_PARTIES_PER_BAND, authoredBands, authoredPartySpecs, maxLivingTier, rungsForPoints } from "../src/matchmaking/authored.js";
+import { AUTHORED_BANDS, AUTHORED_PARTIES_PER_BAND, authoredBands, authoredPartyId, authoredPartySpecs, baseMergeLevel, maxLivingTier, rungsForPoints } from "../src/matchmaking/authored.js";
 import { LIVING_UNLOCK_WEBS, REGION_IDS, SIEGE_TYPES, pointsPerPoolAtLadderCap } from "@caravan/content";
 
 function entry(i: number, rating: number, authored = false): PoolEntry {
@@ -259,22 +263,125 @@ describe("the seeded draw", () => {
       u += selectCandidates({ centre: 1000, seed, pool, authoredServed: under }).picks.filter((p) => p.authored).length;
     }
     expect(w).toBeLessThan(u / 2);
-    // An empty live pool is still served: the weight never cuts below what fills the menu at the widest pass.
+    // An empty live pool is still served: the weight never cuts below what fills the menu at
+    // the widest pass — and since it then changed nothing, the draw is NOT reported weighted (QA S3).
     const empty = selectCandidates({ centre: 1000, seed: 5, pool: authored, authoredServed: { band: 3, window: 40, served: 5, authored: 5 } });
     expect(empty.picks.length).toBe(3);
-    expect(empty.authoredWeightedDown).toBe(true);
+    expect(empty.authoredWeightedDown).toBe(false);
+    expect(empty.picks).toEqual(selectCandidates({ centre: 1000, seed: 5, pool: authored }).picks);
   });
 
-  it("EMPTY_POOL_BEHAVIOR: after the widest band, authored parties outside it fill the menu nearest-first; an unservable pool returns short", () => {
+  it("chunk 25 QA S3: in a THICK band the weight applies to the authored count actually eligible, and weightedDown means the draw changed", () => {
+    // 200 live parties and 12 authored in band: by ratio 85 authored would be allowed, so the
+    // old weighting (85 x 25% = 21) still admitted all 12. Now: floor(min(12, 85) x 25%) = 3.
+    const live = [...Array(200)].map((_, i) => entry(i, 1000 - 100 + ((i * 37) % 201)));
+    const authored = [...Array(12)].map((_, i) => entry(500 + i, 1000 - 60 + i * 10, true));
+    const pool = [...live, ...authored];
+    const over: AuthoredServedShare = { band: 3, window: 40, served: 40, authored: 40 };
+    const base = selectCandidates({ centre: 1000, seed: 11, pool });
+    expect(base.passes[0]).toEqual({ width: 150, live: 200, authoredInBand: 12, authoredAllowed: 12 });
+    expect(base.authoredWeightedDown).toBe(false);
+    const weighted = selectCandidates({ centre: 1000, seed: 11, pool, authoredServed: over });
+    expect(weighted.passes[0]).toEqual({ width: 150, live: 200, authoredInBand: 12, authoredAllowed: Math.floor((12 * TUNABLES.AUTHORED_OVER_SHARE_WEIGHT_BP) / 10_000) });
+    expect(weighted.authoredWeightedDown).toBe(true);
+    expect(authoredAllowance(200, 3, { authored: 12, overShare: true })).toBe(3);
+    expect(authoredAllowance(200, 3, { authored: 12 })).toBe(12);
+    // Over many seeds the weighted thick band serves about a quarter as many authored parties.
+    let w = 0;
+    let u = 0;
+    for (let seed = 0; seed < 400; seed++) {
+      w += selectCandidates({ centre: 1000, seed, pool, authoredServed: over }).picks.filter((p) => p.authored).length;
+      u += selectCandidates({ centre: 1000, seed, pool }).picks.filter((p) => p.authored).length;
+    }
+    expect(u).toBeGreaterThan(0);
+    expect(w).toBeLessThan(u / 2);
+    // Over the share but nothing to weight (no authored in band): not reported weighted.
+    expect(selectCandidates({ centre: 1000, seed: 11, pool: live, authoredServed: over }).authoredWeightedDown).toBe(false);
+  });
+
+  it("chunk 25 QA N2: the draw rules are a replay input — retuned numbers do not change what a stored rule set replays to", () => {
+    const authored = [...Array(12)].map((_, i) => entry(100 + i, 1000 + i * 40, true));
+    const rules = currentDrawRules();
+    expect(rules).toEqual({ maxShareBp: TUNABLES.AUTHORED_PARTY_MAX_SHARE_BP, overShareWeightBp: TUNABLES.AUTHORED_OVER_SHARE_WEIGHT_BP, fillNearestN: TUNABLES.AUTHORED_FILL_NEAREST_N });
+    const a = selectCandidates({ centre: 1000, seed: 3, pool: authored, rules });
+    expect(selectCandidates({ centre: 1000, seed: 3, pool: authored, rules: { ...rules } }).picks).toEqual(a.picks);
+    // A different N is a different draw (from the 12 nearest, a pick beyond the 6 nearest can appear).
+    const wide = { ...rules, fillNearestN: 12 };
+    const nearSix = new Set(nearestTo(authored, 1000, 6).map((p) => p.partyId));
+    let outside = 0;
+    for (let seed = 0; seed < 200; seed++) outside += selectCandidates({ centre: 1000, seed, pool: authored, rules: wide }).picks.filter((p) => !nearSix.has(p.partyId)).length;
+    expect(outside).toBeGreaterThan(0);
+    for (let seed = 0; seed < 200; seed++) for (const p of selectCandidates({ centre: 1000, seed, pool: authored, rules }).picks) expect(nearSix.has(p.partyId)).toBe(true);
+    expect(() => selectCandidates({ centre: 1000, seed: 3, pool: authored, rules: { ...rules, maxShareBp: 10_000 } })).toThrow(RangeError);
+  });
+
+  it("EMPTY_POOL_BEHAVIOR: after the widest band, authored parties outside it fill the menu, seeded among the nearest N; an unservable pool returns short", () => {
     const far = [entry(1, 1000), entry(50, 100, true), entry(51, 2000, true), entry(52, 2200, true)];
     const r = selectCandidates({ centre: 1000, seed: 3, pool: far });
     expect(r.bandWidthUsed).toBe(600);
     expect(r.usedAuthoredFallback).toBe(true);
-    expect(r.picks.map((p) => p.partyId).sort()).toEqual(["party-001", "party-050", "party-051"]); // 100 and 2000 are nearer than 2200
+    expect(r.picks.map((p) => p.partyId)).toContain("party-001");
+    expect(r.fillCandidates.map((p) => p.partyId)).toEqual(["party-050", "party-051", "party-052"]); // fewer than N outside: all of them
+    // More than N outside: only the N nearest are ever drawn (QA D2), and which of them varies by seed.
+    const many = [entry(1, 1000), ...[...Array(20)].map((_, i) => entry(100 + i, 1700 + i * 10, true))];
+    const nearest = new Set(nearestTo(many.filter((p) => p.authored), 1000, AUTHORED_FILL_NEAREST_N).map((p) => p.partyId));
+    expect(nearest.size).toBe(AUTHORED_FILL_NEAREST_N);
+    const menus = new Set<string>();
+    for (let seed = 0; seed < 50; seed++) {
+      const m = selectCandidates({ centre: 1000, seed, pool: many });
+      expect(m.fillCandidates.map((p) => p.partyId).every((id) => nearest.has(id))).toBe(true);
+      for (const p of m.picks) if (p.authored) expect(nearest.has(p.partyId)).toBe(true);
+      menus.add(m.picks.map((p) => p.partyId).sort().join());
+    }
+    expect(menus.size).toBeGreaterThan(3);
     // Live parties outside the widest band never fill (the fallback is authored only).
     const short = selectCandidates({ centre: 1000, seed: 3, pool: [entry(1, 1000), entry(2, 5000), entry(3, 5000)] });
     expect(short.picks.length).toBe(1);
     expect(short.usedAuthoredFallback).toBe(false);
+  });
+
+  it("chunk 25 QA D1: on an empty pool at 1000, across 2000 seeds, no authored candidate is more than one display band away", () => {
+    const pool = authoredPartySpecs().map((s) => ({ partyId: authoredPartyId(s.username), ownerAccountId: s.username, rating: s.rating, authored: true }));
+    for (const centre of [TUNABLES.REPUTATION_FLOOR, 250, 1000, 1600, TUNABLES.AUTHORED_REPUTATION_CEILING]) {
+      const home = bandOf(centre).index;
+      let worst = 0;
+      for (let k = 1; k <= 2000; k++) {
+        const r = selectCandidates({ centre, seed: Math.imul(k, 2654435761) >>> 0, pool });
+        expect(r.picks.length).toBe(3);
+        for (const p of r.picks) worst = Math.max(worst, Math.abs(bandOf(p.rating).index - home));
+      }
+      expect(worst, `centre ${centre}`).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("chunk 25 QA D2: above the authored ceiling, rerolls still vary — at least 3 distinct menus per 20 rerolls", () => {
+    const pool = authoredPartySpecs().map((s) => ({ partyId: authoredPartyId(s.username), ownerAccountId: s.username, rating: s.rating, authored: true }));
+    for (const centre of [2600, 2900, 3000, 3200, 4000, 9000]) {
+      const menus = new Set<string>();
+      for (let seq = 1; seq <= 20; seq++) menus.add(selectCandidates({ centre, seed: candidateSeed("c0ffee00-0000-4000-8000-000000000001", "7e57a11e-0000-4000-8000-000000000001", 1, seq), pool }).picks.map((p) => p.partyId).sort().join());
+      expect(menus.size, `centre ${centre}`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("chunk 25 QA S5: the stored pool is only what the draw could pick, and it replays exactly", () => {
+    // A thick spread: 400 live parties from 0 to 4000 plus authored ones; a draw that fills at ±150 stores only ±150.
+    const live = [...Array(400)].map((_, i) => entry(i, i * 10));
+    const authored = [...Array(30)].map((_, i) => entry(600 + i, 100 + i * 80, true));
+    const pool = [...live, ...authored];
+    for (const centre of [1000, 2500, 9000]) {
+      for (let seed = 0; seed < 50; seed++) {
+        const skipped = new Set(seed % 7 === 0 ? [live[100]!.partyId] : []);
+        const full = selectCandidates({ centre, seed, pool, skipped });
+        const stored = replayPool(pool, centre, full, skipped);
+        expect(stored.length).toBeLessThan(pool.length);
+        for (const p of stored) expect(Math.abs(p.rating - centre) <= full.bandWidthUsed || full.fillCandidates.some((f) => f.partyId === p.partyId) || skipped.has(p.partyId)).toBe(true);
+        const again = selectCandidates({ centre, seed, pool: stored, skipped });
+        expect(again.picks).toEqual(full.picks);
+        expect(again.passes).toEqual(full.passes);
+        expect(again.bandWidthUsed).toBe(full.bandWidthUsed);
+        expect(again.usedAuthoredFallback).toBe(full.usedAuthoredFallback);
+      }
+    }
   });
 
   it("rejects floats, duplicates and bad seeds", () => {
@@ -349,6 +456,14 @@ describe("the authored set (chunk 25)", () => {
     }
     expect(maxLivingTier(0)).toBe(0);
     expect(maxLivingTier(bands.length - 1)).toBe(TUNABLES.UNLOCK_WEB_TIERS);
+    // QA N5: no two adjacent bands field the same (max living tier, base merge level), and neither ever falls.
+    for (let o = 1; o < bands.length; o++) {
+      expect([maxLivingTier(o), baseMergeLevel(o)], `bands ${o - 1}/${o}`).not.toEqual([maxLivingTier(o - 1), baseMergeLevel(o - 1)]);
+      expect(maxLivingTier(o)).toBeGreaterThanOrEqual(maxLivingTier(o - 1));
+      expect(baseMergeLevel(o)).toBeGreaterThanOrEqual(baseMergeLevel(o - 1));
+    }
+    expect(baseMergeLevel(0)).toBe(TUNABLES.MERGE_LEVEL_MIN);
+    expect(baseMergeLevel(bands.length - 1)).toBe(TUNABLES.MERGE_LEVEL_MAX);
     expect(rungsForPoints(0)).toBe(0);
     expect(rungsForPoints(1)).toBe(1);
     expect(rungsForPoints(10)).toBe(10);
@@ -359,7 +474,10 @@ describe("the authored set (chunk 25)", () => {
 
   it("the outfit table keeps to the Old West archetypes: no Indigenous content", () => {
     const text = authoredPartySpecs().map((s) => `${s.outfit.name} ${s.outfit.flavor}`).join("\n");
-    expect(/indian|native|tribe|tribal|apache|comanche|sioux|cheyenne|navajo|lakota|warrior|brave\b|chief|totem|tomahawk/i.test(text)).toBe(false);
+    // A backstop, not the review: authoredOutfits.ts is a human-reviewed list (QA S7 — "Chinook" passed the first version of this list).
+    const words = /indian|native|tribe|tribal|apache|comanche|sioux|cheyenne|navajo|lakota|dakota|chinook|arapaho|blackfoot|shoshone|\bute\b|kiowa|pawnee|cherokee|choctaw|chickasaw|seminole|creek nation|mohawk|iroquois|ojibw|chippewa|cree\b|crow nation|nez perce|hopi|zuni|pueblo|papago|tohono|yaqui|osage|paiute|mojave|mohave|modoc|klamath|yakama|cayuse|shawnee|lenape|squaw|redskin|wampum|teepee|tipi|wigwam|war paint|warpath|powwow|pow wow|scalp|warrior|brave\b|chief|totem|tomahawk|medicine man|spirit walker|dreamcatcher/i;
+    expect(words.exec(text)?.[0] ?? null).toBeNull();
+    expect(text).not.toMatch(/chinook/i);
   });
 });
 

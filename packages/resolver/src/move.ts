@@ -69,6 +69,15 @@ export function tickEffects(state: SimState, u: UnitState, log: LogEvent[]): voi
  * drops its leg and re-plans). Appends every point it lands on to `u.sweep`.
  */
 export function advance(state: SimState, u: UnitState, budget: number): boolean {
+  return advanceMeasured(state, u, budget).moved;
+}
+
+/**
+ * `advance`, also returning how much of the budget was spent (`used`, fixed units along the
+ * route). A phase-7 dash logs `used` so a replay advances the unit by exactly that distance
+ * with the same leg rule (log.ts INTERPOLATION CONTRACT, `ability` / dash).
+ */
+export function advanceMeasured(state: SimState, u: UnitState, budget: number): { moved: boolean; used: number } {
   const maxX = FIELD_WIDTH - 1;
   const maxY = FIELD_HEIGHT - 1;
   let remaining = budget;
@@ -124,5 +133,5 @@ export function advance(state: SimState, u: UnitState, budget: number): boolean 
     remaining = 0;
     u.sweep.push({ x: u.x, y: u.y });
   }
-  return moved;
+  return { moved, used: budget - remaining };
 }

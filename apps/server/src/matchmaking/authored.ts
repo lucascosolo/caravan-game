@@ -36,7 +36,21 @@
  * system account's `authored_party` row records AUTHORED_SET_VERSION and the hash of the
  * spec it was built to; a changed spec is applied IN PLACE (rating delta through the
  * ledger, further rungs and nodes, roster rebuilt, party re-saved). Bump the version when
- * the set changes meaning; the hash catches every change regardless.
+ * the set changes meaning; the hash catches every change regardless, and a live siege
+ * rating that drifted from the spec's is re-applied too (chunk 25 QA S8). A drop is checked
+ * WHOLE before anything is written (QA S2): nodes already reached stay reached (unlock
+ * rights are permanent), so every changed party's reached ∪ new nodes must fit one capped
+ * ladder per pool, or the whole drop is refused and nothing changes.
+ *
+ * ROSTERS through the ledger (chunk 25 QA D3): every instance a system account's caravan
+ * gets is appended as `unit_acquired { source: "authored_set" }`, and every instance an
+ * update retires as `unit_lost_on_wipe { reason: "authored_set_update" }` — the one removal
+ * type the vocabulary has; a system caravan never travels, so no trip wipe can be confused
+ * with it. `rebuildAuthoredRoster` folds those events and must equal the live rows.
+ *
+ * IDS. A system account's standing party id is derived from its username
+ * (`authoredPartyId`), so the same set seeds the same party ids in every database and a
+ * draw over authored parties replays identically everywhere (chunk 25 QA N6).
  */
 import {
   REGION_IDS,
@@ -60,18 +74,22 @@ import type { LedgerEventDraft } from "../ledger/events.js";
 import { appendEvents, lockAccountForAppend } from "../ledger/ledger.js";
 import { saveParty } from "../party/service.js";
 import { pointsToRung, unlockPointsForRung, LADDER_CAP } from "../progression/ladder.js";
-import { createAccount, createHomeTown, createStandingParty, findAccountByUsername } from "../repo/accounts.js";
-import { getAccountPoolProgress, getCaravanPoolProgress } from "../repo/poolProgress.js";
+import { createAccount, createHomeTown, findAccountByUsername } from "../repo/accounts.js";
+import { ACCOUNT_POOLS, createAccountPoolProgress, getAccountPoolProgress, getCaravanPoolProgress } from "../repo/poolProgress.js";
 import { createUnitInstance } from "../repo/unitInstances.js";
 import { createCaravanForAccount } from "../services/caravans.js";
 import { purchasedNodeIds } from "../unlocks/access.js";
 import { spendUnlockPoints } from "../unlocks/spend.js";
 import { AUTHORED_OUTFITS, type AuthoredOutfit } from "./authoredOutfits.js";
 import { bandCentre, bandOf } from "./band.js";
+import { SYSTEM_USERNAME_PREFIX, systemUsernamePrefixSql } from "./reservedUsername.js";
 
-export const AUTHORED_USERNAME_PREFIX = "sys_outfit_";
-/** Bump when the set changes meaning (a content drop); the spec hash catches every change regardless. */
-export const AUTHORED_SET_VERSION = 2;
+export const AUTHORED_USERNAME_PREFIX = SYSTEM_USERNAME_PREFIX;
+/**
+ * Bump when the set changes meaning (a content drop); the spec hash catches every change regardless.
+ * v3 (chunk 25 QA N5): bands no longer pair up on (max living tier, base merge level).
+ */
+export const AUTHORED_SET_VERSION = 3;
 export const AUTHORED_PARTIES_PER_BAND: number = TUNABLES.AUTHORED_PARTIES_PER_BAND;
 if (!Number.isInteger(AUTHORED_PARTIES_PER_BAND) || AUTHORED_PARTIES_PER_BAND < 12) throw new Error("TUNABLES.AUTHORED_PARTIES_PER_BAND must be an integer of at least 12 (PHASE-2 §25)");
 if (!Number.isInteger(TUNABLES.AUTHORED_REPUTATION_CEILING) || TUNABLES.AUTHORED_REPUTATION_CEILING < TUNABLES.REPUTATION_FLOOR) throw new Error("TUNABLES.AUTHORED_REPUTATION_CEILING must be an integer at or above REPUTATION_FLOOR");
@@ -178,17 +196,27 @@ export function rungsForPoints(points: number): number {
 
 // ── the set ───────────────────────────────────────────────────────────────────────────
 
-/** Deepest living-web tier a band may field: 0 at the floor, UNLOCK_WEB_TIERS in the top band. */
+/** The last band ordinal (0 when the set has a single band). */
+const LAST_ORDINAL = Math.max(1, AUTHORED_BANDS - 1);
+
+/**
+ * Deepest living-web tier a band may field: 0 at the floor, UNLOCK_WEB_TIERS in the top band,
+ * spread linearly over the ordinals. Chunk 25 QA N5: the tier steps and the merge-level steps
+ * (below) fall on DIFFERENT bands — the merge curve is offset by half a step — so no two
+ * adjacent bands field the same (max tier, base merge level); validateSpecs refuses a set
+ * where they do.
+ */
 export function maxLivingTier(bandOrdinal: number): number {
-  return Math.min(TUNABLES.UNLOCK_WEB_TIERS, Math.floor((bandOrdinal * (TUNABLES.UNLOCK_WEB_TIERS + 1)) / AUTHORED_BANDS));
+  return Math.min(TUNABLES.UNLOCK_WEB_TIERS, Math.floor((bandOrdinal * TUNABLES.UNLOCK_WEB_TIERS) / LAST_ORDINAL));
 }
 /** Deepest siege-web tier a band may field: siege arrives faster than merged units, so early play shows every piece but the capstone. */
 export function maxSiegeTier(bandOrdinal: number): number {
   return Math.min(TUNABLES.UNLOCK_WEB_TIERS, bandOrdinal);
 }
-/** The top merge level a band fields (its leader may be one higher): 1 at the floor, MERGE_LEVEL_MAX in the top band. */
+/** The top merge level a band fields (its leader may be one higher): MERGE_LEVEL_MIN at the floor, MERGE_LEVEL_MAX in the top band, offset half a step from the tier curve. */
 export function baseMergeLevel(bandOrdinal: number): number {
-  return Math.min(TUNABLES.MERGE_LEVEL_MAX, TUNABLES.MERGE_LEVEL_MIN + Math.floor((bandOrdinal * TUNABLES.MERGE_LEVEL_MAX) / AUTHORED_BANDS));
+  const steps = TUNABLES.MERGE_LEVEL_MAX - TUNABLES.MERGE_LEVEL_MIN;
+  return Math.min(TUNABLES.MERGE_LEVEL_MAX, TUNABLES.MERGE_LEVEL_MIN + Math.floor((bandOrdinal * steps + Math.floor(LAST_ORDINAL / 2)) / LAST_ORDINAL));
 }
 
 export function outfitSlug(name: string): string {
@@ -309,6 +337,10 @@ function validateSpecs(specs: readonly AuthoredPartySpec[], bands: readonly numb
   for (const t of SIEGE_TYPES) if (!allSiege.has(t.id)) fail(`siege piece '${t.id}' never appears`);
   const top = specs.filter((s) => s.band === bands[bands.length - 1]);
   if (!top.some((s) => s.units.some((u) => u.mergeLevel === TUNABLES.MERGE_LEVEL_MAX))) fail("the top band fields no unit at the merge cap");
+  // Chunk 25 QA N5: every band reads as a step up from the one below it.
+  for (let o = 1; o < bands.length; o++) {
+    if (maxLivingTier(o) === maxLivingTier(o - 1) && baseMergeLevel(o) === baseMergeLevel(o - 1)) fail(`bands ${bands[o - 1]} and ${bands[o]} field the same max tier and base merge level`);
+  }
 }
 
 /** The PartyConfig for a spec over the instance ids just created (one per spec unit, in order). */
@@ -332,6 +364,88 @@ export function authoredPartyConfig(spec: AuthoredPartySpec, instanceIds: readon
 export function specHash(spec: AuthoredPartySpec): string {
   const shape = { v: AUTHORED_SET_VERSION, rating: spec.rating, regionId: spec.regionId, units: spec.units, siege: spec.siege, edges: spec.edges, stancePattern: spec.stancePattern, band: spec.band };
   return createHash("sha256").update(JSON.stringify(shape), "utf8").digest("hex");
+}
+
+/**
+ * The standing party id of a system account: a UUID-shaped digest of its username, the same
+ * in every database (chunk 25 QA N6). Party ids order the draw, so this makes a draw over
+ * authored parties reproducible across databases, not just within one.
+ */
+export function authoredPartyId(username: string): string {
+  const h = createHash("sha256").update(`caravan:authored-party:${username}`, "utf8").digest("hex");
+  // RFC 4122 layout with the version nibble 5 (name-based) and the variant bits 10xx.
+  const variant = ((parseInt(h[16]!, 16) & 0x3) | 0x8).toString(16);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${variant}${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+
+// ── rosters through the ledger (chunk 25 QA D3) ───────────────────────────────────────
+
+export interface RosterEntry {
+  instanceId: string;
+  unitTypeId: string;
+  mergeLevel: number;
+}
+
+function byInstance(a: RosterEntry, b: RosterEntry): number {
+  return a.instanceId < b.instanceId ? -1 : a.instanceId > b.instanceId ? 1 : 0;
+}
+
+/** The live roster of a caravan, sorted by instance id. */
+export async function liveRoster(db: Queryable, caravanId: string): Promise<RosterEntry[]> {
+  const res = await db.query<{ id: string; unit_type_id: string; merge_level: number }>("SELECT id, unit_type_id, merge_level FROM unit_instance WHERE caravan_id = $1", [caravanId]);
+  return res.rows.map((r) => ({ instanceId: r.id, unitTypeId: r.unit_type_id, mergeLevel: r.merge_level })).sort(byInstance);
+}
+
+/**
+ * The roster a system caravan's ledger describes: `unit_acquired` adds an instance,
+ * `unit_lost_on_wipe` removes it, in ledger order. For a system account (no merges, no
+ * trips) this must equal `liveRoster` exactly — the roster counterpart of verifyProjection.
+ */
+export async function rebuildAuthoredRoster(db: Queryable, caravanId: string): Promise<RosterEntry[]> {
+  const res = await db.query<{ event_type: string; payload: { instanceId: string; unitTypeId: string; mergeLevel: number } }>(
+    "SELECT event_type, payload FROM ledger_event WHERE caravan_id = $1 AND event_type IN ('unit_acquired', 'unit_lost_on_wipe') ORDER BY seq",
+    [caravanId],
+  );
+  const roster = new Map<string, RosterEntry>();
+  for (const ev of res.rows) {
+    const { instanceId, unitTypeId, mergeLevel } = ev.payload;
+    if (ev.event_type === "unit_acquired") {
+      if (roster.has(instanceId)) throw new Error(`roster fold: instance ${instanceId} acquired twice`);
+      roster.set(instanceId, { instanceId, unitTypeId, mergeLevel });
+    } else if (!roster.delete(instanceId)) throw new Error(`roster fold: instance ${instanceId} removed but never acquired`);
+  }
+  return [...roster.values()].sort(byInstance);
+}
+
+// ── the content-drop budget (chunk 25 QA S2) ──────────────────────────────────────────
+
+/** A drop that would need more unlock points than a capped ladder grants, for one or more parties. */
+export class AuthoredDropOverBudgetError extends Error {
+  constructor(public readonly problems: readonly string[]) {
+    super(`authored set refused, nothing written: ${problems.join("; ")}`);
+    this.name = "AuthoredDropOverBudgetError";
+  }
+}
+
+/**
+ * Whether `spec` can be applied to this existing system account within one capped ladder
+ * per pool: the points already spent (nodes once reached stay reached) plus the cost of the
+ * spec's nodes not yet reached. Returns the problems, empty when it fits. Reads only.
+ */
+export async function authoredSpecBudgetProblems(db: Queryable, spec: AuthoredPartySpec, accountId: string, caravanId: string): Promise<string[]> {
+  const budget = pointsPerPoolAtLadderCap();
+  const problems: string[] = [];
+  for (const pool of ["living", "siege"] as const) {
+    const web = pool === "living" ? unlockWebFor("living", spec.regionId) : unlockWebFor("siege");
+    const progress = pool === "living" ? await getCaravanPoolProgress(db, caravanId) : await getAccountPoolProgress(db, accountId, pool);
+    if (!progress) throw new Error(`no ${pool} pool_progress for ${accountId}`);
+    const purchased = new Set(await purchasedNodeIds(db, pool, { accountId, caravanId: pool === "living" ? caravanId : null }));
+    const nodes = pool === "living" ? spec.livingNodes : spec.siegeNodes;
+    const extra = nodes.filter((id) => !purchased.has(id)).reduce((sum, id) => sum + nodeCost(web, findUnlockNode(web, id)!), 0);
+    const total = progress.unlock_points_spent + extra;
+    if (total > budget) problems.push(`${spec.username} ${pool}: ${progress.unlock_points_spent} points already spent + ${extra} for new nodes = ${total} > ${budget} (one capped ladder)`);
+  }
+  return problems;
 }
 
 // ── seeding ───────────────────────────────────────────────────────────────────────────
@@ -378,6 +492,9 @@ async function grantRungs(client: pg.PoolClient, accountId: string, pool: Unlock
  */
 export async function applyAuthoredSpec(client: pg.PoolClient, spec: AuthoredPartySpec, accountId: string, caravanId: string, cause: string): Promise<void> {
   await lockAccountForAppend(client, accountId);
+  // QA S2: refuse before writing anything if the reached ∪ new nodes overflow a capped ladder.
+  const problems = await authoredSpecBudgetProblems(client, spec, accountId, caravanId);
+  if (problems.length) throw new AuthoredDropOverBudgetError(problems);
   // Rating, through the ledger (chunk 14 QA S5): the delta from where the siege rating stands now.
   const siege = await getAccountPoolProgress(client, accountId, "siege");
   if (!siege) throw new Error(`no siege pool_progress for ${accountId}`);
@@ -397,12 +514,23 @@ export async function applyAuthoredSpec(client: pg.PoolClient, spec: AuthoredPar
   for (const nodeId of spec.livingNodes) await spendUnlockPoints(client, accountId, { pool: "living", nodeId, caravanId });
   await grantRungs(client, accountId, "siege", null, await toReach("siege", spec.siegeNodes), cause);
   for (const nodeId of spec.siegeNodes) await spendUnlockPoints(client, accountId, { pool: "siege", nodeId, caravanId: null });
-  // Roster: fresh instances for this spec; the party is saved over them, then any older instance goes.
+  // Roster: fresh instances for this spec; the party is saved over them, then any older
+  // instance goes. Both halves are ledger events (QA D3), so the roster rebuilds from the ledger.
+  const before = await liveRoster(client, caravanId);
   const ids: string[] = [];
-  for (const u of spec.units) ids.push((await createUnitInstance(client, { caravanId, unitTypeId: u.typeId, mergeLevel: u.mergeLevel })).id);
+  const rosterEvents: LedgerEventDraft[] = [];
+  for (const u of spec.units) {
+    const inst = await createUnitInstance(client, { caravanId, unitTypeId: u.typeId, mergeLevel: u.mergeLevel });
+    ids.push(inst.id);
+    rosterEvents.push({ type: "unit_acquired", accountId, caravanId, payload: { unitTypeId: inst.unit_type_id, instanceId: inst.id, mergeLevel: inst.merge_level, source: "authored_set", coinCost: 0 } });
+  }
   const view = await saveParty(client, accountId, authoredPartyConfig(spec, ids));
   if (!view.valid) throw new Error(`authored party ${spec.username} does not resolve: ${view.issues.map((i) => i.message).join("; ")}`);
   await client.query("DELETE FROM unit_instance WHERE caravan_id = $1 AND NOT (id = ANY($2::uuid[]))", [caravanId, ids]);
+  for (const old of before) {
+    rosterEvents.push({ type: "unit_lost_on_wipe", accountId, caravanId, payload: { unitTypeId: old.unitTypeId, instanceId: old.instanceId, mergeLevel: old.mergeLevel, reason: "authored_set_update", source: "authored_set" } });
+  }
+  await appendEvents(client, `${cause}:roster`, rosterEvents);
   await client.query(
     `INSERT INTO authored_party (account_id, set_version, spec_hash) VALUES ($1, $2, $3)
      ON CONFLICT (account_id) DO UPDATE SET set_version = EXCLUDED.set_version, spec_hash = EXCLUDED.spec_hash, updated_at = now()`,
@@ -427,24 +555,55 @@ async function nextAuthoredCause(client: pg.PoolClient, accountId: string, hash:
   return `authored:${accountId}:${res.rows[0]!.n}:${hash.slice(0, 16)}`;
 }
 
-export async function seedAuthoredParties(pool: pg.Pool): Promise<SeedAuthoredResult> {
+export interface SeedAuthoredOptions {
+  /** The set to seed; defaults to authoredPartySpecs(). Tests pass a modified set to exercise a content drop. */
+  specs?: readonly AuthoredPartySpec[];
+}
+
+interface SeedPlanEntry {
+  spec: AuthoredPartySpec;
+  /** Absent: create. Present: update in place (or leave alone when `current`). */
+  existing?: { accountId: string; caravanId: string };
+  current: boolean;
+}
+
+export async function seedAuthoredParties(pool: pg.Pool, options: SeedAuthoredOptions = {}): Promise<SeedAuthoredResult> {
   const out: SeedAuthoredResult = { version: AUTHORED_SET_VERSION, created: [], updated: [], existing: [] };
   await reassertSystemAccounts(pool);
-  // One discarded random secret per run: no system account has a usable password, and one hash is cheaper than a hundred.
-  const passwordHash = await hashPassword(randomBytes(32).toString("base64"));
-  for (const spec of authoredPartySpecs()) {
+  const specs = options.specs ?? authoredPartySpecs();
+
+  // Plan, reading only. A party is current when its recorded version and spec hash match AND
+  // its live siege rating still equals the spec's (QA S8: a drifted rating is re-applied).
+  const plan: SeedPlanEntry[] = [];
+  for (const spec of specs) {
     const existing = await findAccountByUsername(pool, spec.username);
+    if (!existing) {
+      plan.push({ spec, current: false });
+      continue;
+    }
+    if (!existing.is_system) throw new Error(`account '${spec.username}' exists but is not a system account; refusing to seed over it`);
+    const caravan = await pool.query<{ id: string }>("SELECT id FROM caravan WHERE account_id = $1 ORDER BY created_at LIMIT 1", [existing.id]);
+    if (!caravan.rows[0]) throw new Error(`system account '${spec.username}' has no caravan`);
+    const rec = await pool.query<{ spec_hash: string; set_version: number }>("SELECT spec_hash, set_version FROM authored_party WHERE account_id = $1", [existing.id]);
+    const siege = await getAccountPoolProgress(pool, existing.id, "siege");
+    const current = rec.rows[0]?.spec_hash === specHash(spec) && rec.rows[0].set_version === AUTHORED_SET_VERSION && siege?.reputation === spec.rating;
+    plan.push({ spec, existing: { accountId: existing.id, caravanId: caravan.rows[0].id }, current });
+  }
+  // QA S2: the whole drop is checked before ANY write; one party over budget refuses them all.
+  const problems: string[] = [];
+  for (const p of plan) if (p.existing && !p.current) problems.push(...(await authoredSpecBudgetProblems(pool, p.spec, p.existing.accountId, p.existing.caravanId)));
+  if (problems.length) throw new AuthoredDropOverBudgetError(problems);
+
+  // One discarded random secret per run: no system account has a usable password, and one hash is cheaper than a hundred.
+  const passwordHash = plan.some((p) => !p.existing) ? await hashPassword(randomBytes(32).toString("base64")) : "";
+  for (const { spec, existing, current } of plan) {
+    if (existing && current) {
+      out.existing.push(spec.username);
+      continue;
+    }
     if (existing) {
-      if (!existing.is_system) throw new Error(`account '${spec.username}' exists but is not a system account; refusing to seed over it`);
-      const rec = await pool.query<{ spec_hash: string; set_version: number }>("SELECT spec_hash, set_version FROM authored_party WHERE account_id = $1", [existing.id]);
-      if (rec.rows[0]?.spec_hash === specHash(spec) && rec.rows[0].set_version === AUTHORED_SET_VERSION) {
-        out.existing.push(spec.username);
-        continue;
-      }
       await withTransaction(pool, async (client) => {
-        const caravan = await client.query<{ id: string }>("SELECT id FROM caravan WHERE account_id = $1 ORDER BY created_at LIMIT 1", [existing.id]);
-        if (!caravan.rows[0]) throw new Error(`system account '${spec.username}' has no caravan`);
-        await applyAuthoredSpec(client, spec, existing.id, caravan.rows[0].id, await nextAuthoredCause(client, existing.id, specHash(spec)));
+        await applyAuthoredSpec(client, spec, existing.accountId, existing.caravanId, await nextAuthoredCause(client, existing.accountId, specHash(spec)));
       });
       out.updated.push(spec.username);
       continue;
@@ -454,8 +613,9 @@ export async function seedAuthoredParties(pool: pg.Pool): Promise<SeedAuthoredRe
       // Before the account owns anything: migration 011 permits this transition only now.
       await client.query("UPDATE account SET is_system = true WHERE id = $1", [account.id]);
       await createHomeTown(client, account.id);
-      await createStandingParty(client, account.id);
-      await client.query("INSERT INTO pool_progress (pool, account_id, reputation) VALUES ('trap', $1, $2), ('siege', $1, $2)", [account.id, TUNABLES.REPUTATION_START]);
+      // The ordinary standing-party row, with an id derived from the username (QA N6).
+      await client.query("INSERT INTO standing_party (id, account_id) VALUES ($1, $2)", [authoredPartyId(spec.username), account.id]);
+      for (const p of ACCOUNT_POOLS) await createAccountPoolProgress(client, account.id, p);
       const caravan = await createCaravanForAccount(client, { accountId: account.id, regionId: spec.regionId, name: spec.outfit.name });
       await applyAuthoredSpec(client, spec, account.id, caravan.id, await nextAuthoredCause(client, account.id, specHash(spec)));
     });
@@ -471,7 +631,9 @@ export async function seedAuthoredParties(pool: pg.Pool): Promise<SeedAuthoredRe
  * otherwise the seed refuses with the offending usernames, never silently continues.
  */
 export async function reassertSystemAccounts(db: Queryable): Promise<string[]> {
-  const rows = await db.query<{ id: string; username: string }>("SELECT id, username FROM account WHERE username LIKE $1 AND NOT is_system", [`${AUTHORED_USERNAME_PREFIX}%`]);
+  // Chunk 25 QA B1: the LITERAL prefix (starts_with), the same predicate registration uses —
+  // never LIKE, whose `_` wildcard would also match player names such as `sys0outfit0evil`.
+  const rows = await db.query<{ id: string; username: string }>(`SELECT id, username FROM account WHERE ${systemUsernamePrefixSql("$1")} AND NOT is_system`, [AUTHORED_USERNAME_PREFIX]);
   const fixed: string[] = [];
   const refused: string[] = [];
   for (const r of rows.rows) {

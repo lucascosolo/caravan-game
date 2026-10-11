@@ -23,10 +23,18 @@
  *      disadvantage multiplier from the input), floored (AFFINITY_APPLICATION);
  *   3. × the dealer's merge multiplier (MERGE_STAT_MULT_BY_LEVEL[mergeLevel]), floored —
  *      chunk 03 QA B1: the multiplier scales damage OUTPUT and max HP, never a rating;
+ *   3b. × the dealer's self-buff multiplier (chunk 12 SELF_BUFF: FIXED_ONE + damageBonus)
+ *      while its buff is in force (cast tick < tick ≤ buffEndTick), floored — every hit it deals, unit
+ *      or fence; absent (×1.0, step skipped) otherwise;
+ *   3c. × the ABILITY multiplier, ability hits only (chunk 12: burst_radius / heavy_strike
+ *      `damageMult` on a unit; structure_breaker's combined fence multiplier, which already
+ *      includes siege ADDITIVELY and replaces step 4 — abilities.ts), floored. It multiplies
+ *      the MERGED hit: no ability field scales with merge level (chunk 03 QA S1), the merged
+ *      hit already carries it;
  *   4. × the siege multiplier, fence hits only (hooks.ts `siegeFenceMult`), floored;
  *   5. minimum 1 (DAMAGE_MINIMUM): every hit that lands does at least one point, so no
  *      matchup is a stalemate by rounding and every breach terminates.
- * Traps skip steps 1, 3 and 4 (they are not units and carry no merge level).
+ * Traps skip steps 1, 3, 3b, 3c and 4 (they are not units and carry no merge level).
  *
  * ATTACK_TARGET_SELECTION: a unit hits the NEAREST living enemy unit within its reach
  * (REACH rule: squared centre distance ≤ (attackRange + unitRadius)²); an exact tie goes to
@@ -45,9 +53,9 @@
  * With no such threat it keeps hitting the fence. A non-breaching attacker, and every
  * posted unit, uses the plain nearest-in-reach rule above.
  */
-import type { AffinityCategory } from "./battlefield.js";
+import { cellDistSq, cellOf, type AffinityCategory } from "./battlefield.js";
 import { scaleInt, type Fixed } from "./fixed.js";
-import type { SimState, UnitState } from "./state.js";
+import type { FenceState, SimState, UnitState } from "./state.js";
 
 /** The multiplier for damage of category `dealer` landing on a unit of category `receiver`. */
 export function affinityMult(state: SimState, dealer: AffinityCategory, receiver: AffinityCategory): Fixed {
@@ -67,11 +75,39 @@ export function atLeastOne(damage: number): number {
   return damage < 1 ? 1 : damage;
 }
 
-/** One hit from `dealer` on `receiver` (unit vs unit): steps 1, 2, 3, 5 of DAMAGE_ROUNDING_ORDER. */
-export function hitDamage(state: SimState, dealer: UnitState, receiver: UnitState): number {
+/**
+ * Whether `u`'s self buff is in force for hits dealt this tick (step 3b): ticks
+ * cast + 1 … cast + buffTicks, i.e. buffEndTick − buffTicks < tick ≤ buffEndTick.
+ */
+export function buffActive(state: SimState, u: UnitState): boolean {
+  return state.tick <= u.buffEndTick && state.tick > u.buffEndTick - u.buffTicks;
+}
+
+/** Steps 3 and 3b: the dealer's merge multiplier, then its buff while in force. */
+export function dealtOutput(state: SimState, dealer: UnitState, value: number): number {
+  const merged = scaleInt(value, dealer.mergeMult);
+  return buffActive(state, dealer) ? scaleInt(merged, dealer.buffMult) : merged;
+}
+
+/** Steps 1, 2, 3, 3b of DAMAGE_ROUNDING_ORDER for unit vs unit (no minimum yet). */
+function unitHitBeforeMinimum(state: SimState, dealer: UnitState, receiver: UnitState): number {
   const base = formulaDamage(dealer.rating, receiver.rating);
   const withAffinity = scaleInt(base, affinityMult(state, dealer.affinity, receiver.affinity));
-  return atLeastOne(scaleInt(withAffinity, dealer.mergeMult));
+  return dealtOutput(state, dealer, withAffinity);
+}
+
+/** One hit from `dealer` on `receiver` (unit vs unit): steps 1, 2, 3, 3b, 5 of DAMAGE_ROUNDING_ORDER. */
+export function hitDamage(state: SimState, dealer: UnitState, receiver: UnitState): number {
+  return atLeastOne(unitHitBeforeMinimum(state, dealer, receiver));
+}
+
+/**
+ * One ABILITY hit on a unit (burst_radius, heavy_strike): the same pipeline as a normal hit
+ * with step 3c — × `abilityMult` applied to the merged (and, in principle, buffed) hit,
+ * floored — then the minimum of 1. "×3.0 of a normal hit" means exactly this.
+ */
+export function abilityHitDamage(state: SimState, dealer: UnitState, receiver: UnitState, abilityMult: Fixed): number {
+  return atLeastOne(scaleInt(unitHitBeforeMinimum(state, dealer, receiver), abilityMult));
 }
 
 /** Squared centre distance between two units. */
@@ -125,4 +161,25 @@ export function threatInReach(state: SimState, u: UnitState): UnitState | null {
     }
   }
   return best;
+}
+
+/** Whether an attacker's unit target is inside its reach (attackRange + unitRadius, inclusive) — MOVEMENT_HOLD (tick.ts). */
+export function engaged(state: SimState, u: UnitState): boolean {
+  if (u.target === null || u.target.kind !== "unit") return false;
+  const d = state.units[u.target.id]!;
+  return d.alive && unitDistSq(u, d) <= u.reachSq;
+}
+
+/**
+ * The fence `u` is breaching this tick and could hit now, or null: an attacker standing
+ * short of an intact, not-yet-destroyed segment (phase 3 set `breaching`; a segment brought
+ * to 0 HP earlier in this phase is skipped, phase 8 clears it) whose cell is orthogonally
+ * adjacent to the segment's (FENCE_BREACH_RANGE).
+ */
+export function breachableFence(state: SimState, u: UnitState): FenceState | null {
+  if (u.side !== "attacker" || u.breaching < 0) return null;
+  const fence = state.fences[u.breaching]!;
+  if (!fence.intact || fence.hp <= 0) return null;
+  if (cellDistSq(cellOf({ x: u.x, y: u.y }), fence.cell) !== 1) return null;
+  return fence;
 }

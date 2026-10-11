@@ -161,10 +161,15 @@ Chunk 14 computes and publishes; this chunk is the only place these take effect 
   stored row carries `owner.accountId`). For such an owner: **destroy** Coin the caravan
   loses instead of transferring it (no `coin_transferred_to_party_owner` to a system
   account, ever — write a destruction event under the same causation id so the sum still
-  reconciles), **mint nothing** the party would have "earned", and **skip the owner's
-  Reputation change** (the caravan's own change still applies; chunk 04's writer takes the
-  opponent rating as a number and must not be fed a system account's row). The resolver
-  never sees the flag; it is read here, at the outcome boundary, only.
+  reconciles), **mint nothing** the party would have "earned", and **skip ALL party-side
+  progression** (chunk 25 QA S8): no `reputation_changed`, no `ladder_progress_gained`, no
+  `unlock_points_granted`, no `unlock_node_purchased` and no Coin event of any kind is
+  appended to a system account by an outcome. The caravan's own side still resolves in
+  full (its Reputation, ladder, unlock points, losses); chunk 04's writer takes the opponent
+  rating as a number and must not be fed a system account's row. A system account's
+  ratings and rungs belong to the authored set alone (`seedAuthoredParties`, which also
+  re-applies a spec whenever the live siege rating has drifted from it). The resolver never
+  sees the flag; it is read here, at the outcome boundary, only.
 - **The sandbagging earn floor (chunk 04 QA D2, chunk 14 QA D2/S3).** Every candidate
   carries `reputation.sandbagEarnMultiplier` (fixed-point, `FIXED_ONE` = full), computed by
   `sandbagEarnMultiplier(gapBeyondBand(caravanLiving − ownerSiege, band_width_used))` in
@@ -176,8 +181,9 @@ Chunk 14 computes and publishes; this chunk is the only place these take effect 
   row (`chosenCandidate(db, tripId, n).reputation.sandbagEarnMultiplier`) — not recomputed
   from live ratings, so what the player saw before committing is what is applied. It
   reduces earn only; it never touches what is lost, transferred or de-merged.
-- **Tests this chunk owes:** (1) a system-account owner receives no Coin and no
-  Reputation change while the caravan's side resolves normally; (2) `applyEarnFloor` is the
+- **Tests this chunk owes:** (1) a system-account owner receives no Coin, no Reputation
+  change, no ladder progress and no unlock points (zero new ledger events on the system
+  account for the outcome) while the caravan's side resolves normally; (2) `applyEarnFloor` is the
   single apply site (a source scan that `sandbagEarnMultiplier` is read nowhere else in
   `src/` outside `matchmaking/`); (3) the multiplier applied equals the one on the chosen
   candidate row, including `FIXED_ONE` for a widened-to party; (4) the floor is identical

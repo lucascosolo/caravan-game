@@ -260,6 +260,14 @@ export const TUNABLES = {
   DASH_DISTANCE_DEFAULT: fp(3),
   /** ×5.0 vs. fence segments only. ADDITIVE with siege, never multiplicative (chunk 12). */
   STRUCTURE_BREAKER_MULT_DEFAULT: fp(5),
+  /**
+   * TUNABLE (chunk 12). One structure-breaker hit takes at most this fraction of a segment's
+   * MAX HP (×0.50), so no merge level and no siege counter lets the ability one-shot a segment
+   * of any tier. Without it the worst case — a level-5 Buffalo Bull (offense 120, merged hit
+   * 292) at ×5 with stone siege added (×5 + ×4 − 1 = ×8) — deals 2336 to a 1000-HP Stacked
+   * Stone segment; even ×5 alone (1460) one-shots it from merge level 4.
+   */
+  STRUCTURE_BREAKER_SEGMENT_CAP: fpMilli(500),
 
   // ────────────────────────────────────────────────────────────────────────────────────
   // Traps / siege / fences (chunks 07 and 11 consume)
@@ -485,6 +493,15 @@ export const TUNABLES = {
    * menu at the widest pass. Releases by itself as live parties are served.
    */
   AUTHORED_OVER_SHARE_WEIGHT_BP: 2500,
+  /**
+   * TUNABLE (chunk 25 QA D1/D2). Cold-start fairness: when authored parties FILL a menu (the
+   * widest pass, and the outside-band fallback), they are drawn seeded from the N nearest
+   * the band centre (ties by party id), never from the whole widest band — so a fresh
+   * player at 1000 meets parties about a band away at most, and rerolls above the authored
+   * ceiling still vary. Stored with each menu (encounter_candidates.draw_rules) so a change
+   * never alters a replay.
+   */
+  AUTHORED_FILL_NEAREST_N: 6,
 
   // ────────────────────────────────────────────────────────────────────────────────────
   // Chunk 16 — Coin economy and merge pricing. Coin buys PACE only (GUARDRAILS §2): nothing

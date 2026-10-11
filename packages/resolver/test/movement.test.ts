@@ -31,7 +31,7 @@ import {
   type LogEvent,
   type ResolveOutput,
 } from "../src/index.js";
-import { DEFAULT_TUNABLES, SHORT_TUNABLES, battlefield, clone, cornerClipScenario, fence, input, ms, party, post, reachSq, ringExcept, scenarios, trap, unit } from "./fixtures.js";
+import { DEFAULT_TUNABLES, QUIET_SHORT_TUNABLES, SHORT_TUNABLES, quiet, battlefield, clone, cornerClipScenario, fence, input, ms, party, post, reachSq, ringExcept, scenarios, trap, unit } from "./fixtures.js";
 
 const keyframes = (out: ResolveOutput) => out.log.filter((e): e is Extract<LogEvent, { k: "keyframe" }> => e.k === "keyframe");
 const events = <K extends LogEvent["k"]>(out: ResolveOutput, k: K) => out.log.filter((e): e is Extract<LogEvent, { k: K }> => e.k === k);
@@ -43,7 +43,7 @@ describe("fixed-timestep loop", () => {
     expect(out.tickCap).toBe(60);
     expect(out.ticks).toBe(60);
     expect(out.end).toBe("tick_cap");
-    expect(out.resolverVersion).toBe(4);
+    expect(out.resolverVersion).toBe(5);
     const full = resolve(input(battlefield(), party([unit({ ref: "a" })])));
     expect(full.tickCap).toBe(3600);
     expect(full.ticks).toBe(3600);
@@ -317,7 +317,7 @@ describe("QA-10 round 1 regressions", () => {
     // Open field from (10,0) to the core (a line that clears the ring anchors): one diagonal
     // leg of ≈ 15.8 cells that every 10-tick recompute re-derives identically, so the route
     // is set once and the leg is never restarted.
-    const out = resolve(input(battlefield(), party([unit({ ref: "a", cell: { x: 10, y: 0 } })]), { ...SHORT_TUNABLES, keyframeIntervalMs: ms(50) }));
+    const out = resolve(input(battlefield(), party([unit({ ref: "a", cell: { x: 10, y: 0 } })]), quiet({ ...SHORT_TUNABLES, keyframeIntervalMs: ms(50) })));
     const paths = events(out, "path");
     expect(paths).toHaveLength(1);
     expect(paths[0]!.t).toBe(0);
@@ -395,7 +395,7 @@ describe("QA-10 round 1 regressions", () => {
   it("S1: breach vs detour is decided by MEASURED time — resolved both ways, the chosen route is the quicker one to within one attack cooldown, exactly at the unambiguous ends", () => {
     const cooldownTicks = 20; // 1000 ms at 20 ticks/s; one hit's worth, the planner's resolution
     const timeTo = (gaps: number[], hp: number) => {
-      const out = resolve(input(field(gaps, hp), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES));
+      const out = resolve(input(field(gaps, hp), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), QUIET_SHORT_TUNABLES));
       return { t: out.units[0]!.reachedCoreTick, breached: events(out, "fence_hit").length > 0 };
     };
     // A forced breach of h hits costs exactly (h − 1) cooldowns over a one-hit breach.

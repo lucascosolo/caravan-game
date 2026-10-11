@@ -34,11 +34,37 @@
  *     reflected by `hold`, which stays authoritative for "did not move".
  *   - Posted units (chunk 11) move too, with the same `path` / `hold` / `speed` events, from
  *     the tick they acquire a target; before that they stand at their spawn position.
+ *   - `ability` with `a: "dash"` (chunk 12) at tick t is a MOVEMENT LEG of its own: after the
+ *     unit's tick-t movement (phase 3 for attackers, phase 5 for posted units) it advances
+ *     `tg[0].amount` further along its CURRENT route by exactly the leg rule above — same
+ *     legs, same anchors, waypoints landed on are consumed, a partial leg keeps its anchor
+ *     and progress — and ends at (`x`, `y`). The next tick's movement continues from there
+ *     on the same leg. It is applied whatever `hold` says (`hold` describes the unit's own
+ *     movement phase only) and is never re-stated by a `path` event. A dash never enters an
+ *     intact fence or anchor cell (the route never crosses one; a breach waypoint stops it).
+ *   - Other `ability` events move nothing. HP changes they cause are in `tg[i].hp` (units) or
+ *     the fence's `hp`; a structure-breaker kill is followed by `fence_broken` in phase 8.
  *   - `keyframe` carries authoritative positions for seeking and for detecting a truncated
  *     log; interpolation between keyframes must reproduce them exactly. Since chunk 11 it
- *     also carries each unit's attack cooldown and remaining effect ticks.
+ *     also carries each unit's attack cooldown and remaining effect ticks; since chunk 12
+ *     `ab`, the ticks until its ability may fire.
  */
+import type { AbilityArchetype } from "./battlefield.js";
 import type { Target } from "./state.js";
+
+/**
+ * One target of an `ability` event and what the ability did to it (chunk 12). `kind` "unit":
+ * `id` is a unit id; "fence": a fence index. `amount` is the damage dealt (burst_radius,
+ * heavy_strike, structure_breaker), the HP actually restored (heal_radius; 0 when the target
+ * was at 0 HP by then, or capped by max HP), the buff length in ticks (self_buff, the caster),
+ * or the distance moved in fixed units (dash, the caster). `hp` is the target's HP after.
+ */
+export interface AbilityEffectLog {
+  readonly kind: "unit" | "fence";
+  readonly id: number;
+  readonly amount: number;
+  readonly hp: number;
+}
 
 export interface LogTarget {
   readonly kind: Target["kind"];
@@ -79,11 +105,19 @@ export type LogEvent =
   | { readonly t: number; readonly k: "hit"; readonly u: number; readonly v: number; readonly damage: number; readonly hp: number }
   /** Phase 8 (chunk 11): the unit is dead — out of targeting, out of the fight. */
   | { readonly t: number; readonly k: "unit_died"; readonly u: number }
+  /** Phase 7 (chunk 12): unit `u`'s damage ability fired. Targets in ascending id (one for heavy_strike / structure_breaker). */
+  | { readonly t: number; readonly k: "ability"; readonly u: number; readonly a: Extract<AbilityArchetype, "burst_radius" | "heavy_strike" | "structure_breaker">; readonly tg: readonly AbilityEffectLog[] }
+  /** Phase 7 (chunk 12): a heal fired; `charges` is what is left in the satchel after it. */
+  | { readonly t: number; readonly k: "ability"; readonly u: number; readonly a: "heal_radius"; readonly tg: readonly AbilityEffectLog[]; readonly charges: number }
+  /** Phase 7 (chunk 12): a self buff fired; it is in force for the caster's hits through tick `until` (inclusive). */
+  | { readonly t: number; readonly k: "ability"; readonly u: number; readonly a: "self_buff"; readonly tg: readonly AbilityEffectLog[]; readonly until: number }
+  /** Phase 7 (chunk 12): a dash — a movement leg (see INTERPOLATION CONTRACT); (x, y) is where it ends. */
+  | { readonly t: number; readonly k: "ability"; readonly u: number; readonly a: "dash"; readonly tg: readonly AbilityEffectLog[]; readonly x: number; readonly y: number }
   /** End of tick, every keyframeInterval ticks and on the final tick. */
   | {
       readonly t: number;
       readonly k: "keyframe";
-      readonly units: readonly { readonly u: number; readonly x: number; readonly y: number; readonly hp: number; readonly alive: boolean; readonly cd: number; readonly slow: number; readonly root: number }[];
+      readonly units: readonly { readonly u: number; readonly x: number; readonly y: number; readonly hp: number; readonly alive: boolean; readonly cd: number; readonly slow: number; readonly root: number; readonly ab: number }[];
       readonly fences: readonly { readonly f: number; readonly hp: number }[];
       readonly traps: readonly { readonly i: number; readonly spent: boolean }[];
     };

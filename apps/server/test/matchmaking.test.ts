@@ -114,6 +114,10 @@ async function search(d: Player, n = 1): Promise<CandidateMenuView> {
 async function searchAt(d: Player & { caravan: CaravanRow }, n: number, nowMs: number, linked?: (db: unknown, id: string) => Promise<string[]>): Promise<CandidateMenuView> {
   return withTransaction(appRole, (c) => searchCandidates(c, d.caravan, n, linked ? { nowMs, linkedAccounts: linked } : { nowMs }));
 }
+async function storedCandidate(tripId: string, candidateId: string): Promise<Candidate> {
+  const res = await pool.query<{ candidates: Candidate[] }>("SELECT candidates FROM encounter_candidates WHERE trip_id = $1", [tripId]);
+  return res.rows.flatMap((r) => r.candidates).find((c) => c.candidateId === candidateId)!;
+}
 async function menuRow(tripId: string, n: number, seq: number): Promise<EncounterCandidatesRow> {
   const res = await pool.query<EncounterCandidatesRow>("SELECT * FROM encounter_candidates WHERE trip_id = $1 AND encounter_index = $2 AND search_seq = $3", [tripId, n, seq]);
   return res.rows[0]!;
@@ -153,7 +157,10 @@ describe("search returns exactly three fully scoutable candidates", () => {
       const owner = owners.find((o) => o.partyId === c.partyId)!;
       expect(owner).toBeDefined();
       // QA N4: the client view names the owner but carries no account id; the stored row does.
-      expect(c.owner).toEqual({ displayName: expect.stringMatching(/^p_/), authored: false });
+      expect(c.owner).toEqual({ displayName: expect.stringMatching(/^p_/), authored: false, flavor: null });
+      // Chunk 25 QA D4: nor inside the snapshot.
+      expect(c.snapshot).not.toHaveProperty("ownerAccountId");
+      expect(JSON.stringify(c)).not.toContain(owner.accountId);
       expect(c.reputation.band).toEqual(bandOf(c.reputation.rating));
       expect(Math.abs(c.reputation.rating - 1000)).toBeLessThanOrEqual(150);
       expect(c.reputation.gapFromCaravan).toBe(1000 - c.reputation.rating);
@@ -181,7 +188,8 @@ describe("search returns exactly three fully scoutable candidates", () => {
     const stored = await menuRow(d.tripId, 1, 1);
     expect(stored.skipped_party_ids).toEqual([]);
     for (const c of stored.candidates) expect(c.owner.accountId).toBe(owners.find((o) => o.partyId === c.partyId)!.accountId);
-    for (const c of menu.candidates) expect(Object.keys(c.owner).sort()).toEqual(["authored", "displayName"]);
+    for (const c of menu.candidates) expect(Object.keys(c.owner).sort()).toEqual(["authored", "displayName", "flavor"]);
+    for (const c of stored.candidates) expect(c.snapshot.ownerAccountId).toBe(c.owner.accountId);
     expect(menu.rules.reroll).toEqual({ gate: "time", cooldownSeconds: REROLL_COOLDOWN_SECONDS });
     expect(menu.rules.selfExcluded).toBe(true);
     expect(menu.rules.recentOpponentsExcluded).toBe(RECENT_OPPONENT_EXCLUSION);
@@ -412,8 +420,18 @@ describe("the enqueue takes the scouted snapshot and nothing else (QA S1)", () =
     const m = await search(d);
     const pick = m.candidates[0]!;
     await withTransaction(appRole, (c) => chooseCandidate(c, d.caravan, 1, pick.candidateId, m.searchedAtMs));
+    // Chunk 25 QA N1: once a candidate is chosen, the direct enqueue accepts only THAT snapshot, byte for byte.
+    const chosenStored = await storedCandidate(d.tripId, pick.candidateId);
+    const notChosen = m.candidates.find((c) => c.candidateId !== pick.candidateId)!;
+    const notChosenStored = await storedCandidate(d.tripId, notChosen.candidateId);
+    const direct = (party: typeof chosenStored.snapshot, ownerId: string) =>
+      withTransaction(appRole, (c) => enqueueEncounterResolution(c, { ...base, partyOwnerAccountId: ownerId, party }));
+    await expect(direct(notChosenStored.snapshot, notChosenStored.owner.accountId)).rejects.toThrow(/not the chosen candidate/);
+    await expect(direct({ ...chosenStored.snapshot, savedAt: "2000-01-01T00:00:00.000Z" }, chosenStored.owner.accountId)).rejects.toThrow(/not the chosen candidate/);
+    expect(await getJob(pool, `encounter:${d.tripId}:1`)).toBeNull();
     const { job } = await withTransaction(appRole, (c) => enqueueChosenEncounter(c, d.caravan, 1, { fences: [], traps: [], posts: [] }));
-    expect(canonicalJson(job.input["party"] as Json)).toBe(canonicalJson(pick.snapshot));
+    // The view carries no account id (QA D4); the job input is the STORED snapshot, owner included.
+    expect(canonicalJson(job.input["party"] as Json)).toBe(canonicalJson({ ...pick.snapshot, ownerAccountId: (await storedCandidate(d.tripId, pick.candidateId)).owner.accountId }));
   });
 });
 
@@ -451,7 +469,7 @@ describe("the snapshot contract: scouted == chosen == fought", () => {
   });
 
   it("the owner editing, merging and losing units AFTER the search changes nothing: the job's party input is byte-identical to the scouted snapshot", async () => {
-    const scoutedSnapshot = canonicalJson(pick.snapshot);
+    const scoutedSnapshot = canonicalJson({ ...pick.snapshot, ownerAccountId: owner.accountId });
     const scoutedView = canonicalJson(pick.scout as unknown as Json);
     // The owner rearranges, then de-merges a unit, then loses one outright.
     const edited = fullParty(owner.units.slice(0, 3), []);
@@ -505,7 +523,7 @@ describe("the snapshot contract: scouted == chosen == fought", () => {
     const res = await call(d2, "POST", `/me/caravans/${d2.caravanId}/encounters/1/choose`, { candidateId: pickB.candidateId });
     expect(res.statusCode, res.body).toBe(200);
     const { job } = await withTransaction(appRole, (cl) => enqueueChosenEncounter(cl, d2.caravan, 1, { fences: [], traps: [], posts: [] }));
-    expect(canonicalJson((await getJob(pool, job.id))!.input["party"] as Json)).toBe(canonicalJson(pickB.snapshot));
+    expect(canonicalJson((await getJob(pool, job.id))!.input["party"] as Json)).toBe(canonicalJson({ ...pickB.snapshot, ownerAccountId: b.accountId }));
   });
 
   it("a candidate from a rerolled-away menu is stale_candidate; an unknown id is 404", async () => {
@@ -534,11 +552,14 @@ describe("authored fallback (PHASE-2 §25 seam)", () => {
     expect(new Set(m.candidates.map((c) => c.partyId)).size).toBe(3);
     for (const c of m.candidates) {
       expect(c.owner.authored).toBe(true);
-      expect(c.owner.displayName.startsWith(AUTHORED_USERNAME_PREFIX)).toBe(true);
+      // Chunk 25 QA N3: the outfit's name (and flavour), never the sys_outfit_* handle.
+      expect(c.owner.displayName.startsWith(AUTHORED_USERNAME_PREFIX)).toBe(false);
+      expect(c.owner.displayName.length).toBeGreaterThan(0);
+      expect(c.owner.flavor?.length).toBeGreaterThan(0);
       expect(c.scout.units.length).toBeGreaterThanOrEqual(3);
       expect(canonicalJson(scoutParty(partyFromJson(c.snapshot.composition)) as unknown as Json)).toBe(canonicalJson(c.scout as unknown as Json));
       // Same shape as a live snapshot: nothing marks it authored inside the snapshot.
-      expect(Object.keys(c.snapshot).sort()).toEqual(["composition", "hash", "ownerAccountId", "partyId", "savedAt", "slot"]);
+      expect(Object.keys(c.snapshot).sort()).toEqual(["composition", "hash", "partyId", "savedAt", "slot"]);
       expect(JSON.stringify(c.snapshot)).not.toMatch(/authored|system/i);
     }
     expect(m.authoredOutsideBand).toBe(false);

@@ -9,6 +9,9 @@
  * aggro / leash, siege counters, unit death, the REACH rule and the new input tunables);
  * 4 is chunk 11's QA round 1 (every stance fires in reach, a breacher answers only a unit
  * that can reach it, pursuit routes bounded by leash and aggro, aggro hysteresis on the
- * target last lost, the leash clamp, traps skip 0-HP units, tighter input bounds).
+ * target last lost, the leash clamp, traps skip 0-HP units, tighter input bounds); 5 is chunk
+ * 12's abilities (phase 7: six archetypes on automatic cooldowns, decide-then-apply damage
+ * first, the heal ceiling, the additive and capped structure breaker, the dash leg, the buff
+ * step in the damage pipeline, two new input tunables and the ability field bounds).
  */
-export const RESOLVER_VERSION = 4;
+export const RESOLVER_VERSION = 5;
