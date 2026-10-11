@@ -361,8 +361,13 @@ balance pass, no balance number changed; N7 no action).
   run first by `pnpm determinism`) proves refusal and acceptance on fixture diffs.
 - **Harness under load (S6).** The 100× loop is one test per scenario per batch of 25 runs (288
   tests), the integer-state walk one test per scenario: no synchronous block runs for more than a
-  few seconds. Same check (100 byte-identical resolutions per scenario). The harness script gives
-  the vitest step and each driver process a timeout and reports a signal.
+  few seconds. Same check (100 byte-identical resolutions per scenario). Splitting alone was not
+  enough — vitest only awaits microtasks between tests, so the worker's event loop still never ran
+  and "Timeout calling onTaskUpdate" recurred under load — so `test/setup-yield.ts` (vitest
+  `setupFiles`) yields one macrotask before every resolver test. `budget.test.ts` times the
+  resolver by process CPU time, not wall time (same bounds). Observed: the full resolver suite run
+  concurrently with `pnpm determinism` passes, both exit 0. The harness script gives the vitest
+  step and each driver process a timeout and reports a signal.
 - **The running server resolves encounters (S1).** `jobs/inProcessWorker.ts` `EncounterWorkerLoop`
   drains the queue in-process: kicked by every commit, and polled every
   `ENCOUNTER_WORKER_POLL_MS` (1 s). `index.ts` builds the app with `encounterWorker: true` — the
@@ -379,7 +384,8 @@ balance pass, no balance number changed; N7 no action).
 - **Nits.** N1 an undecodable body → `renderable: false`; N2 a parked job → 409
   `resolution_unavailable`; N3 the reader's verdict is cached per verified sha256 and the response
   is gzip-compressed when accepted; N4 `INPUT_BOUNDS.minAttackCooldownMs` = 400 (content's
-  ATTACK_COOLDOWN_MIN, asserted equal at import by @caravan/circle) — ability cooldowns keep the
+  ATTACK_COOLDOWN_MIN; the literal is battlefield.ts `MIN_ATTACK_COOLDOWN_MS`, asserted equal at
+  import by @caravan/circle — kept out of input.ts so the web bundle does not pull the validator in) — ability cooldowns keep the
   1-tick floor (the corpus has a deliberate 1-tick burst; content's 6 s minimum is a content
   invariant); N5 the route sends `depth: {scale, measuredFrom: "ring_line", lootCurve, value,
   lootShare}`, the sentence is `STRINGS.trip.depthExplained` in the web client; N6

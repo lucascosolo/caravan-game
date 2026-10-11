@@ -140,7 +140,7 @@ pnpm --filter @caravan/web e2e                        # Playwright smoke vs a ru
 pnpm e2e                     # the same, self-contained: seeds E2E_DATABASE_URL (dev, a run-unique formation account packed and ridden out, a run-unique trip account in town), starts the BUILT server on :3917 with CARAVAN_TEST_RESOLVER=double, runs the e2e, stops it (run `pnpm build` first)
 
 pnpm determinism             # resolver determinism harness (chunk 13): the golden-gate self-test (scripts/golden-gate.test.mjs), then the 72-fight corpus 100× byte-identical in-process (one test per scenario per 25-run batch) and equal to the golden logs in packages/resolver/golden (UPDATE_GOLDEN=1 regenerates), then 3 separate Node processes (different corpus orders) compared by sha256 with each other and the goldens; with a base ref (DETERMINISM_BASE_REF locally) it refuses a changed/deleted golden unless RESOLVER_VERSION increased as an integer and every changed golden carries it (`[resolver-bump]` covers only new fixtures)
-pnpm --filter @caravan/resolver test   # the resolver alone: 204 tests in 14 files, no DB, no network, ~60 s on 4 cores (the 100× determinism harness over 72 fights is most of it)
+pnpm --filter @caravan/resolver test   # the resolver alone: 576 tests in 15 files (288 of them the 100× harness in 25-run batches), no DB, no network, ~70 s on 4 cores
 pnpm test:boundary           # resolver dependency-boundary check (zero deps, imports stay inside packages/resolver/src)
 pnpm build                   # esbuild → apps/server/dist (index.js, db/migrate.js, seed.js); workspace packages inlined, npm deps external; then vite build → apps/web/dist
 pnpm start                   # run the built server: node apps/server/dist/index.js

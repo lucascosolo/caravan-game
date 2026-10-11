@@ -29,6 +29,7 @@ import {
   assertBattlefield,
   assertCell,
   assertIntegersOnly,
+  MIN_ATTACK_COOLDOWN_MS,
   cellOf,
   eachOf,
   isEntryCell,
@@ -120,13 +121,8 @@ export const INPUT_BOUNDS = {
   maxDistance: 64 * FIXED_POINT_SCALE,
   /** Any duration in ms: cooldowns, intervals. One minute. */
   maxMillis: 60_000,
-  /**
-   * The shortest attack cooldown, ms (QA-13 N4): content's ATTACK_COOLDOWN_MIN, enforced here so
-   * the log-size budget rests on validation, not on content — a 1 ms cooldown is a hit row every
-   * tick for every unit (2 MB raw / 415 KB gzip at the cap). @caravan/circle asserts at import
-   * time that this equals TUNABLES.ATTACK_COOLDOWN_MIN. Changes only with RESOLVER_VERSION.
-   */
-  minAttackCooldownMs: 400,
+  /** The shortest attack cooldown, ms (QA-13 N4): battlefield.ts MIN_ATTACK_COOLDOWN_MS. */
+  minAttackCooldownMs: MIN_ATTACK_COOLDOWN_MS,
   maxTickRate: 1000,
   /** battleLengthCapSeconds: one hour. */
   maxBattleSeconds: 3600,

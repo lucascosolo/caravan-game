@@ -72,6 +72,16 @@ export const ENTRY_BAND_DEPTH = 2;
  */
 export const PATH_CONNECTIVITY = 4 as const;
 
+/**
+ * The shortest attack cooldown the resolver accepts, ms (QA-13 N4): content's
+ * ATTACK_COOLDOWN_MIN, enforced by input validation (input.ts INPUT_BOUNDS.minAttackCooldownMs)
+ * so the log-size budget rests on validation, not on content — a 1 ms cooldown is a hit row every
+ * tick for every unit (2 MB raw / 415 KB gzip at the cap). Lives here, with the other literals
+ * @caravan/circle mirrors at import time, so a client importing the geometry does not pull in the
+ * input validator. Changes only with RESOLVER_VERSION.
+ */
+export const MIN_ATTACK_COOLDOWN_MS = 400;
+
 /** Width and height of the field in fixed-point units. A position is in [0, FIELD_WIDTH). */
 export const FIELD_WIDTH: Fixed = (GRID_WIDTH * FIXED_POINT_SCALE) as Fixed;
 export const FIELD_HEIGHT: Fixed = (GRID_HEIGHT * FIXED_POINT_SCALE) as Fixed;

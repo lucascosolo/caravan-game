@@ -24,7 +24,7 @@ import {
   ENTRY_BAND_DEPTH,
   GRID_HEIGHT,
   GRID_WIDTH,
-  INPUT_BOUNDS,
+  MIN_ATTACK_COOLDOWN_MS,
   PATH_CONNECTIVITY as RESOLVER_PATH_CONNECTIVITY,
   PERIMETER_RING_RADIUS,
   PERIMETER_SEGMENTS,
@@ -145,7 +145,7 @@ export function isCoreReachableFrom(start: Cell, blocked: ReadonlySet<number>): 
     ["ENTRY_BAND_DEPTH", TUNABLES.ENTRY_BAND_DEPTH, ENTRY_BAND_DEPTH],
     ["PATH_CONNECTIVITY", TUNABLES.PATH_CONNECTIVITY, RESOLVER_PATH_CONNECTIVITY],
     // QA-13 N4: the resolver refuses an attack cooldown below content's minimum (the log-size budget).
-    ["ATTACK_COOLDOWN_MIN", TUNABLES.ATTACK_COOLDOWN_MIN, INPUT_BOUNDS.minAttackCooldownMs],
+    ["ATTACK_COOLDOWN_MIN", TUNABLES.ATTACK_COOLDOWN_MIN, MIN_ATTACK_COOLDOWN_MS],
   ];
   for (const [name, registry, resolver] of mirror) {
     if (registry !== resolver) fail(`TUNABLES.${name} is ${registry} but the resolver's geometry has ${resolver}`);
