@@ -1,7 +1,7 @@
 /**
  * Phase hooks (chunk 10 TICK_PHASE_ORDER). Chunk 10 fixed the order of the eight phases in
  * tick.ts and left phases 4, 5 and 7 as named seams. Chunk 11 fills 4 (traps.ts) and 5
- * (posted.ts); chunk 12 fills 7 (abilities.ts); `endOfTick` (end conditions) is chunk 13's.
+ * (posted.ts); chunk 12 fills 7 (abilities.ts); chunk 13 fills `endOfTick` (end conditions, outcome.ts).
  * Every hook receives the whole state and the log and stays pure, integer-only and
  * id-ordered like everything else.
  *
@@ -10,6 +10,9 @@
 import { atLeastOne, dealtOutput, fenceHitRoom } from "./combat.js";
 import type { FenceState, SimState, UnitState } from "./state.js";
 import { FIXED_ONE, scaleInt, type Fixed } from "./fixed.js";
+import { endConditionFor, sampleDepth } from "./outcome.js";
+
+type EndCondition = "party_wiped" | "core_overrun" | null;
 
 export { trapTriggerPhase } from "./traps.js";
 export { postedUnitPhase } from "./posted.js";
@@ -49,11 +52,12 @@ export function fenceHitDamage(state: SimState, unit: UnitState, fence: FenceSta
 }
 
 /**
- * End-of-tick end-condition check. TODO(chunk-13): return "party_wiped" when no attacker
- * is alive and "core_overrun" when an attacker has reached the core. Until then the loop
- * never ends early: it runs to the tick cap, with `reachedCoreTick` and `diedTick`
- * recorded per unit.
+ * End-of-tick end-condition check (chunk 13, outcome.ts END_CONDITIONS): first samples every
+ * attacker's distance to the core for DEPTH_METRIC, then returns "core_overrun" if an
+ * attacker reached the core this tick, else "party_wiped" if none is alive, else null. The
+ * tick cap is the loop's own (resolve.ts).
  */
-export function endOfTick(_state: SimState): "party_wiped" | "core_overrun" | null {
-  return null;
+export function endOfTick(state: SimState): EndCondition {
+  sampleDepth(state);
+  return endConditionFor(state);
 }

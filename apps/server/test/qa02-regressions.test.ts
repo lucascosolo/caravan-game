@@ -437,7 +437,12 @@ describe("S7 + N1: nothing in the ledger can be truncated, snapshots are insert-
 
   it("TRUNCATE is refused for the owner (trigger) and the app role (privilege) on every ledger table", async () => {
     for (const t of ["ledger_event", "resolution_job", "ledger_snapshot"]) {
-      expect((await tx(owner, `TRUNCATE ${t}`))?.code, `owner ${t}`).toBe("23514");
+      // Chunk 13: encounter_log references resolution_job, so a plain TRUNCATE of it is refused by
+      // Postgres (0A000) before the trigger runs; with CASCADE the guard triggers refuse it (23514).
+      if (t === "resolution_job") {
+        expect((await tx(owner, `TRUNCATE ${t}`))?.code, `owner ${t}`).toBe("0A000");
+        expect((await tx(owner, `TRUNCATE ${t} CASCADE`))?.code, `owner ${t} cascade`).toBe("23514");
+      } else expect((await tx(owner, `TRUNCATE ${t}`))?.code, `owner ${t}`).toBe("23514");
       expect((await tx(app, `TRUNCATE ${t}`))?.code, `app ${t}`).toBe("42501");
     }
     expect((await tx(app, "ALTER TABLE ledger_event DISABLE TRIGGER ledger_event_guard_update"))?.code).toBe("42501");

@@ -136,8 +136,8 @@ pnpm --filter @caravan/web typecheck | test | build   # tsc; vitest + testing-li
 pnpm --filter @caravan/web e2e                        # Playwright smoke vs a running server (needs CARAVAN_API_URL + a seeded DB)
 pnpm e2e                     # the same, self-contained: seeds E2E_DATABASE_URL (dev, a run-unique formation account packed and ridden out, a run-unique trip account in town), starts the BUILT server on :3917 with CARAVAN_TEST_RESOLVER=double, runs the e2e, stops it (run `pnpm build` first)
 
-pnpm determinism             # resolver determinism harness (chunk 10 started it; chunk 13 adds goldens): every fixture scenario 100× byte-identical in-process, then 3 separate Node processes compared by sha256; refuses golden-log changes without a RESOLVER_VERSION bump
-pnpm --filter @caravan/resolver test   # the resolver alone: 190 tests in 13 files, no DB, no network, ~40 s on 4 cores (the 100× determinism harness is most of it)
+pnpm determinism             # resolver determinism harness (chunk 13): 72-fight corpus 100× byte-identical in-process and equal to the golden logs in packages/resolver/golden (UPDATE_GOLDEN=1 regenerates), then 3 separate Node processes (different corpus orders) compared by sha256 with each other and the goldens; refuses golden-log changes without a RESOLVER_VERSION bump
+pnpm --filter @caravan/resolver test   # the resolver alone: 204 tests in 14 files, no DB, no network, ~60 s on 4 cores (the 100× determinism harness over 72 fights is most of it)
 pnpm test:boundary           # resolver dependency-boundary check (zero deps, imports stay inside packages/resolver/src)
 pnpm build                   # esbuild → apps/server/dist (index.js, db/migrate.js, seed.js); workspace packages inlined, npm deps external; then vite build → apps/web/dist
 pnpm start                   # run the built server: node apps/server/dist/index.js
@@ -150,10 +150,11 @@ Migrations are plain SQL pairs in `apps/server/migrations/NNN_name.{up,down}.sql
 `POST /auth/login`, `POST /auth/logout`, `GET /me`, `GET /health` (bearer token auth), plus
 the ledger, progression, circle, economy and unlock routes of chunks 02–07 and 16
 (`GET /unlocks/webs`, `GET /me/unlocks`, `POST /me/unlocks/spend`), the party routes of
-chunk 09 and the matchmaking routes of chunk 14 (`POST /me/caravans/:id/encounters/:n/search`,
-`GET …/candidates`, `POST …/choose`) and the trip loop of chunk 15 (`GET /me/caravans/:id/trip`,
+chunk 09, the matchmaking routes of chunk 14 (`POST /me/caravans/:id/encounters/:n/search`,
+`GET …/candidates`, `POST …/choose`), the trip loop of chunk 15 (`GET /me/caravans/:id/trip`,
 `POST …/trip/start`, `POST …/trip/encounters/:n/commit`, `GET …/trip/preview`, `POST …/trip/push`
-and `…/trip/bank` with `{tripId, encounterIndex}`). `pnpm db:seed` also creates the authored cold-start
+and `…/trip/bank` with `{tripId, encounterIndex}`) and chunk 13's replay
+(`GET /me/encounters/:jobId/replay`, for the caravan's player and the party's owner). `pnpm db:seed` also creates the authored cold-start
 parties (`src/matchmaking/authored.ts`, chunk 25: 12 per Reputation band, bands 0–7, owned
 by `sys_outfit_*` system accounts that cannot log in or hold Coin), so a fresh database
 serves three scoutable candidates at every band from the first search. Migrations 011 and 009

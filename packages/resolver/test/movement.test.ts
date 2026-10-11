@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   BREACH_COST_MAX,
   CELL_FREE,
+  RESOLVER_VERSION,
   CORE_CENTER,
   CORE_CENTER_CELL,
   FIELD_HEIGHT,
@@ -31,7 +32,7 @@ import {
   type LogEvent,
   type ResolveOutput,
 } from "../src/index.js";
-import { DEFAULT_TUNABLES, QUIET_SHORT_TUNABLES, SHORT_TUNABLES, quiet, battlefield, clone, cornerClipScenario, fence, input, ms, party, post, reachSq, ringExcept, scenarios, trap, unit } from "./fixtures.js";
+import { runToCap, DEFAULT_TUNABLES, QUIET_SHORT_TUNABLES, SHORT_TUNABLES, quiet, battlefield, clone, cornerClipScenario, fence, input, ms, party, post, reachSq, ringExcept, scenarios, trap, unit } from "./fixtures.js";
 
 const keyframes = (out: ResolveOutput) => out.log.filter((e): e is Extract<LogEvent, { k: "keyframe" }> => e.k === "keyframe");
 const events = <K extends LogEvent["k"]>(out: ResolveOutput, k: K) => out.log.filter((e): e is Extract<LogEvent, { k: K }> => e.k === k);
@@ -43,10 +44,17 @@ describe("fixed-timestep loop", () => {
     expect(out.tickCap).toBe(60);
     expect(out.ticks).toBe(60);
     expect(out.end).toBe("tick_cap");
-    expect(out.resolverVersion).toBe(6);
-    const full = resolve(input(battlefield(), party([unit({ ref: "a" })])));
+    expect(out.resolverVersion).toBe(RESOLVER_VERSION);
+    expect(out.outcome).toMatchObject({ kind: "stalemate", endTick: 59 });
+    // A raider that cannot get through a 1 000 000-HP ring in 180 s: the full cap, a stalemate.
+    const full = resolve(input(battlefield({ fences: ringExcept([], 1_000_000) }), party([unit({ ref: "a", offense: 1 })])));
     expect(full.tickCap).toBe(3600);
     expect(full.ticks).toBe(3600);
+    expect(full.outcome).toMatchObject({ kind: "stalemate", endTick: 3599 });
+    // Chunk 13: an open field ends the fight the tick the raider reaches the core.
+    const open = resolve(input(battlefield(), party([unit({ ref: "a" })])));
+    expect(open.outcome.kind).toBe("caravan_overrun");
+    expect(open.ticks).toBe(open.units[0]!.reachedCoreTick + 1);
   });
 
   it("logs a keyframe every keyframeInterval ticks and on the last tick, with every unit, fence and trap", () => {
@@ -121,7 +129,9 @@ describe("continuous movement", () => {
 
   it("a fully sealed ring (no gap) still terminates: the unit breaches and reaches the core, or the cap ends it", () => {
     const out = resolve(input(battlefield({ fences: ringExcept([], 300) }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES));
-    expect(out.ticks).toBe(600);
+    // Chunk 13: reaching the core ends the fight that tick (an overrun).
+    expect(out.end).toBe("core_overrun");
+    expect(out.ticks).toBe(out.units[0]!.reachedCoreTick + 1);
     expect(events(out, "fence_broken")).toHaveLength(1);
     expect(out.units[0]!.reachedCoreTick).toBeGreaterThan(0);
   });
@@ -137,7 +147,8 @@ describe("continuous movement", () => {
 
   it("stays inside the field bounds and never enters an intact fence or anchor cell", () => {
     const field = battlefield({ fences: ringExcept([9]) });
-    const out = resolve(input(field, party([unit({ ref: "a", cell: { x: 0, y: 0 }, edge: "north" }), unit({ ref: "b", edge: "west", cell: { x: 0, y: 31 } })]), { ...SHORT_TUNABLES, keyframeIntervalMs: ms(50) }));
+    // runToCap (mechanic isolation): both raiders walk all the way in, not just the first.
+    const out = runToCap(input(field, party([unit({ ref: "a", cell: { x: 0, y: 0 }, edge: "north" }), unit({ ref: "b", edge: "west", cell: { x: 0, y: 31 } })]), { ...SHORT_TUNABLES, keyframeIntervalMs: ms(50) }));
     const brokenAt = new Map(events(out, "fence_broken").map((e) => [e.f, e.t]));
     for (const k of keyframes(out)) {
       // Intact at this tick: every fence not yet broken, plus the anchors always.
@@ -323,7 +334,8 @@ describe("QA-10 round 1 regressions", () => {
     // Open field from (10,0) to the core (a line that clears the ring anchors): one diagonal
     // leg of ≈ 15.8 cells that every 10-tick recompute re-derives identically, so the route
     // is set once and the leg is never restarted.
-    const out = resolve(input(battlefield(), party([unit({ ref: "a", cell: { x: 10, y: 0 } })]), quiet({ ...SHORT_TUNABLES, keyframeIntervalMs: ms(50) })));
+    // runToCap: the leg runs on to the core centre, past the core edge where the fight would end.
+    const out = runToCap(input(battlefield(), party([unit({ ref: "a", cell: { x: 10, y: 0 } })]), quiet({ ...SHORT_TUNABLES, keyframeIntervalMs: ms(50) })));
     const paths = events(out, "path");
     expect(paths).toHaveLength(1);
     expect(paths[0]!.t).toBe(0);

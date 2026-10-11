@@ -10,9 +10,13 @@ D4. Stalemate: the caravan may bank or push (§11). Correct PROJECT.md §2 line 
 
 ## Assigned to the chunk 13 Maker (seam)
 S2. `resolve` returns `{ outcome, log }`; the handler stores the log (or hash + location) in job.result separately from the validated outcome.
+    **[closed — chunk 13]** `EncounterResolver.resolve → { outcome, log }`, `resolveEncounter → { outcome (+loot), log }`. The handler hands the log to the worker (`HandlerOutput.encounterLog`), which writes it gzip-compressed to the new immutable `encounter_log` table (migration 013, keyed by job id: resolver version, log format, raw/stored bytes, sha256 of the log and of the formation / survivors / party snapshots, content hash) in the completion transaction, then prunes per LOG_RETENTION (30 days or the caravan's newest 50, whichever keeps more). `job.result.replay` holds only `{store, jobId, logFormat, sha256, rawBytes}`. Tests: `trip-resolver.test.ts`.
 S3. Stamp a content/tunables hash in the job input at enqueue; resolve refuses/flags a mismatch (or embed resolved stats). Decide before goldens freeze.
+    **[closed — chunk 13]** Hash chosen (not embedded stats): `RESOLUTION_CONTENT_HASH` = sha256 of `resolutionContent()` (@caravan/circle: content units, traps, siege, fences + `resolverTunables()`), stamped as `contentHash` at enqueue; the adapter throws `ContentHashMismatchError` on a different or missing stamp, re-thrown RETRYABLE by the handler (parks after the attempt budget → D3). The goldens are resolver-level (literal inputs), so they do not depend on content.
 N3. `survivors` becomes a top-level EncounterJobInput key, not smuggled inside `formation`.
+    **[closed — chunk 13]** `EncounterJobInput.survivors` (top level), passed through `enqueueChosenEncounter(…, formation, survivors)`; the idempotent re-enqueue compares it; `resolverInputFromJob` reads it there. Pinned in trip.test.ts "the production handler is wired".
 N8. The adapter normalizes DEPTH_METRIC to an integer 0..1024.
+    **[closed — chunk 13]** Normalized in the resolver itself (so it is in every golden): `outcome.depth` = floor(1024 × share of the deepest raider's straight-line distance to the core block it closed), 1024 on an overrun; the adapter passes it through. One-sentence UI text in the replay response (`depthExplained`).
 
 ## Assigned to the chunk 19 Maker (same code)
 S1. [closed — chunk 19: `bankTrip` passes the stored `coin_accrued` rows to `creditBankedTrip({ encounterCoin })`; schedule assertion removed; test `stakes.test.ts` "chunk 15 QA S1"] Bank credits the stored per-encounter `coin_accrued` (after `applyEarnFloor`), never recomputes from the live schedule; drop the schedule assertion.

@@ -380,6 +380,37 @@ export const TUNABLES = {
   UNIT_RADIUS: fpMilli(350),
   /** TUNABLE (chunk 13, consumed from chunk 10). A full-state keyframe every 5 s (= 100 ticks) so playback can seek and truncation is detectable. */
   LOG_KEYFRAME_INTERVAL: seconds(5),
+
+  // ────────────────────────────────────────────────────────────────────────────────────
+  // Chunk 13 — outcomes, depth-scaled loot and the replay. The resolver reports the end
+  // condition and DEPTH; it never sees Coin. The server turns depth into the party OWNER's
+  // loot (apps/server/src/trip/loot.ts) and stores the log (encounter_log).
+  // ────────────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Fixed by design (chunk 13; the resolver implements it — packages/resolver/src/outcome.ts).
+   * "How far the deepest raider got: the share of its straight-line distance to the core that
+   * it closed." An integer 0..1024 (1024 = the core; an overrun is always 1024). Fence segments
+   * broken and posts killed are NOT added in (a composite cannot be previewed in one sentence).
+   */
+  DEPTH_METRIC: "deepest_raider_share_of_distance_to_core",
+  /**
+   * Fixed shape (chunk 13). The party owner's loot when the party is WIPED (the caravan held):
+   * full × depth^1.5, computed integer-only as floor(full × d × isqrt(d × 1024) / 1024²) with
+   * d = depth (0..1024) — sub-linear, so a near miss is worth meaningfully less than a clear but
+   * not nothing, and never more than full. The two values below are the tunable ends.
+   */
+  PARTIAL_LOOT_CURVE: "full_x_depth_pow_1_5",
+  /** TUNABLE (chunk 13). FULL_CLEAR_LOOT on an overrun, as a share of the encounter's Coin value (chunk 16), fixed-point: 1024 = 100 %. */
+  FULL_CLEAR_LOOT_SHARE: fp(1),
+  /** TUNABLE (chunk 13). STALEMATE_LOOT, fixed-point share: 0 — a party that cannot win cannot stall for value (the safety valve favours the caravan). */
+  STALEMATE_LOOT_SHARE: fp(0),
+  /** TUNABLE (chunk 13). LOG_SIZE_BUDGET: a stored (gzip-compressed) replay above this is a format problem, not a storage bill. Measured in the resolver's budget test. */
+  LOG_SIZE_BUDGET_BYTES: 100 * 1024,
+  /** TUNABLE (chunk 13). LOG_RETENTION: a stored replay is kept this long … */
+  LOG_RETENTION_DAYS: 30,
+  /** TUNABLE (chunk 13). … or while it is among the caravan's newest this-many encounters, whichever keeps it longer. */
+  LOG_RETENTION_MIN_PER_CARAVAN: 50,
   // Chunk 09 — the standing raid party (the PASSIVE side; GUARDRAILS §0). A template,
   // never consumed, never loses units. Nothing here is purchasable: Coin cannot buy a
   // bigger party, more siege slots or extra parties (GUARDRAILS §2).

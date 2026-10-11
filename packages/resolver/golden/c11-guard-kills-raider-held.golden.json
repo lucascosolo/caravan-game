@@ -1,0 +1,27 @@
+{
+"scenario": "c11-guard-kills-raider-held",
+"resolverVersion": 7,
+"outcome": {"kind":"caravan_held","end":"party_wiped","endTick":78,"depth":444,"deepestUnit":0},
+"ticks": 79,
+"units": [
+{"id":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","mergeLevel":1,"x":15872,"y":6516,"startHp":40,"hp":0,"maxHp":40,"alive":false,"reachedCoreTick":-1,"diedTick":78},
+{"id":1,"side":"defender","ref":"p","typeId":"desert.well_digger","mergeLevel":1,"x":15872,"y":7888,"startHp":1100,"hp":1043,"maxHp":1100,"alive":true,"reachedCoreTick":-1,"diedTick":-1}
+],
+"fences": [],
+"traps": [],
+"replay": {"format":"caravan-replay","v":1,"resolverVersion":7,"tickRate":20,"tickCap":600,"keyframeInterval":100,"ticks":79,"outcome":{"kind":"caravan_held","end":"party_wiped","endTick":78,"depth":444,"deepestUnit":0},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":40,"hp":40},{"u":1,"side":"defender","ref":"p","typeId":"desert.well_digger","level":1,"maxHp":1100,"hp":1100}],"fences":[],"traps":[],"count":13,"check":2492794703,"events":[
+[0,"s",0,15872,512],
+[0,"s",1,15872,8704],
+[0,"tg",0,1,1],
+[0,"p",0,76,15872,8704,-1],
+[62,"ag",1,0],
+[62,"p",1,51,15872,5300,-1],
+[62,"h",1,0],
+[70,"p",1,51,15872,5908,-1],
+[78,"h",1,1],
+[78,"x",0,1,57,1043],
+[78,"x",1,0,40,0],
+[78,"d",0],
+[78,"kf",2,0,15872,6516,0,20,0,0,180,1,15872,7888,1043,28,0,0,300,0,0]
+]}
+}

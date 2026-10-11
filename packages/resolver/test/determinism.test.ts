@@ -1,23 +1,35 @@
 /**
- * Determinism harness, chunk 10 part (GUARDRAILS §1; chunk 13 completes it with golden
- * logs and a 50-scenario corpus):
- *   - the same input resolved 100× produces a byte-identical serialized output;
+ * The determinism harness (GUARDRAILS §1; chunk 10 started it, chunk 13 completes it):
+ *   - every corpus scenario resolved 100× produces a byte-identical serialized output;
+ *   - every corpus scenario matches its checked-in GOLDEN LOG (packages/resolver/golden), so a
+ *     resolver change that alters any replay fails here until the goldens are regenerated —
+ *     and the CI gate (root scripts/determinism.mjs) refuses regenerated goldens without a
+ *     RESOLVER_VERSION bump;
+ *   - the corpus is at least 50 fights and covers what chunk 13 lists (gapped and sealed rings,
+ *     all three attacker stances and all three post stances, siege matched and mismatched,
+ *     all six archetypes, all three end conditions, the chunk 10–12 boundary fixtures);
  *   - every numeric field of the simulation state is a safe integer after every tick;
- *   - the output contains no non-integer number anywhere;
- *   - re-ordered input is byte-identical (also in movement.test.ts).
- * Cross-process: scripts/determinism.mjs runs test/harness/driver.ts in two separate Node
- * processes and compares their hashes with each other (and `pnpm determinism` at the root
- * calls it in CI).
+ *   - the output contains no non-integer number and nothing account-shaped;
+ *   - re-ordered input is byte-identical; the input is never mutated.
+ * Cross-process: scripts/determinism.mjs runs test/harness/driver.ts in separate Node
+ * processes and compares their golden hashes with each other and with the files.
  */
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { initialState, normalizeInput, resolve, runTick, type LogEvent, type SimState } from "../src/index.js";
+import { ABILITY_ARCHETYPES, RESOLVER_VERSION, endOfTick, initialState, normalizeInput, readReplay, resolve, runTick, type LogEvent, type SimState } from "../src/index.js";
 import { clone, scenarios } from "./fixtures.js";
+import { GOLDEN_SUFFIX, goldenText } from "./golden.js";
 
-function nonIntegers(value: unknown, path: string, out: string[]): void {
+const GOLDEN_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "golden");
+const UPDATE = process.env["UPDATE_GOLDEN"] === "1";
+
+function nonIntegers(value: unknown, where: string, out: string[]): void {
   if (typeof value === "number") {
-    if (!Number.isSafeInteger(value)) out.push(`${path} = ${String(value)}`);
-  } else if (Array.isArray(value)) value.forEach((v, i) => nonIntegers(v, `${path}[${i}]`, out));
-  else if (value && typeof value === "object") for (const [k, v] of Object.entries(value)) nonIntegers(v, `${path}.${k}`, out);
+    if (!Number.isSafeInteger(value)) out.push(`${where} = ${String(value)}`);
+  } else if (Array.isArray(value)) value.forEach((v, i) => nonIntegers(v, `${where}[${i}]`, out));
+  else if (value && typeof value === "object") for (const [k, v] of Object.entries(value)) nonIntegers(v, `${where}.${k}`, out);
 }
 
 function stateNumbers(state: SimState): unknown {
@@ -31,16 +43,89 @@ function stateNumbers(state: SimState): unknown {
   };
 }
 
-describe("determinism harness (chunk 10)", () => {
-  it("resolves every fixture scenario 100× to a byte-identical output", () => {
+describe("determinism harness", () => {
+  it("resolves every corpus scenario 100× to a byte-identical output", () => {
     for (const { name, input } of scenarios()) {
       const first = JSON.stringify(resolve(clone(input)));
       for (let i = 1; i < 100; i++) {
         const again = JSON.stringify(resolve(clone(input)));
         expect(again === first, `${name}: run ${i} diverged`).toBe(true);
       }
-      expect(first.length).toBeGreaterThan(1000);
+      expect(first.length).toBeGreaterThan(300);
     }
+  }, 600_000);
+
+  it("every corpus scenario matches its checked-in golden log, and the golden directory holds nothing else", () => {
+    if (UPDATE) mkdirSync(GOLDEN_DIR, { recursive: true });
+    const names = scenarios().map((s) => s.name);
+    expect(new Set(names).size, "scenario names are unique").toBe(names.length);
+    const changed: string[] = [];
+    for (const { name, input } of scenarios()) {
+      const text = goldenText(name, resolve(clone(input)));
+      const file = path.join(GOLDEN_DIR, `${name}${GOLDEN_SUFFIX}`);
+      if (UPDATE) {
+        if (!existsSync(file) || readFileSync(file, "utf8") !== text) writeFileSync(file, text);
+        continue;
+      }
+      expect(existsSync(file), `${name}: no golden log at ${file} (UPDATE_GOLDEN=1 writes one — and bump RESOLVER_VERSION if the resolver changed)`).toBe(true);
+      if (readFileSync(file, "utf8") !== text) changed.push(name);
+    }
+    expect(changed, "golden logs differ: the resolver now resolves these fights differently. If intended, bump RESOLVER_VERSION and regenerate with UPDATE_GOLDEN=1").toEqual([]);
+    const files = readdirSync(GOLDEN_DIR).filter((f) => f.endsWith(GOLDEN_SUFFIX));
+    expect(files.map((f) => f.slice(0, -GOLDEN_SUFFIX.length)).sort()).toEqual([...names].sort());
+    expect(readdirSync(GOLDEN_DIR).filter((f) => !f.endsWith(GOLDEN_SUFFIX))).toEqual([]);
+  });
+
+  it("every golden file is a readable replay of the current resolver version, and decodes to the fight's log", () => {
+    for (const { name, input } of scenarios()) {
+      const golden = JSON.parse(readFileSync(path.join(GOLDEN_DIR, `${name}${GOLDEN_SUFFIX}`), "utf8")) as { resolverVersion: number; replay: unknown };
+      expect(golden.resolverVersion).toBe(RESOLVER_VERSION);
+      const replay = readReplay(golden.replay);
+      expect(JSON.stringify(replay.events), name).toBe(JSON.stringify(resolve(clone(input)).log));
+    }
+  });
+
+  it("the corpus: ≥ 50 fights covering every stance, siege matched and mismatched, all six archetypes, all three end conditions, gapped and sealed rings", () => {
+    const all = scenarios();
+    expect(all.length).toBeGreaterThanOrEqual(50);
+    const kinds = new Set<string>();
+    const fired = new Set<string>();
+    const attackerStances = new Set<string>();
+    const postStances = new Set<string>();
+    let sealed = 0;
+    let gapped = 0;
+    let open = 0;
+    let siegeMatched = 0;
+    let siegeMismatched = 0;
+    let capTickEnds = 0;
+    for (const { input } of all) {
+      const out = resolve(clone(input));
+      kinds.add(out.outcome.kind);
+      if (out.outcome.kind !== "stalemate" && out.ticks === out.tickCap) capTickEnds++;
+      for (const e of out.log) if (e.k === "ability") fired.add(`${out.units[e.u]!.side}:${e.a}`);
+      input.party.units.forEach((u) => attackerStances.add(u.stance));
+      input.battlefield.posts.forEach((p) => postStances.add(p.stance));
+      const nf = input.battlefield.fences.length;
+      if (nf === 28) sealed++;
+      else if (nf > 0) gapped++;
+      else open++;
+      for (const s of input.party.siege) {
+        const hits = s.counters.kind === "fence" ? input.battlefield.fences.some((f) => f.category === s.counters.category) : input.battlefield.traps.some((t) => t.category === s.counters.category);
+        if (hits) siegeMatched++;
+        else siegeMismatched++;
+      }
+    }
+    expect([...kinds].sort()).toEqual(["caravan_held", "caravan_overrun", "stalemate"]);
+    for (const a of ABILITY_ARCHETYPES) expect(fired, `attacker ${a}`).toContain(`attacker:${a}`);
+    for (const a of ABILITY_ARCHETYPES.filter((x) => x !== "structure_breaker")) expect(fired, `defender ${a}`).toContain(`defender:${a}`);
+    expect([...attackerStances].sort()).toEqual(["core", "nearest", "traps"]);
+    expect([...postStances].sort()).toEqual(["guard", "hold", "reserve"]);
+    expect(sealed).toBeGreaterThan(3);
+    expect(gapped).toBeGreaterThan(3);
+    expect(open).toBeGreaterThan(3);
+    expect(siegeMatched).toBeGreaterThan(2);
+    expect(siegeMismatched).toBeGreaterThan(1);
+    expect(capTickEnds, "an overrun or a wipe on the cap tick itself").toBeGreaterThanOrEqual(2);
   });
 
   it("every state field is a safe integer after every tick, in every scenario", () => {
@@ -51,8 +136,9 @@ describe("determinism harness (chunk 10)", () => {
       nonIntegers(stateNumbers(state), `${name}@init`, bad);
       for (; state.tick < state.tickCap; state.tick++) {
         runTick(state, log);
+        const end = endOfTick(state);
         nonIntegers(stateNumbers(state), `${name}@${state.tick}`, bad);
-        if (bad.length) break;
+        if (bad.length || end !== null) break;
       }
       nonIntegers(log, `${name}.log`, bad);
       expect(bad).toEqual([]);
@@ -76,7 +162,7 @@ describe("determinism harness (chunk 10)", () => {
         }
       };
       walk(out);
-      expect([...keys].filter((k) => /account|coin|purchase|entitlement|paying|billing/i.test(k))).toEqual([]);
+      expect([...keys].filter((k) => /account|coin|loot|purchase|entitlement|paying|billing/i.test(k))).toEqual([]);
     }
   });
 

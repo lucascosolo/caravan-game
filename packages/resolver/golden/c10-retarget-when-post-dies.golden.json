@@ -1,0 +1,41 @@
+{
+"scenario": "c10-retarget-when-post-dies",
+"resolverVersion": 7,
+"outcome": {"kind":"caravan_overrun","end":"core_overrun","endTick":210,"depth":1024,"deepestUnit":0},
+"ticks": 211,
+"units": [
+{"id":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","mergeLevel":1,"x":16746,"y":14363,"startHp":3000,"hp":2920,"maxHp":3000,"alive":true,"reachedCoreTick":210,"diedTick":-1},
+{"id":1,"side":"defender","ref":"p1","typeId":"desert.well_digger","mergeLevel":1,"x":15872,"y":6656,"startHp":60,"hp":0,"maxHp":1100,"alive":false,"reachedCoreTick":-1,"diedTick":82},
+{"id":2,"side":"defender","ref":"p2","typeId":"desert.well_digger","mergeLevel":1,"x":20992,"y":9728,"startHp":60,"hp":0,"maxHp":1100,"alive":false,"reachedCoreTick":-1,"diedTick":173}
+],
+"fences": [],
+"traps": [],
+"replay": {"format":"caravan-replay","v":1,"resolverVersion":7,"tickRate":20,"tickCap":600,"keyframeInterval":100,"ticks":211,"outcome":{"kind":"caravan_overrun","end":"core_overrun","endTick":210,"depth":1024,"deepestUnit":0},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":3000,"hp":3000},{"u":1,"side":"defender","ref":"p1","typeId":"desert.well_digger","level":1,"maxHp":1100,"hp":60},{"u":2,"side":"defender","ref":"p2","typeId":"desert.well_digger","level":1,"maxHp":1100,"hp":60}],"fences":[],"traps":[],"count":26,"check":4071967126,"events":[
+[0,"s",0,15872,512],
+[0,"s",1,15872,6656],
+[0,"s",2,20992,9728],
+[0,"tg",0,1,1],
+[0,"p",0,76,15872,6656,-1],
+[62,"x",0,1,57,3],
+[62,"x",1,0,40,2960],
+[63,"h",0,1],
+[82,"x",0,1,57,0],
+[82,"d",1],
+[83,"tg",0,1,2],
+[83,"p",0,76,20992,9728,-1],
+[83,"h",0,0],
+[99,"kf",3,0,16849,6145,2960,3,0,0,180,1,15872,6656,0,8,0,0,300,2,20992,9728,60,0,0,0,300,0,0],
+[153,"x",0,2,57,3],
+[153,"x",2,0,40,2920],
+[154,"h",0,1],
+[173,"x",0,2,57,0],
+[173,"d",2],
+[174,"tg",0,0,-1],
+[174,"p",0,76,15872,15872,-1],
+[174,"h",0,0],
+[180,"ab",0,4,17890,12390,0,0,3584,2920],
+[199,"kf",2,0,17166,13640,2920,0,0,0,360,2,20992,9728,0,8,0,0,300,0,0],
+[210,"c",0],
+[210,"kf",1,0,16746,14363,2920,0,0,0,360,0,0]
+]}
+}

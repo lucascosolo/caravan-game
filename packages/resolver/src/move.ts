@@ -21,20 +21,13 @@
  * turns included, rather than the start→end chord.
  */
 import { FIELD_HEIGHT, FIELD_WIDTH, cellOf, type Fixed } from "./battlefield.js";
-import { clamp, isqrt, scaleInt } from "./fixed.js";
+import { clamp, isqrt, legOffset, scaleInt } from "./fixed.js";
 import type { LogEvent } from "./log.js";
 import { losClear } from "./path.js";
 import { isFree, type SimState, type UnitState } from "./state.js";
 
-/**
- * One axis of a leg offset: sign(d) × floor(|d| × progress / len). Floor division on
- * non-negative operands (fixed.ts rounding mode), applied to the magnitude so the result
- * rounds toward the anchor: |offset| < |d| whenever progress < len.
- */
-export function legOffset(d: number, progress: number, len: number): number {
-  const mag = Math.floor((Math.abs(d) * progress) / len);
-  return d < 0 ? -mag : mag;
-}
+/** The leg rule's per-axis offset lives in fixed.ts (shared with the replay reader, which must not import the simulation). */
+export { legOffset } from "./fixed.js";
 
 /** The per-tick budget in force for this unit's next movement (see EFFECTS). */
 export function effectiveSpeed(u: UnitState): number {

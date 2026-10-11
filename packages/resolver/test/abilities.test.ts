@@ -42,7 +42,7 @@ import {
   type SimState,
   type UnitState,
 } from "../src/index.js";
-import { BREAKER, BUFF, BURST, DASH, DEFAULT_TUNABLES, abilityScenarios, HEAL, HEAVY, SHORT_TUNABLES, battlefield, clone, fence, fx, input, ms, party, post, ringExcept, trap, unit } from "./fixtures.js";
+import { runToCap, BREAKER, BUFF, BURST, DASH, DEFAULT_TUNABLES, abilityScenarios, HEAL, HEAVY, SHORT_TUNABLES, battlefield, clone, fence, fx, input, ms, party, post, ringExcept, trap, unit } from "./fixtures.js";
 
 const mk = (inp: ResolveInput): SimState => initialState(normalizeInput(clone(inp)));
 const place = (u: UnitState, x: number, y: number): void => {
@@ -82,7 +82,8 @@ describe("six parameterized archetypes (DoD 1)", () => {
     for (const a of ABILITY_ARCHETYPES) expect(cases.filter((c) => c === a).length, a).toBe(2);
     for (const f of files) {
       expect(src(f), `${f} names a content unit type`).not.toMatch(/["'`](desert|high_plains|mountain|badlands)\./);
-      if (!["state.ts", "resolve.ts", "input.ts", "battlefield.ts"].includes(f)) expect(src(f), `${f} reads typeId`).not.toMatch(/\.typeId\b/);
+      // replay.ts (chunk 13) copies typeId into the replay's labels and validates it as a string; it never branches on it.
+      if (!["state.ts", "resolve.ts", "input.ts", "battlefield.ts", "replay.ts"].includes(f)) expect(src(f), `${f} reads typeId`).not.toMatch(/\.typeId\b/);
     }
     // Merge level never steers an ability: abilities.ts does not read it.
     expect(src("abilities.ts")).not.toMatch(/mergeLevel/);
@@ -633,8 +634,11 @@ describe("the chunk 12 determinism scenarios exercise every archetype", () => {
     const fired: string[] = [];
     let dry = false;
     let sameTick = false;
+    // runToCap (mechanic isolation): the chunk 12 ability fights run their whole length here;
+    // under `resolve` most end at the first arrival, and determinism.test.ts asserts the six
+    // archetypes fire on both sides across the full golden corpus with end conditions on.
     for (const { name, input: inp } of abilityScenarios()) {
-      const out = resolve(clone(inp));
+      const out = runToCap(clone(inp));
       const evs = abilities(out.log);
       for (const e of evs) fired.push(`${out.units[e.u]!.side}:${e.a}`);
       if (evs.some((e) => e.a === "heal_radius" && e.charges === 0)) dry = true;

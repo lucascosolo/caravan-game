@@ -16,6 +16,9 @@
  * chunk 12's QA round 1 (an attacker's dash springs its traps inside phase 7 before it can
  * reach the core, one per-unit-per-tick fence-hit cap for every fence hit, the structure
  * breaker's ×0.25 first use, one floor for merge × buff, the leash-clamped step logged,
- * void firings skipped without spending their cooldown).
+ * void firings skipped without spending their cooldown); 7 is chunk 13's outcomes (the three
+ * end conditions stop the fight on the tick they are met — an arrival at the core, the last
+ * raider dead, or the tick cap — with DEPTH_METRIC, and the versioned replay format with its
+ * golden corpus).
  */
-export const RESOLVER_VERSION = 6;
+export const RESOLVER_VERSION = 7;

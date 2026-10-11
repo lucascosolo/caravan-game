@@ -565,6 +565,7 @@ export async function enqueueChosenEncounter(
   caravan: CaravanRow,
   encounterIndex: number,
   formation: JsonObject,
+  survivors?: JsonObject,
 ): Promise<{ job: ResolutionJobRow; created: boolean; candidate: Candidate }> {
   const { trip } = await openTripFor(client, caravan, true);
   const candidate = await chosenCandidate(client, trip.id, encounterIndex);
@@ -579,6 +580,7 @@ export async function enqueueChosenEncounter(
     defenderCaravanId: caravan.id,
     partyOwnerAccountId: candidate.owner.accountId,
     formation,
+    ...(survivors === undefined ? {} : { survivors }),
     party: candidate.snapshot,
   });
   return { job, created, candidate };

@@ -1,61 +1,100 @@
 /**
- * Chunk 11 — budgets: the full-load scenario (16 attackers vs 8 posts vs all 28 fence
- * segments, 6 traps, 2 siege pieces, 180 s = 3600 ticks) resolves inside the time budget,
- * and its log is measured against chunk 13's 100 KB target. The measurement is REPORTED
- * (printed) and pinned loosely here; chunk 13 owns the format and may coalesce events.
+ * Budgets — time (chunk 11) and the replay's size (chunk 13 LOG_SIZE_BUDGET: 100 KB per raid,
+ * compressed). Measured, not assumed; every number is printed.
+ *
+ * Three full-load fights (16 raiders, 8 posts, all 28 segments, 6 traps, 2 siege — twice the
+ * PARTY_SLOT_CAP of 8):
+ *   - `fullLoadScenario` as `resolve` plays it (chunk 13 end conditions: it ends at the first
+ *     arrival);
+ *   - the same roster forced through all 3600 ticks (runToCap) — the chunk 10/11/12 QA figure,
+ *     ≈ 125 KB of JSON objects before chunk 13's format;
+ *   - `fullLoadFullLength`: every raider and post unkillable, every raider on `nearest` —
+ *     180 s of blows, the most a full-load fight can log.
+ * The stored form is the LOG_FORMAT replay (src/replay.ts) serialized as JSON and gzipped.
  */
+import { gzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
-import { resolve, type LogEvent } from "../src/index.js";
-import { clone, fullLoadScenario } from "./fixtures.js";
+import { encodeReplay, readReplay, resolve, type LogEvent, type ResolveOutput } from "../src/index.js";
+import { clone, fullLoadFullLength, fullLoadScenario, runToCap, scenarios } from "./fixtures.js";
 
-describe("budgets (16 vs 8 vs 28 fences, 3600 ticks)", () => {
-  it("resolves in under 100 ms (best of 7 after a warm-up run — the contention-free cost; the median under a parallel vitest load is reported too)", () => {
-    const scenario = fullLoadScenario();
-    resolve(clone(scenario)); // warm-up: JIT
-    const times: number[] = [];
-    for (let i = 0; i < 7; i++) {
-      const start = performance.now();
-      const out = resolve(clone(scenario));
-      times.push(performance.now() - start);
-      expect(out.ticks).toBe(3600);
-    }
-    times.sort((a, b) => a - b);
-    const best = times[0]!;
-    const median = times[3]!;
-    process.stdout.write(`full-load resolve: best ${best.toFixed(1)} ms, median ${median.toFixed(1)} ms (runs ${times.map((t) => t.toFixed(0)).join(", ")})\n`);
-    expect(best).toBeLessThan(100);
+const BUDGET = 100 * 1024;
+
+function measure(out: ResolveOutput): { raw: number; gz: number; keyframes: number; oldJson: number } {
+  const replay = encodeReplay(out);
+  const text = JSON.stringify(replay);
+  return {
+    raw: Buffer.byteLength(text),
+    gz: gzipSync(text, { level: 9 }).length,
+    keyframes: replay.events.filter((r) => r[1] === "kf").reduce((a, r) => a + JSON.stringify(r).length + 1, 0),
+    oldJson: JSON.stringify(out.log).length,
+  };
+}
+
+describe("budgets", () => {
+  it("time: the full-length full-load fight resolves in under 300 ms (best of 5 after a warm-up; the realistic full load in under 100 ms)", () => {
+    const time = (f: () => unknown, runs: number) => {
+      f();
+      const times: number[] = [];
+      for (let i = 0; i < runs; i++) {
+        const start = performance.now();
+        f();
+        times.push(performance.now() - start);
+      }
+      return times.sort((a, b) => a - b);
+    };
+    const full = time(() => resolve(clone(fullLoadFullLength())), 5);
+    const real = time(() => resolve(clone(fullLoadScenario())), 7);
+    const cap = time(() => runToCap(clone(fullLoadScenario())), 7);
+    process.stdout.write(`resolve time: full-length full load best ${full[0]!.toFixed(1)} ms; full load (ends at arrival) best ${real[0]!.toFixed(1)} ms; full load forced to 3600 ticks best ${cap[0]!.toFixed(1)} ms\n`);
+    expect(full[0]!).toBeLessThan(300);
+    expect(real[0]!).toBeLessThan(100);
+    expect(cap[0]!).toBeLessThan(100);
   });
 
-  it("the fight is a real one: units die on both sides, traps fire and are nullified, fences break, posts chase", () => {
-    const out = resolve(fullLoadScenario());
+  it("the full-length full-load fight is a real one: every one of 3600 ticks, both sides swinging all fight, abilities firing, a stalemate", () => {
+    const out = resolve(fullLoadFullLength());
+    expect(out.ticks).toBe(3600);
+    expect(out.outcome.kind).toBe("stalemate");
     const kinds: Record<string, number> = {};
     for (const e of out.log) kinds[e.k] = (kinds[e.k] ?? 0) + 1;
-    expect(kinds["hit"]).toBeGreaterThan(50);
-    expect(kinds["unit_died"]).toBeGreaterThan(2);
-    // Sixteen raiders against eight posts: the posts are wiped, the raiders are bloodied.
-    expect(out.units.some((u) => u.side === "defender" && !u.alive)).toBe(true);
-    expect(out.units.some((u) => u.side === "attacker" && u.hp < u.maxHp)).toBe(true);
-    expect((kinds["trap_fired"] ?? 0) + (kinds["trap_nullified"] ?? 0)).toBeGreaterThan(0);
-    expect(kinds["trap_nullified"]).toBeGreaterThan(0); // bridging planks vs groundwork
-    expect(kinds["fence_broken"]).toBeGreaterThan(0);
-    expect(kinds["aggro"]).toBeGreaterThan(0);
+    expect(kinds["hit"]).toBeGreaterThan(3000);
+    expect(kinds["ability"]).toBeGreaterThan(100);
+    const lastHit = out.log.filter((e) => e.k === "hit").pop()!;
+    expect(lastHit.t).toBeGreaterThan(3500);
   });
 
-  it("measures the log against the 100 KB budget and reports the breakdown by event kind", () => {
-    const out = resolve(fullLoadScenario());
-    const bytes = JSON.stringify(out.log).length;
-    const byKind: Record<string, { n: number; bytes: number }> = {};
-    for (const e of out.log) {
-      const k = (e as LogEvent).k;
-      const entry = (byKind[k] ??= { n: 0, bytes: 0 });
-      entry.n++;
-      entry.bytes += JSON.stringify(e).length;
+  it("size: every full-load replay fits the 100 KB budget compressed, the realistic and forced-to-cap ones uncompressed too; keyframes shrink ~20×", () => {
+    const rows: [string, ResolveOutput][] = [
+      ["full load, resolved (ends at the first arrival)", resolve(fullLoadScenario())],
+      ["full load, forced to 3600 ticks", runToCap(fullLoadScenario())],
+      ["full load, unkillable, full length", resolve(fullLoadFullLength())],
+    ];
+    const lines: string[] = [];
+    for (const [label, out] of rows) {
+      const m = measure(out);
+      const byKind: Record<string, number> = {};
+      for (const e of out.log) byKind[(e as LogEvent).k] = (byKind[(e as LogEvent).k] ?? 0) + 1;
+      lines.push(`  ${label}: ${out.ticks} ticks, ${out.log.length} events — stored ${m.raw} B raw (${(m.raw / 1024).toFixed(1)} KB), ${m.gz} B gzip (${(m.gz / 1024).toFixed(1)} KB); keyframes ${m.keyframes} B; the same log as chunk 12's JSON objects ${m.oldJson} B`);
+      expect(m.gz, label).toBeLessThan(BUDGET);
+      // The stored form is a complete, readable replay. (Not the forced one: runToCap plays on past
+      // arrivals that end a real fight, and the reader rightly refuses a log whose outcome the rows contradict.)
+      if (!label.includes("forced")) expect(readReplay(JSON.parse(JSON.stringify(encodeReplay(out)))).events.length).toBe(out.log.length);
+      else expect(() => readReplay(JSON.parse(JSON.stringify(encodeReplay(out))))).toThrow(/reached the core before the last tick/);
     }
-    const lines = Object.entries(byKind)
-      .sort((a, b) => b[1].bytes - a[1].bytes)
-      .map(([k, v]) => `  ${k.padEnd(15)} ${String(v.n).padStart(6)} events ${String(v.bytes).padStart(8)} B`);
-    process.stdout.write(`full-load log: ${bytes} B (${(bytes / 1024).toFixed(1)} KB) over ${out.ticks} ticks, ${out.log.length} events\n${lines.join("\n")}\n`);
-    // Pinned loosely so a regression that doubles the log is caught; the 100 KB target itself is chunk 13's call.
-    expect(bytes).toBeLessThan(600 * 1024);
+    process.stdout.write(`replay size (LOG_SIZE_BUDGET ${BUDGET} B compressed):\n${lines.join("\n")}\n`);
+    const forced = measure(rows[1]![1]);
+    expect(forced.raw).toBeLessThan(BUDGET); // was ≈ 125 KB (95 KB of keyframes) in chunk 12's format
+    expect(forced.keyframes * 20).toBeLessThan(95_000 * 1.2);
+    expect(measure(rows[0]![1]).raw).toBeLessThan(BUDGET);
+  });
+
+  it("size: every corpus fight's replay fits the budget compressed (largest reported)", () => {
+    let worst = { name: "", raw: 0, gz: 0 };
+    for (const { name, input } of scenarios()) {
+      const m = measure(resolve(clone(input)));
+      expect(m.gz, name).toBeLessThan(BUDGET);
+      if (m.gz > worst.gz) worst = { name, raw: m.raw, gz: m.gz };
+    }
+    process.stdout.write(`largest corpus replay: ${worst.name} — ${worst.raw} B raw, ${worst.gz} B gzip\n`);
   });
 });

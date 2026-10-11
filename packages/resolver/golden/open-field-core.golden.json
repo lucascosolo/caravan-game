@@ -1,0 +1,19 @@
+{
+"scenario": "open-field-core",
+"resolverVersion": 7,
+"outcome": {"kind":"caravan_overrun","end":"core_overrun","endTick":168,"depth":1024,"deepestUnit":0},
+"ticks": 169,
+"units": [
+{"id":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","mergeLevel":1,"x":15872,"y":14380,"startHp":620,"hp":620,"maxHp":620,"alive":true,"reachedCoreTick":168,"diedTick":-1}
+],
+"fences": [],
+"traps": [],
+"replay": {"format":"caravan-replay","v":1,"resolverVersion":7,"tickRate":20,"tickCap":600,"keyframeInterval":100,"ticks":169,"outcome":{"kind":"caravan_overrun","end":"core_overrun","endTick":168,"depth":1024,"deepestUnit":0},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":620,"hp":620}],"fences":[],"traps":[],"count":6,"check":1961173105,"events":[
+[0,"s",0,15872,1536],
+[0,"tg",0,0,-1],
+[0,"p",0,76,15872,15872,-1],
+[99,"kf",1,0,15872,9136,620,0,0,0,180,0,0],
+[168,"c",0],
+[168,"kf",1,0,15872,14380,620,0,0,0,180,0,0]
+]}
+}

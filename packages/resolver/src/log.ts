@@ -1,5 +1,9 @@
 /**
- * The tick log (chunk 10 starts it; chunk 13 finishes the format and the renderer).
+ * The tick log (chunk 10 starts it; chunk 13 finishes it). The log IS the replay: replay.ts
+ * re-encodes these events as the stored, versioned LOG_FORMAT and `readReplay` plays it
+ * back by the contract below — nothing is re-simulated. Since chunk 13 the log of a fight
+ * stops on the tick its end condition is met (outcome.ts); its last event is that tick's
+ * keyframe.
  *
  * Events and waypoints, not per-tick state (chunk 13 LOG_FORMAT): a `path` record says
  * "unit u begins moving along these waypoints at `speed` per tick from tick t"; a renderer
