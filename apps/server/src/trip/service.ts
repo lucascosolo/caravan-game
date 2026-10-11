@@ -49,7 +49,7 @@ import { findFormation, findManifestById, findOpenManifest, type WagonManifestRo
 import type { Queryable } from "../db/pool.js";
 import { withTransaction } from "../db/pool.js";
 import type { CaravanRow, Pool, ResolutionJobRow } from "../db/types.js";
-import { coinForBankedTrip, coinForEncounter, coinForEncountersSurvived, creditBankedTrip, overflowForecast } from "../economy/coin.js";
+import { coinForDelivery, coinForEncounter, creditBankedTrip, overflowForecast } from "../economy/coin.js";
 import { peekTrickle } from "../economy/trickle.js";
 import { encounterJobId, getJob } from "../jobs/queue.js";
 import type { JsonObject, LedgerEventRow } from "../ledger/events.js";
@@ -62,6 +62,7 @@ import { setCaravanState } from "../repo/caravans.js";
 import { AppError, badRequest, conflict } from "../services/errors.js";
 import { consumeTripCap, readTripCap, type TripCapView } from "./cap.js";
 import { JOB_SURVIVORS_KEY, assertTripEncounterOutcome, attritionOf, caravanSurvived, resolverInputFromJob, type EncounterOutcome, type EncounterOutcomeKind } from "./outcome.js";
+import { applyDeMerges, applyOverrunLosses, deathIndex, encounterEarn, mergeLevelAfterDeath, planUnitLosses, type DeMergedUnit, type DestroyedUnit, type OverrunLosses } from "./stakes.js";
 import { decideTripEncounter, findTripEncounter, insertTripEncounter, listTripEncounters, unbankedCoinOf, type TripEncounterRow } from "./repo.js";
 
 const notFound = (code: string, message: string) => new AppError(404, code, message);
@@ -169,16 +170,15 @@ export async function commitEncounter(
 // ─────────────────────────────────────────────────────────────────────────────────────────
 
 /**
- * Chunk 19 hand-off. Written as the `trip_overrun` event's payload when the caravan falls.
- * Chunk 15 applies NO losses: every unit named here is still on the roster at its packed
- * merge level, and the unbanked Coin was simply never credited.
- * TODO(chunk-19): in the SAME transaction as this event, (1) destroy every instance in
- * `unitsAliveAtCollapse` (`unit_lost_on_wipe`, plus the chunk 09 standing-party
- * invalidation draft), (2) de-merge every instance in `unitsDiedOnTrip` by one level,
- * floored at 1 (`unit_demerged_on_death`) — the INVERSION: died → de-merged, survived to the
- * collapse → destroyed, (3) transfer `unbankedCoin` to `partyOwnerAccountId` capped by their
- * headroom (`coin_transferred_to_party_owner`; destroyed instead for a system owner), and
- * flip `lossesApplied` to true.
+ * The overrun record, written as the `trip_overrun` event's payload when the caravan falls.
+ * Chunk 19 applies the losses in the SAME transaction, before this event is appended
+ * (trip/stakes.ts `applyOverrunLosses`): (1) every instance in `unitsAliveAtCollapse` is
+ * destroyed (`unit_lost_on_wipe`, plus the chunk 09 standing-party invalidation draft),
+ * (2) every instance in `unitsDiedOnTrip` is de-merged one level, floored at 1
+ * (`unit_demerged_on_death`) — the INVERSION: died → de-merged, survived to the collapse →
+ * destroyed, (3) `unbankedCoin` is lost (`coin_lost_on_wipe`) and transferred to
+ * `partyOwnerAccountId` capped by their headroom (`coin_transferred_to_party_owner`;
+ * destroyed instead for a system owner). `lossesApplied` is true and `losses` itemizes it.
  */
 export interface TripOverrunHandoff extends JsonObject {
   tripId: string;
@@ -194,8 +194,10 @@ export interface TripOverrunHandoff extends JsonObject {
   unitsAliveAtCollapse: { ref: string; typeId: string; mergeLevel: number; hp: number }[];
   /** Died in an encounter of this trip (including the last): de-merged, not destroyed (chunk 19). */
   unitsDiedOnTrip: { ref: string; typeId: string; mergeLevel: number; diedAtEncounter: number }[];
-  /** False until chunk 19 applies the losses above. */
+  /** True: chunk 19 applied the losses in the transaction that wrote this event. */
   lossesApplied: boolean;
+  /** What was applied: de-merges, destructions and where the Coin went. */
+  losses: OverrunLosses;
 }
 
 export type SettleState =
@@ -286,8 +288,9 @@ async function settleLocked(
   });
 
   // 3. The encounter's Coin: UNBANKED trip state, at risk until a bank. Never credited here.
-  //    TODO(chunk-19): the sandbagging earn floor lands here via applyEarnFloor (chunk 14
-  //    note), and creditBankedTrip must then credit these per-encounter amounts.
+  //    Chunk 19: the schedule passes through the sandbagging earn floor with the multiplier
+  //    stored on THIS encounter's chosen candidate (trip/stakes.ts applyEarnFloor — the one
+  //    apply site); bankTrip credits exactly these per-encounter amounts.
   const survived = caravanSurvived(outcome.kind);
   const encounter = await insertTripEncounter(client, {
     trip_id: trip.id,
@@ -296,16 +299,30 @@ async function settleLocked(
     outcome_kind: outcome.kind,
     depth_fp: outcome.depth,
     deaths,
-    coin_accrued: survived ? coinForEncounter(n) : 0,
+    coin_accrued: survived ? (await encounterEarn(client, trip.id, n)).earned : 0,
     party_owner_account_id: ownerAccountId,
   });
 
-  // 4. Overrun ends the trip: back to town, manifest closed, the chunk 19 hand-off recorded.
+  // 4. Overrun ends the trip: losses applied (chunk 19), back to town, manifest closed.
   let overrun: TripOverrunHandoff | null = null;
   if (!survived) {
     const rows = await listTripEncounters(client, trip.id);
-    const diedAt = new Map<string, number>();
-    for (const r of rows) for (const ref of r.deaths) diedAt.set(ref, r.encounter_index);
+    const diedAt = deathIndex(rows);
+    const unbankedCoin = unbankedCoinOf(rows);
+    // Every loss, in this transaction (both accounts' append locks are held, sorted). Nothing
+    // can commit the trip's end without its losses, nor its losses twice: a retry finds the
+    // trip_encounter row above and returns before reaching here.
+    const { drafts, losses } = await applyOverrunLosses(client, {
+      defender: { accountId: caravan.account_id, caravanId: caravan.id },
+      tripId: trip.id,
+      encounterIndex: n,
+      jobId: job.id,
+      survivors: after,
+      rows,
+      unbankedCoin,
+      partyOwnerAccountId: ownerAccountId,
+      partyOwnerAuthored: ownerAuthored,
+    });
     overrun = {
       tripId: trip.id,
       manifestId: manifest.id,
@@ -313,15 +330,16 @@ async function settleLocked(
       jobId: job.id,
       partyOwnerAccountId: ownerAccountId,
       partyOwnerAuthored: ownerAuthored,
-      unbankedCoin: unbankedCoinOf(rows),
+      unbankedCoin,
       unitsAliveAtCollapse: after.units.filter((u) => u.hp > 0).map((u) => ({ ref: u.ref, typeId: u.typeId, mergeLevel: u.mergeLevel, hp: u.hp })),
       unitsDiedOnTrip: after.units.filter((u) => diedAt.has(u.ref)).map((u) => ({ ref: u.ref, typeId: u.typeId, mergeLevel: u.mergeLevel, diedAtEncounter: diedAt.get(u.ref)! })),
-      lossesApplied: false,
+      lossesApplied: true,
+      losses,
     };
     await endTrip(client, trip.id, "overrun");
     await closeManifest(client, manifest.id);
     await setCaravanState(client, caravan.id, "in_town");
-    await appendEvents(client, tripCausation.overrun(trip.id), [{ type: "trip_overrun", accountId: caravan.account_id, caravanId: caravan.id, payload: overrun }]);
+    await appendEvents(client, tripCausation.overrun(trip.id), [{ type: "trip_overrun", accountId: caravan.account_id, caravanId: caravan.id, payload: overrun }, ...drafts]);
   }
   return { state: "settled", tripId: trip.id, encounterIndex: n, encounter, created: true, overrun };
 }
@@ -406,18 +424,19 @@ export interface BankRefit extends JsonObject {
   trapsRestocked: number;
   fenceSegmentsRebuilt: number;
   /**
-   * Units that died during the trip. TODO(chunk-19): each loses one merge level (floored at
-   * 1) — DEMERGE_APPLIES_ON any death, banked or not. Chunk 15 applies nothing.
+   * Units that died during the trip, each de-merged one level (floored at 1) in the bank's
+   * transaction (chunk 19; DEMERGE_APPLIES_ON any death, banked or not). They come home
+   * healed at `toLevel`.
    */
-  deMergePending: string[];
+  deMerged: DeMergedUnit[];
 }
 
-function refitOf(survivors: Manifest, deaths: readonly string[]): BankRefit {
+function refitOf(survivors: Manifest, deMerged: readonly DeMergedUnit[]): BankRefit {
   return {
     unitsHealed: survivors.units.filter((u) => u.hp < u.maxHp).map((u) => ({ ref: u.ref, typeId: u.typeId, mergeLevel: u.mergeLevel, hpAtBank: u.hp, maxHp: u.maxHp })),
     trapsRestocked: survivors.traps.filter((t) => t.spent).length,
     fenceSegmentsRebuilt: survivors.fences.filter((f) => f.hp < f.maxHp).length,
-    deMergePending: [...deaths],
+    deMerged: [...deMerged],
   };
 }
 
@@ -441,18 +460,24 @@ export async function bankTrip(client: pg.PoolClient, caravan: CaravanRow, req: 
 
   const rows = await listTripEncounters(client, trip.id);
   const unbanked = unbankedCoinOf(rows);
-  // The preview promised exactly this; the ledger records exactly this (GUARDRAILS §4).
-  if (unbanked !== coinForEncountersSurvived(req.encounterIndex)) {
-    throw new Error(`trip ${trip.id}: unbanked Coin ${unbanked} does not match the schedule for ${req.encounterIndex} survived encounters`);
-  }
-  const credit = await creditBankedTrip(client, { accountId: caravan.account_id, causationId: tripCausation.bankCoin(trip.id), tripId: trip.id, encountersSurvived: req.encounterIndex });
+  // The preview promised exactly this; the ledger records exactly this (GUARDRAILS §4): the
+  // STORED per-encounter `coin_accrued` (already through applyEarnFloor at settle), never a
+  // recomputation from the live schedule — a retune must not change, or brick, a trip that
+  // is already on the trail (chunk 15 QA S1).
+  const encounterCoin = rows.map((r) => r.coin_accrued);
+  if (rows.length !== req.encounterIndex) throw new Error(`trip ${trip.id}: ${rows.length} settled encounters, banking after ${req.encounterIndex}`);
+  const credit = await creditBankedTrip(client, { accountId: caravan.account_id, causationId: tripCausation.bankCoin(trip.id), tripId: trip.id, encountersSurvived: req.encounterIndex, encounterCoin });
   await decideTripEncounter(client, trip.id, req.encounterIndex, "banked");
   const survivors = manifestFromJson(manifest.survivors);
-  const restored = refitOf(survivors, rows.flatMap((r) => r.deaths));
+  // Chunk 19: every unit that died on the trip loses one merge level (floored) — on a bank
+  // too (DEMERGE_APPLIES_ON any death). Same transaction as the credit and the trip's end.
+  const { deMerged } = planUnitLosses(survivors, rows, "banked");
+  const deMergeDrafts = await applyDeMerges(client, { accountId: caravan.account_id, caravanId: caravan.id }, trip.id, "banked", deMerged);
+  const restored = refitOf(survivors, deMerged);
   await endTrip(client, trip.id, "banked");
   await closeManifest(client, manifest.id);
   await setCaravanState(client, caravan.id, "in_town");
-  const requested = coinForBankedTrip(req.encounterIndex);
+  const requested = unbanked + coinForDelivery(req.encounterIndex);
   await appendEvents(client, tripCausation.banked(trip.id), [
     {
       type: "trip_banked",
@@ -463,13 +488,14 @@ export async function bankTrip(client: pg.PoolClient, caravan: CaravanRow, req: 
         manifestId: manifest.id,
         encountersSurvived: req.encounterIndex,
         unbankedCoin: unbanked,
-        deliveryBonus: TUNABLES.COIN_PER_BANKED_TRIP,
+        deliveryBonus: coinForDelivery(req.encounterIndex),
         requested,
         credited: credit.credited,
         discarded: credit.discarded,
         restored,
       },
     },
+    ...deMergeDrafts,
   ]);
   return { tripId: trip.id, encountersSurvived: req.encounterIndex, requested, credited: credit.credited, discarded: credit.discarded, balanceAfter: credit.balanceAfter, restored, replayed: false };
 }
@@ -622,23 +648,42 @@ export interface StakesPreview {
   /** Trip state, never in the account balance until a bank. */
   unbankedCoin: { total: number; byEncounter: { index: number; coin: number }[] };
   /** What banking now would deliver, against the account's room right now. */
-  bankNow: { encounterCoin: number; deliveryBonus: number; total: number; forecast: ReturnType<typeof overflowForecast> };
+  bankNow: {
+    encounterCoin: number;
+    deliveryBonus: number;
+    total: number;
+    forecast: ReturnType<typeof overflowForecast>;
+    /** Banking de-merges every unit that died on this trip, exactly as listed: ref, fromLevel → toLevel (chunk 19; chunk 15 QA S7). The same plan the bank applies and returns as `restored.deMerged`. */
+    unitsDeMerged: DeMergedUnit[];
+  };
   units: StakesUnit[];
-  /** What being overrun at the next encounter would cost (chunk 19 applies it). */
+  /**
+   * What being overrun in the current / next encounter costs (chunk 19 applies exactly this
+   * when no further unit dies; computed by the same `planUnitLosses` the overrun runs).
+   */
   ifOverrun: {
+    /** All of the trip's unbanked Coin. */
     coinLost: number;
-    /** Alive now: lost outright if the caravan falls. */
-    unitsLostOutright: { ref: string; typeId: string; mergeLevel: number; hp: number }[];
-    /** Already dead: de-merged one level, NOT destroyed. */
-    unitsDeMergedNotDestroyed: { ref: string; typeId: string; mergeLevel: number; mergeLevelAfter: number }[];
+    /** Alive now: destroyed if still alive when the caravan falls. */
+    unitsLostOutright: DestroyedUnit[];
+    /** Already dead: de-merged one level (floored), NOT destroyed. */
+    unitsDeMergedNotDestroyed: DeMergedUnit[];
+    /** The one case the lists above cannot know in advance: a unit alive now that dies in the fight the caravan falls in. */
+    unitDyingInTheFinalFight: "de_merged_not_destroyed";
+    /** Where the lost Coin goes: the overrunning party's owner, capped by their storage headroom; destroyed for an authored party. Never back to you. */
+    coinGoesTo: "overrunning_party_owner_capped";
   };
   traps: { remaining: { ref: string; typeId: string }[]; spent: { ref: string; typeId: string }[] };
   fences: { intact: { ref: string; tierId: string; hp: number; maxHp: number }[]; destroyed: { ref: string; tierId: string; maxHp: number }[] };
   nextEncounter: {
     index: number;
-    /** Coin the next encounter is worth if survived (unbanked until a bank). */
+    /**
+     * Coin the next encounter is worth if survived (unbanked until a bank), at full earn. The
+     * party you choose next shows its own `sandbagEarnMultiplier`; chunk 19's applyEarnFloor
+     * applies it (only an authored party from outside your band can pay less).
+     */
     reward: number;
-    /** Banking right after surviving it would deliver this. */
+    /** Banking right after surviving it would deliver this (at full earn): unbanked + reward + delivery for one more encounter. */
     bankTotalIfSurvived: number;
     /** Chunk 14's escalation: the band centre for the next party sits this far above your rating. */
     difficulty: { escalationApplied: number; risePerEncounter: number; harderThanThisEncounter: boolean };
@@ -667,9 +712,8 @@ export async function stakesPreview(pool: pg.Pool, caravan: CaravanRow, nowMs: n
   for (const r of rows) for (const ref of r.deaths) diedAt.set(ref, r.encounter_index);
   const m = view.encountersResolved;
   const unbanked = unbankedCoinOf(rows);
-  const bankTotal = unbanked + TUNABLES.COIN_PER_BANKED_TRIP;
+  const bankTotal = unbanked + coinForDelivery(m);
   const trickle = await peekTrickle(pool, caravan.account_id, nowMs);
-  const floor = TUNABLES.MERGE_LEVEL_MIN;
   const units: StakesUnit[] = survivors.units.map((u) => ({
     ref: u.ref,
     typeId: u.typeId,
@@ -679,8 +723,9 @@ export async function stakesPreview(pool: pg.Pool, caravan: CaravanRow, nowMs: n
     damage: u.maxHp - u.hp,
     alive: u.hp > 0,
     diedAtEncounter: diedAt.get(u.ref) ?? null,
-    mergeLevelOnDeath: Math.max(floor, u.mergeLevel - 1),
+    mergeLevelOnDeath: mergeLevelAfterDeath(u.mergeLevel),
   }));
+  const ifOverrun = planUnitLosses(survivors, rows, "overrun");
   const chosen = m >= 1 ? await chosenCandidate(pool, trip.id, m) : null;
   const next = m + 1;
   return {
@@ -691,16 +736,19 @@ export async function stakesPreview(pool: pg.Pool, caravan: CaravanRow, nowMs: n
     unbankedCoin: { total: unbanked, byEncounter: rows.map((r) => ({ index: r.encounter_index, coin: r.coin_accrued })) },
     bankNow: {
       encounterCoin: unbanked,
-      deliveryBonus: TUNABLES.COIN_PER_BANKED_TRIP,
+      deliveryBonus: coinForDelivery(m),
       total: bankTotal,
       // "Room right now" (chunk 16 QA N6): the trickle keeps filling the store meanwhile.
       forecast: overflowForecast(trickle.balance, trickle.cap, bankTotal),
+      unitsDeMerged: planUnitLosses(survivors, rows, "banked").deMerged,
     },
     units,
     ifOverrun: {
       coinLost: unbanked,
-      unitsLostOutright: units.filter((u) => u.alive).map((u) => ({ ref: u.ref, typeId: u.typeId, mergeLevel: u.mergeLevel, hp: u.hp })),
-      unitsDeMergedNotDestroyed: units.filter((u) => !u.alive).map((u) => ({ ref: u.ref, typeId: u.typeId, mergeLevel: u.mergeLevel, mergeLevelAfter: u.mergeLevelOnDeath })),
+      unitsLostOutright: ifOverrun.destroyed,
+      unitsDeMergedNotDestroyed: ifOverrun.deMerged,
+      unitDyingInTheFinalFight: "de_merged_not_destroyed",
+      coinGoesTo: "overrunning_party_owner_capped",
     },
     traps: {
       remaining: survivors.traps.filter((t) => !t.spent).map((t) => ({ ref: t.ref, typeId: t.typeId })),
@@ -713,12 +761,12 @@ export async function stakesPreview(pool: pg.Pool, caravan: CaravanRow, nowMs: n
     nextEncounter: {
       index: next,
       reward: coinForEncounter(next),
-      bankTotalIfSurvived: coinForBankedTrip(next),
+      bankTotalIfSurvived: unbanked + coinForEncounter(next) + coinForDelivery(next),
       difficulty: { escalationApplied: escalationFor(next), risePerEncounter: ESCALATION_PER_ENCOUNTER, harderThanThisEncounter: escalationFor(next) > (m >= 1 ? escalationFor(m) : -1) },
       partyArrivesFresh: true,
     },
-    // The earn multiplier is shown as chunk 14 computed it; chunk 19's applyEarnFloor is
-    // the one place it will land on Coin (not applied by chunk 15).
+    // The earn multiplier as chunk 14 stored it on the chosen candidate; it already landed on
+    // that encounter's accrued Coin through chunk 19's applyEarnFloor (trip/stakes.ts).
     lastOpponent: chosen ? { encounterIndex: m, reputation: { ...chosen.reputation } } : null,
     rules: tripRules(),
   };

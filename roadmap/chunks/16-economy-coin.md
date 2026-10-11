@@ -43,8 +43,8 @@ that Coin exists to pace. Losing Coin is chunk 19; buying it is chunk 20.
 | Name | Default | Note |
 |---|---|---|
 | `COIN_STORAGE_CAP` | 50,000 | Per account. Hard ceiling on accumulation. |
-| `COIN_PER_ENCOUNTER_BASE` | 400 at encounter 1, ×1.25 per subsequent encounter | Ties to chunk 15's escalation. |
-| `COIN_PER_BANKED_TRIP` | 500 flat completion bonus | The delivery reward. |
+| `COIN_PER_ENCOUNTER_BASE` | 400 at encounter 1, ×1.25 per subsequent encounter (**×1.35 since chunk 15 QA D1**, applied in chunk 19) | Ties to chunk 15's escalation. |
+| `COIN_PER_BANKED_TRIP` | 500 flat completion bonus (**replaced by `COIN_DELIVERY_PER_ENCOUNTER` = 125 × encounters survived**, chunk 15 QA D1, applied in chunk 19) | The delivery reward. |
 | `COIN_PER_PARTY_WIN` | 300 when your standing party overruns a caravan | The passive side's earn path. Deliberately below the active path — playing should pay better than not playing. |
 | `COIN_TRICKLE_RATE` | 200/hour, ceasing at the storage cap | Keeps something always at risk. Computed lazily on read. |
 | `TRICKLE_MATERIALIZE_MIN_COINS` | 10 | QA S4. A read shows the pending trickle always but writes a ledger row only once this many coins (or `_MIN_MS`) have accrued. Pending coins carry; nothing is dropped. |

@@ -520,10 +520,19 @@ export const TUNABLES = {
 
   /** TUNABLE (chunk 16). Coin for surviving the FIRST encounter of a trip. Later encounters escalate (below). */
   COIN_PER_ENCOUNTER_BASE: 400,
-  /** TUNABLE (chunk 16). ×1.25 per subsequent encounter, compounding, floored each step (ties to chunk 15's escalation). */
-  COIN_ENCOUNTER_ESCALATION_MULT: fpMilli(1250),
-  /** TUNABLE (chunk 16). Flat completion bonus on a banked trip — the delivery reward. */
-  COIN_PER_BANKED_TRIP: 500,
+  /**
+   * TUNABLE (chunk 16; ×1.25 → ×1.35 by chunk 15 QA D1). ×1.35 per subsequent encounter
+   * (1382/1024 ≈ 1.3496 in fixed point), compounding, floored each step — 400, 539, 727,
+   * 981, 1323, … Steeper than before so that pushing past encounter 1 is a real decision
+   * (break-even hold rate ≈ 0.44 with the per-encounter delivery below).
+   */
+  COIN_ENCOUNTER_ESCALATION_MULT: fpMilli(1350),
+  /**
+   * TUNABLE (chunk 15 QA D1; replaces chunk 16's flat 500 COIN_PER_BANKED_TRIP). The delivery
+   * reward on a banked trip: this × encounters survived, no flat bonus — a flat bonus made
+   * banking after encounter 1 dominate at the equilibrium hold rate.
+   */
+  COIN_DELIVERY_PER_ENCOUNTER: 125,
   /** TUNABLE (chunk 16). When your standing party overruns a caravan. Deliberately below the active path: playing pays better than not playing. */
   COIN_PER_PARTY_WIN: 300,
   /**
@@ -581,6 +590,26 @@ export const TUNABLES = {
   RESTORE_ON_TRIP_END: "full_on_bank_none_on_overrun",
 
   // ────────────────────────────────────────────────────────────────────────────────────
+  // Chunk 19 — stakes and loss. Harsh but BOUNDED (GUARDRAILS "Bounded stakes"): a trip
+  // risks only its own unbanked Coin and what was packed for it. The INVERSION is the
+  // design: a unit that DIES on a trip is de-merged (one level, floored); a unit still
+  // ALIVE when the caravan falls is destroyed. The standing party's owner risks nothing.
+  // ────────────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Fixed by design (chunk 19). Merge levels a unit loses for dying in an encounter, applied
+   * once when the trip ends (bank OR overrun), whatever killed it. Floored at
+   * MERGE_LEVEL_MIN (DEMERGE_FLOOR), so de-merging alone can never erase a unit.
+   */
+  DEMERGE_LEVELS_PER_DEATH: 1,
+  /**
+   * Fixed by design (chunk 19). Share of a trip's unbanked Coin lost on an overrun, in basis
+   * points: all of it (all-or-nothing). Transferred to the overrunning party's owner, capped
+   * by their storage headroom; the excess (or all of it, for a system owner) is destroyed.
+   */
+  UNBANKED_COIN_LOST_ON_OVERRUN_BP: 10_000,
+
+  // ────────────────────────────────────────────────────────────────────────────────────
   // Chunk 20 — monetization packs (GUARDRAILS §2). Nothing in this block reaches a stat, a
   // resolution rule, a cap, an unlock, a slot count or a trip-cap use: a pack holds COIN
   // (pace) and COSMETICS (purely visual), and the schema's CHECK on pack contents mirrors
@@ -612,6 +641,11 @@ export const TUNABLES = {
    */
   WEEKLY_PAY_CEILING: 60_000,
   /**
+   * NOTE (chunk 19, applying chunk 15 QA D1): the three shapes below were derived from the
+   * OLD earn schedule (×1.25, flat 500 delivery). With ×1.35 and 125 × encounters delivered
+   * a 1-encounter trip pays 525 (was 900) and a 3-encounter trip 2,041 (was 2,025): the
+   * floor shape falls if players bank early and rises if they push. The value is unchanged
+   * pending the balance owner's re-derivation from play data (PHASE-2 §37).
    * ASSUMPTION TO VALIDATE IN PLAYTESTING (chunk 20; rewritten as a range per QA-20 D3). A
    * normal active week's free Coin earn is NOT one number — it depends on how the trip cap
    * (chunk 16: 3 trips/h regen) is used. Three shapes, from chunk 16's defaults and its QA
@@ -628,7 +662,7 @@ export const TUNABLES = {
    * storage cap (COIN_STORAGE_CAP 50,000) means one spend cycle can absorb at most
    * cap − balance, however many tiers are bought, and the once-per-tier-per-week limit means
    * the ceiling cannot be reached twice in a week. Re-derive when COIN_PER_ENCOUNTER_BASE,
-   * COIN_PER_BANKED_TRIP, the trip cap, the trickle, or chunk 15's tunables move.
+   * COIN_DELIVERY_PER_ENCOUNTER, the trip cap, the trickle, or chunk 15's tunables move.
    */
   FREE_WEEKLY_EARN_ESTIMATE: 40_000,
   /**

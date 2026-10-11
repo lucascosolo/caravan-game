@@ -91,8 +91,8 @@ describe("no credit path passes the cap", () => {
     expect(res.credited).toBe(1000);
     expect(res.discarded).toBe(coinForBankedTrip(3) - 1000);
     expect(res.balanceAfter).toBe(CAP);
-    expect(res.rows.map((r) => r.payload["amount"])).toEqual([400, 500, 100, 0]);
-    expect(res.rows.map((r) => r.payload["overflowDiscarded"] ?? 0)).toEqual([0, 0, 525, 500]);
+    expect(res.rows.map((r) => r.payload["amount"])).toEqual([400, 539, 61, 0]);
+    expect(res.rows.map((r) => r.payload["overflowDiscarded"] ?? 0)).toEqual([0, 0, 666, 375]);
     expect(res.rows.map((r) => r.payload["reason"])).toEqual(["encounter_survived", "encounter_survived", "encounter_survived", "trip_banked"]);
     expect((await readCoinBalance(pool, accountId)).balance).toBe(CAP);
     expect((await verifyProjection(pool, accountId)).ok).toBe(true);
@@ -218,7 +218,7 @@ describe("the lazy trickle", () => {
     expect(body.overflow.wouldDiscard).toBe(60_000 - (CAP - body.balance));
     expect(body.overflow.message).toContain("right now");
     expect(body.merge.costPerResultingUnitByLevel).toEqual({ "2": 250, "3": 900, "4": 3000, "5": 9500 });
-    expect(body.earn.encounterSchedule.slice(0, 3)).toEqual([400, 500, 625]);
+    expect(body.earn.encounterSchedule.slice(0, 3)).toEqual([400, 539, 727]);
     expect(body.merge.levelCap).toBe(5);
     const bad = await app.inject({ method: "GET", url: "/me/economy?prospectiveEarn=-1", headers: { authorization: `Bearer ${token}` } });
     expect(bad.statusCode).toBe(400);

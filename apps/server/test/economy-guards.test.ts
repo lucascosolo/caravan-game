@@ -8,7 +8,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { coinForBankedTrip, coinForEncounter, coinForEncountersSurvived, encounterCoinSchedule, overflowForecast } from "../src/economy/coin.js";
+import { coinForBankedTrip, coinForDelivery, coinForEncounter, coinForEncountersSurvived, encounterCoinSchedule, overflowForecast } from "../src/economy/coin.js";
 import { MERGE_RECIPES, mergeCost, mergeCostTable, recipeForCount, statsAtLevel } from "../src/economy/merge.js";
 import { computeTrickle } from "../src/economy/trickle.js";
 
@@ -86,15 +86,18 @@ describe("merge cost arithmetic", () => {
 });
 
 describe("earn schedule", () => {
-  it("is an integer table: 400 × 1.25 per encounter, floored", () => {
-    expect(encounterCoinSchedule(8)).toEqual([400, 500, 625, 781, 976, 1220, 1525, 1906]);
+  it("is an integer table: 400 × 1.35 per encounter, floored; delivery is 125 × encounters survived (chunk 15 QA D1)", () => {
+    expect(encounterCoinSchedule(8)).toEqual([400, 539, 727, 981, 1323, 1785, 2409, 3251]);
     expect(coinForEncounter(1)).toBe(400);
-    expect(coinForEncounter(4)).toBe(781);
+    expect(coinForEncounter(4)).toBe(981);
     expect(coinForEncountersSurvived(0)).toBe(0);
-    expect(coinForEncountersSurvived(3)).toBe(1525);
-    expect(coinForBankedTrip(3)).toBe(1525 + TUNABLES.COIN_PER_BANKED_TRIP);
+    expect(coinForEncountersSurvived(3)).toBe(1666);
+    expect(TUNABLES.COIN_DELIVERY_PER_ENCOUNTER).toBe(125);
+    expect(coinForDelivery(3)).toBe(375);
+    expect(coinForBankedTrip(1)).toBe(525);
+    expect(coinForBankedTrip(3)).toBe(1666 + 375);
     expect(() => coinForEncounter(0)).toThrow(RangeError);
-    expect(TUNABLES.COIN_ENCOUNTER_ESCALATION_MULT).toBe(1280); // exactly 1.25 in 1/1024ths
+    expect(TUNABLES.COIN_ENCOUNTER_ESCALATION_MULT).toBe(1382); // 1.35 in 1/1024ths, truncated (≈ 1.3496)
     expect(FIXED_POINT_SCALE).toBe(1024);
   });
 

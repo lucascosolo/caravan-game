@@ -12,7 +12,8 @@
  *   chunk 15 (trip loop)  -> creditBankedTrip     when a trip banks; per-encounter Coin is
  *                            UNBANKED trip state until then (bounded stakes), so there is
  *                            deliberately no "credit one encounter now" path.
- *   chunk 19 (loss)       -> coinForEncountersSurvived to size what is at risk / transfers.
+ *   chunk 19 (loss)       -> appendCoinCredits (coin_transferred_to_party_owner) for the
+ *                            overrun transfer, sized from the trip's accrued (floored) rows.
  *   chunk 09/13 (party)   -> creditPartyWin        when a standing party overruns a caravan.
  *   chunk 17 (home town)  -> readCoinBalance, overflowForecast, and trickle.ts.
  *   anything that DEBITS  -> spendCoin. This is the ONLY debit path (QA S5): it flushes the
@@ -55,8 +56,8 @@ function nextEncounterCoin(amount: number): number {
 /**
  * Coin for surviving the Nth encounter of a trip (1-based): BASE at encounter 1, then
  * ×COIN_ENCOUNTER_ESCALATION_MULT per subsequent encounter, floored at each step so the
- * sequence is an integer table, not a float curve. 400, 500, 625, 781, 976, 1220, ...
- * Clamped at COIN_STORAGE_CAP (reached around encounter 23 with the defaults).
+ * sequence is an integer table, not a float curve. 400, 539, 727, 981, 1323, 1785, ...
+ * Clamped at COIN_STORAGE_CAP (reached at encounter 18 with the defaults).
  */
 export function coinForEncounter(encounterIndex: number): number {
   assertPosInt("encounterIndex", encounterIndex);
@@ -84,9 +85,18 @@ export function coinForEncountersSurvived(n: number): number {
   return total;
 }
 
-/** Everything a trip that banks after `n` survived encounters is worth: encounters + delivery bonus. */
+/**
+ * The delivery reward for banking after `n` survived encounters (chunk 15 QA D1):
+ * COIN_DELIVERY_PER_ENCOUNTER × n, no flat bonus.
+ */
+export function coinForDelivery(encountersSurvived: number): number {
+  if (!Number.isInteger(encountersSurvived) || encountersSurvived < 0) throw new RangeError("encountersSurvived must be a non-negative integer");
+  return TUNABLES.COIN_DELIVERY_PER_ENCOUNTER * encountersSurvived;
+}
+
+/** Everything a trip that banks after `n` survived encounters is worth at full earn: encounters + delivery. */
 export function coinForBankedTrip(encountersSurvived: number): number {
-  return coinForEncountersSurvived(encountersSurvived) + TUNABLES.COIN_PER_BANKED_TRIP;
+  return coinForEncountersSurvived(encountersSurvived) + coinForDelivery(encountersSurvived);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -212,24 +222,38 @@ export async function appendCoinCredits(
 
 /**
  * A trip banked: credit one `coin_earned` per survived encounter (reason
- * `encounter_survived`, in encounter order) and then the delivery bonus (`trip_banked`).
+ * `encounter_survived`, in encounter order) and then the delivery (`trip_banked`,
+ * COIN_DELIVERY_PER_ENCOUNTER × encounters survived).
  * Per-encounter Coin was unbanked — at risk — until this moment; it enters the account
  * balance only here. Chunk 15 calls this in the same transaction as its `trip_banked`
  * event, with the trip's deterministic causation id.
  */
 export async function creditBankedTrip(
   client: pg.PoolClient,
-  input: { accountId: string; causationId: string; tripId: string; encountersSurvived: number },
+  input: {
+    accountId: string;
+    causationId: string;
+    tripId: string;
+    encountersSurvived: number;
+    /**
+     * Chunk 19: the Coin each survived encounter actually accrued (the schedule passed through
+     * the sandbagging earn floor, trip/stakes.ts `applyEarnFloor`), in encounter order. When
+     * omitted, the unfloored schedule (chunk 16's original contract).
+     */
+    encounterCoin?: readonly number[];
+  },
 ): Promise<CoinCreditResult> {
   if (!Number.isInteger(input.encountersSurvived) || input.encountersSurvived < 0) {
     throw new RangeError("encountersSurvived must be a non-negative integer");
   }
-  const credits: CoinCreditSpec[] = encounterCoinSchedule(input.encountersSurvived).map((amount, i) => ({
+  const amounts = input.encounterCoin ?? encounterCoinSchedule(input.encountersSurvived);
+  if (amounts.length !== input.encountersSurvived) throw new RangeError(`encounterCoin names ${amounts.length} encounters, not ${input.encountersSurvived}`);
+  const credits: CoinCreditSpec[] = amounts.map((amount, i) => ({
     amount,
     reason: "encounter_survived",
     extra: { tripId: input.tripId, encounterIndex: i + 1 },
   }));
-  credits.push({ amount: TUNABLES.COIN_PER_BANKED_TRIP, reason: "trip_banked", extra: { tripId: input.tripId, encountersSurvived: input.encountersSurvived } });
+  credits.push({ amount: coinForDelivery(input.encountersSurvived), reason: "trip_banked", extra: { tripId: input.tripId, encountersSurvived: input.encountersSurvived } });
   return appendCoinCredits(client, { causationId: input.causationId, accountId: input.accountId, credits });
 }
 
