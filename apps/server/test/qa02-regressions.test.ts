@@ -20,6 +20,7 @@ import { buildApp } from "../src/app.js";
 import { issueSession } from "../src/auth/sessions.js";
 import { withTransaction } from "../src/db/pool.js";
 import { DEFAULT_HANDLERS, ENCOUNTER_RESOLUTION_WIRED, PLACEHOLDER_HANDLERS, enqueueEncounterResolution } from "../src/jobs/handlers/encounterResolution.js";
+import { snapshotStandingParty } from "../src/jobs/snapshots.js";
 import {
   JobInputConflictError,
   enqueueJob,
@@ -163,8 +164,8 @@ describe("B1: completion is fenced on the lease", () => {
   });
 
   it("B1a / R2-S2: a job enqueued for another resolver version is never leased by this worker; a worker on that version takes it", async () => {
-    await withTransaction(app, (c) =>
-      enqueueEncounterResolution(c, { tripId: "skew", encounterIndex: 0, defenderAccountId: C.accountId, defenderCaravanId: C.caravanId, partyOwnerAccountId: D.accountId, formation: { fences: [], traps: [], posts: [] } }),
+    await withTransaction(app, async (c) =>
+      enqueueEncounterResolution(c, { tripId: "skew", encounterIndex: 0, defenderAccountId: C.accountId, defenderCaravanId: C.caravanId, partyOwnerAccountId: D.accountId, formation: { fences: [], traps: [], posts: [] }, party: await snapshotStandingParty(c, D.accountId) }),
     );
     // Only the owner can forge this (input is immutable to the app role and the guard trigger); simulate a deploy skew.
     await owner.query("ALTER TABLE resolution_job DISABLE TRIGGER resolution_job_guard");
@@ -188,8 +189,8 @@ describe("B1: completion is fenced on the lease", () => {
 
 describe("S9: no resolver, no resolution", () => {
   it.skipIf(ENCOUNTER_RESOLUTION_WIRED)("the production handler parks the encounter with a clear last_error instead of writing a placeholder outcome", async () => {
-    await withTransaction(app, (c) =>
-      enqueueEncounterResolution(c, { tripId: "s9", encounterIndex: 0, defenderAccountId: C.accountId, defenderCaravanId: C.caravanId, partyOwnerAccountId: D.accountId, formation: { fences: [], traps: [], posts: [] } }),
+    await withTransaction(app, async (c) =>
+      enqueueEncounterResolution(c, { tripId: "s9", encounterIndex: 0, defenderAccountId: C.accountId, defenderCaravanId: C.caravanId, partyOwnerAccountId: D.accountId, formation: { fences: [], traps: [], posts: [] }, party: await snapshotStandingParty(c, D.accountId) }),
     );
     const outcomes = await drain(app, { workerId: "prod", handlers: DEFAULT_HANDLERS, retryBackoffMs: noBackoff });
     expect(outcomes.map((o) => o.kind)).toEqual(["parked"]);
@@ -205,12 +206,12 @@ describe("S9: no resolver, no resolution", () => {
 
 describe("S4: re-committing a different formation is a conflict", () => {
   it("throws JobInputConflictError and leaves the first commit untouched", async () => {
-    const first = await withTransaction(app, (c) =>
-      enqueueEncounterResolution(c, { tripId: "s4", encounterIndex: 0, defenderAccountId: C.accountId, defenderCaravanId: C.caravanId, partyOwnerAccountId: D.accountId, formation: { fences: [], traps: [], posts: [] } }),
+    const first = await withTransaction(app, async (c) =>
+      enqueueEncounterResolution(c, { tripId: "s4", encounterIndex: 0, defenderAccountId: C.accountId, defenderCaravanId: C.caravanId, partyOwnerAccountId: D.accountId, formation: { fences: [], traps: [], posts: [] }, party: await snapshotStandingParty(c, D.accountId) }),
     );
     await expect(
-      withTransaction(app, (c) =>
-        enqueueEncounterResolution(c, { tripId: "s4", encounterIndex: 0, defenderAccountId: C.accountId, defenderCaravanId: C.caravanId, partyOwnerAccountId: D.accountId, formation: { fences: [{ x: 9 }], traps: [], posts: [] } }),
+      withTransaction(app, async (c) =>
+        enqueueEncounterResolution(c, { tripId: "s4", encounterIndex: 0, defenderAccountId: C.accountId, defenderCaravanId: C.caravanId, partyOwnerAccountId: D.accountId, formation: { fences: [{ x: 9 }], traps: [], posts: [] }, party: await snapshotStandingParty(c, D.accountId) }),
       ),
     ).rejects.toBeInstanceOf(JobInputConflictError);
     expect((await getJob(app, first.job.id))!.input).toEqual(first.job.input);

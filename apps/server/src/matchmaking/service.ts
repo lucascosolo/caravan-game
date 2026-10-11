@@ -22,8 +22,8 @@
  *       StandingPartySnapshot is stored on the candidate row.
  *   (b) the scout view is scoutParty(partyFromJson(snapshot.composition)) from that stored
  *       snapshot — never a live resolve — so preview, scout and resolver input agree.
- *   (c) enqueueEncounterResolution receives that snapshot via `party` and does not
- *       re-resolve at commit.
+ *   (c) enqueueEncounterResolution receives that snapshot via `party` (required since QA
+ *       S1: there is no live re-resolve path at commit at all).
  *   (d) StandingPartyInvalidError can only surface at generation: the party is skipped
  *       (recorded in skipped_party_ids) and another is drawn.
  *   (e) the snapshot is a copy: the owner editing, merging or losing units between
@@ -41,6 +41,7 @@ import { canonicalJson, type Json, type JsonObject } from "../ledger/events.js";
 import { getCaravanPoolProgress } from "../repo/poolProgress.js";
 import { AppError, badRequest, conflict } from "../services/errors.js";
 import {
+  AUTHORED_PARTY_MAX_SHARE_BP,
   BAND_SPAN,
   CANDIDATES_PER_SEARCH,
   DIFFICULTY_ESCALATION_BP,
@@ -55,6 +56,7 @@ import {
   candidateSeed,
   escalatedCentre,
   escalationFor,
+  gapBeyondBand,
   sandbagEarnMultiplier,
   selectCandidates,
   type BandInfo,
@@ -66,7 +68,11 @@ import { findOpenTrip, type TripRow } from "./trips.js";
 
 export const notFound = (code: string, message: string) => new AppError(404, code, message);
 
-/** One offered candidate: everything the defender can read before committing (GUARDRAILS §4). */
+/**
+ * One offered candidate AS STORED on the menu row: everything the defender can read before
+ * committing (GUARDRAILS §4) plus the owner's account id, which chunk 15 / the resolution
+ * job need and the client view omits (QA N4; `CandidateView`).
+ */
 export interface Candidate {
   /** Stable within the menu it belongs to; what `choose` names. */
   candidateId: string;
@@ -78,13 +84,26 @@ export interface Candidate {
     band: BandInfo;
     /** caravan living − party siege. Positive = the party is weaker than the caravan. */
     gapFromCaravan: number;
-    /** Fixed-point multiplier on this encounter's Coin earn (sandbagging floor); chunk 19 applies it. */
+    /**
+     * max(0, gapFromCaravan − band_width_used): the part of the gap the player can be held
+     * to (QA S3). Zero for every party served from inside the band the search widened to.
+     */
+    gapBeyondBand: number;
+    /** Fixed-point multiplier on this encounter's Coin earn (sandbagging floor), from gapBeyondBand; chunk 19 applies it. */
     sandbagEarnMultiplier: number;
   };
   /** The frozen party: what the resolver will fight. */
   snapshot: StandingPartySnapshot;
   /** scoutParty(partyFromJson(snapshot.composition)): every unit, stat, ability, stance, siege and entry edge. */
   scout: PartyScoutView;
+}
+
+/** A candidate as the client sees it: the stored candidate without the owner's account id (QA N4). */
+export type CandidateView = Omit<Candidate, "owner"> & { owner: { displayName: string; authored: boolean } };
+
+export function candidateView(c: Candidate): CandidateView {
+  const { owner, ...rest } = c;
+  return { ...rest, owner: { displayName: owner.displayName, authored: owner.authored } };
 }
 
 export interface EncounterCandidatesRow {
@@ -141,11 +160,14 @@ export interface CandidateMenuView {
   escalation: { applied: number; perEncounter: number; nextEncounter: number };
   bandWidthUsed: number;
   widened: boolean;
-  usedAuthoredFallback: boolean;
+  /** True when the menu needed authored parties from OUTSIDE the widest band (EMPTY_POOL_BEHAVIOR's last step). */
+  authoredOutsideBand: boolean;
+  /** How much of this menu is authored (PHASE-2 §25), against the cap the draw applies. */
+  authoredShare: { authored: number; of: number; shareBp: number; maxShareBp: number };
   passes: SelectionPass[];
   excludedPartyIds: string[];
-  skippedPartyIds: string[];
-  candidates: Candidate[];
+  /** Without owner account ids; skipped (invalid-at-generation) party ids stay on the row only (QA N4). */
+  candidates: CandidateView[];
   searchedAtMs: number;
   reroll: { gate: "time"; cooldownSeconds: number; availableAtMs: number; available: boolean };
   chosen: { candidateId: string; chosenAt: string } | null;
@@ -168,10 +190,15 @@ interface PoolRow {
 }
 
 /**
- * Every servable standing party with its owner's siege Reputation. Region is NOT read.
- * A party with no units is not served (there would be nothing to fight); v1 serves slot 0.
+ * Every standing party the draw could possibly serve for this centre, with its owner's
+ * siege Reputation. Region is NOT read. A party with no units is not served (there would
+ * be nothing to fight); v1 serves slot 0. QA S2: the scan is bounded in SQL to what
+ * `selectCandidates` can ever pick — live parties within ±REPUTATION_BAND_WIDTH_MAX of the
+ * centre (the widest pass) and every authored party (the outside-band fallback) — over
+ * `pool_progress (pool, reputation)` (migration 009). The stored pool is this subset, and
+ * replay over it is exact because nothing outside it could have been drawn.
  */
-async function loadPool(db: Queryable, excludeAccountIds: readonly string[]): Promise<PoolRow[]> {
+async function loadPool(db: Queryable, centre: number, excludeAccountIds: readonly string[]): Promise<PoolRow[]> {
   const res = await db.query<PoolRow>(
     `SELECT sp.id AS party_id, sp.account_id AS owner_account_id, a.username, a.is_system, pp.reputation
        FROM standing_party sp
@@ -180,8 +207,9 @@ async function loadPool(db: Queryable, excludeAccountIds: readonly string[]): Pr
       WHERE sp.slot = 0
         AND jsonb_array_length(sp.composition -> 'units') > 0
         AND NOT (sp.account_id = ANY($1::uuid[]))
+        AND (pp.reputation BETWEEN $2::integer - $3::integer AND $2::integer + $3::integer OR a.is_system)
       ORDER BY sp.id`,
-    [excludeAccountIds],
+    [excludeAccountIds, centre, REPUTATION_BAND_WIDTH_MAX],
   );
   return res.rows;
 }
@@ -244,21 +272,25 @@ export function candidateFromSnapshot(
   entry: PoolEntry,
   displayName: string,
   caravanRating: number,
+  bandWidthUsed: number,
   snapshot: StandingPartySnapshot,
 ): Candidate {
   const gap = caravanRating - entry.rating;
+  const beyond = gapBeyondBand(gap, bandWidthUsed);
   return {
     candidateId: candidateIdFor(ids.tripId, ids.encounterIndex, ids.searchSeq, snapshot),
     partyId: entry.partyId,
     owner: { accountId: entry.ownerAccountId, displayName, authored: entry.authored },
-    reputation: { rating: entry.rating, band: bandOf(entry.rating), gapFromCaravan: gap, sandbagEarnMultiplier: sandbagEarnMultiplier(gap) },
+    reputation: { rating: entry.rating, band: bandOf(entry.rating), gapFromCaravan: gap, gapBeyondBand: beyond, sandbagEarnMultiplier: sandbagEarnMultiplier(beyond) },
     snapshot,
     scout: scoutParty(partyFromJson(snapshot.composition)),
   };
 }
 
-function menuView(row: EncounterCandidatesRow, passes: SelectionPass[], usedAuthoredFallback: boolean): CandidateMenuView {
+function menuView(row: EncounterCandidatesRow, passes: SelectionPass[], authoredOutsideBand: boolean): CandidateMenuView {
   const availableAtMs = row.searched_at_ms + REROLL_COOLDOWN_SECONDS * 1000;
+  const authored = row.candidates.filter((c) => c.owner.authored).length;
+  const of = row.candidates.length;
   return {
     tripId: row.trip_id,
     encounterIndex: row.encounter_index,
@@ -269,11 +301,11 @@ function menuView(row: EncounterCandidatesRow, passes: SelectionPass[], usedAuth
     escalation: { applied: row.centre - row.caravan_rating, perEncounter: ESCALATION_PER_ENCOUNTER, nextEncounter: escalationFor(row.encounter_index + 1) },
     bandWidthUsed: row.band_width_used,
     widened: row.band_width_used > REPUTATION_BAND_WIDTH,
-    usedAuthoredFallback,
+    authoredOutsideBand,
+    authoredShare: { authored, of, shareBp: of === 0 ? 0 : Math.floor((authored * 10_000) / of), maxShareBp: AUTHORED_PARTY_MAX_SHARE_BP },
     passes,
     excludedPartyIds: row.excluded_party_ids,
-    skippedPartyIds: row.skipped_party_ids,
-    candidates: row.candidates,
+    candidates: row.candidates.map(candidateView),
     searchedAtMs: row.searched_at_ms,
     reroll: { gate: "time", cooldownSeconds: REROLL_COOLDOWN_SECONDS, availableAtMs, available: false },
     chosen: row.chosen_at ? { candidateId: row.chosen_candidate_id!, chosenAt: row.chosen_at.toISOString() } : null,
@@ -341,7 +373,7 @@ export async function searchCandidates(client: pg.PoolClient, caravan: CaravanRo
   const linked = await (opts.linkedAccounts ?? noLinkedAccounts)(client, caravan.account_id);
   const excludedAccounts = [caravan.account_id, ...linked];
   const recent = await recentOpponentPartyIds(client, caravan.account_id);
-  const rows = await loadPool(client, excludedAccounts);
+  const rows = await loadPool(client, centre, excludedAccounts);
   const recentSet = new Set(recent);
   const pool: PoolEntry[] = [];
   const excludedPartyIds: string[] = [];
@@ -374,7 +406,7 @@ export async function searchCandidates(client: pg.PoolClient, caravan: CaravanRo
   if (result.picks.length < CANDIDATES_PER_SEARCH) throw new PoolEmptyError(result.picks.length);
 
   const ids = { tripId: trip.id, encounterIndex, searchSeq };
-  const candidates = result.picks.map((p) => candidateFromSnapshot(ids, p, names.get(p.partyId) ?? "", caravanRating, snapshots.get(p.partyId)!));
+  const candidates = result.picks.map((p) => candidateFromSnapshot(ids, p, names.get(p.partyId) ?? "", caravanRating, result.bandWidthUsed, snapshots.get(p.partyId)!));
   const res = await client.query<EncounterCandidatesRow>(
     `INSERT INTO encounter_candidates (trip_id, encounter_index, search_seq, seed, caravan_rating, centre, band_width_used, pool, excluded_party_ids, skipped_party_ids, candidates, searched_at_ms)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12) RETURNING *`,
@@ -394,7 +426,7 @@ export async function readCandidates(db: Queryable, caravan: CaravanRow, encount
 
 export interface ChoiceView {
   menu: CandidateMenuView;
-  chosen: Candidate;
+  chosen: CandidateView;
 }
 
 /**
@@ -410,7 +442,7 @@ export async function chooseCandidate(client: pg.PoolClient, caravan: CaravanRow
   requireNextEncounter(manifest, encounterIndex);
   const chosen = await findChosenSearch(client, trip.id, encounterIndex);
   if (chosen) {
-    if (chosen.chosen_candidate_id === candidateId) return { menu: viewOf(chosen, nowMs), chosen: chosen.candidates.find((c) => c.candidateId === candidateId)! };
+    if (chosen.chosen_candidate_id === candidateId) return { menu: viewOf(chosen, nowMs), chosen: candidateView(chosen.candidates.find((c) => c.candidateId === candidateId)!) };
     throw conflict("already_chosen", "a different candidate for this encounter is already chosen");
   }
   const latest = await findLatestSearch(client, trip.id, encounterIndex);
@@ -428,10 +460,10 @@ export async function chooseCandidate(client: pg.PoolClient, caravan: CaravanRow
     "UPDATE encounter_candidates SET chosen_candidate_id = $4, chosen_at = now() WHERE trip_id = $1 AND encounter_index = $2 AND search_seq = $3 RETURNING *",
     [trip.id, encounterIndex, latest.search_seq, candidateId],
   );
-  return { menu: viewOf(res.rows[0]!, nowMs), chosen: candidate };
+  return { menu: viewOf(res.rows[0]!, nowMs), chosen: candidateView(candidate) };
 }
 
-/** The chosen candidate for an encounter of a trip, or null. Chunk 15 and the UI read this. */
+/** The chosen candidate for an encounter of a trip (row shape: owner account id included), or null. Chunk 15 reads this; the client reads `readCandidates`. */
 export async function chosenCandidate(db: Queryable, tripId: string, encounterIndex: number): Promise<Candidate | null> {
   const row = await findChosenSearch(db, tripId, encounterIndex);
   if (!row) return null;

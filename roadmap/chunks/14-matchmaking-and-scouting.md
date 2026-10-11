@@ -222,3 +222,57 @@ and the `party` input on `enqueueEncounterResolution`. Tests: `test/matchmaking-
 the authored set is 12 parties, not 12 per band; the share cap is a pool cap, not a served
 ratio; migration 009's `is_system` column means `pnpm db:migrate` must re-apply roles.sql
 (it does) so the app role keeps column-level UPDATE on `account`.
+
+## QA round 1 (2026-10-11) — decisions and the fixer's changes
+
+Punch list: `roadmap/qa/14-punchlist.md`. B1, B2, S4, S5, N1, N2 are closed by the chunk 25
+Maker (authored.ts, the authored allowance, login, migration 009's `is_system` bits, the
+seed). The rest, below, by a chunk 14 fixer.
+
+**Decisions (orchestrator):**
+- **D1 — escalation stays 500 bp of the full span, +15 per encounter.** "~5% of band width"
+  is read as 5% of the 300 span (`BAND_SPAN`), not of the ±150 half-width.
+  `DIFFICULTY_ESCALATION_BP` is the single lever; chunk 32 (balance) tunes it, nothing else
+  about escalation changes shape.
+- **D2 — the sandbagging earn floor stays, measured beyond the band (S3).** The floor reads
+  `gapBeyondBand(caravanLiving − ownerSiege, band_width_used)`: a party the search had to
+  widen to is paid in full; only the authored-outside-band fallback can still be floored,
+  and the candidate shows it before commit. Chunk 19 applies it through ONE exported
+  function, `applyEarnFloor` (named in its checklist; "From chunk 14" block in its file).
+- **D3 — `owner.authored: true` stays published.** Legibility beats disguise: the player is
+  told when a candidate is authored; the resolver and the draw cannot tell (same row type,
+  same snapshot shape). PHASE-2 §25's QA check now reads "indistinguishable to the resolver
+  and matchmaking, visibly labelled to the player".
+
+**Closed by the fixer:**
+- **S1** `enqueueEncounterResolution` requires `party` (the chosen snapshot); the live
+  re-resolve fallback is gone. Omitting it throws before any write; a snapshot of another
+  owner is refused. The chunk 02 tests that bypass matchmaking take their own
+  `snapshotStandingParty` inside the enqueuing transaction.
+- **S2** the pool query is bounded in SQL to `pp.reputation BETWEEN centre ∓
+  REPUTATION_BAND_WIDTH_MAX OR a.is_system` over the new `pool_progress (pool, reputation)`
+  index (migration 009); the stored pool is that subset. Replay stays exact because nothing
+  outside it can be drawn (live parties outside the widest band never are; authored ones
+  are all loaded). A test asserts the far party is neither stored nor scanned and the index
+  exists.
+- **S3** `gapBeyondBand` in `band.ts` (the only band.ts change); `candidateFromSnapshot`
+  takes `band_width_used`; every candidate now carries `reputation.gapBeyondBand` and its
+  `sandbagEarnMultiplier` is computed from that. Tests: pure sweep over every width; a
+  pocket the search widens to ±550 pays `FIXED_ONE` where the raw gap (550) would have been
+  floored; the fresh-player n = 6 path pays `FIXED_ONE` on every candidate; a 9000-rated
+  caravan with an empty pocket gets the authored fallback, floored and labelled.
+- **S6** "From chunk 14" blocks appended to the chunk 15 file (createTrip / endTrip /
+  enqueueChosenEncounter / `encounter_candidates` seam; a new trip resets the reroll gate)
+  and the chunk 19 file (destroy Coin lost to `is_system` owners, skip their Reputation,
+  `applyEarnFloor`, the tests it owes).
+- **N3** `snapshots.ts` header now says skip-at-generation (recorded in
+  `skipped_party_ids`), never re-scout, and that the enqueue never snapshots a live party.
+- **N4** the client view (`CandidateMenuView`, `ChoiceView.chosen`) is built from
+  `CandidateView` — `owner` is `{displayName, authored}` — and no longer carries
+  `skippedPartyIds`; both stay on the stored row and in `chosenCandidate()` for chunk 15.
+  Not changed: the published `snapshot` still carries `ownerAccountId` (the snapshot is
+  published whole so the client can later verify the job input against it); flagged for the
+  coordinator if that id should go too.
+- **N5** the menu carries `authoredShare: {authored, of, shareBp, maxShareBp}`;
+  `usedAuthoredFallback` is `authoredOutsideBand` in the view (band.ts's
+  `SelectionResult.usedAuthoredFallback` is untouched — chunk 25 is rewriting that draw).

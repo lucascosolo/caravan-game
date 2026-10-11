@@ -129,3 +129,40 @@ being merged away mid-trip. **This chunk must set `caravan.state = 'on_trip'` in
 transaction as `lockManifest`, before the manifest is locked**, and set it back to
 `in_town` on bank/overrun together with `closeManifest`. If the state is set after the
 lock, there is a window in which a packed unit can be merged.
+
+## From chunk 14 (matchmaking & scouting) — the seam this chunk builds on
+
+Everything below is already built and tested in chunk 14; this chunk calls it, it does not
+re-implement it. Files: `apps/server/src/matchmaking/{trips,service}.ts`, migration 009.
+
+- **Trip rows.** `createTrip(client, caravanId)` (needs the caravan's open, locked manifest;
+  one trip per manifest, at most one open per caravan — both DB-enforced) and
+  `endTrip(client, tripId)`. The `trip` row is caravan-level and minimal: this chunk owns
+  the trip cap (`TRIPS_PER_HOUR_CAP`), `caravan.state = 'on_trip'` (set in the same
+  transaction as `lockManifest`, before the lock — chunk 07 N7 above), closing the manifest
+  on bank/overrun, the `trip_started` ledger event and the bank/push loop. Trips and their
+  menus are history: neither row can be deleted while the caravan exists.
+- **Encounter index.** Search and choose accept `n` only while `n ===
+  manifest.encounters_resolved + 1`; the manifest counter advances by exactly one per
+  outcome (DB-guarded), so this chunk advances it from the resolution outcome, never by hand.
+- **The encounter flow per index n:** `searchCandidates` (the player's `POST
+  …/encounters/:n/search`; free, the reroll is time-gated on a caller-supplied `nowMs`)
+  → `chooseCandidate` (`POST …/choose`) → `commitFormation` (chunk 07) →
+  **`enqueueChosenEncounter(client, caravan, n, formation)`** — THE SEAM. It reads the
+  chosen candidate from `encounter_candidates`, self-checks that its stored snapshot is
+  canonical, and calls `enqueueEncounterResolution` with that snapshot as the REQUIRED
+  `party` input (chunk 14 QA S1: there is no live-snapshot fallback; passing nothing throws
+  before anything is written). The stored `job.input.party` is byte-identical to what the
+  defender scouted, tested. `chosenCandidate(db, tripId, n)` returns the stored row shape
+  (owner account id included) for this chunk's own reads; the client view omits it.
+- **A new trip resets the reroll gate.** The gate is per `(trip, encounter_index)`: the
+  first search of every encounter is immediate and only a repeat for the SAME encounter
+  waits `REROLL_COOLDOWN_SECONDS`. Ending a trip and starting another therefore starts
+  from an immediate search; nothing carries over, by design (free, time-gated, never
+  resource-gated). Do not add a cross-trip cooldown here.
+- **Recent opponents** are read from chosen `encounter_candidates` rows across ALL of the
+  account's trips, so this chunk writes nothing extra for the exclusion to work.
+- **Legibility hooks this chunk must surface before bank/push:** the menu carries
+  `escalation.applied / perEncounter / nextEncounter` and each candidate carries
+  `reputation.gapBeyondBand` and `reputation.sandbagEarnMultiplier`; put both next to the
+  stakes preview (unbanked Coin, exposed units) in the bank-or-push decision.

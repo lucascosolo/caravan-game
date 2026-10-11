@@ -21,6 +21,7 @@ import {
   candidateSeed,
   escalatedCentre,
   escalationFor,
+  gapBeyondBand,
   sandbagEarnMultiplier,
   selectCandidates,
   type PoolEntry,
@@ -86,6 +87,20 @@ describe("band math is integer-only and matches the tunables", () => {
     expect(sandbagEarnMultiplier(700)).toBe(TUNABLES.SANDBAG_EARN_MULT_MIN);
     expect(sandbagEarnMultiplier(5000)).toBe(TUNABLES.SANDBAG_EARN_MULT_MIN);
     for (let g = -1000; g <= 2000; g += 7) expect(Number.isInteger(sandbagEarnMultiplier(g))).toBe(true);
+  });
+
+  it("QA S3: only the gap beyond the half-width the search used feeds the floor; anything inside the band is zero", () => {
+    expect(gapBeyondBand(0, 150)).toBe(0);
+    expect(gapBeyondBand(-400, 150)).toBe(0);
+    expect(gapBeyondBand(150, 150)).toBe(0);
+    expect(gapBeyondBand(550, 550)).toBe(0);
+    expect(gapBeyondBand(600, 600)).toBe(0);
+    expect(gapBeyondBand(601, 600)).toBe(1);
+    expect(gapBeyondBand(7850, 600)).toBe(7250);
+    // A party served from inside any widening pass (and the escalated centre only raises the band) is never floored.
+    for (const width of bandWidths()) for (let gap = -width; gap <= width; gap += 25) expect(sandbagEarnMultiplier(gapBeyondBand(gap, width))).toBe(FIXED_ONE);
+    expect(() => gapBeyondBand(1.5, 150)).toThrow(RangeError);
+    expect(() => gapBeyondBand(1, -1)).toThrow(RangeError);
   });
 });
 

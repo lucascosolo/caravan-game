@@ -1,6 +1,8 @@
 /**
- * Snapshots taken at enqueue time and frozen into the job's input. A fight is resolved
- * against these copies, never against the live rows, so:
+ * Snapshots frozen into the job's input: the formation is snapshotted at enqueue, the
+ * standing party ONCE at candidate-menu generation (chunk 14 `searchCandidates`), stored on
+ * the candidate and handed to the enqueue as-is. A fight is resolved against these copies,
+ * never against the live rows, so:
  *   - the standing party is read-only during resolution (it is a template; GUARDRAILS §0),
  *     and its owner editing it afterwards does not change what the replay shows;
  *   - the same party can be served into any number of concurrent encounters, each reading
@@ -8,13 +10,17 @@
  *   - the formation the defender committed is the formation that was resolved.
  *
  * Chunk 09: the party snapshot is the party RESOLVED against the owner's live roster and
- * unlock web at enqueue time (@caravan/circle `Party`, canonical, integers only): every
+ * unlock web at snapshot time (@caravan/circle `Party`, canonical, integers only): every
  * unit's instance id, type, merge level, stance, approach edge and starting cell, and
  * every siege piece. It is a COPY — nothing on the resolution path can reach the party
  * row or the roster through it. A party that no longer resolves (an instance it names was
- * lost on the owner's trip or consumed by a merge) cannot be served: the enqueue throws
- * StandingPartyInvalidError so matchmaking (chunk 14) re-scouts rather than serving a
- * party the defender did not see. Chunk 07 widened the formation.
+ * lost on the owner's trip or consumed by a merge) cannot be served: snapshotStandingParty
+ * throws StandingPartyInvalidError, which can only surface at menu GENERATION — matchmaking
+ * (chunk 14) skips that party there, records its id in `encounter_candidates.skipped_party_ids`
+ * and draws another. There is no re-scout: once a candidate is on a menu its snapshot is
+ * what is fought, whatever happens to the live party afterwards (chunk 14 QA N3). The
+ * enqueue (`enqueueEncounterResolution`) requires the pre-taken snapshot and never calls
+ * this for a live party. Chunk 07 widened the formation.
  */
 import { partyConfigFromJson, serializeParty, serializePartyConfig, type Issue } from "@caravan/circle";
 import type { Queryable } from "../db/pool.js";

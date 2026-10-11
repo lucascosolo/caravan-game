@@ -9,17 +9,20 @@
  * authored share cap; the DB guards against the app role.
  */
 import { entryBand, partyFromJson, scoutParty, type PartyConfig } from "@caravan/circle";
+import { FIXED_ONE, TUNABLES } from "@caravan/content";
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
 import type pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { withTransaction } from "../src/db/pool.js";
 import type { CaravanRow } from "../src/db/types.js";
+import { enqueueEncounterResolution } from "../src/jobs/handlers/encounterResolution.js";
 import { getJob } from "../src/jobs/queue.js";
+import { snapshotStandingParty } from "../src/jobs/snapshots.js";
 import { canonicalJson, type Json } from "../src/ledger/events.js";
 import { AUTHORED_BANDS, AUTHORED_PARTIES_PER_BAND, AUTHORED_USERNAME_PREFIX, seedAuthoredParties } from "../src/matchmaking/authored.js";
-import { CANDIDATES_PER_SEARCH, ESCALATION_PER_ENCOUNTER, RECENT_OPPONENT_EXCLUSION, REROLL_COOLDOWN_SECONDS, bandOf } from "../src/matchmaking/band.js";
-import { chooseCandidate, enqueueChosenEncounter, readCandidates, replaySearch, searchCandidates, type Candidate, type CandidateMenuView, type EncounterCandidatesRow } from "../src/matchmaking/service.js";
+import { CANDIDATES_PER_SEARCH, ESCALATION_PER_ENCOUNTER, RECENT_OPPONENT_EXCLUSION, REPUTATION_BAND_WIDTH_MAX, REROLL_COOLDOWN_SECONDS, bandOf, sandbagEarnMultiplier } from "../src/matchmaking/band.js";
+import { chooseCandidate, enqueueChosenEncounter, readCandidates, replaySearch, searchCandidates, type Candidate, type CandidateMenuView, type CandidateView, type EncounterCandidatesRow } from "../src/matchmaking/service.js";
 import { createTrip, endTrip } from "../src/matchmaking/trips.js";
 import { findCaravanById } from "../src/repo/caravans.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
@@ -149,10 +152,12 @@ describe("search returns exactly three fully scoutable candidates", () => {
       expect(c.candidateId).toMatch(/^[0-9a-f]{32}$/);
       const owner = owners.find((o) => o.partyId === c.partyId)!;
       expect(owner).toBeDefined();
-      expect(c.owner).toEqual({ accountId: owner.accountId, displayName: expect.stringMatching(/^p_/), authored: false });
+      // QA N4: the client view names the owner but carries no account id; the stored row does.
+      expect(c.owner).toEqual({ displayName: expect.stringMatching(/^p_/), authored: false });
       expect(c.reputation.band).toEqual(bandOf(c.reputation.rating));
       expect(Math.abs(c.reputation.rating - 1000)).toBeLessThanOrEqual(150);
       expect(c.reputation.gapFromCaravan).toBe(1000 - c.reputation.rating);
+      expect(c.reputation.gapBeyondBand).toBe(0);
       expect(c.reputation.sandbagEarnMultiplier).toBe(1024);
       // Legibility: every unit with stats, ability, stance, edge, cell; every siege piece; the edges.
       expect(c.scout.units.length).toBe(owner.units.length);
@@ -169,7 +174,14 @@ describe("search returns exactly three fully scoutable candidates", () => {
     expect(menu.centre).toBe(1000);
     expect(menu.bandWidthUsed).toBe(150);
     expect(menu.widened).toBe(false);
-    expect(menu.usedAuthoredFallback).toBe(false);
+    expect(menu.authoredOutsideBand).toBe(false);
+    expect(menu.authoredShare).toEqual({ authored: 0, of: 3, shareBp: 0, maxShareBp: 3000 });
+    expect(menu).not.toHaveProperty("usedAuthoredFallback");
+    expect(menu).not.toHaveProperty("skippedPartyIds");
+    const stored = await menuRow(d.tripId, 1, 1);
+    expect(stored.skipped_party_ids).toEqual([]);
+    for (const c of stored.candidates) expect(c.owner.accountId).toBe(owners.find((o) => o.partyId === c.partyId)!.accountId);
+    for (const c of menu.candidates) expect(Object.keys(c.owner).sort()).toEqual(["authored", "displayName"]);
     expect(menu.rules.reroll).toEqual({ gate: "time", cooldownSeconds: REROLL_COOLDOWN_SECONDS });
     expect(menu.rules.selfExcluded).toBe(true);
     expect(menu.rules.recentOpponentsExcluded).toBe(RECENT_OPPONENT_EXCLUSION);
@@ -207,9 +219,14 @@ describe("search returns exactly three fully scoutable candidates", () => {
     }
     expect(seen.has("desert")).toBe(true);
     expect(seen.size).toBeGreaterThanOrEqual(3);
-    // The far party (2500) never appears while the band holds enough.
-    const all = await pool.query<{ candidates: Candidate[] }>("SELECT candidates FROM encounter_candidates WHERE trip_id = $1", [d.tripId]);
+    // The far party (2500) never appears while the band holds enough — and (QA S2) it is not
+    // even scanned or stored: the pool is bounded in SQL to ±REPUTATION_BAND_WIDTH_MAX of the centre.
+    const all = await pool.query<{ candidates: Candidate[]; pool: EncounterCandidatesRow["pool"] }>("SELECT candidates, pool FROM encounter_candidates WHERE trip_id = $1", [d.tripId]);
     expect(all.rows.flatMap((r) => r.candidates).some((c) => c.reputation.rating === 2500)).toBe(false);
+    expect(all.rows.flatMap((r) => r.pool).some((p) => p.rating === 2500)).toBe(false);
+    expect(all.rows.flatMap((r) => r.pool).every((p) => p.authored || Math.abs(p.rating - 1000) <= REPUTATION_BAND_WIDTH_MAX)).toBe(true);
+    const idx = await pool.query("SELECT indexdef FROM pg_indexes WHERE tablename = 'pool_progress' AND indexname = 'pool_progress_pool_reputation_idx'");
+    expect(idx.rows[0]?.indexdef).toMatch(/\(pool, reputation\)/);
   });
 
   it("requires auth, refuses another account's caravan as 404, and a caravan in town as no_trip", async () => {
@@ -279,8 +296,8 @@ describe("exclusions are enforced server-side", () => {
     for (let i = 0; i < 4; i++) {
       const m = await searchAt(d, 1, now);
       expect(m.candidates.map((c) => c.partyId)).not.toContain(own);
-      expect(m.candidates.map((c) => c.owner.accountId)).not.toContain(d.accountId);
       const row = await menuRow(d.tripId, 1, m.searchSeq);
+      expect(row.candidates.map((c) => c.owner.accountId)).not.toContain(d.accountId);
       expect(row.pool.map((p) => p.partyId)).not.toContain(own);
       now += COOLDOWN_MS;
     }
@@ -292,7 +309,7 @@ describe("exclusions are enforced server-side", () => {
     const d = await makeDefender("desert", 1000);
     const linked = async (_db: unknown, id: string) => (id === d.accountId ? [alt.accountId] : []);
     const m = await searchAt(d, 1, Date.now(), linked);
-    expect(m.candidates.map((c) => c.owner.accountId)).not.toContain(alt.accountId);
+    expect(m.candidates.map((c) => c.partyId)).not.toContain(alt.partyId);
     expect((await menuRow(d.tripId, 1, 1)).pool.map((p) => p.ownerAccountId)).not.toContain(alt.accountId);
     // Without the link, the alt is in the pool.
     const m2 = await searchAt(d, 1, Date.now() + COOLDOWN_MS * 2);
@@ -356,11 +373,55 @@ describe("difficulty escalates within a trip", () => {
   });
 });
 
+describe("server-initiated widening never triggers the sandbagging floor (QA S3)", () => {
+  it("a party the search had to widen to is paid in full: the floor reads the gap BEYOND band_width_used", async () => {
+    // A pocket of its own: two live parties at the centre and one 550 below. The first four
+    // passes (±150 … ±450) hold only two; ±550 reaches the third. Its raw gap (550) is past
+    // SANDBAG_EARN_GAP_START, but the server chose that width, not the player.
+    const near = [await makeOwner("desert", 7000), await makeOwner("mountain", 7000)];
+    const far = await makeOwner("badlands", 6450);
+    const d = await makeDefender("desert", 7000);
+    const m = await search(d);
+    expect(m.bandWidthUsed).toBe(550);
+    expect(m.widened).toBe(true);
+    expect(m.candidates.map((c) => c.partyId).sort()).toEqual([...near.map((o) => o.partyId), far.partyId].sort());
+    const weak = m.candidates.find((c) => c.partyId === far.partyId)!;
+    expect(weak.reputation.gapFromCaravan).toBe(550);
+    expect(sandbagEarnMultiplier(550)).toBeLessThan(FIXED_ONE); // the raw gap would have been floored
+    expect(weak.reputation.gapBeyondBand).toBe(0);
+    expect(weak.reputation.sandbagEarnMultiplier).toBe(FIXED_ONE);
+    for (const c of m.candidates) expect(Math.abs(c.reputation.rating - m.centre)).toBeLessThanOrEqual(m.bandWidthUsed);
+    // What chunk 19 will read is on the stored row, identical.
+    const row = await menuRow(d.tripId, 1, 1);
+    expect(row.candidates.find((c) => c.partyId === far.partyId)!.reputation).toEqual(weak.reputation);
+  });
+});
+
+describe("the enqueue takes the scouted snapshot and nothing else (QA S1)", () => {
+  it("enqueueEncounterResolution without a party snapshot throws and creates nothing; a snapshot of another owner is refused", async () => {
+    const owner = await makeOwner("desert", 8000);
+    const other = await makeOwner("desert", 8000);
+    await makeOwner("mountain", 8000);
+    const d = await makeDefender("desert", 8000);
+    const base = { tripId: d.tripId, encounterIndex: 1, defenderAccountId: d.accountId, defenderCaravanId: d.caravanId, partyOwnerAccountId: owner.accountId, formation: { fences: [], traps: [], posts: [] } };
+    await expect(withTransaction(appRole, (c) => enqueueEncounterResolution(c, base as never))).rejects.toThrow(/party snapshot is required/);
+    await expect(withTransaction(appRole, async (c) => enqueueEncounterResolution(c, { ...base, party: await snapshotStandingParty(c, other.accountId) }))).rejects.toThrow(/belongs to account/);
+    expect(await getJob(pool, `encounter:${d.tripId}:1`)).toBeNull();
+    expect((await pool.query("SELECT count(*)::int AS n FROM ledger_event WHERE causation_id = $1", [`enqueue:encounter:${d.tripId}:1`])).rows[0]!.n).toBe(0);
+    // Through matchmaking, the chosen snapshot is what goes in.
+    const m = await search(d);
+    const pick = m.candidates[0]!;
+    await withTransaction(appRole, (c) => chooseCandidate(c, d.caravan, 1, pick.candidateId, m.searchedAtMs));
+    const { job } = await withTransaction(appRole, (c) => enqueueChosenEncounter(c, d.caravan, 1, { fences: [], traps: [], posts: [] }));
+    expect(canonicalJson(job.input["party"] as Json)).toBe(canonicalJson(pick.snapshot));
+  });
+});
+
 describe("the snapshot contract: scouted == chosen == fought", () => {
   let owner: Awaited<ReturnType<typeof makeOwner>>;
   let d: Awaited<ReturnType<typeof makeDefender>>;
   let menu: CandidateMenuView;
-  let pick: Candidate;
+  let pick: CandidateView;
 
   beforeAll(async () => {
     // One owner alone in a pocket plus two fillers, so the pocket's menu always holds the owner.
@@ -480,13 +541,44 @@ describe("authored fallback (PHASE-2 §25 seam)", () => {
       expect(Object.keys(c.snapshot).sort()).toEqual(["composition", "hash", "ownerAccountId", "partyId", "savedAt", "slot"]);
       expect(JSON.stringify(c.snapshot)).not.toMatch(/authored|system/i);
     }
-    expect(m.usedAuthoredFallback).toBe(false);
+    expect(m.authoredOutsideBand).toBe(false);
+    expect(m.authoredShare).toEqual({ authored: 3, of: 3, shareBp: 10_000, maxShareBp: 3000 });
     // System accounts cannot log in and are flagged.
     const sys = await pool.query<{ is_system: boolean; username: string }>("SELECT is_system, username FROM account WHERE username LIKE $1", [`${AUTHORED_USERNAME_PREFIX}%`]);
     expect(sys.rows.length).toBe(first.created.length);
     expect(sys.rows.every((r) => r.is_system)).toBe(true);
     const login = await app.inject({ method: "POST", url: "/auth/login", payload: { username: sys.rows[0]!.username, password: "password" } });
     expect(login.statusCode).toBe(401);
+  });
+
+  it("a fresh player pushed to encounter 6 is paid in full on every candidate (QA S3); only the outside-band fallback can still be floored, and the menu says so", async () => {
+    // Fresh account: living Reputation at REPUTATION_START, never set by the test. Encounter 6
+    // escalates the centre by 5 steps; whatever the pool offers from inside the (widened)
+    // band carries no earn penalty.
+    const d = await makeDefender("desert", TUNABLES.REPUTATION_START);
+    for (let k = 1; k <= 5; k++) await pool.query("UPDATE wagon_manifest SET encounters_resolved = $2 WHERE caravan_id = $1 AND closed_at IS NULL", [d.caravanId, k]);
+    const m = await search(d, 6);
+    expect(m.escalation.applied).toBe(5 * ESCALATION_PER_ENCOUNTER);
+    expect(m.authoredOutsideBand).toBe(false);
+    for (const c of m.candidates) {
+      expect(Math.abs(c.reputation.rating - m.centre)).toBeLessThanOrEqual(m.bandWidthUsed);
+      expect(c.reputation.gapBeyondBand).toBe(0);
+      expect(c.reputation.sandbagEarnMultiplier).toBe(FIXED_ONE);
+    }
+    // An empty pocket far above every party: the fallback serves the nearest authored ones
+    // from outside the widest band. That gap IS beyond the band, so the floor applies and is
+    // shown before the player commits (the design keeps the floor; D2).
+    const high = await makeDefender("desert", 9000);
+    const far = await search(high);
+    expect(far.authoredOutsideBand).toBe(true);
+    expect(far.bandWidthUsed).toBe(REPUTATION_BAND_WIDTH_MAX);
+    expect(far.authoredShare).toEqual({ authored: 3, of: 3, shareBp: 10_000, maxShareBp: 3000 });
+    for (const c of far.candidates) {
+      expect(c.owner.authored).toBe(true);
+      expect(c.reputation.gapBeyondBand).toBe(c.reputation.gapFromCaravan - REPUTATION_BAND_WIDTH_MAX);
+      expect(c.reputation.sandbagEarnMultiplier).toBe(sandbagEarnMultiplier(c.reputation.gapBeyondBand));
+      expect(c.reputation.sandbagEarnMultiplier).toBeLessThan(FIXED_ONE);
+    }
   });
 
   it("with live parties in band, authored ones are capped by ratio (never more than the allowance in the draw) and excluded when the live pool is deep", async () => {

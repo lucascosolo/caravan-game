@@ -28,6 +28,11 @@
 
 ALTER TABLE account ADD COLUMN is_system boolean NOT NULL DEFAULT false;
 
+-- Chunk 14 QA S2: the pool scan is bounded in SQL to parties whose owner's siege
+-- Reputation lies within ±REPUTATION_BAND_WIDTH_MAX of the band centre (plus every
+-- authored party, the outside-band fallback); this index serves that range predicate.
+CREATE INDEX pool_progress_pool_reputation_idx ON pool_progress (pool, reputation);
+
 -- ---------------------------------------------------------------------------------
 CREATE TABLE trip (
   id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),

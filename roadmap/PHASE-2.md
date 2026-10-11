@@ -180,8 +180,11 @@ content engine never starts.
 scoutable candidates at every band, and the resolver's inputs for an authored encounter
 are indistinguishable in shape from a live one.
 
-**QA checks.** Guardrail 1: is the authored pool selection seeded from stored state? Can
-a player tell an authored party from a live one anywhere other than the owner name?
+**QA checks.** Guardrail 1: is the authored pool selection seeded from stored state?
+Is an authored party indistinguishable to the resolver and to matchmaking's draw (same
+row type, same snapshot shape, nothing in the resolver input marks it), while being
+**visibly labelled to the player** (`owner.authored: true` on the candidate; legibility
+beats disguise — chunk 14 QA D3)?
 
 ## 26. Art and animation asset pipeline — **L**, parallel with 08, lands before 17
 
