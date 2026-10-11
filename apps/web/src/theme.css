@@ -924,6 +924,18 @@ h2 {
 .inbox-new {
   font-weight: 700;
 }
+/* QA S3: a caravan name may be 40 characters with no space; let it break rather than widen the page. */
+.inbox .card__line,
+.inbox .hint {
+  overflow-wrap: anywhere;
+}
+.inbox-older {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
 .inbox-strikes {
   list-style: none;
   padding: 0;
@@ -940,6 +952,7 @@ h2 {
   flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 0.5rem;
+}
 /* ---------- chunk 24: the first-session guide ---------- */
 /* A card in the normal flow (never an overlay over the controls it points at). Marked by a
    word ("Guide"), a border style and a ✓ / ○ shape per step, not by colour alone. */

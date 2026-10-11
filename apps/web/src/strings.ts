@@ -1081,10 +1081,17 @@ export const STRINGS = {
             stalemate: "Neither side broke.",
           } as Record<string, string>)[kind]) ?? "Outcome recorded.",
     strikeLineEarned: (coin: number, reputation: number): string => `${coin} Coin · ${reputation > 0 ? "+" : ""}${reputation} Reputation`,
+    strikeLineDiscarded: (coin: number): string => `(${coin} did not fit)`,
+    showStrikes: (count: number): string => (count === 1 ? "Show the fight" : "Show the fights"),
+    loadingStrikes: "Loading the fights…",
     strikeNotListed: (n: number): string => `${n} more in this hour are counted above; every one is in the Party tab's results feed.`,
     someone: "someone",
     watch: "Watch the fight",
     openFeed: "Open the results feed",
+    olderStrikes: (batchesPastLimit: number, beforeHorizon: boolean): string =>
+      batchesPastLimit > 0
+        ? `${batchesPastLimit} earlier ${batchesPastLimit === 1 ? "hour" : "hours"} of strikes ${beforeHorizon ? "and older activity are" : "are"} not listed here. Every strike is in the Party tab's results feed.`
+        : "Older strikes are not listed here. Every strike is in the Party tab's results feed.",
     // refugees arrived
     refugeesTitle: "Refugees arrived",
     refugeesBody: (caravan: string): string => `A new free refugee menu is waiting for ${caravan} in Town.`,
