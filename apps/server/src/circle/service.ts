@@ -156,7 +156,7 @@ export async function lockManifest(client: pg.PoolClient, caravan: CaravanRow, r
     if (!row) throw badRequest("unknown_unit", `unit instance '${id}' is not in this caravan's roster`);
     units.push({ instanceId: row.id, typeId: row.unit_type_id, mergeLevel: row.merge_level });
   }
-  const packed = packManifest({ units, traps: req.traps, fence: req.fence }, accessCheckFor(ownerOf(caravan)));
+  const packed = packManifest({ units, traps: req.traps, fence: req.fence }, await accessCheckFor(client, ownerOf(caravan)));
   if (!packed.ok) throw invalid("invalid_manifest", "the loadout cannot be packed", packed.issues);
   return insertManifest(client, { caravanId: caravan.id, packedJson: serializeManifest(packed.value) });
 }
@@ -196,7 +196,7 @@ export async function saveFormation(
   const existing = await findFormation(client, manifest.id, encounterIndex, true);
   if (existing?.committed_at) throw conflict("formation_committed", "this encounter's formation is committed and cannot change");
   const { survivors } = manifestFromRow(manifest);
-  const res = validateFormation(survivors, formation, accessCheckFor(ownerOf(caravan)));
+  const res = validateFormation(survivors, formation, await accessCheckFor(client, ownerOf(caravan)));
   if (!res.ok) throw invalid("invalid_formation", "the formation is not legal", res.issues);
   const canonical = serializeFormation(res.value);
   const row = await upsertDraftFormation(client, { manifestId: manifest.id, encounterIndex, formationJson: canonical, hash: formationHash(canonical) });
@@ -223,7 +223,7 @@ export async function commitFormation(client: pg.PoolClient, caravan: CaravanRow
   if (!draft) throw conflict("no_draft", "arrange the circle before committing it");
   if (draft.committed_at) return formationView(draft);
   const { survivors } = manifestFromRow(manifest);
-  const res = validateFormation(survivors, formationFromJson(draft.formation), accessCheckFor(ownerOf(caravan)));
+  const res = validateFormation(survivors, formationFromJson(draft.formation), await accessCheckFor(client, ownerOf(caravan)));
   if (!res.ok) throw invalid("invalid_formation", "the formation is not legal", res.issues);
   const canonical = serializeFormation(res.value);
   if (formationHash(canonical) !== draft.formation_hash) throw new Error("stored formation does not match its hash");

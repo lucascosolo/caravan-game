@@ -621,6 +621,73 @@ scenery, cover or an account id; the two tables have no account column.
 re-arm a trap or add to a manifest; is the budget genuinely below the ring; does anything
 treat a gap as an error; can a hand-crafted request place a locked type.
 
+### 2026-10-11 — Chunk 05 (unlock webs: data + spend): `not started` → `built`
+
+**Built** in a worktree on top of `900b908`. New: `packages/content/src/unlockWebs.ts`
+(+ test `unlock-webs.test.ts`, 13 tests), a chunk 05 block in `packages/content/src/tunables.ts`,
+`apps/server/src/unlocks/{access,spend,view,index}.ts`, `apps/server/src/routes/unlocks.ts`
+(registered in `app.ts`), migration `005_unlock_node_once`, `apps/server/test/unlocks.test.ts`
+(20 tests). Changed: `apps/server/src/circle/access.ts` (stub → re-export of the real check),
+the three `accessCheckFor` call sites in `circle/service.ts` (now `await accessCheckFor(client,
+owner)`), and the access-seam block of `test/circle.test.ts` (ported to the async API).
+
+- **Data.** Six webs: four living (one per region, 8 nodes), trap (6 traps + 4 fence tiers),
+  siege (5). A node's id is the type id it unlocks; one node per type, every type, validated
+  on import both ways. DAGs with 2–3 roots, all-of prerequisites, prerequisites strictly
+  lower-tier (plus an explicit cycle check), fence tiers in tier order. Tier 0 = the starting
+  nodes (2 living, 1 trap, 1 fence tier, 1 siege), free and reached by data, no event at
+  creation. Cost by tier 0/1/2/4/6 (`UNLOCK_NODE_COST_BY_TIER`). `evaluateWeb` / `checkSpend`
+  / `maximalReachableSets` are pure and shared by server and (later) client.
+- **Spend.** `POST /me/unlocks/spend {pool, nodeId, caravanId?}` → under the account append
+  lock: resolve scope (living needs the caller's caravan, trap/siege must name none), node
+  in THIS web, not reached, prerequisites reached, cost ≤ available → one
+  `unlock_node_purchased` `{pool, nodeId, cost, tier}` with causation `unlock:<pool>:<scope
+  id>:<node id>`. 201 on create, 200 `created: false` on a replay (starting nodes included),
+  nothing appended. Migration 005 adds a once-per-node unique index as the storage backstop
+  (same shape as 003's once-per-rung).
+- **Access.** `hasAccess(db, owner, typeId)` / `unlockedTypeIds` / `accessCheckFor` in
+  `src/unlocks/access.ts`, reading `unlock_node_purchased` straight from the ledger (living
+  on the caravan row and its region's web; trap/siege on the account). The circle's
+  `isUnlocked` is this function.
+- **Reads.** `GET /unlocks/webs` (public, whole data with costs) and `GET /me/unlocks` (the
+  caller's three webs with reached / affordable / missing per node and points per pool).
+
+**Test command:** `cd apps/server && TEST_DATABASE_URL=postgres://caravan:caravan@localhost:5432/caravan_test_c05 npx vitest run`
+— 16 files, 215 tests passing (baseline on `900b908`: 15 files, 195), run twice. `pnpm
+--filter @caravan/content test` 55 passing (no-floats source grep covers the new file).
+`pnpm --filter @caravan/circle test` unchanged, 48 passing. `pnpm typecheck`, `pnpm lint`,
+`pnpm test:boundary` clean. Chunk 05's tests cover: public web identical across reads with
+every cost; a new player sees every node (unaffordable and unreachable included) and no
+other region's unit; hand-crafted requests naming a type nobody has, another region's unit,
+a trap under the siege pool, living without a caravan, trap with one, and someone else's
+caravan are all refused with nothing appended; insufficient points and unmet prerequisites
+are 409s; a legal spend appends exactly one event on the right row and the projection
+rebuilds; replay and starting node are 200/no-op; 8 concurrent identical spends reach the
+node once; chains walk in order and an exact budget spends to zero; the real chunk 04 path
+(held encounters → rung → point) funds a spend; roster, Coin, ladders and granted points are
+byte-identical across an unlock and no instance appears; the circle seam sees a new node
+through the same predicate; split (A's living node not reached for B's same-region caravan,
+A's trap node on the account, events on the right rows, DB CHECK refuses the wrong scope);
+permanence through 40 overruns + a deleted roster + owner-role attempts to refund, delete
+the event, or insert a second purchase; source greps for the only writers of the two events
+and a Coin/ladder/instance-free unlocks module. Content tests cover validation (dangling
+prerequisite, cycle, foreign-region unit, missing type, costed starting node, line-shaped
+web) and >1 maximal reachable set at a third of each web's paid total.
+
+**Assumptions made:** listed under "Build notes" in `chunks/05-unlock-webs.md`. The two that
+matter for QA: (1) `fence.brush_pile` is a starting node (chunk 07's assumption, confirmed);
+(2) with the brief's node counts and cost curve every web's paid total (19 / 24 / 11) is
+under the 30 points a capped ladder grants, so "most but not all of a web by cap" does not
+hold — left as specified and flagged in the registry comment rather than re-tuned.
+Reached nodes are read from the ledger on every check (no cache); fine at this scale, and
+the once-per-node index doubles as the read index. `GET /me/progression/events` (chunk 04)
+still filters to its three event types; purchases are visible in `GET /me/ledger`.
+
+**Next:** hand to adversarial QA against GUARDRAILS §3/§4/§5 and the chunk checklist —
+especially whether any caller can still reach the circle package's `packManifest` /
+`validateFormation` with a predicate not bound by `accessCheckFor`, and the cost-curve
+finding above.
+
 ### Orchestrator decision — who owns the battlefield geometry
 
 Chunk 07 placed the lattice→continuous conversion and the `Battlefield` input type in

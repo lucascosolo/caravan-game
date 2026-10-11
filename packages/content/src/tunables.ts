@@ -400,6 +400,43 @@ export const TUNABLES = {
   REPUTATION_GAP_DIVISOR: 400,
   REPUTATION_GAP_MULT_MIN: fpMilli(250),
   REPUTATION_GAP_MULT_MAX: fp(2),
+
+  // ────────────────────────────────────────────────────────────────────────────────────
+  // Chunk 05 — the unlock webs. THE only access gate in the game (GUARDRAILS §3): a type
+  // exists for a player iff its node is reached. Funded only by UNLOCK_POINTS_BY_RUNG
+  // (30 per pool at ladder cap). Every number here is read by unlockWebs.ts and
+  // apps/server/src/unlocks; nothing there is inline.
+  // ────────────────────────────────────────────────────────────────────────────────────
+
+  /** TUNABLE (chunk 05). Nodes in each region's living web: one per living-unit type, so must equal LIVING_UNITS_PER_REGION (validated on load). */
+  LIVING_WEB_NODES: 8,
+  /** TUNABLE (chunk 05). Nodes in the trap web: one per trap type PLUS one per fence tier (fence tiers are unlock-web purchases, PROJECT.md §20) = TRAP_TYPES + FENCE_TIERS (validated). */
+  TRAP_WEB_NODES: 10,
+  /** TUNABLE (chunk 05). Nodes in the siege web: one per siege type = SIEGE_TYPES (validated). */
+  SIEGE_WEB_NODES: 5,
+  /** TUNABLE (chunk 05). Deepest paid tier; tiers run 0..UNLOCK_WEB_TIERS, tier 0 being the free starting nodes. */
+  UNLOCK_WEB_TIERS: 4,
+  /**
+   * TUNABLE (chunk 05, NODE_COST_CURVE). Unlock points to reach a node, indexed by its tier.
+   * Tier 0 = a STARTING node: reached free at creation, cost 0 by construction. Tiers 1–4
+   * cost 1 / 2 / 4 / 6. Sized against UNLOCK_POINTS_BY_RUNG (30 per pool at cap).
+   * NOTE for balancing: with the brief's node counts, the paid total of every web (living
+   * 19, trap 24, siege 11) is BELOW 30, so a capped ladder reaches a whole web; the
+   * "most but not all" intent needs either a steeper curve or more nodes. Flagged for QA.
+   */
+  UNLOCK_NODE_COST_BY_TIER: [0, 1, 2, 4, 6],
+  /**
+   * TUNABLE (chunk 05, STARTING_NODES). How many tier-0 nodes each web has — reached free at
+   * creation so a new account can actually play. 2 living per region, 1 trap, 1 siege (the
+   * brief), plus 1 fence tier: the brief lists no starting fence, but a caravan with no fence
+   * tier has no circle at all (chunk 07's assumption, confirmed here). The fence starter is
+   * a node of the TRAP web (fence tiers live there), counted separately so the data can be
+   * checked against it.
+   */
+  STARTING_NODES: { living: 2, trap: 1, fence: 1, siege: 1 },
+  /** TUNABLE (chunk 05, WEB_SHAPE). Roots (nodes with no prerequisite) per web, inclusive bounds: a "web", not a line — multiple viable paths. */
+  WEB_ROOTS_MIN: 2,
+  WEB_ROOTS_MAX: 3,
 } as const;
 
 // Deep-frozen on export (chunk 03 QA S2): no consumer can mutate a balance value at runtime.

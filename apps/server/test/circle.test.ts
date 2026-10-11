@@ -9,7 +9,7 @@ import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fas
 import type pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
-import { STARTING_NODES, isUnlocked, unlockedTypeIds } from "../src/circle/access.js";
+import { isUnlocked, unlockedTypeIds } from "../src/circle/access.js";
 import { applyOutcome, battlefieldForEncounter, closeManifest, formationHash } from "../src/circle/service.js";
 import { withTransaction } from "../src/db/pool.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
@@ -76,16 +76,18 @@ afterAll(async () => {
   await pool.end();
 });
 
-describe("access seam (stub until chunk 05)", () => {
-  it("unlocks only the starting nodes, with living units scoped to the caravan's region", () => {
-    const desert = { accountId: "a", caravanId: "c", regionId: "desert" as const };
-    expect([...unlockedTypeIds(desert)].sort()).toEqual(["desert.dust_rider", "desert.well_digger", "fence.brush_pile", "siege.battering_wagon", "trap.spike_pit"]);
-    expect(isUnlocked(desert, "desert.vaquero")).toBe(false);
-    expect(isUnlocked(desert, "mountain.grizzly")).toBe(false);
-    expect(isUnlocked({ ...desert, regionId: "mountain" }, "mountain.grizzly")).toBe(true);
-    expect(isUnlocked(desert, "trap.powder_keg")).toBe(false);
-    expect(isUnlocked(desert, "nobody.has_this")).toBe(false);
-    expect(STARTING_NODES.livingPerRegion).toBe(2);
+describe("access seam (chunk 05's hasAccess behind chunk 07's isUnlocked)", () => {
+  it("a fresh caravan has exactly the starting nodes, with living units scoped to the caravan's region", async () => {
+    const desert = await registerPlayer("desert");
+    const owner = { accountId: desert.accountId, caravanId: desert.caravanId, regionId: "desert" as const };
+    expect([...(await unlockedTypeIds(pool, owner))].sort()).toEqual(["desert.dust_rider", "desert.well_digger", "fence.brush_pile", "siege.battering_wagon", "trap.spike_pit"]);
+    expect(await isUnlocked(pool, owner, "desert.vaquero")).toBe(false);
+    expect(await isUnlocked(pool, owner, "mountain.grizzly")).toBe(false);
+    expect(await isUnlocked(pool, owner, "trap.powder_keg")).toBe(false);
+    expect(await isUnlocked(pool, owner, "nobody.has_this")).toBe(false);
+    const mountain = await registerPlayer("mountain");
+    expect(await isUnlocked(pool, { accountId: mountain.accountId, caravanId: mountain.caravanId, regionId: "mountain" }, "mountain.grizzly")).toBe(true);
+    expect(TUNABLES.STARTING_NODES.living).toBe(2);
   });
 });
 
