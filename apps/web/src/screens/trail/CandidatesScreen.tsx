@@ -16,9 +16,9 @@
  * The server decides everything here — who is offered, whether a search is open, whether
  * a choice stands. The screen only renders the menu and relays the player's choice.
  */
-import { useEffect, useState } from "react";
 import { ApiError } from "../../api/client.ts";
 import type { CandidateMenuView, CandidateView } from "../../api/types.ts";
+import { monotonic, useAnchoredCountdown } from "../../shell/countdown.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { STRINGS } from "../../strings.ts";
 import { ScoutPanel } from "./ScoutPanel.tsx";
@@ -36,25 +36,8 @@ export interface CandidatesScreenProps {
   readonly now?: () => number;
 }
 
-const monotonic = (): number => performance.now();
-
-/**
- * Whole seconds left of `durationMs`, counted on `now` from the moment `anchor` (an object
- * identity: the menu, the refusal) arrived. Re-read every second; 0 once elapsed.
- */
-export function useAnchoredCountdown(anchor: unknown, durationMs: number, now: () => number = monotonic): number {
-  const calc = (from: number): number => Math.max(0, Math.ceil((durationMs - (now() - from)) / 1000));
-  const [left, setLeft] = useState(() => Math.max(0, Math.ceil(durationMs / 1000)));
-  useEffect(() => {
-    const t0 = now();
-    setLeft(calc(t0));
-    if (durationMs <= 0) return;
-    const id = window.setInterval(() => setLeft(calc(t0)), 1000);
-    return () => window.clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchor, durationMs]);
-  return left;
-}
+// The countdown moved to shell/countdown.ts (chunk 23 reuses it for the trip cap); re-exported for existing imports.
+export { useAnchoredCountdown };
 
 export function CandidateCard({ candidate, busy, onChoose, index }: { candidate: CandidateView; busy: boolean; onChoose: (c: CandidateView) => void; index: number }): JSX.Element {
   const rep = candidate.reputation;

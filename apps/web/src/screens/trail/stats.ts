@@ -7,7 +7,7 @@
  * `emphasis` says which the caller is drawing bigger — defense for a posted unit, offense
  * for an attacker.
  */
-import { FENCE_TIERS, FIXED_POINT_SCALE, LIVING_UNIT_TYPES, TRAP_TYPES, getFenceTier, getTrapType, getUnitType, mergeStatMult, type Ability, type AffinityCategory } from "@caravan/content";
+import { FENCE_TIERS, FIXED_POINT_SCALE, LIVING_UNIT_TYPES, TRAP_TYPES, abilityDisplay, getFenceTier, getTrapType, getUnitType, mergeStatMult, type Ability, type AbilityDisplay, type AffinityCategory } from "@caravan/content";
 import type { Manifest, ManifestUnit } from "@caravan/circle";
 import { fixedToText, millisToText } from "../webs/catalogue.ts";
 import { STRINGS } from "../../strings.ts";
@@ -44,31 +44,25 @@ export function cellsText(fixed: number): string {
   return T.cells(fixedToText(fixed));
 }
 
-function abilityOf(a: Ability): UnitCard["ability"] {
-  const lines: StatLine[] = [{ label: S.cooldown, value: millisToText(a.cooldown) }];
-  let charges: number | null = null;
-  switch (a.archetype) {
-    case "burst_radius":
-      lines.push({ label: T.abilityRadius, value: cellsText(a.radius) }, { label: S.damage, value: T.abilityOneHit(fixedToText(a.damageMult)) });
-      break;
-    case "heavy_strike":
-      lines.push({ label: S.damage, value: T.abilityOneHit(fixedToText(a.damageMult)) });
-      break;
-    case "heal_radius":
-      lines.push({ label: T.abilityRadius, value: cellsText(a.radius) }, { label: T.abilityHeals, value: T.abilityHealsValue(fixedToText(a.healFraction * 100)) }, { label: S.charges, value: T.abilityCharges(a.charges) });
-      charges = a.charges;
-      break;
-    case "self_buff":
-      lines.push({ label: T.abilityBonus, value: T.abilityBonusValue(fixedToText(a.damageBonus)) }, { label: T.abilityDuration, value: millisToText(a.duration) });
-      break;
-    case "dash":
-      lines.push({ label: T.abilityDistance, value: cellsText(a.distance) });
-      break;
-    case "structure_breaker":
-      lines.push({ label: T.abilityFenceDamage, value: T.abilityOneHit(fixedToText(a.fenceDamageMult)) });
-      break;
-  }
-  return { name: a.displayName, description: a.description, lines, charges };
+/**
+ * The ability block from the display-ready numbers (chunk 12 QA S5: content's `abilityDisplay`,
+ * carried by the scout view; for a posted unit, content's same function). Printed as given:
+ * first use, reach (centre to centre), heal % and its ceiling, buff % and duration, dash,
+ * the per-tick fence-hit cap. Nothing is re-derived from the fixed-point `ability`.
+ */
+function abilityOf(a: Ability, d: AbilityDisplay): UnitCard["ability"] {
+  const lines: StatLine[] = [
+    { label: S.cooldown, value: T.abilitySeconds(d.cooldownSeconds) },
+    { label: T.abilityFirstUse, value: T.abilityFirstUseValue(d.firstUseSeconds) },
+  ];
+  if (d.reachCells !== null) lines.push({ label: T.abilityReach, value: T.cells(d.reachCells) });
+  if (d.damageMultiplier !== null) lines.push({ label: a.archetype === "structure_breaker" ? T.abilityFenceDamage : S.damage, value: T.abilityOneHit(d.damageMultiplier) });
+  if (d.healPercent !== null) lines.push({ label: T.abilityHeals, value: d.healCeiling === "start_of_fight_hp" ? T.abilityHealsCapped(d.healPercent) : T.abilityHealsValue(d.healPercent) });
+  if (d.charges !== null) lines.push({ label: S.charges, value: T.abilityCharges(d.charges) });
+  if (d.buffPercent !== null) lines.push({ label: T.abilityBonus, value: d.buffSeconds !== null ? T.abilityBuffValue(d.buffPercent, d.buffSeconds) : T.abilityBuffPct(d.buffPercent) });
+  if (d.dashCells !== null) lines.push({ label: T.abilityDistance, value: T.cells(d.dashCells) });
+  if (d.fenceHitCapPercent !== null) lines.push({ label: T.abilityFenceCap, value: T.abilityFenceCapValue(d.fenceHitCapPercent) });
+  return { name: a.displayName, description: a.description, lines, charges: d.charges };
 }
 
 /** A posted (defending) unit: defense emphasized; aggro and leash shown since coverage is the puzzle. */
@@ -98,7 +92,7 @@ export function defenderCard(u: ManifestUnit): UnitCard | null {
       { label: T.aggro, value: cellsText(t.aggroRadius) },
       { label: T.leash, value: cellsText(t.leashDistance) },
     ],
-    ability: abilityOf(t.ability),
+    ability: abilityOf(t.ability, abilityDisplay(t.ability, t.attackRange)),
     aggroRadius: t.aggroRadius / FIXED_POINT_SCALE,
     leashDistance: t.leashDistance / FIXED_POINT_SCALE,
     attackRange: t.attackRange / FIXED_POINT_SCALE,
@@ -129,7 +123,7 @@ export function attackerCard(u: ScoutedUnit): UnitCard {
       { label: S.attackRange, value: cellsText(u.attackRange) },
       { label: S.attackCooldown, value: millisToText(u.attackCooldown) },
     ],
-    ability: abilityOf(u.ability),
+    ability: abilityOf(u.ability, u.abilityDisplay ?? abilityDisplay(u.ability, u.attackRange)),
     aggroRadius: 0,
     leashDistance: 0,
     attackRange: u.attackRange / FIXED_POINT_SCALE,

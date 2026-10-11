@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, type Api } from "../../api/client.ts";
 import type { IsoCanvasProps } from "../../iso/index.ts";
 import { ACCOUNT_ID, CARAVAN_ID, economyView, fakeApi, meWith, mergePreview, recruitView, refugeeView, uid, type FixtureUnit } from "../../test/townFixtures.ts";
+import { capRefused, statusArranging, statusPacked, statusResolving, withCap } from "../../test/tripFixtures.ts";
 import { RefugeePanel } from "./RefugeePanel.tsx";
+import { RideOutPanel } from "./RideOutPanel.tsx";
 import { RecruitPanel } from "./RecruitPanel.tsx";
 import { TownScreen } from "./TownScreen.tsx";
 
@@ -56,6 +58,7 @@ function townApi(units: readonly FixtureUnit[] = RIDERS, over: Partial<Api> = {}
     }),
     refugees: vi.fn(async () => refugeeView()),
     recruitList: vi.fn(async () => recruitView()),
+    tripStatus: vi.fn(async () => statusPacked()),
     ...over,
   });
 }
@@ -177,7 +180,7 @@ describe("TownScreen", () => {
   });
 
   it("on a trip: the state says so and merging is not offered", async () => {
-    const api = townApi(RIDERS, { me: vi.fn(async () => meWith(RIDERS, "on_trip")) });
+    const api = townApi(RIDERS, { me: vi.fn(async () => meWith(RIDERS, "on_trip")), tripStatus: vi.fn(async () => statusArranging(1)) });
     render(<TownScreen api={api} />);
     expect(await screen.findByTestId("caravan-state")).toHaveAttribute("data-state", "on_trip");
     expect(screen.getByTestId("merge-blocked")).toHaveTextContent("Merging waits until the caravan is back in town.");
@@ -452,5 +455,90 @@ describe("QA-17", () => {
     await user.click(screen.getByText("drag-first-onto-second"));
     const balance = await within(await screen.findByRole("dialog")).findByTestId("merge-balance");
     expect(balance.textContent).toBe("Balance: 1200 Coin.");
+  });
+});
+
+describe("Town: the caravan's state from the trip loop, the trip cap and riding out (chunk 23)", () => {
+  function packedManifest() {
+    const body = { v: 1, units: [{ ref: uid(1), typeId: "desert.dust_rider", mergeLevel: 1, maxHp: 620, hp: 620 }], traps: [], fences: [] };
+    return { manifest: { id: uid(500), caravanId: CARAVAN_ID, encountersResolved: 0, createdAt: "", closedAt: null, packed: body, survivors: body, summary: { unitsAlive: 1, unitsDead: 0, trapsUnspent: 0, trapsSpent: 0, fencesIntact: 0, fencesDestroyed: 0 }, formations: [] } };
+  }
+
+  it("in town: the cap line says how many trips are available (one spent after a trip, with the regen countdown)", async () => {
+    const spent = withCap(statusPacked(), { available: 2, nextRegenAtMs: statusPacked().nowMs + 125_000, fullAtMs: statusPacked().nowMs + 125_000 });
+    render(<TownScreen api={townApi(RIDERS, { tripStatus: vi.fn(async () => spent) })} />);
+    const cap = await screen.findByTestId("trip-cap");
+    expect(cap).toHaveTextContent("Trips available: 2 of 3. The next trip returns in 2:05.");
+    expect(screen.queryByTestId("ride-out")).toBeNull();
+  });
+
+  it("packed but not ridden out: 'Packed, waiting to ride out' with Ride out behind a real modal → POST start → the trail", async () => {
+    const user = userEvent.setup();
+    const startTrip = vi.fn(async () => ({ tripId: uid(900), manifestId: uid(500), cap: statusResolving().cap, status: statusResolving() }));
+    const api = townApi(RIDERS, { manifest: vi.fn(async () => packedManifest()) as unknown as Api["manifest"], startTrip });
+    render(<TownScreen api={api} />);
+    expect(await screen.findByTestId("caravan-state")).toHaveAttribute("data-state", "packed");
+    expect(screen.getByTestId("caravan-state")).toHaveTextContent("Packed, waiting to ride out.");
+    const panel = screen.getByTestId("ride-out");
+    expect(within(panel).getByTestId("trip-cap")).toHaveTextContent("Trips available: 3 of 3.");
+    await user.click(within(panel).getByTestId("ride-out-open-confirm"));
+    const dialog = screen.getByRole("dialog", { name: "Ride out now?" });
+    expect(dialog).toHaveTextContent("This uses 1 of your 3 available trips (of 3).");
+    expect(startTrip).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByTestId("ride-out-confirm"));
+    expect(startTrip).toHaveBeenCalledWith(CARAVAN_ID);
+    await waitFor(() => expect(window.location.hash).toBe("#/trail"));
+    window.location.hash = "";
+  });
+});
+
+describe("RideOutPanel (chunk 23)", () => {
+  it("counts the regen from SERVER time: a device clock 10 minutes fast cannot open it early", async () => {
+    const realNow = Date.now;
+    Date.now = () => realNow() + 10 * 60_000;
+    try {
+      const s = withCap(statusPacked(), { available: 0, nextRegenAtMs: statusPacked().nowMs + 90_000, fullAtMs: statusPacked().nowMs + 90_000 });
+      render(<RideOutPanel api={fakeApi()} caravanId={CARAVAN_ID} status={s} onStarted={() => {}} />);
+      expect(screen.getByTestId("trip-cap")).toHaveTextContent("The next trip returns in 1:30.");
+      expect(Number(screen.getByTestId("trip-cap").getAttribute("data-seconds-left"))).toBeGreaterThanOrEqual(89);
+      expect(screen.getByTestId("ride-out-open-confirm")).toBeDisabled();
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
+  it("refusals are the server's: trip_cap_exhausted counts down from retryAfterSeconds; trip_open points at the trail; not_packed says so", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<RideOutPanel api={fakeApi()} caravanId={CARAVAN_ID} status={statusPacked()} initialError={capRefused()} onStarted={() => {}} />);
+    expect(screen.getByTestId("ride-out-refused")).toHaveTextContent("No trip is available right now. The next one returns in 20:00");
+    expect(screen.getByTestId("ride-out-open-confirm")).toBeDisabled();
+    unmount();
+    const startTrip = vi.fn(async () => {
+      throw new ApiError(409, "trip_open", "this caravan is already on a trip");
+    });
+    render(<RideOutPanel api={fakeApi({ startTrip })} caravanId={CARAVAN_ID} status={statusPacked()} onStarted={() => {}} />);
+    await user.click(screen.getByTestId("ride-out-open-confirm"));
+    await user.click(screen.getByTestId("ride-out-confirm"));
+    expect(await screen.findByTestId("ride-out-open")).toHaveTextContent("The caravan is already on a trip.");
+    expect(within(screen.getByTestId("ride-out-open")).getByRole("button", { name: "To the trail" })).toBeInTheDocument();
+  });
+
+  it("a lost start answer keeps the dialog; Try again that finds the trip open says it went through (never counted twice)", async () => {
+    const user = userEvent.setup();
+    let n = 0;
+    const startTrip = vi.fn(async () => {
+      n++;
+      if (n === 1) throw new ApiError(0, "network", "fetch failed");
+      throw new ApiError(409, "trip_open", "this caravan is already on a trip");
+    });
+    const onStarted = vi.fn();
+    render(<RideOutPanel api={fakeApi({ startTrip })} caravanId={CARAVAN_ID} status={statusPacked()} onStarted={onStarted} />);
+    await user.click(screen.getByTestId("ride-out-open-confirm"));
+    await user.click(screen.getByTestId("ride-out-confirm"));
+    expect(await screen.findByTestId("ride-out-unconfirmed")).toHaveTextContent("Could not confirm whether the caravan rode out");
+    expect(screen.getByTestId("ride-out-confirm")).toHaveTextContent("Try again");
+    await user.click(screen.getByTestId("ride-out-confirm"));
+    expect(onStarted).toHaveBeenCalledWith(null, true);
+    expect(startTrip).toHaveBeenCalledTimes(2);
   });
 });

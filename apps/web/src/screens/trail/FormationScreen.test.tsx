@@ -85,6 +85,12 @@ function fakeApi(over: Partial<Api> = {}): Api {
     searchCandidates: notCalled,
     candidates: notCalled,
     chooseCandidate: notCalled,
+    tripStatus: notCalled,
+    startTrip: notCalled,
+    commitEncounter: notCalled,
+    tripPreview: notCalled,
+    pushTrip: notCalled,
+    bankTrip: notCalled,
     economy: notCalled,
     previewMerge: notCalled,
     commitMerge: notCalled,
@@ -119,8 +125,19 @@ function formationView(f: Formation, committedAt: string | null) {
 const scout = fixtureEncounter(3);
 const NO_AUTOSAVE = 3_600_000;
 
-function screenWith(api: Api, extra: { autosaveMs?: number; initial?: ReturnType<typeof formationView>["formation"] | null } = {}) {
-  return <FormationScreen api={api} caravanId="c1" trip={trip()} encounterIndex={3} initial={extra.initial ?? null} scout={scout} autosaveMs={extra.autosaveMs ?? NO_AUTOSAVE} />;
+function screenWith(api: Api, extra: { autosaveMs?: number; initial?: ReturnType<typeof formationView>["formation"] | null; onCommitted?: () => void } = {}) {
+  return (
+    <FormationScreen
+      api={api}
+      caravanId="c1"
+      trip={trip()}
+      encounterIndex={3}
+      initial={extra.initial ?? null}
+      scout={scout}
+      autosaveMs={extra.autosaveMs ?? NO_AUTOSAVE}
+      {...(extra.onCommitted ? { onCommitted: extra.onCommitted } : {})}
+    />
+  );
 }
 
 // jsdom has no PointerEvent: a MouseEvent carrying pointerId / pointerType is enough for the tray's listeners.
@@ -389,8 +406,11 @@ describe("FormationScreen", () => {
       stored = f;
       return formationView(f, null);
     });
-    const commitFormation = vi.fn(async () => formationView(stored, "2026-10-11T12:00:00.000Z"));
-    render(screenWith(fakeApi({ saveFormation, commitFormation })));
+    // Chunk 23: the commit goes through the trip route (frozen + queued), then the formation is re-read.
+    const commitEncounter = vi.fn(async () => ({ jobId: "encounter:t:3", jobStatus: "queued", created: true }));
+    const formation = vi.fn(async () => formationView(stored, "2026-10-11T12:00:00.000Z"));
+    const onCommitted = vi.fn();
+    render(screenWith(fakeApi({ saveFormation, commitEncounter, formation }), { onCommitted }));
     await user.click(within(screen.getByTestId("tray-unit-u-rider")).getByRole("button"));
     await user.click(screen.getByText("tap-12-12"));
     await user.click(within(screen.getByTestId("tray-fence-next")).getByRole("button"));
@@ -421,7 +441,9 @@ describe("FormationScreen", () => {
     await user.click(screen.getByTestId("commit-confirm"));
     const notice = await screen.findByTestId("committed-notice");
     expect(saveFormation).toHaveBeenCalledTimes(1);
-    expect(commitFormation).toHaveBeenCalledWith("c1", 3);
+    expect(commitEncounter).toHaveBeenCalledWith("c1", 3);
+    expect(formation).toHaveBeenCalledWith("c1", 3);
+    expect(onCommitted).toHaveBeenCalledTimes(1);
     expect(serializeFormation(stored)).toContain('"segment":3');
     expect(screen.getByTestId("formation-screen").getAttribute("data-committed")).toBe("true");
     expect(screen.queryByTestId("commit-open")).toBeNull();

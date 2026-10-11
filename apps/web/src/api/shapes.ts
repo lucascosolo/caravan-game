@@ -7,7 +7,7 @@
  * render (a tier builds a row of the graph) or an unbounded list cannot stall the page.
  */
 import { GRID_HEIGHT, GRID_WIDTH, formationFromJson, isEntryEdge, isTargetingStance, manifestFromJson, partyConfigFromJson, type PartyScoutView, type ScoutSiege, type ScoutUnit } from "@caravan/circle";
-import { getSiegeType, getUnitType, isAbilityArchetype, isCosmeticKind, isAffinityCategory, mergeStatMult, type Ability, type Fixed, type Millis, type SiegeCounter } from "@caravan/content";
+import { abilityDisplay, getSiegeType, getUnitType, isAbilityArchetype, isCosmeticKind, isAffinityCategory, mergeStatMult, type Ability, type AbilityDisplay, type Fixed, type Millis, type SiegeCounter } from "@caravan/content";
 import { ShapeError, array, boolean, integer, literal, nullable, object, optional, string, type Guard } from "./shape.ts";
 import type {
   AcquiredView,
@@ -235,6 +235,26 @@ const ability: Guard<Ability> = (v, path) => {
   return v as Ability;
 };
 
+/**
+ * Chunk 12 QA S5: the ability's numbers ready to print, as the server's content computed them
+ * (decimal strings or null; `charges` a count). Shown as given, never re-derived.
+ */
+const DEC = nullable(string({ maxLength: 32 }));
+const abilityDisplayShape: Guard<AbilityDisplay> = object({
+  archetype: predicate(isAbilityArchetype, "ability archetype"),
+  cooldownSeconds: string({ maxLength: 32 }),
+  firstUseSeconds: string({ maxLength: 32 }),
+  reachCells: DEC,
+  damageMultiplier: DEC,
+  healPercent: DEC,
+  healCeiling: nullable(literal("start_of_fight_hp")),
+  charges: nullable(integer({ min: 0, max: 1_000 })),
+  buffPercent: DEC,
+  buffSeconds: DEC,
+  dashCells: DEC,
+  fenceHitCapPercent: DEC,
+});
+
 const siegeCounter: Guard<SiegeCounter> = (v, path) => {
   object({ kind: literal("fence", "trap"), category: ID })(v, path);
   return v as SiegeCounter;
@@ -270,6 +290,7 @@ const scoutUnitFields = object({
   attackRange: fixed({ min: 0 }),
   attackCooldown: millis({ min: 0 }),
   ability,
+  abilityDisplay: optional(abilityDisplayShape),
 });
 
 /**
@@ -279,7 +300,8 @@ const scoutUnitFields = object({
  */
 const scoutUnit: Guard<ScoutUnit> = (v, path) => {
   const u = scoutUnitFields(v, path);
-  return { ...u, damagePerHitMult: u.damagePerHitMult ?? mergeStatMult(u.mergeLevel) } as ScoutUnit;
+  // A menu stored before chunk 12 QA S5 lacks `abilityDisplay`: content's own function, the one `scoutUnit` calls.
+  return { ...u, damagePerHitMult: u.damagePerHitMult ?? mergeStatMult(u.mergeLevel), abilityDisplay: u.abilityDisplay ?? abilityDisplay(u.ability, u.attackRange) } as ScoutUnit;
 };
 
 const scoutSiege: Guard<ScoutSiege> = object({

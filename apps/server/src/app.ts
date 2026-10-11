@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import type pg from "pg";
 import type { AuthContext } from "./auth/sessions.js";
 import { createPool } from "./db/pool.js";
+import type { InlineEncounterWorker } from "./dev/testResolver.js";
 import { acquisitionRoutes } from "./routes/acquisition.js";
 import { authRoutes } from "./routes/auth.js";
 import { circleRoutes } from "./routes/circle.js";
@@ -20,6 +21,8 @@ import { AppError } from "./services/errors.js";
 declare module "fastify" {
   interface FastifyInstance {
     db: pg.Pool;
+    /** Dev/test only (chunk 23, CARAVAN_TEST_RESOLVER=double): resolve committed encounters in-process. Null in production. */
+    inlineEncounterWorker: InlineEncounterWorker | null;
   }
   interface FastifyRequest {
     auth?: AuthContext;
@@ -30,12 +33,15 @@ export interface BuildAppOptions {
   /** Supply a pool (tests); otherwise one is created from DATABASE_URL. */
   db?: pg.Pool;
   logger?: boolean;
+  /** Dev/test only: see src/dev/testResolver.ts. index.ts passes `inlineWorkerFromEnv(process.env)`. */
+  inlineEncounterWorker?: InlineEncounterWorker | null;
 }
 
 export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: opts.logger ?? false });
   const db = opts.db ?? createPool();
   app.decorate("db", db);
+  app.decorate("inlineEncounterWorker", opts.inlineEncounterWorker ?? null);
   if (!opts.db) app.addHook("onClose", async () => db.end());
 
   app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {

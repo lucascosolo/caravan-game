@@ -110,11 +110,23 @@ Every player-facing string is in `src/strings.ts` (including stat labels and uni
 nothing is interpolated from a literal inside a component or a formatter). Font sizes are
 `rem` and never below `0.75rem`; the root is `100%`.
 
+### 6. Trip routes and server time (chunk 23)
+
+The trip loop's guards live in `src/api/tripShapes.ts` (types in `tripTypes.ts`), separate from
+`shapes.ts`; every one tolerates additive fields (chunk 19 is wiring losses into the same bodies).
+Countdowns from server answers use `src/shell/countdown.ts` (`useAnchoredCountdown`): the wait is
+a duration the server implies (`nextRegenAtMs − nowMs` of the trip status, `retryAfterSeconds`),
+counted on the monotonic clock from receipt, never the device clock against a server timestamp.
+Component tests render the contract recordings (`src/test/tripFixtures.ts`), not hand-made bodies.
+The bank-or-push screen shows only what `GET …/trip/preview` says; nothing on it is computed here.
+
 ## e2e
 
 `playwright.config.ts` starts `vite preview` (port `E2E_WEB_PORT`, default 4173) with its
 `/api` proxy pointed at `CARAVAN_API_URL`. `pnpm e2e` at the repo root (`scripts/e2e.mjs`)
-seeds a database, boots the built server on `E2E_PORT` (default 3917) and runs this. The spend
+seeds a database, boots the built server on `E2E_PORT` (default 3917) and runs this. `trip.spec.ts` (chunk 23) rides a whole trip — outfit → ride out → two encounters with a
+push between → bank → summary → the town's trip cap — against the server's test double
+(`CARAVAN_TEST_RESOLVER=double`, see AGENTS.md), with its own run-unique account. The spend
 test registers a fresh account through the API and grants it unlock points the only way
 points arrive, by inserting an `unlock_points_granted` ledger event (the projection trigger
 folds it); it reads the database URL from `E2E_DATABASE_URL`, then `TEST_DATABASE_URL`, then

@@ -64,6 +64,7 @@ import { consumeTripCap, readTripCap, type TripCapView } from "./cap.js";
 import { JOB_SURVIVORS_KEY, assertTripEncounterOutcome, attritionOf, caravanSurvived, resolverInputFromJob, type EncounterOutcome, type EncounterOutcomeKind } from "./outcome.js";
 import { applyDeMerges, applyOverrunLosses, deathIndex, encounterEarn, mergeLevelAfterDeath, planUnitLosses, type DeMergedUnit, type DestroyedUnit, type OverrunLosses } from "./stakes.js";
 import { decideTripEncounter, findTripEncounter, insertTripEncounter, listTripEncounters, unbankedCoinOf, type TripEncounterRow } from "./repo.js";
+import { encounterResultOf, endingOfBanked, endingOfOverrun, type EncounterResultView, type TripEndingView } from "./views.js";
 
 const notFound = (code: string, message: string) => new AppError(404, code, message);
 
@@ -520,6 +521,8 @@ export interface TripEncounterView {
   deaths: string[];
   coinAccrued: number;
   decision: "pushed" | "banked" | null;
+  /** Chunk 23: what this encounter's fight cost (units killed / damaged, traps spent, fences broken); null if unreadable. */
+  result: EncounterResultView | null;
 }
 
 export interface TripView {
@@ -537,6 +540,8 @@ export interface TripView {
   decisionFor: number | null;
   unbankedCoin: number;
   encounters: TripEncounterView[];
+  /** Chunk 23: how an ended trip ended, as its ledger event recorded it (null while open). */
+  ending: TripEndingView | null;
 }
 
 export interface TripStatusView {
@@ -545,6 +550,8 @@ export interface TripStatusView {
   /** The open trip, else the caravan's most recent one, else null. */
   trip: TripView | null;
   rules: TripRules;
+  /** Chunk 23: the server's clock at this read, so a client counts the cap's regen from server time. */
+  nowMs: number;
 }
 
 export interface TripRules {
@@ -608,8 +615,28 @@ async function tripView(db: Queryable, trip: TripRow): Promise<TripView> {
     job,
     decisionFor,
     unbankedCoin: trip.end_reason ? 0 : unbankedCoinOf(rows),
-    encounters: rows.map((r) => ({ index: r.encounter_index, outcome: r.outcome_kind, depth: r.depth_fp, deaths: r.deaths, coinAccrued: r.coin_accrued, decision: r.decision })),
+    encounters: await Promise.all(
+      rows.map(async (r) => ({
+        index: r.encounter_index,
+        outcome: r.outcome_kind,
+        depth: r.depth_fp,
+        deaths: r.deaths,
+        coinAccrued: r.coin_accrued,
+        decision: r.decision,
+        result: encounterResultOf(await getJob(db, r.job_id)),
+      })),
+    ),
+    ending: await tripEnding(db, trip),
   };
+}
+
+async function tripEnding(db: Queryable, trip: TripRow): Promise<TripEndingView | null> {
+  if (!trip.ended_at || !trip.end_reason) return null;
+  const causation = trip.end_reason === "banked" ? tripCausation.banked(trip.id) : tripCausation.overrun(trip.id);
+  const [ev] = await listEventsByCausation(db, causation);
+  if (!ev) return null;
+  const payload = ev.payload as Record<string, unknown>;
+  return trip.end_reason === "banked" ? endingOfBanked(payload) : endingOfOverrun(payload);
 }
 
 /** Trip status for the caravan. Settles a completed resolution first (lazy, idempotent). */
@@ -622,6 +649,7 @@ export async function tripStatus(pool: pg.Pool, caravan: CaravanRow, nowMs: numb
     cap: await readTripCap(pool, caravan.account_id, nowMs),
     trip: trip ? await tripView(pool, trip) : null,
     rules: tripRules(),
+    nowMs,
   };
 }
 

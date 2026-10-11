@@ -1,0 +1,9 @@
+{
+  "route": "POST /me/caravans/:id/trip/encounters/:n/commit",
+  "status": 202,
+  "body": {
+    "jobId": "encounter:00000000-0000-4000-8000-000000000001:1",
+    "jobStatus": "queued",
+    "created": true
+  }
+}

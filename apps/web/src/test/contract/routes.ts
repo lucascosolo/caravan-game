@@ -32,6 +32,7 @@ import {
   storeShape,
   unequipResultShape,
 } from "../../api/shapes.ts";
+import { bankResultShape, encounterCommitShape, pushResultShape, stakesPreviewShape, tripCapRefusalShape, tripStartShape, tripStatusShape } from "../../api/tripShapes.ts";
 
 export const CONTRACT_GUARDS: Readonly<Record<string, Guard<unknown> | null>> = {
   auth: authShape,
@@ -55,6 +56,20 @@ export const CONTRACT_GUARDS: Readonly<Record<string, Guard<unknown> | null>> = 
   "formation-put": formationShape,
   formation: formationShape,
   "formation-commit": formationShape,
+  // The trip loop (chunk 15 routes; chunk 23's client). Fights resolved by chunk 15's test double.
+  "trip-status-packed": tripStatusShape,
+  "trip-start": tripStartShape,
+  "trip-commit": encounterCommitShape,
+  "trip-status-resolving": tripStatusShape,
+  "trip-status-decide": tripStatusShape,
+  "trip-preview": stakesPreviewShape,
+  "trip-push": pushResultShape,
+  "trip-preview-2": stakesPreviewShape,
+  "trip-bank": bankResultShape,
+  "trip-status-banked": tripStatusShape,
+  "trip-status-overrun": tripStatusShape,
+  // The 409 body the client reads through ApiError.body (cap + retryAfterSeconds).
+  "trip-start-refused": tripCapRefusalShape,
   // Chunk 20's Packs and Cosmetics screens.
   store: storeShape,
   "store-purchase": purchaseResultShape,

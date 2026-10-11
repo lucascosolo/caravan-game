@@ -1,0 +1,194 @@
+/**
+ * Guards for the trip loop's routes (chunk 23), typed against tripTypes.ts. Same rules as
+ * shapes.ts: every number that sizes a render is bounded, every list has a maxLength, and
+ * extra fields are ignored — the server may grow these bodies (chunk 19 wires losses into the
+ * same responses), and an additive field must never become `bad_payload`.
+ */
+import { ShapeError, array, boolean, integer, literal, nullable, object, optional, string, type Guard } from "./shape.ts";
+import type {
+  BankResult,
+  BankedEndingView,
+  EncounterCommitResult,
+  EncounterResultView,
+  OverrunEndingView,
+  PushResult,
+  RestoredView,
+  StakesPreview,
+  TripCapRefusal,
+  TripCapView,
+  TripEncounterView,
+  TripEndingView,
+  TripStartResult,
+  TripStatusView,
+  TripView,
+} from "./tripTypes.ts";
+
+const ID = string({ maxLength: 160 });
+const REF = string({ maxLength: 128 });
+const TS = string({ maxLength: 64 });
+const MS = integer({ min: 0 });
+const COIN = integer({ min: 0, max: Number.MAX_SAFE_INTEGER });
+const SIGNED = integer({ min: -1_000_000_000, max: 1_000_000_000 });
+const COUNT = integer({ min: 0, max: 100_000 });
+const LEVEL = integer({ min: 1, max: 5 });
+const HP = integer({ min: 0, max: 100_000_000 });
+const ENCOUNTER = integer({ min: 0, max: 1_000_000 });
+const LIST = { maxLength: 512 } as const;
+const MAX_ENCOUNTERS_SHOWN = 1_000;
+
+/** Null when absent or null (a field an older server did not send), else the inner guard. */
+const orNull = <T,>(inner: Guard<T>): Guard<T | null> => (v, path) => (v === undefined || v === null ? null : inner(v, path));
+/** An empty list when absent (an additive field), else the inner list guard. */
+const orEmpty = <T,>(inner: Guard<readonly T[]>): Guard<readonly T[]> => (v, path) => (v === undefined ? [] : inner(v, path));
+
+export const tripCapShape: Guard<TripCapView> = object({
+  available: COUNT,
+  cap: COUNT,
+  regenMs: integer({ min: 1 }),
+  nextRegenAtMs: nullable(MS),
+  fullAtMs: nullable(MS),
+  gate: literal("time"),
+});
+
+const unitRef = { ref: REF, typeId: ID, mergeLevel: LEVEL } as const;
+const trapRef = object({ ref: REF, typeId: ID });
+
+const encounterResult: Guard<EncounterResultView> = object({
+  jobId: ID,
+  unitsKilled: array(object({ ...unitRef, hpBefore: HP, maxHp: HP }), LIST),
+  unitsDamaged: array(object({ ...unitRef, hpBefore: HP, hpAfter: HP, maxHp: HP }), LIST),
+  unitsUnhurt: orEmpty(array(object({ ...unitRef, hp: HP, maxHp: HP }), LIST)),
+  trapsSpent: array(trapRef, LIST),
+  trapsUnfired: orEmpty(array(trapRef, LIST)),
+  fencesBroken: array(object({ ref: REF, tierId: ID, maxHp: HP }), LIST),
+  fencesDamaged: array(object({ ref: REF, tierId: ID, hpBefore: HP, hpAfter: HP, maxHp: HP }), LIST),
+});
+
+const outcomeKind = literal("caravan_held", "caravan_overrun", "stalemate");
+
+const tripEncounter: Guard<TripEncounterView> = object({
+  index: integer({ min: 1, max: 1_000_000 }),
+  outcome: outcomeKind,
+  depth: integer({ min: 0, max: 1024 }),
+  deaths: array(REF, LIST),
+  coinAccrued: COIN,
+  decision: nullable(literal("pushed", "banked")),
+  result: orNull(encounterResult),
+});
+
+export const restoredShape: Guard<RestoredView> = object({
+  unitsHealed: orEmpty(array(object({ ...unitRef, hpAtBank: HP, maxHp: HP }), LIST)),
+  trapsRestocked: COUNT,
+  fenceSegmentsRebuilt: COUNT,
+  deMergePending: orEmpty(array(REF, LIST)),
+});
+
+const bankedEnding: Guard<BankedEndingView> = object({
+  kind: literal("banked"),
+  encountersSurvived: ENCOUNTER,
+  unbankedCoin: COIN,
+  deliveryBonus: COIN,
+  requested: COIN,
+  credited: COIN,
+  discarded: COIN,
+  restored: restoredShape,
+});
+
+const overrunEnding: Guard<OverrunEndingView> = object({
+  kind: literal("overrun"),
+  encounterIndex: ENCOUNTER,
+  coinLost: COIN,
+  unitsLostOutright: array(object(unitRef), LIST),
+  unitsDeMerged: array(object({ ...unitRef, mergeLevelAfter: LEVEL, diedAtEncounter: ENCOUNTER }), LIST),
+  lossesApplied: boolean(),
+});
+
+const tripEnding: Guard<TripEndingView> = (v, path) => {
+  const kind = v && typeof v === "object" ? (v as { kind?: unknown }).kind : undefined;
+  if (kind === "banked") return bankedEnding(v, path);
+  if (kind === "overrun") return overrunEnding(v, path);
+  throw new ShapeError(`${path}.kind`, `one of "banked" | "overrun"`, kind);
+};
+
+const tripView: Guard<TripView> = object({
+  id: ID,
+  manifestId: ID,
+  startedAt: TS,
+  endedAt: nullable(TS),
+  endReason: nullable(literal("banked", "overrun")),
+  phase: literal("arranging", "resolving", "resolution_unavailable", "decide", "ended"),
+  encountersResolved: ENCOUNTER,
+  currentEncounter: nullable(integer({ min: 1, max: 1_000_000 })),
+  job: nullable(object({ id: ID, status: string({ maxLength: 32 }), lastError: nullable(string({ maxLength: 4096 })) })),
+  decisionFor: nullable(integer({ min: 1, max: 1_000_000 })),
+  unbankedCoin: COIN,
+  encounters: array(tripEncounter, { maxLength: MAX_ENCOUNTERS_SHOWN }),
+  ending: orNull(tripEnding),
+});
+
+export const tripStatusShape: Guard<TripStatusView> = object({
+  caravan: object({ id: ID, state: literal("in_town", "on_trip") }),
+  cap: tripCapShape,
+  trip: nullable(tripView),
+  nowMs: MS,
+});
+
+export const tripStartShape: Guard<TripStartResult> = object({ tripId: ID, manifestId: ID, cap: tripCapShape, status: tripStatusShape });
+
+export const tripCapRefusalShape: Guard<TripCapRefusal> = object({ cap: tripCapShape, retryAfterSeconds: integer({ min: 0, max: 86_400 }) });
+
+export const encounterCommitShape: Guard<EncounterCommitResult> = object({ jobId: ID, jobStatus: string({ maxLength: 32 }), created: boolean() });
+
+const fenceIntact = object({ ref: REF, tierId: ID, hp: HP, maxHp: HP });
+const fenceDestroyed = object({ ref: REF, tierId: ID, maxHp: HP });
+
+export const stakesPreviewShape: Guard<StakesPreview> = object({
+  tripId: ID,
+  encountersSurvived: ENCOUNTER,
+  decisionOpen: boolean(),
+  decisionFor: nullable(integer({ min: 1, max: 1_000_000 })),
+  unbankedCoin: object({ total: COIN, byEncounter: array(object({ index: integer({ min: 1, max: 1_000_000 }), coin: COIN }), { maxLength: MAX_ENCOUNTERS_SHOWN }) }),
+  bankNow: object({
+    encounterCoin: COIN,
+    deliveryBonus: COIN,
+    total: COIN,
+    forecast: object({ balance: COIN, cap: COIN, room: COIN, prospectiveEarn: COIN, wouldCredit: COIN, wouldDiscard: COIN, atCap: boolean() }),
+  }),
+  units: array(
+    object({ ...unitRef, hp: HP, maxHp: HP, damage: HP, alive: boolean(), diedAtEncounter: nullable(ENCOUNTER), mergeLevelOnDeath: LEVEL }),
+    LIST,
+  ),
+  ifOverrun: object({
+    coinLost: COIN,
+    unitsLostOutright: array(object({ ...unitRef, hp: HP }), LIST),
+    unitsDeMergedNotDestroyed: array(object({ ...unitRef, mergeLevelAfter: LEVEL }), LIST),
+  }),
+  traps: object({ remaining: array(trapRef, LIST), spent: array(trapRef, LIST) }),
+  fences: object({ intact: array(fenceIntact, LIST), destroyed: array(fenceDestroyed, LIST) }),
+  nextEncounter: object({
+    index: integer({ min: 1, max: 1_000_000 }),
+    reward: COIN,
+    bankTotalIfSurvived: COIN,
+    difficulty: object({ escalationApplied: SIGNED, risePerEncounter: SIGNED, harderThanThisEncounter: boolean() }),
+    partyArrivesFresh: boolean(),
+  }),
+  lastOpponent: nullable(
+    object({
+      encounterIndex: ENCOUNTER,
+      reputation: object({ rating: optional(SIGNED), gapFromCaravan: optional(SIGNED), gapBeyondBand: optional(SIGNED), sandbagEarnMultiplier: optional(integer({ min: 0, max: 1_000_000 })) }),
+    }),
+  ),
+});
+
+export const pushResultShape: Guard<PushResult> = object({ tripId: ID, pushedPast: ENCOUNTER, nextEncounter: ENCOUNTER, replayed: boolean() });
+
+export const bankResultShape: Guard<BankResult> = object({
+  tripId: ID,
+  encountersSurvived: ENCOUNTER,
+  requested: COIN,
+  credited: COIN,
+  discarded: COIN,
+  balanceAfter: nullable(COIN),
+  restored: restoredShape,
+  replayed: boolean(),
+});

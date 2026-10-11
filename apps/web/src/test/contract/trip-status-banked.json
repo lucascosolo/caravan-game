@@ -1,0 +1,154 @@
+{
+  "route": "GET /me/caravans/:id/trip",
+  "status": 200,
+  "body": {
+    "caravan": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "state": "in_town"
+    },
+    "cap": {
+      "available": 2,
+      "cap": 3,
+      "regenMs": 1200000,
+      "nextRegenAtMs": 1790000060000,
+      "fullAtMs": 1790000060000,
+      "gate": "time"
+    },
+    "trip": {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "manifestId": "00000000-0000-4000-8000-000000000003",
+      "startedAt": "2026-10-11T12:00:00.000Z",
+      "endedAt": "2026-10-11T12:00:01.000Z",
+      "endReason": "banked",
+      "phase": "ended",
+      "encountersResolved": 2,
+      "currentEncounter": null,
+      "job": null,
+      "decisionFor": null,
+      "unbankedCoin": 0,
+      "encounters": [
+        {
+          "index": 1,
+          "outcome": "caravan_held",
+          "depth": 512,
+          "deaths": [],
+          "coinAccrued": 400,
+          "decision": "pushed",
+          "result": {
+            "jobId": "encounter:00000000-0000-4000-8000-000000000002:1",
+            "unitsKilled": [],
+            "unitsDamaged": [
+              {
+                "ref": "00000000-0000-4000-8000-000000000004",
+                "typeId": "desert.dust_rider",
+                "mergeLevel": 1,
+                "hpBefore": 620,
+                "hpAfter": 470,
+                "maxHp": 620
+              },
+              {
+                "ref": "00000000-0000-4000-8000-000000000005",
+                "typeId": "desert.dust_rider",
+                "mergeLevel": 1,
+                "hpBefore": 620,
+                "hpAfter": 470,
+                "maxHp": 620
+              }
+            ],
+            "unitsUnhurt": [],
+            "trapsSpent": [
+              {
+                "ref": "t0",
+                "typeId": "trap.spike_pit"
+              }
+            ],
+            "trapsUnfired": [],
+            "fencesBroken": [
+              {
+                "ref": "f0",
+                "tierId": "fence.brush_pile",
+                "maxHp": 300
+              }
+            ],
+            "fencesDamaged": []
+          }
+        },
+        {
+          "index": 2,
+          "outcome": "caravan_held",
+          "depth": 512,
+          "deaths": [],
+          "coinAccrued": 500,
+          "decision": "banked",
+          "result": {
+            "jobId": "encounter:00000000-0000-4000-8000-000000000002:2",
+            "unitsKilled": [],
+            "unitsDamaged": [
+              {
+                "ref": "00000000-0000-4000-8000-000000000004",
+                "typeId": "desert.dust_rider",
+                "mergeLevel": 1,
+                "hpBefore": 470,
+                "hpAfter": 320,
+                "maxHp": 620
+              },
+              {
+                "ref": "00000000-0000-4000-8000-000000000005",
+                "typeId": "desert.dust_rider",
+                "mergeLevel": 1,
+                "hpBefore": 470,
+                "hpAfter": 320,
+                "maxHp": 620
+              }
+            ],
+            "unitsUnhurt": [],
+            "trapsSpent": [],
+            "trapsUnfired": [],
+            "fencesBroken": [],
+            "fencesDamaged": []
+          }
+        }
+      ],
+      "ending": {
+        "kind": "banked",
+        "encountersSurvived": 2,
+        "unbankedCoin": 900,
+        "deliveryBonus": 500,
+        "requested": 1400,
+        "credited": 1400,
+        "discarded": 0,
+        "restored": {
+          "unitsHealed": [
+            {
+              "ref": "00000000-0000-4000-8000-000000000004",
+              "maxHp": 620,
+              "typeId": "desert.dust_rider",
+              "hpAtBank": 320,
+              "mergeLevel": 1
+            },
+            {
+              "ref": "00000000-0000-4000-8000-000000000005",
+              "maxHp": 620,
+              "typeId": "desert.dust_rider",
+              "hpAtBank": 320,
+              "mergeLevel": 1
+            }
+          ],
+          "deMergePending": [],
+          "trapsRestocked": 1,
+          "fenceSegmentsRebuilt": 1
+        }
+      }
+    },
+    "rules": {
+      "tripsPerHourCap": 3,
+      "tripCapRegenMs": 1200000,
+      "tripCapGate": "time",
+      "noRepairBetweenEncounters": true,
+      "restoreOnTripEnd": "full_on_bank_none_on_overrun",
+      "bankOfferedOnlyAfterSurviving": true,
+      "safetyBonusForPushing": false
+    },
+    "nowMs": 1790000000000
+  }
+}

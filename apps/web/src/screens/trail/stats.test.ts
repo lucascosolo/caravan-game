@@ -1,4 +1,4 @@
-import { getUnitType, mergeStatMult, scaleInt } from "@caravan/content";
+import { abilityDisplay, getUnitType, mergeStatMult, scaleInt } from "@caravan/content";
 import { describe, expect, it } from "vitest";
 import { survivorsManifest } from "../../test/circleFixtures.ts";
 import { fixtureScoutFor } from "./scoutFixture.ts";
@@ -29,5 +29,17 @@ describe("stat cards: ratings never merge-scale; HP does (chunk 03 QA B1, chunk 
     expect(card.defense).toBe(type.defense);
     expect(card.maxHp).toBe(merged.hp);
     expect(card.maxHp).toBe(scaleInt(type.hp, mergeStatMult(2)));
+  });
+
+  it("the posted unit's card carries content's display-ready ability numbers (chunk 12 QA S5), the same the scout view sends", () => {
+    for (const u of survivorsManifest().units) {
+      const t = getUnitType(u.typeId)!;
+      const d = abilityDisplay(t.ability, t.attackRange);
+      const lines = defenderCard(u)!.ability.lines.map((l) => `${l.label}: ${l.value}`);
+      expect(lines).toContain(`First use: after ${d.firstUseSeconds} s`);
+      if (d.reachCells !== null) expect(lines).toContain(`Reach: ${d.reachCells} cells`);
+      if (d.healPercent !== null) expect(lines.join("\n")).toContain("never above the HP the unit started the fight with");
+      if (d.fenceHitCapPercent !== null) expect(lines.join("\n")).toContain(`${d.fenceHitCapPercent}% of a segment's max HP per hit`);
+    }
   });
 });

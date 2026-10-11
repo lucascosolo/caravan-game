@@ -8,6 +8,7 @@ import { SessionProvider } from "../../auth/session.tsx";
 import type { IsoCanvasProps } from "../../iso/index.ts";
 import { survivorsManifest } from "../../test/circleFixtures.ts";
 import { fixtureCandidate } from "./scoutFixture.ts";
+import { statusArranging, statusPacked } from "../../test/tripFixtures.ts";
 import { TrailScreen } from "./TrailScreen.tsx";
 
 vi.mock("../../iso/index.ts", async () => {
@@ -94,6 +95,7 @@ describe("TrailScreen — search, scout three candidates, reroll gate, choose, a
     const chooseCalls: unknown[] = [];
     const fetchImpl = fetchFor({
       "GET /me": () => ({ status: 200, body: { account: { id: "acc", username: "dev" }, caravans: [{ id: CARAVAN, name: "x", region_id: "desert", units: [] }] } }),
+      [`GET /me/caravans/${CARAVAN}/trip`]: () => ({ status: 200, body: statusArranging(1) }),
       [`GET /caravans/${CARAVAN}/manifest`]: () => ({ status: 200, body: manifestBody }),
       [`GET /me/caravans/${CARAVAN}/encounters/1/candidates`]: () => (menu ? { status: 200, body: { menu } } : { status: 404, body: { error: "no_search", message: "no candidates have been searched for encounter 1" } }),
       [`POST /me/caravans/${CARAVAN}/encounters/1/search`]: () => {
@@ -144,11 +146,12 @@ describe("TrailScreen — search, scout three candidates, reroll gate, choose, a
     expect(screen.getByTestId("iso-canvas").getAttribute("data-attackers")).toBe("5");
   });
 
-  it("surfaces a refused reroll exactly (409 reroll_cooldown with availableAtMs) and the no-trip state", async () => {
+  it("surfaces a refused reroll exactly (409 reroll_cooldown with availableAtMs)", async () => {
     const user = userEvent.setup();
     const menu = menuOf(null, Date.now() - 1000);
     const fetchImpl = fetchFor({
       "GET /me": () => ({ status: 200, body: { account: { id: "acc", username: "dev" }, caravans: [{ id: CARAVAN, name: "x", region_id: "desert", units: [] }] } }),
+      [`GET /me/caravans/${CARAVAN}/trip`]: () => ({ status: 200, body: statusArranging(1) }),
       [`GET /caravans/${CARAVAN}/manifest`]: () => ({ status: 200, body: manifestBody }),
       [`GET /me/caravans/${CARAVAN}/encounters/1/candidates`]: () => ({ status: 200, body: { menu } }),
       [`POST /me/caravans/${CARAVAN}/encounters/1/search`]: () => ({
@@ -166,11 +169,11 @@ describe("TrailScreen — search, scout three candidates, reroll gate, choose, a
     expect(refused).toHaveTextContent(/The next free search opens in 4[12]s\./);
   });
 
-  it("packed but no open trip is a state, not an error", async () => {
+  it("packed but not ridden out (no open trip) is a state, not an error", async () => {
     const fetchImpl = fetchFor({
       "GET /me": () => ({ status: 200, body: { account: { id: "acc", username: "dev" }, caravans: [{ id: CARAVAN, name: "x", region_id: "desert", units: [] }] } }),
+      [`GET /me/caravans/${CARAVAN}/trip`]: () => ({ status: 200, body: statusPacked() }),
       [`GET /caravans/${CARAVAN}/manifest`]: () => ({ status: 200, body: manifestBody }),
-      [`GET /me/caravans/${CARAVAN}/encounters/1/candidates`]: () => ({ status: 404, body: { error: "no_trip", message: "this caravan is in town; nothing to search for" } }),
     });
     mount(fetchImpl);
     expect(await screen.findByTestId("trail-no-trip")).toHaveTextContent("Packed, but not yet on the trail.");
@@ -180,6 +183,7 @@ describe("TrailScreen — search, scout three candidates, reroll gate, choose, a
   it("a malformed menu is bad_payload with Retry, not a crash", async () => {
     const fetchImpl = fetchFor({
       "GET /me": () => ({ status: 200, body: { account: { id: "acc", username: "dev" }, caravans: [{ id: CARAVAN, name: "x", region_id: "desert", units: [] }] } }),
+      [`GET /me/caravans/${CARAVAN}/trip`]: () => ({ status: 200, body: statusArranging(1) }),
       [`GET /caravans/${CARAVAN}/manifest`]: () => ({ status: 200, body: manifestBody }),
       [`GET /me/caravans/${CARAVAN}/encounters/1/candidates`]: () => ({ status: 200, body: { menu: { tripId: "t1", candidates: "nope" } } }),
     });
@@ -198,6 +202,7 @@ describe("TrailScreen — search, scout three candidates, reroll gate, choose, a
       const menu = { ...menuOf(null, serverNow + 60_000), searchedAtMs: serverNow, reroll: { gate: "time" as const, cooldownSeconds: 60, availableAtMs: serverNow + 60_000, available: false } };
       const fetchImpl = fetchFor({
         "GET /me": () => ({ status: 200, body: { account: { id: "acc", username: "dev" }, caravans: [{ id: CARAVAN, name: "x", region_id: "desert", units: [] }] } }),
+        [`GET /me/caravans/${CARAVAN}/trip`]: () => ({ status: 200, body: statusArranging(1) }),
         [`GET /caravans/${CARAVAN}/manifest`]: () => ({ status: 200, body: manifestBody }),
         [`GET /me/caravans/${CARAVAN}/encounters/1/candidates`]: () => ({ status: 200, body: { menu } }),
       });
@@ -224,5 +229,9 @@ describe("TrailScreen — search, scout three candidates, reroll gate, choose, a
     // A menu stored before S1 has no damagePerHitMult: the guard fills content's multiplier for that level.
     const parsed = expectShape(menuShape, bad((u) => { const { damagePerHitMult: _drop, ...rest } = u; return rest; }));
     expect(parsed.menu.candidates[0]!.scout.units[0]!.damagePerHitMult).toBe(ok.candidates[0]!.scout.units[0]!.damagePerHitMult);
+    // A menu stored before chunk 12 QA S5 has no abilityDisplay: the guard fills content's own for that ability.
+    const noDisplay = expectShape(menuShape, bad((u) => { const { abilityDisplay: _drop, ...rest } = u; return rest; }));
+    expect(noDisplay.menu.candidates[0]!.scout.units[0]!.abilityDisplay).toEqual(ok.candidates[0]!.scout.units[0]!.abilityDisplay);
+    expect(() => expectShape(menuShape, bad((u) => ({ ...u, abilityDisplay: { ...(u["abilityDisplay"] as object), firstUseSeconds: 3 } })))).toThrow(/abilityDisplay\.firstUseSeconds/);
   });
 });

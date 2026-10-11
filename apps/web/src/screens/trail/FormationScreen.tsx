@@ -99,6 +99,11 @@ export interface FormationScreenProps {
   readonly scout: ScoutedEncounter;
   /** Autosave debounce; tests pass a large value to keep it out of the way, or a small one to exercise it. */
   readonly autosaveMs?: number;
+  /**
+   * Chunk 23: the commit went through the trip loop (`POST /me/caravans/:id/trip/encounters/:n/commit`:
+   * frozen AND queued for resolution); the Trail moves on to the fight.
+   */
+  readonly onCommitted?: () => void;
 }
 
 interface Drag {
@@ -109,7 +114,7 @@ interface Drag {
 
 type Focus = "notice" | "issues" | null;
 
-export function FormationScreen({ api, caravanId, trip, encounterIndex, initial, scout, autosaveMs = AUTOSAVE_DEBOUNCE_MS }: FormationScreenProps): JSX.Element {
+export function FormationScreen({ api, caravanId, trip, encounterIndex, initial, scout, autosaveMs = AUTOSAVE_DEBOUNCE_MS, onCommitted }: FormationScreenProps): JSX.Element {
   const manifest = trip.survivors;
   const draftKey = `${caravanId}:${encounterIndex}:${scout.candidateId}`;
   const [formation, setFormationRaw] = useState<Formation>(() => (initial?.committedAt ? initial.formation : (localDrafts.get(draftKey) ?? initial?.formation ?? clearAll())));
@@ -491,7 +496,10 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
         setSaved(res);
         setFormation(res.formation);
       }
-      const res = (await api.commitFormation(caravanId, encounterIndex)).formation;
+      // Chunk 23: commit through the trip loop, which freezes the circle (chunk 07) and queues
+      // its resolution against the chosen, scouted party in one transaction; then re-read it.
+      await api.commitEncounter(caravanId, encounterIndex);
+      const res = (await api.formation(caravanId, encounterIndex)).formation;
       setSaved(res);
       setFormation(res.formation);
       localDrafts.delete(draftKey);
@@ -501,6 +509,7 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
       setSelectedRef(null);
       setStatus(null);
       setFocusAfter("notice");
+      onCommitted?.();
     } catch (err) {
       setConfirming(false);
       fail(err);

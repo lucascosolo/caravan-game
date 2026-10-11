@@ -6,19 +6,26 @@
  * cap forecast for the trip, then a real-modal confirm that packs the manifest
  * (`POST /caravans/:id/manifest`). It is not the merge board and not the wagon circle.
  *
- * The flow ends at "packed, waiting to ride out": opening the trip itself is chunk 15's.
+ * Chunk 23: the confirm is "Pack and ride out": the manifest is packed (`POST …/manifest`)
+ * and the trip started (`POST /me/caravans/:id/trip/start`, one trip-cap use) in one step. The
+ * dialog quotes the trip cap from the server's status read. If the start is refused (no trip
+ * available yet, or any other refusal) the caravan stays packed and the screen becomes the
+ * "Packed, waiting to ride out" panel (RideOutPanel) with the server's reason and countdown.
  * The server's packer decides legality; its issue list is shown exactly.
  */
 import { getFenceTier, getTrapType } from "@caravan/content";
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, type Api } from "../../api/client.ts";
+import type { TripStatusView } from "../../api/tripTypes.ts";
 import type { EconomyView, IssueView, ManifestView } from "../../api/types.ts";
+import { formatSeconds } from "../../shell/countdown.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { humanizeIssue } from "../../shell/issues.ts";
 import { Modal } from "../../shell/Modal.tsx";
 import { STRINGS } from "../../strings.ts";
 import type { RosterUnit } from "./board.ts";
 import { unitName } from "./BoardPanel.tsx";
+import { RideOutPanel, TripCapLine } from "./RideOutPanel.tsx";
 import {
   EMPTY_OUTFIT,
   FENCE_BUDGET,
@@ -44,6 +51,8 @@ export interface OutfitScreenProps {
   readonly onBack: () => void;
   /** The manifest is packed: the town re-reads its state. */
   readonly onPacked: (manifest: ManifestView) => void;
+  /** The trip started (chunk 23): the caller moves to the Trail. */
+  readonly onRodeOut: (replayed: boolean) => void;
 }
 
 interface Catalog {
@@ -51,6 +60,8 @@ interface Catalog {
   readonly fences: readonly string[];
   readonly forecast: EconomyView | null;
   readonly shortestTrip: number;
+  /** The trip cap as of this read (null if it could not be read; the server still decides). */
+  readonly trip: TripStatusView | null;
 }
 
 const asApiError = (err: unknown): ApiError => (err instanceof ApiError ? err : new ApiError(0, "unknown", STRINGS.app.genericError));
@@ -68,7 +79,7 @@ function MeterBar({ m, label, testId }: { m: Meter; label: string; testId: strin
   );
 }
 
-export function OutfitScreen({ api, caravanId, units, onBack, onPacked }: OutfitScreenProps): JSX.Element {
+export function OutfitScreen({ api, caravanId, units, onBack, onPacked, onRodeOut }: OutfitScreenProps): JSX.Element {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [loadError, setLoadError] = useState<ApiError | null>(null);
   const [draft, setDraft] = useState<OutfitDraft>(EMPTY_OUTFIT);
@@ -77,21 +88,23 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked }: Outfit
   const [error, setError] = useState<ApiError | null>(null);
   const [issues, setIssues] = useState<readonly IssueView[]>([]);
   const [packed, setPacked] = useState<ManifestView | null>(null);
+  const [startError, setStartError] = useState<ApiError | null>(null);
+  const [packedStatus, setPackedStatus] = useState<TripStatusView | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     setLoadError(null);
     setCatalog(null);
     try {
-      const [unlocks, economy] = await Promise.all([api.unlocks(), api.economy()]);
+      const [unlocks, economy, trip] = await Promise.all([api.unlocks(), api.economy(), api.tripStatus(caravanId).catch(() => null)]);
       const reached = unlocks.webs.filter((w) => w.pool === "trap").flatMap((w) => w.nodes.filter((n) => n.reached).map((n) => n.id));
       // The forecast is for the shortest trip: one encounter survived, then banked — both the server's numbers.
       const shortestTrip = (economy.earn.encounterSchedule[0] ?? 0) + economy.earn.bankedTripBonus;
       const forecast = await api.economy(shortestTrip);
-      setCatalog({ traps: reached.filter((id) => !!getTrapType(id)), fences: reached.filter((id) => !!getFenceTier(id)), forecast, shortestTrip });
+      setCatalog({ traps: reached.filter((id) => !!getTrapType(id)), fences: reached.filter((id) => !!getFenceTier(id)), forecast, shortestTrip, trip });
     } catch (err) {
       setLoadError(asApiError(err));
     }
-  }, [api]);
+  }, [api, caravanId]);
 
   useEffect(() => {
     void load();
@@ -103,19 +116,32 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked }: Outfit
     setBusy(true);
     setError(null);
     setIssues([]);
+    let manifest: ManifestView;
     try {
-      const res = await api.packManifest(caravanId, packRequest(draft));
-      setPacked(res.manifest);
-      setConfirming(false);
-      onPacked(res.manifest);
+      manifest = (await api.packManifest(caravanId, packRequest(draft))).manifest;
     } catch (err) {
       const e = asApiError(err);
       setError(e);
       setIssues(e.issues);
       setConfirming(false);
-    } finally {
       setBusy(false);
+      return;
     }
+    onPacked(manifest);
+    // Packed: now ride out. A refusal leaves the caravan packed, waiting, with the server's reason.
+    try {
+      await api.startTrip(caravanId);
+      setConfirming(false);
+      setBusy(false);
+      onRodeOut(false);
+      return;
+    } catch (err) {
+      setStartError(asApiError(err));
+    }
+    setPackedStatus(await api.tripStatus(caravanId).catch(() => catalog?.trip ?? null));
+    setPacked(manifest);
+    setConfirming(false);
+    setBusy(false);
   };
 
   const head = (
@@ -138,6 +164,11 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked }: Outfit
         </p>
         <p data-testid="packed-summary">{T.packedSummary(packed.packed.units.length, packed.packed.traps.length, packed.packed.fences.length)}</p>
         <p className="hint">{T.packedBody}</p>
+        {packedStatus ? (
+          <RideOutPanel api={api} caravanId={caravanId} status={packedStatus} initialError={startError} onStarted={(_s, replayed) => onRodeOut(replayed)} />
+        ) : (
+          startError && <ErrorBox error={startError} />
+        )}
       </section>
     );
   }
@@ -261,6 +292,9 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked }: Outfit
         </>
       )}
 
+      <h2>{STRINGS.trip.rideOut}</h2>
+      {catalog.trip ? <TripCapLine status={catalog.trip} /> : <p className="hint">{T.capLoadFailed}</p>}
+
       <h2>{T.coinHeading}</h2>
       {overflow && (
         <>
@@ -316,6 +350,13 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked }: Outfit
             <li>{T.confirmTraps(draft.traps.length)}</li>
             <li>{T.confirmFence(draft.fence?.count ?? 0, fenceTierName)}</li>
           </ul>
+          {catalog.trip && (
+            <p data-testid="outfit-confirm-trip">
+              {catalog.trip.cap.available > 0
+                ? T.confirmTrip(catalog.trip.cap.available, catalog.trip.cap.cap)
+                : T.confirmNoTrip(formatSeconds(catalog.trip.cap.nextRegenAtMs === null ? 0 : Math.max(0, catalog.trip.cap.nextRegenAtMs - catalog.trip.nowMs) / 1000))}
+            </p>
+          )}
           {(meters.anyOver || meters.noUnits) && <p className="error">{T.confirmOverCaps}</p>}
         </Modal>
       )}

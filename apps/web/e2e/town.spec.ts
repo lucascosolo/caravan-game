@@ -200,14 +200,15 @@ test("claim a refugee, merge by drag with confirm, set up the party, outfit and 
   await expect(page.getByTestId("outfit-forecast")).toContainText("Your store has room for");
   await fitsPortrait(page);
   await page.getByTestId("outfit-ride-out").click();
-  const ride = page.getByRole("dialog", { name: "Pack the caravan with this manifest?" });
+  const ride = page.getByRole("dialog", { name: "Pack the caravan and ride out?" });
   await expect(ride).toContainText("1 living unit");
+  await expect(ride).toContainText("Riding out uses 1 of your 3 available trips (of 3).");
   await ride.getByTestId("outfit-confirm").click();
-  await expect(page.getByTestId("outfit-packed")).toContainText("Packed, waiting to ride out.");
-  await expect(page.getByTestId("packed-summary")).toHaveText("1 unit · 1 trap · 20 fence segments");
-  await page.getByTestId("outfit-back").click();
-  await expect(page.getByTestId("caravan-state")).toHaveAttribute("data-state", "packed");
-  await expect(page.getByTestId("caravan-state")).toContainText("Packed, waiting to ride out.");
+  // Chunk 23: packed AND ridden out — the Trail opens on the first encounter's search.
+  await expect(page.getByTestId("trail-unsearched")).toBeVisible();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "Town" }).click();
+  await expect(page.getByTestId("caravan-state")).toHaveAttribute("data-state", "on_trip");
+  await expect(page.getByTestId("trip-cap")).toContainText("Trips available: 2 of 3.");
   const meNow = (await (await request.get("/api/me", { headers: auth })).json()) as { account: { id: string }; caravans: { id: string; units: { id: string }[] }[] };
   const caravanId = meNow.caravans[0]!.id;
   const manifest = await request.get(`/api/caravans/${encodeURIComponent(caravanId)}/manifest`, { headers: auth });
@@ -221,7 +222,12 @@ test("claim a refugee, merge by drag with confirm, set up the party, outfit and 
   for (const path of ["merge/preview", "merge"]) {
     const refused = await request.post(`/api/me/caravans/${caravanId}/${path}`, { headers: auth, data: { instanceIds: [packedRef, fresh2] } });
     expect(refused.status()).toBe(409);
-    expect(await refused.json()).toMatchObject({ error: "unit_packed", packed: [packedRef] });
+    // Chunk 23: the outfit now rides out right after packing, so the caravan is on a trip and the
+    // state guard answers first; the state-independent `unit_packed` refusal (QA-17 B1) is pinned
+    // server-side in test/economy.test.ts ("B1", both states).
+    const body = (await refused.json()) as { error: string; packed?: string[] };
+    expect(["caravan_on_trip", "unit_packed"]).toContain(body.error);
+    if (body.error === "unit_packed") expect(body.packed).toEqual([packedRef]);
   }
 
   // ── QA-17 D1: the layout is kept per account + caravan, and signing out forgets it ──
