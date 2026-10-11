@@ -588,6 +588,12 @@ ladder, web, and collection from zero with a different roster while keeping ever
 account-level. Guardrail 5 is what makes this cheap; verify it was honored before
 starting.
 
+*Chunk 09 QA D1:* the standing party's living-type access check is today the **union**
+over the account's caravans (`partyAccessCheck` in `apps/server/src/party/service.ts`) —
+exact with one caravan, an over-approximation with several same-region caravans. When
+this lands, tighten it to `access(instance.caravanId)` per unit, which also enforces the
+"one caravan's roster at a time" rule above.
+
 ## 47. Prestige for maxed units — **M**, after 41
 
 "Reset with a permanent upgrade." The only design that survives guardrail 2 is a

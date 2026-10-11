@@ -3,7 +3,7 @@
  * conversion, defense ratings (never offense), and — the guardrail — no elevation, terrain
  * or scenery can be carried, in the type or in the data.
  */
-import { FIXED_POINT_SCALE, getUnitType, mergeStatMult, scaleInt } from "@caravan/content";
+import { FIXED_POINT_SCALE, TUNABLES, getUnitType, mergeStatMult, scaleInt } from "@caravan/content";
 import { describe, expect, it } from "vitest";
 import {
   BATTLEFIELD_VERSION,
@@ -15,8 +15,12 @@ import {
   canonicalJson,
   cellCenter,
   cellKey,
+  entryBand,
   isAnchorCell,
+  packManifest,
+  resolveParty,
   ringSegment,
+  scoutParty,
   toBattlefield,
   type Battlefield,
   type BattlefieldPost,
@@ -24,7 +28,7 @@ import {
   type FixedPoint,
   type Formation,
 } from "../src/index.js";
-import { arrange, fullPack } from "./fixtures.js";
+import { ALLOW_ALL, arrange, fullPack } from "./fixtures.js";
 
 describe("toBattlefield", () => {
   const m = fullPack();
@@ -64,16 +68,43 @@ describe("toBattlefield", () => {
     expect(() => assertBattlefield(JSON.parse(JSON.stringify(bf)))).not.toThrow();
   });
 
-  it("posted units carry post, aggro radius, leash and the DEFENSE rating scaled by merge level", () => {
+  it("posted units carry post, aggro radius, leash and the UNSCALED DEFENSE rating (merge never scales ratings)", () => {
     const coyote = b.posts.find((p) => p.ref === "u-coyote")!;
     const type = getUnitType("desert.coyote_pack")!;
     expect(coyote.mergeLevel).toBe(3);
-    expect(coyote.defense).toBe(scaleInt(type.defense, mergeStatMult(3)));
+    expect(coyote.defense).toBe(type.defense);
     expect(coyote.aggroRadius).toBe(type.aggroRadius);
     expect(coyote.leashDistance).toBe(type.leashDistance);
     expect(coyote.hp).toBe(coyote.maxHp);
     expect((coyote as unknown as Record<string, unknown>)["offense"]).toBeUndefined();
     expect(Object.keys(coyote)).not.toContain("offense");
+  });
+
+  it("chunk 03 QA B1 / chunk 09 QA X1: at EVERY merge level the battlefield rating equals the unscaled type rating; only HP scales", () => {
+    for (let level = TUNABLES.MERGE_LEVEL_MIN; level <= TUNABLES.MERGE_LEVEL_MAX; level++) {
+      const res = packManifest(
+        { units: [{ instanceId: "u-x", typeId: "desert.coyote_pack", mergeLevel: level }], traps: [], fence: { tierId: "fence.brush_pile", count: 1 } },
+        ALLOW_ALL,
+      );
+      if (!res.ok) throw new Error(JSON.stringify(res.issues));
+      const bf = toBattlefield(res.value, arrange(res.value));
+      const post = bf.posts[0]!;
+      const type = getUnitType("desert.coyote_pack")!;
+      expect(post.mergeLevel).toBe(level);
+      expect(post.defense).toBe(type.defense);
+      expect(post.maxHp).toBe(scaleInt(type.hp, mergeStatMult(level)));
+      expect(Object.keys(post)).not.toContain("offense");
+    }
+    // The scouting view's offense (the raiding side) is likewise the unscaled rating.
+    const party = resolveParty(
+      { v: 1, units: [{ ref: "r", stance: "nearest", edge: "north", cell: entryBand("north")[0]! }], siege: [] },
+      [{ instanceId: "r", typeId: "desert.coyote_pack", mergeLevel: 5 }],
+      ALLOW_ALL,
+    );
+    if (!party.ok) throw new Error(JSON.stringify(party.issues));
+    const scouted = scoutParty(party.value).units[0]!;
+    expect(scouted.offense).toBe(getUnitType("desert.coyote_pack")!.offense);
+    expect(scouted.defense).toBe(getUnitType("desert.coyote_pack")!.defense);
   });
 
   it("lists all four entry edges with their bands, in a fixed order", () => {

@@ -139,3 +139,17 @@ checked against.
   exact by contract) and/or shorter keys, and measure the full-length corpus before
   freezing the format. The interpolation contract the renderer must follow is in
   `packages/resolver/src/log.ts` (leg-parametric movement; `hold` is load-bearing).
+## Notes from chunk 09 QA
+
+- **N3 — the served-party event must name the party version that fought.** The party
+  snapshot in a job's input (`snapshotStandingParty`, chunk 09) carries `partyId` and
+  `hash` (sha256 of the canonical stored config) alongside `savedAt`. The
+  `party_served_as_encounter` payload this chunk writes **must carry all three**
+  (`partyId`, `partyHash`, `partySavedAt`), copied from the job's snapshot and never
+  re-read from the live row, so a feed entry and its replay name exactly which party
+  version fought even after the owner has edited the party. Chunk 09's feed reads
+  `partySavedAt` today and will read the other two once they exist.
+- **Naming (X2):** the Coin an overrun caravan loses is credited through
+  `coin_transferred_to_party_owner` (renamed from `coin_transferred_to_defender`: the
+  receiver is the attacking party's owner, GUARDRAILS §0). The feed sums it per
+  causation; write it under the same causation id as `party_served_as_encounter`.

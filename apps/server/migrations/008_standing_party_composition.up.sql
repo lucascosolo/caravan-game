@@ -20,9 +20,16 @@ ALTER TABLE standing_party DROP CONSTRAINT standing_party_pkey;
 ALTER TABLE standing_party
   ADD COLUMN id          uuid     NOT NULL DEFAULT gen_random_uuid(),
   ADD COLUMN slot        smallint NOT NULL DEFAULT 0,
-  ADD COLUMN composition jsonb    NOT NULL DEFAULT '{"siege":[],"units":[],"v":1}'::jsonb;
+  ADD COLUMN composition jsonb    NOT NULL DEFAULT '{"siege":[],"units":[],"v":1}'::jsonb,
+  -- Chunk 09 QA S4: how many times the composition has changed. The save event's causation
+  -- counter, kept as a column (not count(*) over the ledger) so it is O(1) and cannot drift
+  -- from what the ledger holds. Moves by exactly 1 with each composition change (trigger).
+  ADD COLUMN save_seq    integer  NOT NULL DEFAULT 0;
 ALTER TABLE standing_party ADD PRIMARY KEY (id);
 ALTER TABLE standing_party ADD CONSTRAINT standing_party_slot_nonneg CHECK (slot >= 0);
+ALTER TABLE standing_party ADD CONSTRAINT standing_party_save_seq_nonneg CHECK (save_seq >= 0);
+-- (account_id, slot) is the per-account lookup key; its unique index also serves every
+-- account_id lookup, so there is no separate account index (chunk 09 QA N4).
 ALTER TABLE standing_party ADD CONSTRAINT standing_party_one_per_slot UNIQUE (account_id, slot);
 ALTER TABLE standing_party ADD CONSTRAINT standing_party_composition_shape CHECK (
   -- coalesce: a missing key would make jsonb_typeof NULL and the CHECK vacuously pass.
@@ -31,11 +38,11 @@ ALTER TABLE standing_party ADD CONSTRAINT standing_party_composition_shape CHECK
   AND coalesce(jsonb_typeof(composition -> 'units'), '') = 'array'
   AND coalesce(jsonb_typeof(composition -> 'siege'), '') = 'array'
 );
-CREATE INDEX standing_party_account_idx ON standing_party (account_id);
 
 -- Identity is immutable; `updated_at` is the "which version was served" stamp (the job
 -- snapshot records it as savedAt), so it moves exactly when the composition does and is
--- otherwise left as the caller set it.
+-- otherwise left as the caller set it. `save_seq` moves by exactly one with the
+-- composition and is otherwise frozen, so the save counter and the ledger cannot diverge.
 CREATE FUNCTION standing_party_guard_update() RETURNS trigger AS $$
 BEGIN
   IF NEW.id <> OLD.id OR NEW.account_id <> OLD.account_id OR NEW.slot <> OLD.slot OR NEW.created_at <> OLD.created_at THEN
@@ -43,6 +50,12 @@ BEGIN
   END IF;
   IF NEW.composition IS DISTINCT FROM OLD.composition THEN
     NEW.updated_at := now();
+    IF NEW.save_seq <> OLD.save_seq + 1 THEN
+      RAISE EXCEPTION 'standing_party.save_seq must advance by exactly 1 with the composition (party %)', OLD.id
+        USING ERRCODE = 'check_violation';
+    END IF;
+  ELSIF NEW.save_seq <> OLD.save_seq THEN
+    RAISE EXCEPTION 'standing_party.save_seq moves only with the composition (party %)', OLD.id USING ERRCODE = 'check_violation';
   END IF;
   RETURN NEW;
 END

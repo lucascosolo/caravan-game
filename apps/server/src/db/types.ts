@@ -121,6 +121,8 @@ export interface StandingPartyRow {
   slot: number;
   /** @caravan/circle PartyConfig in canonical form (the owner's choices; no stats, no HP). */
   composition: Record<string, unknown>;
+  /** Chunk 09 QA S4: composition changes so far; the save event's causation counter. */
+  save_seq: number;
   created_at: Date;
   /** Moves exactly when `composition` does (trigger); the job snapshot records it as `savedAt`. */
   updated_at: Date;

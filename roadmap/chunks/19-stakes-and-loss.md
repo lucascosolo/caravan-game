@@ -119,6 +119,28 @@ Implementing this backwards would invert the game's central risk decision.
 - **Generous acquisition holds up:** after a worst-case collapse, compute the real Coin
   and time cost to rebuild. Is recovery real in practice, not just in theory?
 
+## Notes from chunk 09 QA
+
+- **S3 — removing an instance the standing party names.** The party stores choices only
+  (instance ids) and is never trimmed; an instance that stops existing makes the party
+  invalid (`unknown_ref`) until edited. Every path that removes an instance must record
+  that. Chunk 16's merge already does: it asks `partyMembership` (409 `unit_in_party`
+  unless the request confirms) and appends an account-scoped
+  `standing_party_invalidated` event via `standingPartyInvalidationDraft(client,
+  accountId, removedRefs, "trip_loss")` under its own causation id, after its DELETE and
+  under the account append lock. **This chunk's per-death de-merge needs nothing** (the
+  party rides the live level), but **`unit_lost_on_wipe` must call the same helper** with
+  the lost instance ids and append the draft alongside its own events, so the owner's
+  feed/ledger explains why their party no longer stands. There is no confirmation step
+  on a loss — the player chose the trip; the event is the notice.
+- **Naming (X2):** the transfer event is `coin_transferred_to_party_owner`
+  (`COIN_TRANSFER_RECIPIENT` above). Write it on the party owner's account, account-
+  scoped, under the same causation id as that resolution's `party_served_as_encounter`,
+  so the chunk 09 feed sums it into `coinEarned`.
+- **Merge multiplier (chunk 03 B1 / chunk 09 X1):** the de-merge penalty changes
+  `merge_level` only. HP and damage output follow from the level; ratings never scaled
+  and never will, so nothing else on the row needs touching.
+
 ## Notes from chunk 04 QA
 
 - **N6 — progression events expose the opponent's rating to the party owner.** Every

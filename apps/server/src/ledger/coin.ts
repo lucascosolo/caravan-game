@@ -15,7 +15,7 @@ import type pg from "pg";
 import { COIN_CREDIT_TYPES, type CoinPayload, type LedgerEventDraft, type LedgerEventType } from "./events.js";
 import { assertAccountAppendLockHeld } from "./ledger.js";
 
-type CoinCreditType = Extract<LedgerEventType, "coin_earned" | "coin_purchased" | "coin_transferred_to_defender">;
+type CoinCreditType = Extract<LedgerEventType, "coin_earned" | "coin_purchased" | "coin_transferred_to_party_owner">;
 
 function assertNonNegInt(name: string, v: number): void {
   if (!Number.isInteger(v) || v < 0) throw new RangeError(`${name} must be a non-negative integer, got ${v}`);

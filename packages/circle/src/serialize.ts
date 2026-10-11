@@ -16,6 +16,7 @@ import { DEFAULT_DEFENSIVE_STANCE, DEFENSIVE_STANCES, FORMATION_VERSION, isDefen
 import { ENTRY_EDGES, isCell, isEntryEdge, isRingSegmentIndex, type Cell, type EntryEdge } from "./lattice.js";
 import { assertManifest, freezeManifest, type Manifest, MANIFEST_VERSION } from "./manifest.js";
 import {
+  MAX_ID_LENGTH,
   PARTY_CONFIG_VERSION,
   PARTY_VERSION,
   TARGETING_STANCES,
@@ -47,9 +48,25 @@ export function canonicalJson(value: Json): string {
 }
 
 export class ParseError extends Error {
-  constructor(message: string) {
-    super(`malformed snapshot: ${message}`);
+  /** The message without the `malformed <kind>:` prefix, so a parser can re-prefix it. */
+  public readonly detail: string;
+  constructor(
+    message: string,
+    public readonly kind: string = "snapshot",
+  ) {
+    super(`malformed ${kind}: ${message}`);
     this.name = "ParseError";
+    this.detail = message;
+  }
+}
+
+/** Re-throw a ParseError raised by the shared helpers under a structure-specific prefix (chunk 09 QA N1). */
+function withParseKind<T>(kind: string, fn: () => T): T {
+  try {
+    return fn();
+  } catch (err) {
+    if (err instanceof ParseError && err.kind !== kind) throw new ParseError(err.detail, kind);
+    throw err;
   }
 }
 
@@ -213,13 +230,25 @@ export function manifestFromJson(raw: unknown): Manifest {
 // normalizeParty), integers only, a version field, STRICT parsing that refuses unknown
 // keys. The stored config and the served snapshot must both byte-compare.
 
+const PARTY = "party";
+
 function expectTargetingStance(v: unknown, where: string): TargetingStance {
-  if (!isTargetingStance(v)) throw new ParseError(`${where} must be one of ${TARGETING_STANCES.join(", ")}`);
+  if (!isTargetingStance(v)) throw new ParseError(`${where} must be one of ${TARGETING_STANCES.join(", ")}`, PARTY);
   return v;
 }
 function expectEdge(v: unknown, where: string): EntryEdge {
-  if (!isEntryEdge(v)) throw new ParseError(`${where} must be one of ${ENTRY_EDGES.join(", ")}`);
+  if (!isEntryEdge(v)) throw new ParseError(`${where} must be one of ${ENTRY_EDGES.join(", ")}`, PARTY);
   return v;
+}
+/**
+ * Chunk 09 QA S1: an id (instance ref, type id) is bounded at the parser, so a hostile
+ * body cannot turn an issue list or an error message into a reflection amplifier. Real
+ * ids are uuids (36) or content ids (< 40). The offending value is never echoed.
+ */
+function expectId(v: unknown, where: string): string {
+  const s = expectString(v, where);
+  if (s.length > MAX_ID_LENGTH) throw new ParseError(`${where} is longer than ${MAX_ID_LENGTH} characters`, PARTY);
+  return s;
 }
 
 export function serializePartyConfig(c: PartyConfig): string {
@@ -227,21 +256,23 @@ export function serializePartyConfig(c: PartyConfig): string {
   return canonicalJson(normalizePartyConfig(c) as unknown as Json);
 }
 
-/** Strict: unknown keys, floats, bad versions, bad enums and off-lattice cells are refused by name. */
+/** Strict: unknown keys, floats, bad versions, bad enums, over-long ids and off-lattice cells are refused by name. */
 export function partyConfigFromJson(raw: unknown): PartyConfig {
-  const o = expectObject(raw, "party", ["v", "units", "siege"]);
-  if (o["v"] !== PARTY_CONFIG_VERSION) throw new ParseError(`party.v must be ${PARTY_CONFIG_VERSION}`);
-  const units = expectArray(o["units"], "party.units").map((u, i) => {
-    const e = expectObject(u, `party.units[${i}]`, ["ref", "stance", "edge", "cell"]);
-    return {
-      ref: expectString(e["ref"], `party.units[${i}].ref`),
-      stance: expectTargetingStance(e["stance"], `party.units[${i}].stance`),
-      edge: expectEdge(e["edge"], `party.units[${i}].edge`),
-      cell: expectCell(e["cell"], `party.units[${i}].cell`),
-    };
+  return withParseKind(PARTY, () => {
+    const o = expectObject(raw, "party", ["v", "units", "siege"]);
+    if (o["v"] !== PARTY_CONFIG_VERSION) throw new ParseError(`party.v must be ${PARTY_CONFIG_VERSION}`, PARTY);
+    const units = expectArray(o["units"], "party.units").map((u, i) => {
+      const e = expectObject(u, `party.units[${i}]`, ["ref", "stance", "edge", "cell"]);
+      return {
+        ref: expectId(e["ref"], `party.units[${i}].ref`),
+        stance: expectTargetingStance(e["stance"], `party.units[${i}].stance`),
+        edge: expectEdge(e["edge"], `party.units[${i}].edge`),
+        cell: expectCell(e["cell"], `party.units[${i}].cell`),
+      };
+    });
+    const siege = expectArray(o["siege"], "party.siege").map((s, i) => expectId(s, `party.siege[${i}]`));
+    return normalizePartyConfig({ v: PARTY_CONFIG_VERSION, units, siege });
   });
-  const siege = expectArray(o["siege"], "party.siege").map((s, i) => expectString(s, `party.siege[${i}]`));
-  return normalizePartyConfig({ v: PARTY_CONFIG_VERSION, units, siege });
 }
 
 export function parsePartyConfig(text: string): PartyConfig {
@@ -249,7 +280,7 @@ export function parsePartyConfig(text: string): PartyConfig {
   try {
     raw = JSON.parse(text);
   } catch (err) {
-    throw new ParseError(`party config is not JSON: ${(err as Error).message}`);
+    throw new ParseError(`party config is not JSON: ${(err as Error).message}`, PARTY);
   }
   return partyConfigFromJson(raw);
 }
@@ -261,29 +292,31 @@ export function serializeParty(p: Party): string {
 
 /** Strict decode of a served snapshot (job input / ledger payload) back into a Party. */
 export function partyFromJson(raw: unknown): Party {
-  const o = expectObject(raw, "party", ["v", "units", "siege"]);
-  if (o["v"] !== PARTY_VERSION) throw new ParseError(`party.v must be ${PARTY_VERSION}`);
-  const units = expectArray(o["units"], "party.units").map((u, i) => {
-    const e = expectObject(u, `party.units[${i}]`, ["ref", "typeId", "mergeLevel", "stance", "edge", "cell"]);
-    return {
-      ref: expectString(e["ref"], `party.units[${i}].ref`),
-      typeId: expectString(e["typeId"], `party.units[${i}].typeId`),
-      mergeLevel: expectInt(e["mergeLevel"], `party.units[${i}].mergeLevel`),
-      stance: expectTargetingStance(e["stance"], `party.units[${i}].stance`),
-      edge: expectEdge(e["edge"], `party.units[${i}].edge`),
-      cell: expectCell(e["cell"], `party.units[${i}].cell`),
-    };
+  return withParseKind(PARTY, () => {
+    const o = expectObject(raw, "party", ["v", "units", "siege"]);
+    if (o["v"] !== PARTY_VERSION) throw new ParseError(`party.v must be ${PARTY_VERSION}`, PARTY);
+    const units = expectArray(o["units"], "party.units").map((u, i) => {
+      const e = expectObject(u, `party.units[${i}]`, ["ref", "typeId", "mergeLevel", "stance", "edge", "cell"]);
+      return {
+        ref: expectId(e["ref"], `party.units[${i}].ref`),
+        typeId: expectId(e["typeId"], `party.units[${i}].typeId`),
+        mergeLevel: expectInt(e["mergeLevel"], `party.units[${i}].mergeLevel`),
+        stance: expectTargetingStance(e["stance"], `party.units[${i}].stance`),
+        edge: expectEdge(e["edge"], `party.units[${i}].edge`),
+        cell: expectCell(e["cell"], `party.units[${i}].cell`),
+      };
+    });
+    const siege = expectArray(o["siege"], "party.siege").map((s, i) => ({
+      typeId: expectId(expectObject(s, `party.siege[${i}]`, ["typeId"])["typeId"], `party.siege[${i}].typeId`),
+    }));
+    const party = freezeParty(normalizeParty({ v: PARTY_VERSION, units, siege }));
+    try {
+      assertParty(party);
+    } catch (err) {
+      throw new ParseError((err as Error).message, PARTY);
+    }
+    return party;
   });
-  const siege = expectArray(o["siege"], "party.siege").map((s, i) => ({
-    typeId: expectString(expectObject(s, `party.siege[${i}]`, ["typeId"])["typeId"], `party.siege[${i}].typeId`),
-  }));
-  const party = freezeParty(normalizeParty({ v: PARTY_VERSION, units, siege }));
-  try {
-    assertParty(party);
-  } catch (err) {
-    throw new ParseError((err as Error).message);
-  }
-  return party;
 }
 
 export function parseParty(text: string): Party {
@@ -291,7 +324,7 @@ export function parseParty(text: string): Party {
   try {
     raw = JSON.parse(text);
   } catch (err) {
-    throw new ParseError(`party is not JSON: ${(err as Error).message}`);
+    throw new ParseError(`party is not JSON: ${(err as Error).message}`, PARTY);
   }
   return partyFromJson(raw);
 }

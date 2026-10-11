@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
   ENTRY_EDGES,
   MAX_APPROACH_EDGES,
+  MAX_ID_LENGTH,
   PARTY_EDIT_COOLDOWN_MS,
   PARTY_SLOT_CAP,
   ParseError,
@@ -118,7 +119,38 @@ describe("resolveParty", () => {
     const r = resolveParty({ ...c, units: [...c.units.slice(1), { ref: "i-gone", stance: "core", edge: "north", cell: north[0]! }] }, ROSTER, ALLOW_ALL);
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    expect(r.issues).toEqual([{ code: "unknown_ref", message: "unit instance 'i-gone' is not in your roster (it may have been lost on a trip or consumed by a merge)", subject: "i-gone" }]);
+    // QA S1: the id rides in `subject`, never in the message; #n is the entry's position in the config as given.
+    expect(r.issues).toEqual([{ code: "unknown_ref", message: "party unit #7 is not in your roster (it may have been lost on a trip or consumed by a merge)", subject: "i-gone" }]);
+  });
+
+  it("QA S1: ids are capped at MAX_ID_LENGTH by the parser; a resolved issue never echoes a raw id and truncates its subject", () => {
+    const long = "x".repeat(MAX_ID_LENGTH + 1);
+    const ok = "y".repeat(MAX_ID_LENGTH);
+    expect(() => partyConfigFromJson({ v: 1, units: [{ ref: long, stance: "nearest", edge: "north", cell: north[0]! }], siege: [] })).toThrow(/malformed party: party\.units\[0\]\.ref is longer than 64/);
+    expect(() => partyConfigFromJson({ v: 1, units: [], siege: [long] })).toThrow(/malformed party: party\.siege\[0\] is longer than 64/);
+    expect(() => partyConfigFromJson({ v: 1, units: [{ ref: ok, stance: "nearest", edge: "north", cell: north[0]! }], siege: [] })).not.toThrow();
+    // Through resolveParty directly (a stored config is trusted, but the rule still holds).
+    const huge = "z".repeat(5000);
+    const r = resolveParty({ v: 1, units: [{ ref: huge, stance: "nearest", edge: "north", cell: north[0]! }], siege: [huge] }, ROSTER, ALLOW_ALL);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    for (const i of r.issues) {
+      expect(i.message).not.toContain("zzzz");
+      expect(i.subject!.length).toBeLessThanOrEqual(MAX_ID_LENGTH);
+    }
+  });
+
+  it("QA N1: a party parse error is prefixed 'malformed party', not 'malformed snapshot'", () => {
+    for (const bad of [null, { v: 1, units: [], siege: [], hp: 1 }, { v: 1, units: [{}], siege: [] }, { v: 1, units: [], siege: [3] }]) {
+      try {
+        partyConfigFromJson(bad);
+        throw new Error("expected a ParseError");
+      } catch (err) {
+        expect(err).toBeInstanceOf(ParseError);
+        expect((err as Error).message.startsWith("malformed party: ")).toBe(true);
+      }
+    }
+    expect(() => partyFromJson({ v: 1, units: [], siege: [{ typeId: "siege.dousing_wagon" }, { typeId: "siege.dousing_wagon" }] })).toThrow(/^malformed party: /);
   });
 
   it("the same instance twice is duplicate_ref; the same siege twice is duplicate_siege", () => {
@@ -298,7 +330,7 @@ describe("structural guarantee: this package cannot touch a roster", () => {
   it("party.ts exports no function that mutates, damages, de-merges or removes a unit, and never writes a roster", () => {
     const src = readFileSync(join(__dirname, "..", "src", "party.ts"), "utf8");
     const exportedFns = [...src.matchAll(/export function (\w+)/g)].map((m) => m[1]!);
-    expect(exportedFns.sort()).toEqual(["assertParty", "compareRefs", "freezeParty", "isTargetingStance", "normalizeParty", "normalizePartyConfig", "partyEdges", "resolveParty", "scoutParty", "scoutUnit", "siegeCounterEntry"]);
+    expect(exportedFns.sort()).toEqual(["assertParty", "compareRefs", "freezeParty", "isTargetingStance", "issueSubject", "normalizeParty", "normalizePartyConfig", "partyEdges", "resolveParty", "scoutParty", "scoutUnit", "siegeCounterEntry"]);
     expect(exportedFns.filter((f) => /kill|damage|demerge|consume|remove|lose|apply|attrit/i.test(f))).toEqual([]);
     // The roster is a readonly input; nothing here holds hp or a death flag for a party unit.
     expect(/readonly hp:/.test(src.replace(/\/\*[\s\S]*?\*\//g, "").split("export interface ScoutUnit")[0]!)).toBe(false);

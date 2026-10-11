@@ -36,7 +36,7 @@ CREATE TYPE ledger_event_type AS ENUM (
   'coin_earned',
   'coin_spent',
   'coin_lost_on_wipe',
-  'coin_transferred_to_defender',
+  'coin_transferred_to_party_owner',
   'coin_purchased',
   'reputation_changed',
   'ladder_progress_gained',
@@ -53,6 +53,9 @@ CREATE TYPE ledger_event_type AS ENUM (
   'encounter_resolved',
   'formation_committed',
   'standing_party_saved',
+  -- Chunk 09 QA S3: appended when a roster change (a merge; chunk 19's loss) removes an
+  -- instance the standing party names, so the party no longer resolves until edited.
+  'standing_party_invalidated',
   'party_served_as_encounter'
 );
 
@@ -63,8 +66,8 @@ CREATE TYPE ledger_event_type AS ENUM (
 CREATE FUNCTION ledger_event_scope(t ledger_event_type) RETURNS text
 LANGUAGE sql IMMUTABLE STRICT AS $$
   SELECT CASE
-    WHEN t IN ('coin_earned', 'coin_spent', 'coin_transferred_to_defender', 'coin_purchased',
-               'standing_party_saved', 'party_served_as_encounter') THEN 'account'
+    WHEN t IN ('coin_earned', 'coin_spent', 'coin_transferred_to_party_owner', 'coin_purchased',
+               'standing_party_saved', 'standing_party_invalidated', 'party_served_as_encounter') THEN 'account'
     WHEN t IN ('reputation_changed', 'ladder_progress_gained',
                'unlock_points_granted', 'unlock_node_purchased') THEN 'pool'
     ELSE 'caravan'
@@ -128,7 +131,7 @@ CREATE TABLE ledger_event (
   -- Coin events carry a non-negative integer `amount`.
   CONSTRAINT ledger_event_coin_amount CHECK (
     event_type NOT IN ('coin_earned', 'coin_spent', 'coin_lost_on_wipe',
-                       'coin_transferred_to_defender', 'coin_purchased')
+                       'coin_transferred_to_party_owner', 'coin_purchased')
     OR (jsonb_is_integer(payload->'amount') AND (payload->>'amount')::numeric >= 0)
   ),
   -- QA-02 S3: every number the projection folds is an integer-valued JSON number. The
@@ -209,7 +212,7 @@ DECLARE
   n   integer;
 BEGIN
   CASE NEW.event_type
-    WHEN 'coin_earned', 'coin_purchased', 'coin_transferred_to_defender' THEN
+    WHEN 'coin_earned', 'coin_purchased', 'coin_transferred_to_party_owner' THEN
       amt := (NEW.payload->>'amount')::bigint;
       UPDATE account SET coin_balance = coin_balance + amt WHERE id = NEW.account_id;
     WHEN 'coin_spent' THEN

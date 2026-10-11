@@ -39,3 +39,13 @@ export const TRIP_LOCK_MODE = "caravan_advisory_xact_lock" as const;
 
 /** TUNABLE. Projection checkpoint cadence, in events per account. Pure perf knob. */
 export const LEDGER_SNAPSHOT_INTERVAL = 500;
+
+/**
+ * TUNABLE (chunk 09 QA S4). Per-account request limit on PUT /me/party, per sliding
+ * minute. A plain abuse limit on an endpoint that writes a row and a ledger event per
+ * call: NOT a gameplay cooldown (PARTY_EDIT_COOLDOWN_MS stays 0 and editing stays free
+ * and instant for any human), never purchasable, never read by anything that decides an
+ * outcome. Thirty is far above any hand-driven rate and far below what a script needs to
+ * bloat the ledger.
+ */
+export const PARTY_SAVE_RATE_LIMIT_PER_MINUTE = 30;

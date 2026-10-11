@@ -13,7 +13,7 @@ export const LEDGER_EVENT_TYPES = [
   "coin_earned",
   "coin_spent",
   "coin_lost_on_wipe",
-  "coin_transferred_to_defender",
+  "coin_transferred_to_party_owner",
   "coin_purchased",
   "reputation_changed",
   "ladder_progress_gained",
@@ -30,6 +30,8 @@ export const LEDGER_EVENT_TYPES = [
   "encounter_resolved",
   "formation_committed",
   "standing_party_saved",
+  /** Chunk 09 QA S3: a roster change (merge; chunk 19 loss) removed an instance the party names. */
+  "standing_party_invalidated",
   "party_served_as_encounter",
 ] as const;
 
@@ -41,7 +43,7 @@ export const LEDGER_EVENT_SCOPE: Readonly<Record<LedgerEventType, LedgerScope>> 
   coin_earned: "account",
   coin_spent: "account",
   coin_lost_on_wipe: "caravan", // unbanked trip Coin that was never in the account balance
-  coin_transferred_to_defender: "account",
+  coin_transferred_to_party_owner: "account",
   coin_purchased: "account",
   reputation_changed: "pool",
   ladder_progress_gained: "pool",
@@ -58,6 +60,7 @@ export const LEDGER_EVENT_SCOPE: Readonly<Record<LedgerEventType, LedgerScope>> 
   encounter_resolved: "caravan",
   formation_committed: "caravan",
   standing_party_saved: "account",
+  standing_party_invalidated: "account",
   party_served_as_encounter: "account",
 };
 
@@ -72,7 +75,7 @@ export const RESOLUTION_EVENT_TYPES: ReadonlySet<LedgerEventType> = new Set<Ledg
 export const COIN_CREDIT_TYPES: ReadonlySet<LedgerEventType> = new Set<LedgerEventType>([
   "coin_earned",
   "coin_purchased",
-  "coin_transferred_to_defender",
+  "coin_transferred_to_party_owner",
 ]);
 export const COIN_DEBIT_TYPES: ReadonlySet<LedgerEventType> = new Set<LedgerEventType>(["coin_spent"]);
 

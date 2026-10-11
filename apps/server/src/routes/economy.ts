@@ -7,7 +7,7 @@
 import { TUNABLES } from "@caravan/content";
 import type { FastifyInstance } from "fastify";
 import { encounterCoinSchedule, overflowForecast } from "../economy/coin.js";
-import { mergeCostTable, performMerge, previewMerge } from "../economy/merge.js";
+import { UnitInPartyError, mergeCostTable, performMerge, previewMerge } from "../economy/merge.js";
 import { accrueTrickle } from "../economy/trickle.js";
 import { badRequest } from "../services/errors.js";
 import { requireAuth } from "./require-auth.js";
@@ -86,11 +86,21 @@ export async function economyRoutes(app: FastifyInstance): Promise<void> {
     async (req) => previewMerge(app.db, { accountId: req.auth!.account.id, caravanId: req.params.caravanId, instanceIds: bodyIds(req.body) }),
   );
 
-  app.post<{ Params: { caravanId: string }; Body: { instanceIds?: unknown } }>(
+  /**
+   * Commit. Chunk 09 QA S3: when a consumed unit rides in the standing party the commit
+   * is refused with 409 `unit_in_party` (the preview says so in `consumed.inParty`) unless
+   * the body carries `confirmInParty: true`.
+   */
+  app.post<{ Params: { caravanId: string }; Body: { instanceIds?: unknown; confirmInParty?: unknown } }>(
     "/me/caravans/:caravanId/merge",
     { preHandler: requireAuth },
     async (req) => {
-      const result = await performMerge(app.db, { accountId: req.auth!.account.id, caravanId: req.params.caravanId, instanceIds: bodyIds(req.body) });
+      const result = await performMerge(app.db, {
+        accountId: req.auth!.account.id,
+        caravanId: req.params.caravanId,
+        instanceIds: bodyIds(req.body),
+        confirmInParty: bodyConfirmInParty(req.body),
+      });
       return {
         /** True => this exact merge had already committed; the stored outcome is returned and nothing moved. */
         replayed: result.replayed,
@@ -104,9 +114,22 @@ export async function economyRoutes(app: FastifyInstance): Promise<void> {
       };
     },
   );
+
+  // The 409 names the instances so the client can show which party slots would empty.
+  app.setErrorHandler((err: Error, _req, reply) => {
+    if (err instanceof UnitInPartyError) {
+      return reply.code(err.statusCode).send({ error: err.code, message: err.message, inParty: err.inParty });
+    }
+    throw err;
+  });
 }
 
 /** The body may be anything JSON (an array, a string, null); only an object's `instanceIds` counts. */
 function bodyIds(body: unknown): unknown {
   return body !== null && typeof body === "object" && !Array.isArray(body) ? (body as { instanceIds?: unknown }).instanceIds : undefined;
+}
+
+/** Only the literal boolean `true` confirms; anything else is "not confirmed". */
+function bodyConfirmInParty(body: unknown): boolean {
+  return body !== null && typeof body === "object" && !Array.isArray(body) && (body as { confirmInParty?: unknown }).confirmInParty === true;
 }
