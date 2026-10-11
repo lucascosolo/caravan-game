@@ -712,6 +712,11 @@ describe("the unlock web is the only access gate (GUARDRAILS §3) — the centra
     expect(writers.map((f) => f.replace(srcRoot, "")).sort()).toEqual(["/acquisition/grant.ts", "/matchmaking/authored.ts"]);
     const authored = readFileSync(join(srcRoot, "matchmaking/authored.ts"), "utf8");
     expect(authored.match(/type:\s*["']unit_acquired["'][^}]*\}/g)?.every((m) => /source: "authored_set"/.test(m))).toBe(true);
+    // A content update's removals are `unit_retired`, written only by the authored set; the
+    // authored set never writes `unit_lost_on_wipe` (that is chunk 19's trip loss).
+    const retirers = walk(srcRoot).filter((f) => /type:\s*["']unit_retired["']/.test(readFileSync(f, "utf8")));
+    expect(retirers.map((f) => f.replace(srcRoot, ""))).toEqual(["/matchmaking/authored.ts"]);
+    expect(authored).not.toMatch(/type:\s*["']unit_lost_on_wipe["']/);
   });
 });
 

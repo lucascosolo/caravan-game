@@ -44,9 +44,10 @@
  *
  * ROSTERS through the ledger (chunk 25 QA D3): every instance a system account's caravan
  * gets is appended as `unit_acquired { source: "authored_set" }`, and every instance an
- * update retires as `unit_lost_on_wipe { reason: "authored_set_update" }` — the one removal
- * type the vocabulary has; a system caravan never travels, so no trip wipe can be confused
- * with it. `rebuildAuthoredRoster` folds those events and must equal the live rows.
+ * update retires as `unit_retired { reason: "authored_set_update" }` — a dedicated removal
+ * type, deliberately NOT `unit_lost_on_wipe`: a content update is not a trip loss, and chunk
+ * 19 counts only `unit_lost_on_wipe`. `rebuildAuthoredRoster` folds those events and must
+ * equal the live rows.
  *
  * IDS. A system account's standing party id is derived from its username
  * (`authoredPartyId`), so the same set seeds the same party ids in every database and a
@@ -70,7 +71,7 @@ import { createHash, randomBytes } from "node:crypto";
 import type pg from "pg";
 import { hashPassword } from "../auth/password.js";
 import { withTransaction, type Queryable } from "../db/pool.js";
-import type { LedgerEventDraft } from "../ledger/events.js";
+import type { LedgerEventDraft, UnitRetiredPayload } from "../ledger/events.js";
 import { appendEvents, lockAccountForAppend } from "../ledger/ledger.js";
 import { saveParty } from "../party/service.js";
 import { pointsToRung, unlockPointsForRung, LADDER_CAP } from "../progression/ladder.js";
@@ -398,21 +399,26 @@ export async function liveRoster(db: Queryable, caravanId: string): Promise<Rost
 
 /**
  * The roster a system caravan's ledger describes: `unit_acquired` adds an instance,
- * `unit_lost_on_wipe` removes it, in ledger order. For a system account (no merges, no
- * trips) this must equal `liveRoster` exactly — the roster counterpart of verifyProjection.
+ * `unit_retired` removes it, in ledger order. For a system account (no merges, no trips,
+ * so no `unit_lost_on_wipe`) this must equal `liveRoster` exactly — the roster counterpart
+ * of verifyProjection.
  */
 export async function rebuildAuthoredRoster(db: Queryable, caravanId: string): Promise<RosterEntry[]> {
-  const res = await db.query<{ event_type: string; payload: { instanceId: string; unitTypeId: string; mergeLevel: number } }>(
-    "SELECT event_type, payload FROM ledger_event WHERE caravan_id = $1 AND event_type IN ('unit_acquired', 'unit_lost_on_wipe') ORDER BY seq",
+  const res = await db.query<{ event_type: string; payload: { instanceId?: string; unitInstanceId?: string; unitTypeId: string; mergeLevel: number } }>(
+    "SELECT event_type, payload FROM ledger_event WHERE caravan_id = $1 AND event_type IN ('unit_acquired', 'unit_retired') ORDER BY seq",
     [caravanId],
   );
   const roster = new Map<string, RosterEntry>();
   for (const ev of res.rows) {
-    const { instanceId, unitTypeId, mergeLevel } = ev.payload;
+    const { unitTypeId, mergeLevel } = ev.payload;
     if (ev.event_type === "unit_acquired") {
+      const instanceId = ev.payload.instanceId!;
       if (roster.has(instanceId)) throw new Error(`roster fold: instance ${instanceId} acquired twice`);
       roster.set(instanceId, { instanceId, unitTypeId, mergeLevel });
-    } else if (!roster.delete(instanceId)) throw new Error(`roster fold: instance ${instanceId} removed but never acquired`);
+    } else {
+      const instanceId = ev.payload.unitInstanceId!;
+      if (!roster.delete(instanceId)) throw new Error(`roster fold: instance ${instanceId} retired but never acquired`);
+    }
   }
   return [...roster.values()].sort(byInstance);
 }
@@ -528,7 +534,8 @@ export async function applyAuthoredSpec(client: pg.PoolClient, spec: AuthoredPar
   if (!view.valid) throw new Error(`authored party ${spec.username} does not resolve: ${view.issues.map((i) => i.message).join("; ")}`);
   await client.query("DELETE FROM unit_instance WHERE caravan_id = $1 AND NOT (id = ANY($2::uuid[]))", [caravanId, ids]);
   for (const old of before) {
-    rosterEvents.push({ type: "unit_lost_on_wipe", accountId, caravanId, payload: { unitTypeId: old.unitTypeId, instanceId: old.instanceId, mergeLevel: old.mergeLevel, reason: "authored_set_update", source: "authored_set" } });
+    const retired: UnitRetiredPayload = { unitInstanceId: old.instanceId, unitTypeId: old.unitTypeId, mergeLevel: old.mergeLevel, reason: "authored_set_update" };
+    rosterEvents.push({ type: "unit_retired", accountId, caravanId, payload: retired });
   }
   await appendEvents(client, `${cause}:roster`, rosterEvents);
   await client.query(

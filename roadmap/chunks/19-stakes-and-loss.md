@@ -190,3 +190,6 @@ Chunk 14 computes and publishes; this chunk is the only place these take effect 
   for every account (no purchase/entitlement read anywhere on the path).
 - **Checklist addition:** `applyEarnFloor` is named in this chunk's QA checklist as the
   one place the earn floor lands.
+- **`unit_retired` is not a trip loss; only `unit_lost_on_wipe` counts.** (Chunk 25 D3
+  follow-up: an authored party's roster rebuilt by a content drop retires its old instances
+  as `unit_retired {unitInstanceId, unitTypeId, mergeLevel, reason: "authored_set_update"}`.)
