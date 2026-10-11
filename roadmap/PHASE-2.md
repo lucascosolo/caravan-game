@@ -756,7 +756,7 @@ anything about matchmaking or earnings? It must not.
 
 ## 32. Telemetry and balance instrumentation — **M**, before any external playtest
 
-**Status: built** (2026-10-11, chunk 32 Maker). Build notes:
+**Status: QA'd — fix round 1 closed** (2026-10-11; `roadmap/qa/32-punchlist.md` S1, S2, D1–D6 and N1–N9 closed as the orchestrator decided; migration `024_telemetry_sessions`, renumber on merge). Build notes (chunk 32 Maker), then the fix round's:
 
 - **Migration 021** (`021_telemetry`; renumbered 018 → 020 → 021 on merges, since main's 018–020 are
   taken — renumber again on merge if needed): `account_admin (account_id, granted_by, granted_at)` — the admin flag, one row or none per
@@ -847,10 +847,10 @@ anything about matchmaking or earnings? It must not.
 
 | # | §20 number | Registry keys | Panel(s) | What to read |
 |---|---|---|---|---|
-| 1 | Damage formula coefficients and the type/affinity matrix | DAMAGE_FORMULA, AFFINITY_ADVANTAGE_MULT, AFFINITY_DISADVANTAGE_MULT, MERGE_MULT_PER_LEVEL | defenderUnits, attackerUnits, overrunByBand | win rate per type on each side; overrun level across bands |
+| 1 | Damage formula coefficients and the type/affinity matrix | DAMAGE_FORMULA, AFFINITY_ADVANTAGE_MULT, AFFINITY_DISADVANTAGE_MULT, MERGE_MULT_PER_LEVEL | matchups, mergeLevels, defenderUnits, attackerUnits, overrunByBand | held rate per affinity matchup and per merge level; win rate per type; overrun across bands |
 | 2 | Garrison aggro radius and leash | AGGRO_RADIUS_DEFAULT, LEASH_DISTANCE_DEFAULT, LEASH_HYSTERESIS_MULT | stances, defenderUnits | held rate per defensive stance |
 | 3 | Deployment slot count | DEPLOYMENT_SLOT_CAP, PARTY_SLOT_CAP, SIEGE_SLOT_CAP | slots | posted / raiders per encounter vs held rate |
-| 4 | Fence segment HP and unlock cost | FENCE_SEGMENT_HP_DEFAULT, FENCE_HIT_SEGMENT_CAP, FENCE_MATERIAL_BUDGET | slots (fences), unlockPurchases | segments placed vs held rate; fence nodes bought |
+| 4 | Fence segment HP and unlock cost | FENCE_SEGMENT_HP_DEFAULT, FENCE_HIT_SEGMENT_CAP, FENCE_MATERIAL_BUDGET | fences, slots (fences), unlockPurchases | segments broken / placed per tier; segments placed vs held rate; fence nodes bought |
 | 5 | Trap values and unlock costs | TRAP_DAMAGE_MIN/MAX, TRAP_SLOW_MAGNITUDE_DEFAULT, TRAP_ROOT_DURATION_DEFAULT, TRAP_SLOT_CAP | traps, unlockPurchases | pick and held rate per trap; trap nodes bought |
 | 6 | Siege values and unlock costs | SIEGE_FENCE_DAMAGE_MULT, SIEGE_TRAP_NULLIFY, STRUCTURE_BREAKER_MULT_DEFAULT | siege, unlockPurchases | pick and overrun rate per siege; siege nodes bought |
 | 7 | Ladder point curves | LADDER_* | ladder | owners per rung now; rungs crossed |
@@ -903,6 +903,18 @@ from data or they never get tuned.
 
 **Definition of done.** Every §20 number has a dashboard panel that shows the metric it
 should be tuned against.
+
+
+**Fix round 1 (chunk 32 QA, 2026-10-11)** — every item is closed in the punch list with a one-line note. In short:
+- **Authored outfits are out of every panel (S1).** A keyed `NOT EXISTS` probe on the account, caravan or trip leaves out system accounts other than chunk 30's erasure tombstone (whose rows are erased PLAYERS' history). The test seeds the 96 cold-start parties.
+- **Opt-out and ingest serialize (S2)** on `SELECT … FOR UPDATE` of the account's analytics row, each in one transaction; the toggle empties the client queue before its PUT.
+- **Sessions are receipt-timed (D2, migration 024):** batches carry `{session, seq}` and are de-duplicated on (analytics id, session, seq, index); `agoMs` is clamped to the 15 s flush window; a `heartbeat` kind about once a minute while the page is visible; a flush when the page goes hidden.
+- **New panels (D3):** `matchups` (held rate per posted × raider affinity, from the stored snapshots and `UNIT_AFFINITY`), `mergeLevels`, `fences` (breakage per tier from `result.outcome.fences`). §20 #1 now reads matchups / mergeLevels first and #4 reads fences first; `PANEL_SUBSYSTEMS` and the test require every number's primary panel to read its own subsystem.
+- **Funnel (D4):** one population (opted-in accounts with screen flow), nested stages, every buyer only as `allBuyers` outside the funnel.
+- **Export (D5):** `analytics: {optedOut, events}` without the analytics id.
+- **Bounded (D6):** one READ ONLY transaction with `statement_timeout` (`ANALYTICS_STATEMENT_TIMEOUT_MS` 5000); /admin/* limited to 30 requests a minute per admin, checked after the admin test so a non-admin only sees the 404. The EXPLAIN gate runs at 30 and at 120 days and compares each live plan's scan skeleton (sequential vs keyed scan of each event-shaped table) with the checked-in `*.txt` / `*.120d.txt`. 120 days passes, so `ANALYTICS_MAX_WINDOW_DAYS` stays 120.
+- **Nits.** N1: a non-admin's 404 is Fastify's unknown-route body byte for byte. N2: digits-only, bounded `days` / `week`. N3: the over-share alarm uses the matchmaker's own query and window. N4: a `thin` alarm below a menu + self + RECENT_OPPONENT_EXCLUSION. N5: unbought nodes are 0 rows. N6: authored = the served candidate's stored flag. N7: trickle apportioned by its accrual span, with a note on the panel. N8: the client reads the opt-out before its first flush. N9: real merge and unlock routes in the test, recursive package walk.
+- **Guard-test exemptions (unchanged, still narrow):** exactly `src/analytics/queries.ts` in `store-guards` (×2) and `economy-guards` (×1); that file has no write verb (asserted).
 
 ## 33. Live-ops and admin tooling — **M**, after 03, 20, 32
 

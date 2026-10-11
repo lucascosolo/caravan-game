@@ -1,0 +1,15 @@
+-- chunk 32: ladder-levels over the synthetic history in test/telemetry-scale.test.ts (120-day window)
+Sort
+  Sort Key: ((pp.pool)::text), pp.ladder_level
+  ->  HashAggregate
+        Group Key: (pp.pool)::text, pp.ladder_level
+        ->  Hash Join
+              Hash Cond: (COALESCE(pp.account_id, c.account_id) = a.id)
+              ->  Hash Left Join
+                    Hash Cond: (pp.caravan_id = c.id)
+                    ->  Seq Scan on pool_progress pp
+                    ->  Hash
+                          ->  Seq Scan on caravan c
+              ->  Hash
+                    ->  Seq Scan on account a
+                          Filter: (NOT is_system)

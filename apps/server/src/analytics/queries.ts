@@ -19,15 +19,29 @@
  * dashboard runs. Parameters: $1 = window start, $2 = window end (timestamptz), then extras.
  * Integers only in the results: rates are basis points computed in TS.
  */
-import { TUNABLES } from "@caravan/content";
+import { LIVING_UNIT_TYPES, TUNABLES, UNLOCK_WEBS } from "@caravan/content";
 import type { Queryable } from "../db/pool.js";
-import { BAND_SPAN } from "../matchmaking/band.js";
+import { AUTHORED_SERVED_SHARE_SQL } from "../matchmaking/authoredShare.js";
+import { AUTHORED_SERVED_SHARE_WINDOW, BAND_SPAN } from "../matchmaking/band.js";
 import { ANALYTICS_NEAR_CAP_PERCENT, ANALYTICS_NEAR_TICK_CAP_BP, ANALYTICS_SESSION_GAP_MS } from "./tunables.js";
 
 /** n / d in basis points, floored; null when there is nothing to divide by. */
 export function bp(n: number, d: number): number | null {
   return d === 0 ? null : Math.floor((n * 10_000) / d);
 }
+
+/**
+ * QA S1: every panel leaves out the AUTHORED outfits (chunk 25's system accounts, seeded through
+ * the real writers: their ladders, unlock purchases and rosters are not play). The erasure
+ * tombstone (chunk 30) is also a system account, but what it holds is erased PLAYERS' history,
+ * so it stays in. Each fragment is a keyed probe (account / caravan / trip primary keys).
+ */
+const AUTHORED_ACCOUNT = `sa.is_system AND sa.id <> account_erasure_tombstone_account()`;
+export const notAuthoredAccount = (expr: string): string => `NOT EXISTS (SELECT 1 FROM account sa WHERE sa.id = ${expr} AND ${AUTHORED_ACCOUNT})`;
+export const notAuthoredCaravan = (expr: string): string =>
+  `NOT EXISTS (SELECT 1 FROM caravan sc JOIN account sa ON sa.id = sc.account_id WHERE sc.id = ${expr} AND ${AUTHORED_ACCOUNT})`;
+export const notAuthoredTrip = (expr: string): string =>
+  `NOT EXISTS (SELECT 1 FROM trip st JOIN caravan sc ON sc.id = st.caravan_id JOIN account sa ON sa.id = sc.account_id WHERE st.id = ${expr} AND ${AUTHORED_ACCOUNT})`;
 
 /** The band expression the matchmaker uses (band.ts bandOf), over a rating column. */
 const bandExpr = (col: string, floorParam: string, spanParam: string): string => `GREATEST(0, floor((${col} - ${floorParam})::numeric / ${spanParam}))::int`;
@@ -37,7 +51,7 @@ const bandExpr = (col: string, floorParam: string, spanParam: string): string =>
 export const TRIP_LENGTH_SQL = `SELECT t.end_reason, n.encounters, count(*)::int AS trips
   FROM trip t
   CROSS JOIN LATERAL (SELECT count(*)::int AS encounters FROM trip_encounter te WHERE te.trip_id = t.id) n
- WHERE t.ended_at >= $1 AND t.ended_at < $2 AND t.end_reason IS NOT NULL
+ WHERE t.ended_at >= $1 AND t.ended_at < $2 AND t.end_reason IS NOT NULL AND ${notAuthoredCaravan("t.caravan_id")}
  GROUP BY t.end_reason, n.encounters
  ORDER BY t.end_reason, n.encounters`;
 
@@ -54,7 +68,7 @@ export const BANK_PUSH_SQL = `SELECT te.encounter_index AS idx, count(*)::int AS
        count(*) FILTER (WHERE te.decision = 'pushed')::int AS pushed,
        count(*) FILTER (WHERE te.decision = 'banked')::int AS banked
   FROM trip_encounter te
- WHERE te.settled_at >= $1 AND te.settled_at < $2
+ WHERE te.settled_at >= $1 AND te.settled_at < $2 AND ${notAuthoredTrip("te.trip_id")}
  GROUP BY te.encounter_index
  ORDER BY te.encounter_index`;
 
@@ -81,7 +95,7 @@ export const OVERRUN_BY_BAND_SQL = `SELECT ${bandExpr("ec.caravan_rating", "$3",
   FROM trip_encounter te
   CROSS JOIN LATERAL (SELECT caravan_rating FROM encounter_candidates
                        WHERE trip_id = te.trip_id AND encounter_index = te.encounter_index AND chosen_at IS NOT NULL LIMIT 1) ec
- WHERE te.settled_at >= $1 AND te.settled_at < $2
+ WHERE te.settled_at >= $1 AND te.settled_at < $2 AND ${notAuthoredTrip("te.trip_id")}
  GROUP BY 1
  ORDER BY 1`;
 
@@ -106,10 +120,16 @@ export interface OverrunBandRow {
  */
 const ENC_CTE = `WITH enc AS MATERIALIZED (
   SELECT te.trip_id, te.encounter_index, te.outcome_kind, j.input, j.result,
-         coalesce((SELECT a.is_system FROM account a WHERE a.id = (j.input ->> 'partyOwnerAccountId')::uuid), false) AS authored
+         -- QA N6: authored as SERVED (the chosen candidate's stored owner.authored), not the
+         -- owner's is_system today: an erased player's party is re-pointed to the (system)
+         -- tombstone, and must not turn into an authored one after the fact.
+         coalesce((SELECT (c -> 'owner' ->> 'authored')::boolean
+                     FROM encounter_candidates ec CROSS JOIN LATERAL jsonb_array_elements(ec.candidates) c
+                    WHERE ec.trip_id = te.trip_id AND ec.encounter_index = te.encounter_index AND ec.chosen_at IS NOT NULL
+                      AND c ->> 'candidateId' = ec.chosen_candidate_id LIMIT 1), false) AS authored
     FROM trip_encounter te
     CROSS JOIN LATERAL (SELECT input, result FROM resolution_job WHERE id = te.job_id LIMIT 1) j
-   WHERE te.settled_at >= $1 AND te.settled_at < $2
+   WHERE te.settled_at >= $1 AND te.settled_at < $2 AND ${notAuthoredTrip("te.trip_id")}
 )`;
 
 /** Posted (defending) unit types: a type counts once per encounter it was posted in; a win is a held encounter. */
@@ -173,6 +193,91 @@ SELECT p ->> 'stance' AS stance, count(*)::int AS posts, count(*) FILTER (WHERE 
   CROSS JOIN LATERAL jsonb_array_elements(coalesce(e.input -> 'formation' -> 'posts', '[]'::jsonb)) p
  GROUP BY 1 ORDER BY 1`;
 
+/**
+ * QA D3 (§20 #1): held rate by AFFINITY MATCHUP — each distinct (posted unit's affinity, raider's
+ * affinity) pair of an encounter counts once. $3 = { typeId: affinity } from @caravan/content.
+ * A wrong advantage multiplier moves the two directions of a pair apart while every type's
+ * marginal win rate stays flat; this is where it shows.
+ */
+export const AFFINITY_MATCHUPS_SQL = `${ENC_CTE},
+d AS (
+  SELECT DISTINCT e.trip_id, e.encounter_index, e.outcome_kind, $3::jsonb ->> (u ->> 'typeId') AS aff
+    FROM enc e
+    CROSS JOIN LATERAL jsonb_array_elements(coalesce(e.input -> 'formation' -> 'posts', '[]'::jsonb)) p
+    JOIN LATERAL jsonb_array_elements(coalesce(e.input -> 'survivors' -> 'units', '[]'::jsonb)) u ON u ->> 'ref' = p ->> 'ref'
+), a AS (
+  SELECT DISTINCT e.trip_id, e.encounter_index, $3::jsonb ->> (u ->> 'typeId') AS aff
+    FROM enc e
+    CROSS JOIN LATERAL jsonb_array_elements(coalesce(e.input -> 'party' -> 'composition' -> 'units', '[]'::jsonb)) u
+)
+SELECT coalesce(d.aff, 'unknown') AS defender, coalesce(a.aff, 'unknown') AS attacker, count(*)::int AS encounters,
+       count(*) FILTER (WHERE d.outcome_kind = 'caravan_held')::int AS held,
+       count(*) FILTER (WHERE d.outcome_kind = 'caravan_overrun')::int AS overrun
+  FROM d JOIN a ON a.trip_id = d.trip_id AND a.encounter_index = d.encounter_index
+ GROUP BY 1, 2 ORDER BY 1, 2`;
+
+export interface MatchupRow {
+  defender: string;
+  attacker: string;
+  encounters: number;
+  held: number;
+  overrun: number;
+  heldRateBp: number | null;
+}
+
+/** QA D3 (§20 #1, MERGE_MULT_PER_LEVEL): held rate by the merge levels on each side, once per encounter per level. */
+export const MERGE_LEVELS_SQL = `${ENC_CTE},
+lv AS (
+  SELECT DISTINCT e.trip_id, e.encounter_index, e.outcome_kind, 'posted' AS side, (u ->> 'mergeLevel')::int AS level
+    FROM enc e
+    CROSS JOIN LATERAL jsonb_array_elements(coalesce(e.input -> 'formation' -> 'posts', '[]'::jsonb)) p
+    JOIN LATERAL jsonb_array_elements(coalesce(e.input -> 'survivors' -> 'units', '[]'::jsonb)) u ON u ->> 'ref' = p ->> 'ref'
+   WHERE jsonb_typeof(u -> 'mergeLevel') = 'number'
+  UNION
+  SELECT DISTINCT e.trip_id, e.encounter_index, e.outcome_kind, 'raiders', (u ->> 'mergeLevel')::int
+    FROM enc e
+    CROSS JOIN LATERAL jsonb_array_elements(coalesce(e.input -> 'party' -> 'composition' -> 'units', '[]'::jsonb)) u
+   WHERE jsonb_typeof(u -> 'mergeLevel') = 'number'
+)
+SELECT side, level, count(*)::int AS encounters, count(*) FILTER (WHERE outcome_kind = 'caravan_held')::int AS held
+  FROM lv GROUP BY 1, 2 ORDER BY 1, 2`;
+
+export interface MergeLevelRow {
+  side: "posted" | "raiders";
+  level: number;
+  encounters: number;
+  held: number;
+  heldRateBp: number | null;
+}
+
+/**
+ * QA D3 (§20 #4): fence breakage by tier — every placed segment, its HP going in (the survivors
+ * the formation was committed with) and coming out (the stored outcome's fences): broken = 0 HP
+ * after the fight, damaged = lost any HP.
+ */
+export const FENCES_SQL = `${ENC_CTE}
+SELECT s ->> 'tierId' AS tier_id, count(*)::int AS placed,
+       count(*) FILTER (WHERE (o ->> 'hp')::int = 0)::int AS broken,
+       count(*) FILTER (WHERE (o ->> 'hp')::int < (s ->> 'hp')::int)::int AS damaged,
+       coalesce(sum(GREATEST(0, (s ->> 'hp')::int - (o ->> 'hp')::int)), 0)::bigint AS hp_lost
+  FROM enc e
+  CROSS JOIN LATERAL jsonb_array_elements(coalesce(e.input -> 'formation' -> 'fences', '[]'::jsonb)) f
+  JOIN LATERAL jsonb_array_elements(coalesce(e.input -> 'survivors' -> 'fences', '[]'::jsonb)) s ON s ->> 'ref' = f ->> 'ref'
+  JOIN LATERAL jsonb_array_elements(coalesce(e.result -> 'outcome' -> 'fences', '[]'::jsonb)) o ON o ->> 'ref' = f ->> 'ref'
+ GROUP BY 1 ORDER BY 1`;
+
+export interface FenceRow {
+  tierId: string;
+  placed: number;
+  broken: number;
+  damaged: number;
+  hpLost: number;
+  brokenRateBp: number | null;
+}
+
+/** typeId → affinity, from the content registry (the matchup query's $3). */
+export const UNIT_AFFINITY: Readonly<Record<string, string>> = Object.fromEntries(LIVING_UNIT_TYPES.map((u) => [u.id, u.affinity]));
+
 export interface StanceRow {
   stance: string;
   posts: number;
@@ -205,11 +310,15 @@ export interface SlotRow {
   heldRateBp: number | null;
 }
 
-/** $3 = the tick cap, $4 = "near the cap" threshold in ticks. endTick from the stored outcome. */
+/**
+ * $3 = "near the cap" threshold in ticks. endTick from the stored outcome. QA D1: the resolver's
+ * endTick is the last tick SIMULATED (0 … cap − 1), so "at the cap" is the stalemate itself — a
+ * fight the tick cap ended — counted by its outcome kind.
+ */
 export const TICK_CAP_SQL = `${ENC_CTE},
 ends AS (SELECT e.outcome_kind, (e.result -> 'outcome' ->> 'endTick')::int AS end_tick FROM enc e WHERE jsonb_typeof(e.result -> 'outcome' -> 'endTick') = 'number')
-SELECT outcome_kind, count(*)::int AS fights, count(*) FILTER (WHERE end_tick >= $4)::int AS near_cap,
-       count(*) FILTER (WHERE end_tick >= $3)::int AS at_cap,
+SELECT outcome_kind, count(*)::int AS fights, count(*) FILTER (WHERE end_tick >= $3)::int AS near_cap,
+       count(*) FILTER (WHERE outcome_kind = 'stalemate')::int AS at_cap,
        coalesce(max(end_tick), 0)::int AS max_end_tick,
        coalesce(percentile_disc(0.5) WITHIN GROUP (ORDER BY end_tick), 0)::int AS median_end_tick
   FROM ends GROUP BY outcome_kind ORDER BY outcome_kind`;
@@ -228,7 +337,7 @@ export interface TickRow {
 /** Coin spent per reason (merge, refugee_reroll, mercenary_recruit, …). */
 export const SPEND_BY_REASON_SQL = `SELECT e.payload ->> 'reason' AS reason, count(*)::int AS events, coalesce(sum((e.payload ->> 'amount')::bigint), 0)::bigint AS coin
   FROM ledger_event e
- WHERE e.event_type = 'coin_spent' AND e.occurred_at >= $1 AND e.occurred_at < $2
+ WHERE e.event_type = 'coin_spent' AND e.occurred_at >= $1 AND e.occurred_at < $2 AND ${notAuthoredAccount("e.account_id")}
  GROUP BY 1 ORDER BY 1`;
 
 export interface SpendRow {
@@ -242,13 +351,14 @@ export const MERGE_BY_DAY_SQL = `SELECT to_char(date_trunc('day', e.occurred_at 
        coalesce(sum((e.payload ->> 'amount')::bigint), 0)::bigint AS coin
   FROM ledger_event e
  WHERE e.event_type = 'coin_spent' AND e.occurred_at >= $1 AND e.occurred_at < $2 AND e.payload ->> 'reason' = 'merge'
+   AND ${notAuthoredAccount("e.account_id")}
  GROUP BY 1 ORDER BY 1`;
 
 /** Merges by the level produced. */
 export const MERGE_BY_LEVEL_SQL = `SELECT (e.payload ->> 'toLevel')::int AS to_level, count(*)::int AS merges, coalesce(sum((e.payload ->> 'amount')::bigint), 0)::bigint AS coin
   FROM ledger_event e
  WHERE e.event_type = 'coin_spent' AND e.occurred_at >= $1 AND e.occurred_at < $2 AND e.payload ->> 'reason' = 'merge'
-   AND jsonb_typeof(e.payload -> 'toLevel') = 'number'
+   AND jsonb_typeof(e.payload -> 'toLevel') = 'number' AND ${notAuthoredAccount("e.account_id")}
  GROUP BY 1 ORDER BY 1`;
 
 /** Every Coin credit by type and reason, with what the storage cap discarded. */
@@ -257,6 +367,7 @@ export const EARN_BY_SOURCE_SQL = `SELECT e.event_type::text AS type, e.payload 
        coalesce(sum(CASE WHEN jsonb_typeof(e.payload -> 'overflowDiscarded') = 'number' THEN (e.payload ->> 'overflowDiscarded')::bigint ELSE 0 END), 0)::bigint AS discarded
   FROM ledger_event e
  WHERE e.event_type IN ('coin_earned', 'coin_transferred_to_party_owner', 'coin_purchased') AND e.occurred_at >= $1 AND e.occurred_at < $2
+   AND ${notAuthoredAccount("e.account_id")}
  GROUP BY 1, 2 ORDER BY 1, 2`;
 
 export interface EarnRow {
@@ -276,22 +387,35 @@ export const NEAR_CAP_SQL = `SELECT count(*)::int AS accounts, count(*) FILTER (
 export const TRIP_CAP_SQL = `SELECT count(*)::int AS starts, count(DISTINCT e.account_id)::int AS accounts,
        count(*) FILTER (WHERE e.payload -> 'tripCap' ->> 'availableAfter' = '0')::int AS took_last_use
   FROM ledger_event e
- WHERE e.event_type = 'trip_started' AND e.occurred_at >= $1 AND e.occurred_at < $2`;
+ WHERE e.event_type = 'trip_started' AND e.occurred_at >= $1 AND e.occurred_at < $2 AND ${notAuthoredAccount("e.account_id")}`;
 
 /**
- * Grind-wall probe. $1/$2 = the week's bounds. Active = started at least one trip that week.
- * Free earn = every Coin credit except a purchase (trickle, encounter and delivery Coin, party
- * wins and loot, overrun transfers), as credited. Deciles by free earn, lowest first.
+ * Grind-wall probe. $1/$2 = the week's bounds, $3 = $2 + 7 days, $4/$5 = the bounds in epoch ms.
+ * Active = started at least one trip that week. Free earn = every Coin credit except a purchase
+ * (trickle, encounter and delivery Coin, party wins and loot, overrun transfers), as credited.
+ * QA N7: the trickle is credited lazily (when the account next touches Coin), so a trickle row
+ * is APPORTIONED by its stored accrual span [accruedFromMs, accruedThroughMs) — only the share
+ * that accrued inside the week counts, and rows credited up to 7 days after the week are read
+ * for their in-week share (accrual credited later than that is not counted). Deciles by free
+ * earn, lowest first. Authored accounts never start trips (and are excluded anyway, QA S1).
  */
 export const GRIND_WALL_SQL = `WITH active AS (
   SELECT DISTINCT e.account_id FROM ledger_event e
-   WHERE e.event_type = 'trip_started' AND e.occurred_at >= $1 AND e.occurred_at < $2
+   WHERE e.event_type = 'trip_started' AND e.occurred_at >= $1 AND e.occurred_at < $2 AND ${notAuthoredAccount("e.account_id")}
 ), earn AS (
   SELECT a.account_id,
-         coalesce(sum((e.payload ->> 'amount')::bigint) FILTER (WHERE e.event_type IN ('coin_earned', 'coin_transferred_to_party_owner')), 0)::bigint AS free,
-         coalesce(sum((e.payload ->> 'amount')::bigint) FILTER (WHERE e.event_type = 'coin_purchased'), 0)::bigint AS paid
+         coalesce(sum(CASE
+           WHEN e.event_type = 'coin_purchased' THEN 0
+           WHEN e.payload ->> 'reason' = 'trickle' AND jsonb_typeof(e.payload -> 'accruedFromMs') = 'number' AND jsonb_typeof(e.payload -> 'accruedThroughMs') = 'number'
+                AND (e.payload ->> 'accruedThroughMs')::bigint > (e.payload ->> 'accruedFromMs')::bigint
+             THEN (e.payload ->> 'amount')::bigint
+                  * GREATEST(0, LEAST((e.payload ->> 'accruedThroughMs')::bigint, $5::bigint) - GREATEST((e.payload ->> 'accruedFromMs')::bigint, $4::bigint))
+                  / ((e.payload ->> 'accruedThroughMs')::bigint - (e.payload ->> 'accruedFromMs')::bigint)
+           WHEN e.occurred_at < $2 THEN (e.payload ->> 'amount')::bigint
+           ELSE 0 END), 0)::bigint AS free,
+         coalesce(sum((e.payload ->> 'amount')::bigint) FILTER (WHERE e.event_type = 'coin_purchased' AND e.occurred_at < $2), 0)::bigint AS paid
     FROM active a
-    LEFT JOIN ledger_event e ON e.account_id = a.account_id AND e.occurred_at >= $1 AND e.occurred_at < $2
+    LEFT JOIN ledger_event e ON e.account_id = a.account_id AND e.occurred_at >= $1 AND e.occurred_at < $3
          AND e.event_type IN ('coin_earned', 'coin_transferred_to_party_owner', 'coin_purchased')
    GROUP BY a.account_id
 ), d AS (SELECT free, paid, ntile(10) OVER (ORDER BY free, account_id) AS decile FROM earn)
@@ -299,6 +423,11 @@ SELECT decile, count(*)::int AS players, min(free)::bigint AS min_free, max(free
        (sum(free) / count(*))::bigint AS avg_free, (sum(paid) / count(*))::bigint AS avg_paid,
        count(*) FILTER (WHERE paid > 0)::int AS payers
   FROM d GROUP BY decile ORDER BY decile`;
+
+/** The grind-wall query's parameters for a week window. */
+export function grindWallParams(week: { from: Date; to: Date }): unknown[] {
+  return [week.from, week.to, new Date(week.to.getTime() + 7 * 86_400_000), week.from.getTime(), week.to.getTime()];
+}
 
 export interface GrindDecileRow {
   decile: number;
@@ -323,13 +452,13 @@ export const LADDER_LEVELS_SQL = `SELECT pp.pool::text AS pool, pp.ladder_level 
 export const LADDER_GAINED_SQL = `SELECT e.payload ->> 'pool' AS pool, count(*)::int AS events,
        coalesce(sum((e.payload ->> 'pointsDelta')::bigint), 0)::bigint AS points, coalesce(sum((e.payload ->> 'levelsGained')::bigint), 0)::bigint AS rungs
   FROM ledger_event e
- WHERE e.event_type = 'ladder_progress_gained' AND e.occurred_at >= $1 AND e.occurred_at < $2
+ WHERE e.event_type = 'ladder_progress_gained' AND e.occurred_at >= $1 AND e.occurred_at < $2 AND ${notAuthoredAccount("e.account_id")}
  GROUP BY 1 ORDER BY 1`;
 
 export const UNLOCKS_SQL = `SELECT e.payload ->> 'pool' AS pool, e.payload ->> 'nodeId' AS node_id, count(*)::int AS purchases,
        coalesce(sum((e.payload ->> 'cost')::bigint), 0)::bigint AS points
   FROM ledger_event e
- WHERE e.event_type = 'unlock_node_purchased' AND e.occurred_at >= $1 AND e.occurred_at < $2
+ WHERE e.event_type = 'unlock_node_purchased' AND e.occurred_at >= $1 AND e.occurred_at < $2 AND ${notAuthoredAccount("e.account_id")}
  GROUP BY 1, 2 ORDER BY 1, purchases DESC, 2`;
 
 // ── acquisition ──────────────────────────────────────────────────────────────────────
@@ -338,25 +467,45 @@ export const REFUGEE_BY_DAY_SQL = `SELECT to_char(date_trunc('day', r.created_at
        count(*) FILTER (WHERE r.origin = 'free')::int AS free_menus, count(*) FILTER (WHERE r.origin = 'reroll')::int AS rerolls,
        count(*) FILTER (WHERE r.claimed_type_id IS NOT NULL)::int AS claims, count(DISTINCT r.caravan_id)::int AS caravans
   FROM refugee_menu r
- WHERE r.created_at >= $1 AND r.created_at < $2
+ WHERE r.created_at >= $1 AND r.created_at < $2 AND ${notAuthoredCaravan("r.caravan_id")}
  GROUP BY 1 ORDER BY 1`;
 
 // ── store ────────────────────────────────────────────────────────────────────────────
 
-export const PACK_TIERS_SQL = `SELECT p.tier::int AS tier, count(*)::int AS reserved, count(*) FILTER (WHERE p.settled_at IS NOT NULL)::int AS settled,
+/**
+ * QA D4: ONE population for the whole funnel — the analytics ids that sent screen flow in the
+ * window and whose account has not opted out (an opted-out account's rows are deleted and never
+ * written, and the join re-checks the setting). Each stage is a subset of the one before:
+ * opened the game ⊇ opened the store ⊇ bought (a settled purchase in the window), so a
+ * conversion can never read above 100 %. The per-tier rows are the store viewers' purchases.
+ */
+const FUNNEL_POP = `WITH viewers AS (
+  SELECT ce.analytics_id, bool_or(ce.screen = 'packs') AS store
+    FROM analytics_client_event ce
+   WHERE ce.kind = 'screen' AND ce.occurred_at >= $1 AND ce.occurred_at < $2
+   GROUP BY 1
+), pop AS (
+  SELECT v.analytics_id, v.store, x.account_id FROM viewers v JOIN account_analytics x ON x.analytics_id = v.analytics_id AND NOT x.opted_out
+)`;
+
+export const PACK_FUNNEL_SQL = `${FUNNEL_POP}
+SELECT count(*)::int AS viewers, count(*) FILTER (WHERE store)::int AS store_viewers,
+       count(*) FILTER (WHERE store AND EXISTS (SELECT 1 FROM pack_purchase p WHERE p.account_id = pop.account_id AND p.settled_at IS NOT NULL
+                                                   AND p.purchased_at >= $1 AND p.purchased_at < $2))::int AS buyers
+  FROM pop`;
+
+export const PACK_TIERS_SQL = `${FUNNEL_POP}
+SELECT p.tier::int AS tier, count(*)::int AS reserved, count(*) FILTER (WHERE p.settled_at IS NOT NULL)::int AS settled,
        count(DISTINCT p.account_id) FILTER (WHERE p.settled_at IS NOT NULL)::int AS buyers,
        coalesce(sum(p.price_cents) FILTER (WHERE p.settled_at IS NOT NULL), 0)::bigint AS cents
-  FROM pack_purchase p
- WHERE p.purchased_at >= $1 AND p.purchased_at < $2
+  FROM pop
+  JOIN pack_purchase p ON p.account_id = pop.account_id AND p.purchased_at >= $1 AND p.purchased_at < $2
+ WHERE pop.store
  GROUP BY 1 ORDER BY 1`;
 
+/** Every settled buyer in the window, opted-out accounts included — shown OUTSIDE the funnel. */
 export const PACK_BUYERS_SQL = `SELECT count(DISTINCT p.account_id)::int AS buyers FROM pack_purchase p
- WHERE p.purchased_at >= $1 AND p.purchased_at < $2 AND p.settled_at IS NOT NULL`;
-
-/** Distinct analytics ids that opened the storefront (screen 'packs') and anything at all. */
-export const STORE_VIEWERS_SQL = `SELECT count(DISTINCT ce.analytics_id) FILTER (WHERE ce.screen = 'packs')::int AS store_viewers, count(DISTINCT ce.analytics_id)::int AS viewers
-  FROM analytics_client_event ce
- WHERE ce.kind = 'screen' AND ce.occurred_at >= $1 AND ce.occurred_at < $2`;
+ WHERE p.purchased_at >= $1 AND p.purchased_at < $2 AND p.settled_at IS NOT NULL AND ${notAuthoredAccount("p.account_id")}`;
 
 // ── engagement (client screen flow; opted-out accounts' rows were deleted and are never written) ──
 
@@ -371,14 +520,17 @@ export const CRASHES_SQL = `SELECT ce.error_name, ce.stack_hash, ce.screen, coun
  GROUP BY 1, 2, 3 ORDER BY reports DESC, 1, 2, 3 LIMIT 20`;
 
 /**
- * Sessions: an analytics id's screen events split wherever the gap exceeds $3 ms. A session's
- * length is its last event minus its first (a one-screen session is 0). Bucketed in minutes.
+ * Sessions: an analytics id's screen and heartbeat events split wherever the gap exceeds $3 ms.
+ * A session's length is its last event minus its first. Times are the server's receipt times
+ * (an event's age is clamped to the client's flush window and a replayed batch is not stored,
+ * QA D2); the client sends a heartbeat about once a minute while the page is visible, so a long
+ * stay on one screen is measured too. Bucketed in minutes.
  */
 export const SESSIONS_SQL = `WITH ev AS (
   SELECT ce.analytics_id, ce.occurred_at,
          CASE WHEN lag(ce.occurred_at) OVER w IS NULL OR ce.occurred_at - lag(ce.occurred_at) OVER w > $3 * interval '1 millisecond' THEN 1 ELSE 0 END AS starts
     FROM analytics_client_event ce
-   WHERE ce.kind = 'screen' AND ce.occurred_at >= $1 AND ce.occurred_at < $2
+   WHERE ce.kind IN ('screen', 'heartbeat') AND ce.occurred_at >= $1 AND ce.occurred_at < $2
   WINDOW w AS (PARTITION BY ce.analytics_id ORDER BY ce.occurred_at, ce.id)
 ), numbered AS (
   SELECT analytics_id, occurred_at, sum(starts) OVER (PARTITION BY analytics_id ORDER BY occurred_at ROWS UNBOUNDED PRECEDING) AS sid FROM ev
@@ -461,7 +613,17 @@ export const POOL_SERVED_SQL = `SELECT b.band, count(*)::int AS served, count(*)
  WHERE c ->> 'candidateId' = ec.chosen_candidate_id
  GROUP BY 1 ORDER BY 1`;
 
-export type BandAlarm = "ok" | "empty" | "no_live" | "authored_over_share";
+/**
+ * `empty`: fewer servable parties than one menu. `thin` (QA N4): fewer than a menu plus the
+ * searcher's own party plus RECENT_OPPONENT_EXCLUSION — a caravan that just met some of them
+ * may not get a full menu. `no_live`: authored only. `authored_over_share` (QA N3): the share
+ * the MATCHMAKER acts on (its own served-share query over the band's last
+ * AUTHORED_SERVED_SHARE_WINDOW chosen menus) is above AUTHORED_PARTY_MAX_SHARE_BP.
+ */
+export type BandAlarm = "ok" | "empty" | "thin" | "no_live" | "authored_over_share";
+
+/** Below this many servable parties a band is `thin` (QA N4). */
+export const THIN_BAND_PARTIES: number = TUNABLES.CANDIDATES_PER_SEARCH + 1 + TUNABLES.RECENT_OPPONENT_EXCLUSION;
 
 export interface PoolBandRow {
   band: number;
@@ -474,7 +636,10 @@ export interface PoolBandRow {
   servedAuthored: number;
   /** Live share of the servable parties in the band, bp. */
   liveShareBp: number | null;
+  /** The dashboard window's served authored share: information only. */
   servedAuthoredShareBp: number | null;
+  /** What the matchmaker sees: its served-share window for the band (the alarm reads this). */
+  matchmakerWindow: { served: number; authored: number; shareBp: number | null };
   alarm: BandAlarm;
 }
 
@@ -530,6 +695,21 @@ export const attackerUnits = (db: Queryable, win: Window, settled: number): Prom
 export const trapUsage = (db: Queryable, win: Window, settled: number): Promise<UnitRow[]> => typeRows(db, TRAPS_SQL, win, settled);
 export const siegeUsage = (db: Queryable, win: Window, settled: number): Promise<UnitRow[]> => typeRows(db, SIEGE_SQL, win, settled);
 
+export async function matchups(db: Queryable, win: Window): Promise<MatchupRow[]> {
+  const res = await db.query<{ defender: string; attacker: string; encounters: number; held: number; overrun: number }>(AFFINITY_MATCHUPS_SQL, [...w(win), JSON.stringify(UNIT_AFFINITY)]);
+  return res.rows.map((r) => ({ ...r, heldRateBp: bp(r.held, r.encounters) }));
+}
+
+export async function mergeLevels(db: Queryable, win: Window): Promise<MergeLevelRow[]> {
+  const res = await db.query<{ side: MergeLevelRow["side"]; level: number; encounters: number; held: number }>(MERGE_LEVELS_SQL, w(win));
+  return res.rows.map((r) => ({ ...r, heldRateBp: bp(r.held, r.encounters) }));
+}
+
+export async function fences(db: Queryable, win: Window): Promise<FenceRow[]> {
+  const res = await db.query<{ tier_id: string; placed: number; broken: number; damaged: number; hp_lost: number }>(FENCES_SQL, w(win));
+  return res.rows.map((r) => ({ tierId: r.tier_id, placed: r.placed, broken: r.broken, damaged: r.damaged, hpLost: r.hp_lost, brokenRateBp: bp(r.broken, r.placed) }));
+}
+
 export async function stances(db: Queryable, win: Window): Promise<StanceRow[]> {
   const res = await db.query<{ stance: string; posts: number; held: number }>(STANCES_SQL, w(win));
   return res.rows.map((r) => ({ ...r, heldRateBp: bp(r.held, r.posts) }));
@@ -545,7 +725,7 @@ export const TICK_CAP: number = TUNABLES.BATTLE_LENGTH_CAP_SECONDS * TUNABLES.TI
 export const NEAR_TICK_CAP: number = Math.floor((TICK_CAP * ANALYTICS_NEAR_TICK_CAP_BP) / 10_000);
 
 export async function tickCap(db: Queryable, win: Window): Promise<TickRow[]> {
-  const res = await db.query<{ outcome_kind: string; fights: number; near_cap: number; at_cap: number; max_end_tick: number; median_end_tick: number }>(TICK_CAP_SQL, [...w(win), TICK_CAP, NEAR_TICK_CAP]);
+  const res = await db.query<{ outcome_kind: string; fights: number; near_cap: number; at_cap: number; max_end_tick: number; median_end_tick: number }>(TICK_CAP_SQL, [...w(win), NEAR_TICK_CAP]);
   return res.rows.map((r) => ({ outcomeKind: r.outcome_kind, fights: r.fights, nearCap: r.near_cap, atCap: r.at_cap, maxEndTick: r.max_end_tick, medianEndTick: r.median_end_tick }));
 }
 
@@ -576,7 +756,7 @@ export async function tripCapUse(db: Queryable, win: Window): Promise<{ starts: 
 }
 
 export async function grindWall(db: Queryable, week: Window): Promise<GrindDecileRow[]> {
-  const res = await db.query<{ decile: number; players: number; min_free: number; max_free: number; avg_free: number; avg_paid: number; payers: number }>(GRIND_WALL_SQL, w(week));
+  const res = await db.query<{ decile: number; players: number; min_free: number; max_free: number; avg_free: number; avg_paid: number; payers: number }>(GRIND_WALL_SQL, grindWallParams(week));
   return res.rows.map((r) => ({
     decile: r.decile,
     players: r.players,
@@ -595,8 +775,29 @@ export async function ladder(db: Queryable, win: Window): Promise<{ levels: { po
   return { levels, gained };
 }
 
+/**
+ * Unlock-node purchases in the window, with every node of every web listed (QA N5): a node
+ * nobody bought is a row with 0 purchases, not an absence. Living nodes appear once per id
+ * (each region has its own web, and node ids are region-prefixed).
+ */
 export async function unlockPurchases(db: Queryable, win: Window): Promise<{ pool: string; nodeId: string; purchases: number; points: number }[]> {
-  return (await db.query<{ pool: string; node_id: string; purchases: number; points: number }>(UNLOCKS_SQL, w(win))).rows.map((r) => ({ pool: r.pool, nodeId: r.node_id, purchases: r.purchases, points: r.points }));
+  const bought = (await db.query<{ pool: string; node_id: string; purchases: number; points: number }>(UNLOCKS_SQL, w(win))).rows;
+  const key = (pool: string, id: string): string => `${pool}|${id}`;
+  const byKey = new Map(bought.map((r) => [key(r.pool, r.node_id), r]));
+  const out: { pool: string; nodeId: string; purchases: number; points: number }[] = [];
+  const seen = new Set<string>();
+  for (const web of UNLOCK_WEBS) {
+    for (const n of web.nodes) {
+      const k = key(web.pool, n.id);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      const r = byKey.get(k);
+      out.push({ pool: web.pool, nodeId: n.id, purchases: r?.purchases ?? 0, points: r?.points ?? 0 });
+    }
+  }
+  // Anything bought that is no longer in the content (a retired node) is still shown.
+  for (const r of bought) if (!seen.has(key(r.pool, r.node_id))) out.push({ pool: r.pool, nodeId: r.node_id, purchases: r.purchases, points: r.points });
+  return out.sort((a, b) => (a.pool !== b.pool ? (a.pool < b.pool ? -1 : 1) : b.purchases - a.purchases || (a.nodeId < b.nodeId ? -1 : a.nodeId > b.nodeId ? 1 : 0)));
 }
 
 export async function refugeesByDay(db: Queryable, win: Window): Promise<{ day: string; freeMenus: number; rerolls: number; claims: number; caravans: number }[]> {
@@ -604,17 +805,20 @@ export async function refugeesByDay(db: Queryable, win: Window): Promise<{ day: 
 }
 
 export interface PackFunnel {
+  /** The funnel (one population: opted-in accounts with screen flow in the window). */
   viewers: number;
   storeViewers: number;
   buyers: number;
+  /** Every settled buyer, opted-out accounts included: NOT part of the funnel. */
+  allBuyers: number;
   tiers: { tier: number; reserved: number; settled: number; buyers: number; cents: number }[];
 }
 
 export async function packFunnel(db: Queryable, win: Window): Promise<PackFunnel> {
-  const v = (await db.query<{ store_viewers: number; viewers: number }>(STORE_VIEWERS_SQL, w(win))).rows[0]!;
-  const b = (await db.query<{ buyers: number }>(PACK_BUYERS_SQL, w(win))).rows[0]!;
+  const f = (await db.query<{ viewers: number; store_viewers: number; buyers: number }>(PACK_FUNNEL_SQL, w(win))).rows[0]!;
+  const all = (await db.query<{ buyers: number }>(PACK_BUYERS_SQL, w(win))).rows[0]!;
   const tiers = (await db.query<{ tier: number; reserved: number; settled: number; buyers: number; cents: number }>(PACK_TIERS_SQL, w(win))).rows;
-  return { viewers: v.viewers, storeViewers: v.store_viewers, buyers: b.buyers, tiers };
+  return { viewers: f.viewers, storeViewers: f.store_viewers, buyers: f.buyers, allBuyers: all.buyers, tiers };
 }
 
 export async function screens(db: Queryable, win: Window): Promise<{ screen: string; views: number; viewers: number }[]> {
@@ -674,11 +878,15 @@ export async function poolHealth(db: Queryable, win: Window): Promise<PoolBandRo
     const s = served.find((x) => x.band === band);
     const servedN = s?.served ?? 0;
     const servedA = s?.authored ?? 0;
-    const servedShare = bp(servedA, servedN);
+    // QA N3: the matchmaker's own query and window (matchmaking/authoredShare.ts).
+    const mm = (await db.query<{ authored: boolean }>(AUTHORED_SERVED_SHARE_SQL, [band, AUTHORED_SERVED_SHARE_WINDOW])).rows;
+    const mmAuthored = mm.filter((r) => r.authored).length;
+    const mmShare = bp(mmAuthored, mm.length);
     let alarm: BandAlarm = "ok";
     if (live + authored < TUNABLES.CANDIDATES_PER_SEARCH) alarm = "empty";
+    else if (live + authored < THIN_BAND_PARTIES) alarm = "thin";
     else if (live === 0) alarm = "no_live";
-    else if (servedShare !== null && servedShare > TUNABLES.AUTHORED_PARTY_MAX_SHARE_BP) alarm = "authored_over_share";
+    else if (mmShare !== null && mmShare > TUNABLES.AUTHORED_PARTY_MAX_SHARE_BP) alarm = "authored_over_share";
     const low = TUNABLES.REPUTATION_FLOOR + band * BAND_SPAN;
     out.push({
       band,
@@ -690,7 +898,8 @@ export async function poolHealth(db: Queryable, win: Window): Promise<PoolBandRo
       served: servedN,
       servedAuthored: servedA,
       liveShareBp: bp(live, live + authored),
-      servedAuthoredShareBp: servedShare,
+      servedAuthoredShareBp: bp(servedA, servedN),
+      matchmakerWindow: { served: mm.length, authored: mmAuthored, shareBp: mmShare },
       alarm,
     });
   }

@@ -16,17 +16,19 @@
  *   - analytics never feed back: nothing outside src/analytics and its routes reads them.
  */
 import { RING_ANCHORS, entryBand, type PartyConfig } from "@caravan/circle";
-import { TUNABLES, weekIndexAt } from "@caravan/content";
+import { TUNABLES, UNLOCK_WEBS, weekIndexAt } from "@caravan/content";
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { grantAdmin, revokeAdmin } from "../src/analytics/admin.js";
-import { TelemetryRateLimiter } from "../src/analytics/clientEvents.js";
-import { PANEL_IDS, TUNING_MAP, buildDashboard, type Dashboard } from "../src/analytics/dashboard.js";
-import { TELEMETRY_DAILY_EVENT_CAP, TELEMETRY_SCREENS } from "../src/analytics/tunables.js";
+import { TelemetryRateLimiter, ingest, saveSettings } from "../src/analytics/clientEvents.js";
+import { PANEL_IDS, PANEL_SUBSYSTEMS, TUNING_MAP, buildDashboard, type Dashboard } from "../src/analytics/dashboard.js";
+import { THIN_BAND_PARTIES, UNIT_AFFINITY } from "../src/analytics/queries.js";
+import { ADMIN_REQUESTS_PER_MINUTE, TELEMETRY_DAILY_EVENT_CAP, TELEMETRY_FLUSH_WINDOW_MS, TELEMETRY_SCREENS } from "../src/analytics/tunables.js";
+import { seedAuthoredParties } from "../src/matchmaking/authored.js";
 import { buildApp } from "../src/app.js";
 import { withTransaction } from "../src/db/pool.js";
 import { doubleHandlers, type EncounterPlan } from "../src/dev/tripDouble.js";
@@ -107,15 +109,33 @@ async function defender(): Promise<{ p: Player; posts: string[]; tripId: string 
   return { p, posts, tripId: start.json().tripId };
 }
 
-async function telemetry(p: Player, events: unknown[]): Promise<LightMyRequestResponse> {
-  return call(p, "POST", "/me/telemetry", { events });
+/** Per-player batch sequence (QA D2: a batch carries the page session and its sequence number). */
+const seqs = new Map<string, number>();
+async function telemetry(p: Player, events: unknown[], session = 1): Promise<LightMyRequestResponse> {
+  const seq = seqs.get(p.accountId) ?? 0;
+  seqs.set(p.accountId, seq + 1);
+  return call(p, "POST", "/me/telemetry", { session, seq, events });
+}
+
+/** Send one batch with the server's clock at `atMs` (session times are receipt times, QA D2). */
+async function telemetryAt(p: Player, atMs: number, events: unknown[]): Promise<LightMyRequestResponse> {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(atMs);
+  try {
+    return await telemetry(p, events);
+  } finally {
+    vi.useRealTimers();
+  }
 }
 
 let owner: Player;
 let owner2: Player;
 let defenders: Player[];
 let shopper: Player;
+let optedOutBuyer: Player;
 let admin: Player;
+let mergedIds: string[];
+let unlockedNode: { id: string; cost: number };
 let dash: Dashboard;
 let nowMs: number;
 
@@ -146,14 +166,14 @@ beforeAll(async () => {
 
   // Three trips: held → bank at 1; held → push → overrun at 2; stalemate → bank at 1.
   const a = await defender();
-  await encounter(a.p, a.posts, 1, { kind: "caravan_held" });
+  await encounter(a.p, a.posts, 1, { kind: "caravan_held", fenceDamage: 1000 });
   expect((await call(a.p, "POST", `/me/caravans/${a.p.caravanId}/trip/bank`, { tripId: a.tripId, encounterIndex: 1 })).statusCode).toBe(200);
   const b = await defender();
   await encounter(b.p, b.posts, 1, { kind: "caravan_held" });
   expect((await call(b.p, "POST", `/me/caravans/${b.p.caravanId}/trip/push`, { tripId: b.tripId, encounterIndex: 1 })).statusCode).toBe(200);
   await encounter(b.p, b.posts, 2, { kind: "caravan_overrun" });
   const c = await defender();
-  await encounter(c.p, c.posts, 1, { kind: "stalemate" });
+  await encounter(c.p, c.posts, 1, { kind: "stalemate", fenceDamage: 50 });
   expect((await call(c.p, "POST", `/me/caravans/${c.p.caravanId}/trip/bank`, { tripId: c.tripId, encounterIndex: 1 })).statusCode).toBe(200);
   defenders = [a.p, b.p, c.p];
 
@@ -164,37 +184,57 @@ beforeAll(async () => {
   expect(view.statusCode, view.body).toBe(200);
   const reroll = await call(shopper, "POST", `/me/caravans/${shopper.caravanId}/refugees/reroll`, { fromSequence: view.json().menu.sequence });
   expect(reroll.statusCode, reroll.body).toBe(201);
-  await withTransaction(pool, (cl) =>
-    appendEvents(cl, `test:tlm:merge:${shopper.accountId}`, [
-      { type: "coin_spent", accountId: shopper.accountId, payload: { amount: 250, reason: "merge", toLevel: 2, unitTypeId: "desert.dust_rider", caravanId: shopper.caravanId } },
-      { type: "coin_spent", accountId: shopper.accountId, payload: { amount: 900, reason: "merge", toLevel: 3, unitTypeId: "desert.dust_rider", caravanId: shopper.caravanId } },
-    ]),
-  );
+  // QA N9: a real merge through the route (two L1 riders → one L2), not a hand-written payload.
+  mergedIds = await giveUnits(shopper, ["desert.dust_rider", "desert.dust_rider"]);
+  const merged = await call(shopper, "POST", `/me/caravans/${shopper.caravanId}/merge`, { instanceIds: mergedIds });
+  expect(merged.statusCode, merged.body).toBe(200);
   const store = (await call(shopper, "GET", "/me/store")).json();
   const buy = await call(shopper, "POST", "/me/store/purchase", { tier: 1, weekIndex: store.week.index, contentsHash: store.offers[0].contentsHash });
   expect(buy.statusCode, buy.body).toBe(201);
-  // Unlock web and ladder, trap pool (account-level).
+  // Ladder and unlock web, trap pool (account-level). QA N9: the purchase goes through the spend
+  // route, on the first reachable trap node, with points granted for exactly its cost.
+  const webs = (await call(shopper, "GET", "/me/unlocks")).json().webs as { pool: string; nodes: { id: string; cost: number; reached: boolean; prerequisitesMet: boolean }[] }[];
+  const target = webs.find((w) => w.pool === "trap")!.nodes.find((n) => !n.reached && n.prerequisitesMet && n.cost > 0)!;
+  unlockedNode = { id: target.id, cost: target.cost };
   await withTransaction(pool, (cl) =>
     appendEvents(cl, `test:tlm:unlock:${shopper.accountId}`, [
       { type: "ladder_progress_gained", accountId: shopper.accountId, payload: { pool: "trap", pointsDelta: 40, levelsGained: 1 } },
-      { type: "unlock_points_granted", accountId: shopper.accountId, payload: { pool: "trap", points: 3, rung: 1 } },
-      { type: "unlock_node_purchased", accountId: shopper.accountId, payload: { pool: "trap", nodeId: "trap.test_node", cost: 2 } },
+      { type: "unlock_points_granted", accountId: shopper.accountId, payload: { pool: "trap", points: target.cost, rung: 1 } },
     ]),
   );
+  const spend = await call(shopper, "POST", "/me/unlocks/spend", { pool: "trap", nodeId: target.id });
+  expect(spend.statusCode, spend.body).toBe(201);
 
-  // Screen flow: two sessions (10 min, then a 39 min gap, then 1 min) and one crash, from the shopper.
-  const sent = await telemetry(shopper, [
-    { kind: "screen", screen: "town", agoMs: 3_000_000 },
-    { kind: "screen", screen: "packs", agoMs: 2_700_000 },
-    { kind: "screen", screen: "town", agoMs: 2_400_000 },
-    { kind: "screen", screen: "trail", agoMs: 60_000 },
-    { kind: "screen", screen: "town", agoMs: 0 },
-    { kind: "crash", screen: "trail", errorName: "TypeError", stackHash: "0badc0de", agoMs: 30_000 },
-  ]);
-  expect(sent.statusCode, sent.body).toBe(202);
-  expect(sent.json()).toEqual({ accepted: 6, dropped: 0, optedOut: false });
+  // Screen flow, timed by the SERVER's clock (QA D2): two sessions (10 min, then a 39 min gap, then
+  // 1 min — a heartbeat in it) and one crash, from the shopper.
+  const base = Date.now();
+  const flow: [number, unknown][] = [
+    [base - 3_000_000, { kind: "screen", screen: "town" }],
+    [base - 2_700_000, { kind: "screen", screen: "packs" }],
+    [base - 2_400_000, { kind: "screen", screen: "town" }],
+    [base - 60_000, { kind: "screen", screen: "trail" }],
+    [base - 30_000, { kind: "crash", screen: "trail", errorName: "TypeError", stackHash: "0badc0de" }],
+    [base - 20_000, { kind: "heartbeat", screen: "trail" }],
+    [base, { kind: "screen", screen: "town" }],
+  ];
+  for (const [at, ev] of flow) {
+    const sent = await telemetryAt(shopper, at, [ev]);
+    expect(sent.statusCode, sent.body).toBe(202);
+    expect(sent.json()).toEqual({ accepted: 1, dropped: 0, optedOut: false });
+  }
+
+  // QA D4: a buyer who has opted out of usage data — outside the funnel's population.
+  optedOutBuyer = await register("oob");
+  const store2 = (await call(optedOutBuyer, "GET", "/me/store")).json();
+  expect((await call(optedOutBuyer, "POST", "/me/store/purchase", { tier: 2, weekIndex: store2.week.index, contentsHash: store2.offers[1].contentsHash })).statusCode).toBe(201);
+  expect((await call(optedOutBuyer, "PUT", "/me/analytics", { optedOut: true })).statusCode).toBe(200);
+
+  // QA S1: the cold-start outfits, seeded through the real writers (ladders, unlock purchases,
+  // rosters) AFTER the trips (so every menu above stayed the four live parties). No panel may count them.
+  await seedAuthoredParties(appRole);
 
   admin = await register("adm");
+  // (players: 4 owners, 3 defenders, the shopper, the opted-out buyer, the admin)
   await grantAdmin(pool, admin.username, "telemetry-test");
   nowMs = Date.now();
   dash = await dashboard();
@@ -248,14 +288,26 @@ describe("chunk 32: every panel against the seeded history", () => {
     ]);
   });
 
-  it("tick cap: the double's stalemate ends at tick 3599, within 10% of the 3600-tick cap", () => {
+  it("QA D3: held rate by affinity matchup and by merge level, and fence breakage by tier", () => {
+    const d = UNIT_AFFINITY["desert.dust_rider"]!;
+    const raiders = [...new Set([UNIT_AFFINITY["desert.dust_rider"]!, UNIT_AFFINITY["desert.well_digger"]!])].sort();
+    expect(dash.panels.matchups).toEqual(raiders.map((a) => ({ defender: d, attacker: a, encounters: 4, held: 2, overrun: 1, heldRateBp: 5000 })));
+    expect(dash.panels.mergeLevels).toEqual([
+      { side: "posted", level: 1, encounters: 4, held: 2, heldRateBp: 5000 },
+      { side: "raiders", level: 1, encounters: 4, held: 2, heldRateBp: 5000 },
+    ]);
+    // Three encounter-1 circles placed one brush pile (300 HP) each: one broken outright, one lost 50 HP.
+    expect(dash.panels.fences).toEqual([{ tierId: "fence.brush_pile", placed: 3, broken: 1, damaged: 2, hpLost: 350, brokenRateBp: 3333 }]);
+  });
+
+  it("tick cap: the double's stalemate ends at tick 3599 (the last tick simulated) — it is the fight the cap ended (QA D1)", () => {
     expect(dash.panels.tickCap).toEqual({
       capTicks: 3600,
       nearCapTicks: 3240,
       rows: [
         { outcomeKind: "caravan_held", fights: 2, nearCap: 0, atCap: 0, maxEndTick: 600, medianEndTick: 600 },
         { outcomeKind: "caravan_overrun", fights: 1, nearCap: 0, atCap: 0, maxEndTick: 600, medianEndTick: 600 },
-        { outcomeKind: "stalemate", fights: 1, nearCap: 1, atCap: 0, maxEndTick: 3599, medianEndTick: 3599 },
+        { outcomeKind: "stalemate", fights: 1, nearCap: 1, atCap: 1, maxEndTick: 3599, medianEndTick: 3599 },
       ],
     });
   });
@@ -266,9 +318,11 @@ describe("chunk 32: every panel against the seeded history", () => {
 
   it("merge spend over time, spend by reason (merge, the reroll), refugee menus per day", () => {
     const today = new Date(nowMs).toISOString().slice(0, 10);
-    expect(dash.panels.mergeSpend).toEqual({ byDay: [{ day: today, merges: 2, coin: 1150 }], byLevel: [{ toLevel: 2, merges: 1, coin: 250 }, { toLevel: 3, merges: 1, coin: 900 }] });
+    // One real merge (route): two L1 riders into one L2 at MERGE_COST_BY_TARGET_LEVEL[2].
+    const cost = TUNABLES.MERGE_COST_BY_TARGET_LEVEL[2]!;
+    expect(dash.panels.mergeSpend).toEqual({ byDay: [{ day: today, merges: 1, coin: cost }], byLevel: [{ toLevel: 2, merges: 1, coin: cost }] });
     expect(dash.panels.spendByReason).toEqual([
-      { reason: "merge", events: 2, coin: 1150 },
+      { reason: "merge", events: 1, coin: cost },
       { reason: "refugee_reroll", events: 1, coin: TUNABLES.REFUGEE_REROLL_COST_SCHEDULE[0] },
     ]);
     // Every registered caravan's GET of the trip did not touch the drip; only the shopper opened it.
@@ -276,7 +330,7 @@ describe("chunk 32: every panel against the seeded history", () => {
   });
 
   it("Coin by source equals an independent fold of the ledger's credit rows", async () => {
-    const rows = (await pool.query<{ event_type: string; payload: Record<string, unknown> }>("SELECT event_type::text, payload FROM ledger_event WHERE event_type IN ('coin_earned','coin_transferred_to_party_owner','coin_purchased')")).rows;
+    const rows = (await pool.query<{ event_type: string; payload: Record<string, unknown> }>("SELECT e.event_type::text, e.payload FROM ledger_event e JOIN account a ON a.id = e.account_id WHERE NOT a.is_system AND e.event_type IN ('coin_earned','coin_transferred_to_party_owner','coin_purchased')")).rows;
     const fold = new Map<string, { type: string; reason: string; events: number; coin: number; discarded: number }>();
     for (const r of rows) {
       const k = `${r.event_type}|${String(r.payload["reason"])}`;
@@ -294,7 +348,7 @@ describe("chunk 32: every panel against the seeded history", () => {
   });
 
   it("storage cap pressure: no player is near the cap", () => {
-    const players = 4 + 3 + 1 + 1; // four owners, three defenders, shopper, admin
+    const players = 4 + 3 + 1 + 1 + 1; // four owners, three defenders, shopper, opted-out buyer, admin
     expect(dash.panels.storageCap).toMatchObject({ accounts: players, nearCap: 0, atCap: 0, cap: TUNABLES.COIN_STORAGE_CAP, nearCapPercent: 90 });
   });
 
@@ -312,9 +366,15 @@ describe("chunk 32: every panel against the seeded history", () => {
     expect(earns[0]).toBe(0);
   });
 
-  it("ladder and unlock web: one trap rung gained, one trap node bought", async () => {
-    const ladderRows = (await pool.query<{ pool: string; points_delta: number; levels_gained: number }>("SELECT payload->>'pool' AS pool, (payload->>'pointsDelta')::int AS points_delta, (payload->>'levelsGained')::int AS levels_gained FROM ledger_event WHERE event_type = 'ladder_progress_gained'")).rows;
-    expect(dash.panels.unlockPurchases).toEqual([{ pool: "trap", nodeId: "trap.test_node", purchases: 1, points: 2 }]);
+  it("ladder and unlock web: one trap rung gained, one trap node bought — and none of the 96 authored outfits' seeding (QA S1)", async () => {
+    // The cold-start seeding wrote ladder gains and unlock purchases for the system accounts:
+    expect((await pool.query<{ n: number }>("SELECT count(*)::int AS n FROM ledger_event e JOIN account a ON a.id = e.account_id WHERE a.is_system AND e.event_type IN ('ladder_progress_gained','unlock_node_purchased')")).rows[0]!.n).toBeGreaterThan(100);
+    const ladderRows = (await pool.query<{ pool: string; points_delta: number; levels_gained: number }>("SELECT e.payload->>'pool' AS pool, (e.payload->>'pointsDelta')::int AS points_delta, (e.payload->>'levelsGained')::int AS levels_gained FROM ledger_event e JOIN account a ON a.id = e.account_id WHERE NOT a.is_system AND e.event_type = 'ladder_progress_gained'")).rows;
+    // QA N5: every node of every web is a row; only the one bought has purchases.
+    const bought = dash.panels.unlockPurchases.filter((r) => r.purchases > 0);
+    expect(bought).toEqual([{ pool: "trap", nodeId: unlockedNode.id, purchases: 1, points: unlockedNode.cost }]);
+    const nodes = new Set(UNLOCK_WEBS.flatMap((w) => w.nodes.map((n) => `${w.pool}|${n.id}`)));
+    expect(dash.panels.unlockPurchases).toHaveLength(nodes.size);
     // Play itself moves the ladders too: the panel equals a fold of the ledger's ladder rows.
     const fold = new Map<string, { pool: string; events: number; points: number; rungs: number }>();
     for (const r of ladderRows) {
@@ -328,20 +388,21 @@ describe("chunk 32: every panel against the seeded history", () => {
     expect(fold.get("trap")!.rungs).toBe(1);
     const trapLevels = dash.panels.ladder.levels.filter((l) => l.pool === "trap");
     expect(trapLevels).toEqual(expect.arrayContaining([{ pool: "trap", level: 1, owners: 1 }]));
-    expect(trapLevels.reduce((s, l) => s + l.owners, 0)).toBe(9);
+    expect(trapLevels.reduce((s, l) => s + l.owners, 0)).toBe(10);
   });
 
-  it("pack purchase funnel: one store viewer (screen flow), one tier-1 buyer", () => {
-    expect(dash.panels.packFunnel).toEqual({ viewers: 1, storeViewers: 1, buyers: 1, tiers: [{ tier: 1, reserved: 1, settled: 1, buyers: 1, cents: TUNABLES.PACK_TIER_PRICES_CENTS[0] }] });
+  it("pack purchase funnel: one population (QA D4) — the opted-out buyer counts only in allBuyers, outside the funnel", () => {
+    expect(dash.panels.packFunnel).toEqual({ viewers: 1, storeViewers: 1, buyers: 1, allBuyers: 2, tiers: [{ tier: 1, reserved: 1, settled: 1, buyers: 1, cents: TUNABLES.PACK_TIER_PRICES_CENTS[0] }] });
+    expect(dash.panels.packFunnel.buyers).toBeLessThanOrEqual(dash.panels.packFunnel.storeViewers);
   });
 
-  it("session length: a 10-minute session and a 1-minute one (a 39-minute gap splits them)", () => {
+  it("session length from the server's receipt times: a 10-minute session and a 1-minute one (a 39-minute gap splits them; a heartbeat counts, a crash does not)", () => {
     expect(dash.panels.sessionLength).toEqual({
       sessions: 2,
       players: 1,
       medianMs: 60_000,
       maxMs: 600_000,
-      screens: 5,
+      screens: 6,
       gapMs: 1_800_000,
       buckets: [
         { label: "<1m", sessions: 0 },
@@ -360,23 +421,24 @@ describe("chunk 32: every panel against the seeded history", () => {
     expect(dash.panels.crashes).toEqual([{ errorName: "TypeError", stackHash: "0badc0de", screen: "trail", reports: 1, reporters: 1 }]);
   });
 
-  it("pool health: the four live parties and nine caravans by band (fights move Reputation), bands below empty (alarm), served shares by band", () => {
+  it("pool health: 4 live parties and 12 authored per band 0–7, ten player caravans, served shares, and the alarm rule (QA N3/N4)", () => {
     const bands = dash.panels.poolHealth.bands;
-    expect(bands.map((b) => b.band)).toEqual([0, 1, 2, 3]);
-    for (const b of bands.slice(0, 2)) expect(b).toMatchObject({ liveParties: 0, authoredParties: 0, caravans: 0, served: 0, liveShareBp: null, alarm: "empty" });
+    expect(bands.map((b) => b.band)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    for (const b of bands) expect(b.authoredParties, `band ${b.band}`).toBe(12);
     expect(bands[3]).toMatchObject({ low: 1000, high: 1299 });
     expect(bands.reduce((s, b) => s + b.liveParties, 0)).toBe(4);
-    expect(bands.reduce((s, b) => s + b.authoredParties, 0)).toBe(0);
-    expect(bands.reduce((s, b) => s + b.caravans, 0)).toBe(9);
+    expect(bands.reduce((s, b) => s + b.caravans, 0)).toBe(10);
     // Encounter 1 searches 150 below the caravan (band 2); encounter 2 searches above it (band 3).
-    expect(bands[2]).toMatchObject({ served: 3, servedAuthored: 0, servedAuthoredShareBp: 0 });
-    expect(bands[3]).toMatchObject({ served: 1, servedAuthored: 0, servedAuthoredShareBp: 0 });
+    expect(bands[2]).toMatchObject({ served: 3, servedAuthored: 0, servedAuthoredShareBp: 0, matchmakerWindow: { served: 3, authored: 0, shareBp: 0 } });
+    expect(bands[3]).toMatchObject({ served: 1, servedAuthored: 0, servedAuthoredShareBp: 0, matchmakerWindow: { served: 1, authored: 0, shareBp: 0 } });
+    expect(THIN_BAND_PARTIES).toBe(TUNABLES.CANDIDATES_PER_SEARCH + 1 + TUNABLES.RECENT_OPPONENT_EXCLUSION);
     for (const b of bands) {
       const total = b.liveParties + b.authoredParties;
-      expect(b.alarm, `band ${b.band}`).toBe(total < 3 ? "empty" : b.liveParties === 0 ? "no_live" : "ok");
+      const over = b.matchmakerWindow.shareBp !== null && b.matchmakerWindow.shareBp > TUNABLES.AUTHORED_PARTY_MAX_SHARE_BP;
+      expect(b.alarm, `band ${b.band}`).toBe(total < 3 ? "empty" : total < THIN_BAND_PARTIES ? "thin" : b.liveParties === 0 ? "no_live" : over ? "authored_over_share" : "ok");
     }
+    expect(bands.filter((b) => b.liveParties === 0).every((b) => b.alarm === "no_live")).toBe(true);
     expect(dash.panels.poolHealth.alarms).toBe(bands.filter((b) => b.alarm !== "ok").length);
-    expect(dash.panels.poolHealth.alarms).toBeGreaterThanOrEqual(2);
   });
 
   it("retention: day-1/7/30 return over backdated accounts; an opted-out account is left out", async () => {
@@ -454,6 +516,10 @@ describe("chunk 32: the §20 tuning table", () => {
       expect(Object.keys(dash.panels)).toEqual(expect.arrayContaining(t.panels));
     }
     expect(Object.keys(dash.panels).sort()).toEqual([...PANEL_IDS].sort());
+    // QA D3: each number's PRIMARY panel reads a field of the number's own subsystem; #1 and #4 have their own panels.
+    for (const t of TUNING_MAP) expect(PANEL_SUBSYSTEMS[t.panels[0]!], `${t.n} ${t.number}`).toContain(t.subsystem);
+    expect(TUNING_MAP[0]!.panels.slice(0, 2)).toEqual(["matchups", "mergeLevels"]);
+    expect(TUNING_MAP[3]!.panels[0]).toBe("fences");
     expect(Object.keys(dash.tunableValues)).toEqual(expect.arrayContaining(["WEEKLY_PAY_CEILING", "TRIPS_PER_HOUR_CAP", "LADDER_RUNGS_PER_POOL", "BATTLE_LENGTH_CAP_SECONDS"]));
   });
 
@@ -466,15 +532,29 @@ describe("chunk 32: the §20 tuning table", () => {
 });
 
 describe("chunk 32: admin access", () => {
-  it("/admin/* is a 404 for no token, a bad token, and a signed-in non-admin — never 401/403", async () => {
-    for (const url of ["/admin/dashboard", "/admin/anything"]) {
+  it("/admin/* is a 404 for no token, a bad token, and a signed-in non-admin — never 401/403 — and reads exactly like an unknown route (QA N1)", async () => {
+    const unknown = async (url: string, method: "GET" | "POST" = "GET"): Promise<unknown> => {
+      const r = await app.inject({ method, url: url.replace("/admin", "/no-such-route") });
+      expect(r.statusCode).toBe(404);
+      return JSON.parse(r.body.replace("/no-such-route", "/admin"));
+    };
+    for (const url of ["/admin/dashboard", "/admin/anything", "/admin/", "/admin", "/admin/dashboard?days=7"]) {
       for (const p of [null, { ...owner, token: "nope" }, owner]) {
-        const res = await call(p, "GET", url);
-        expect([url, res.statusCode, res.json().error]).toEqual([url, 404, "not_found"]);
+        for (const method of ["GET", "POST"] as const) {
+          const res = await call(p, method, url);
+          expect([method, url, res.statusCode]).toEqual([method, url, 404]);
+          expect(res.json(), `${method} ${url}`).toEqual(await unknown(url, method));
+        }
       }
     }
-    expect((await call(admin, "GET", "/admin/dashboard?days=0")).statusCode).toBe(400);
     expect((await call(admin, "GET", "/admin/dashboard?days=7")).json().window.days).toBe(7);
+  });
+
+  it("QA N2: days and week are plain bounded integers (no 1e308, 0x10, sign or future week) — 400, never a 500", async () => {
+    const current = weekIndexAt(Date.now());
+    for (const q of ["days=0", "days=0x10", "days=1e1", "days=-5", "days=121", "days=99999999", "week=1e308", "week=-99999999999", "week=99999999999999", `week=${current + 1}`, "week=abc"]) {
+      expect((await call(admin, "GET", `/admin/dashboard?${q}`)).statusCode, q).toBe(400);
+    }
   });
 
   it("revoking turns the admin back into a 404; the flag is never carried on /me", async () => {
@@ -543,7 +623,7 @@ describe("chunk 32: opt-out and privacy", () => {
     expect(text).not.toContain(p.accountId);
     expect(text).not.toContain(p.username);
     const cols = (await pool.query<{ column_name: string }>("SELECT column_name FROM information_schema.columns WHERE table_name = 'analytics_client_event' ORDER BY ordinal_position")).rows.map((r) => r.column_name);
-    expect(cols).toEqual(["id", "analytics_id", "kind", "screen", "error_name", "stack_hash", "occurred_at", "received_at"]);
+    expect(cols).toEqual(["id", "analytics_id", "kind", "screen", "error_name", "stack_hash", "occurred_at", "received_at", "client_session", "client_seq", "client_idx"]);
     await pool.query("DELETE FROM account WHERE id = $1", [p.accountId]);
     expect((await pool.query("SELECT 1 FROM account_analytics WHERE account_id = $1", [p.accountId])).rowCount).toBe(0);
     expect((await pool.query("SELECT 1 FROM analytics_client_event WHERE analytics_id = $1", [rows[0].analytics_id])).rowCount).toBe(0);
@@ -562,19 +642,26 @@ describe("chunk 32: opt-out and privacy", () => {
 describe("chunk 32: ingest limits", () => {
   it("refuses unknown screens, unknown keys, free text, a bad hash, an empty or oversized batch, and a body over the cap", async () => {
     const p = await register("lim");
+    const env = { session: 9, seq: 0 };
     const bad: unknown[] = [
-      { events: [] },
-      { events: Array.from({ length: 26 }, () => ({ kind: "screen", screen: "town" })) },
-      { events: [{ kind: "screen", screen: "nowhere" }] },
-      { events: [{ kind: "screen", screen: "town", username: p.username }] },
-      { events: [{ kind: "crash", screen: "town", errorName: "Error", stackHash: "xyz" }] },
-      { events: [{ kind: "crash", screen: "town", errorName: "Cannot read property of undefined", stackHash: "12345678" }] },
-      { events: [{ kind: "screen", screen: "town", agoMs: 3_600_001 }] },
-      { events: [{ kind: "click", screen: "town" }] },
-      { events: [{ kind: "screen", screen: "town" }], note: "hi" },
+      { ...env, events: [] },
+      { ...env, events: Array.from({ length: 26 }, () => ({ kind: "screen", screen: "town" })) },
+      { ...env, events: [{ kind: "screen", screen: "nowhere" }] },
+      { ...env, events: [{ kind: "screen", screen: "town", username: p.username }] },
+      { ...env, events: [{ kind: "crash", screen: "town", errorName: "Error", stackHash: "xyz" }] },
+      { ...env, events: [{ kind: "crash", screen: "town", errorName: "Cannot read property of undefined", stackHash: "12345678" }] },
+      { ...env, events: [{ kind: "screen", screen: "town", agoMs: -1 }] },
+      { ...env, events: [{ kind: "click", screen: "town" }] },
+      { ...env, events: [{ kind: "screen", screen: "town" }], note: "hi" },
+      { events: [{ kind: "screen", screen: "town" }] },
+      { session: 0, seq: 0, events: [{ kind: "screen", screen: "town" }] },
+      { session: 1.5, seq: 0, events: [{ kind: "screen", screen: "town" }] },
+      { session: 1, seq: -1, events: [{ kind: "screen", screen: "town" }] },
     ];
-    for (const body of bad) expect((await call(p, "POST", "/me/telemetry", body)).statusCode, JSON.stringify(body).slice(0, 80)).toBe(400);
-    const huge = await call(p, "POST", "/me/telemetry", JSON.stringify({ events: [{ kind: "screen", screen: "town", pad: "x".repeat(5000) }] }), { "content-type": "application/json" });
+    // Two players, so the refusals stay under the per-account rate limit (each refused batch still counts).
+    const p2 = await register("lim");
+    for (const [i, body] of bad.entries()) expect((await call(i < 8 ? p : p2, "POST", "/me/telemetry", body)).statusCode, JSON.stringify(body).slice(0, 80)).toBe(400);
+    const huge = await call(p2, "POST", "/me/telemetry", JSON.stringify({ events: [{ kind: "screen", screen: "town", pad: "x".repeat(5000) }] }), { "content-type": "application/json" });
     expect(huge.statusCode).toBe(413);
     expect((await call(null, "POST", "/me/telemetry", { events: [{ kind: "screen", screen: "town" }] })).statusCode).toBe(401);
   });
@@ -599,6 +686,38 @@ describe("chunk 32: ingest limits", () => {
     expect(r.json()).toEqual({ accepted: 1, dropped: 2, optedOut: false });
   });
 
+  it("QA D2: a replayed batch stores nothing, and an event's age is clamped to the flush window (so a session cannot be faked long)", async () => {
+    const p = await register("rep");
+    const events = Array.from({ length: 25 }, (_, i) => ({ kind: "screen", screen: i % 2 ? "town" : "trail", agoMs: 3_600_000 - i * 150_000 }));
+    const first = await call(p, "POST", "/me/telemetry", { session: 42, seq: 0, events });
+    const again = await call(p, "POST", "/me/telemetry", { session: 42, seq: 0, events });
+    expect(first.json()).toEqual({ accepted: 25, dropped: 0, optedOut: false });
+    expect(again.json()).toEqual({ accepted: 0, dropped: 25, optedOut: false });
+    const span = (await pool.query<{ n: number; span_ms: number; max_age_ms: number }>(
+      `SELECT count(*)::int AS n, floor(EXTRACT(EPOCH FROM max(ce.occurred_at) - min(ce.occurred_at)) * 1000)::int AS span_ms,
+              floor(EXTRACT(EPOCH FROM max(ce.received_at - ce.occurred_at)) * 1000)::int AS max_age_ms
+         FROM analytics_client_event ce JOIN account_analytics x USING (analytics_id) WHERE x.account_id = $1`,
+      [p.accountId],
+    )).rows[0]!;
+    expect(span.n).toBe(25);
+    expect(span.max_age_ms).toBeLessThanOrEqual(TELEMETRY_FLUSH_WINDOW_MS);
+    expect(span.span_ms).toBeLessThanOrEqual(TELEMETRY_FLUSH_WINDOW_MS); // not the claimed hour
+    // A heartbeat is a screen-shaped event.
+    expect((await call(p, "POST", "/me/telemetry", { session: 42, seq: 1, events: [{ kind: "heartbeat", screen: "town" }] })).json()).toEqual({ accepted: 1, dropped: 0, optedOut: false });
+    expect((await call(p, "POST", "/me/telemetry", { session: 42, seq: 2, events: [{ kind: "heartbeat", screen: "town", errorName: "Error" }] })).statusCode).toBe(400);
+  });
+
+  it("QA S2: an opt-out racing a batch in flight never leaves a row behind (50 concurrent pairs)", async () => {
+    const p = await register("race");
+    let leftover = 0;
+    for (let i = 0; i < 50; i++) {
+      await saveSettings(appRole, p.accountId, { optedOut: false });
+      await Promise.all([ingest(appRole, p.accountId, { session: 5, seq: i, events: [{ kind: "screen", screen: "inbox", agoMs: 0 }] }, Date.now()), saveSettings(appRole, p.accountId, { optedOut: true })]);
+      leftover += (await pool.query<{ n: number }>("SELECT count(*)::int AS n FROM analytics_client_event ce JOIN account_analytics x USING (analytics_id) WHERE x.account_id = $1", [p.accountId])).rows[0]!.n;
+    }
+    expect(leftover).toBe(0);
+  });
+
   it("the limiter's memory is bounded", () => {
     const l = new TelemetryRateLimiter(2, 1000, 5);
     for (let i = 0; i < 50; i++) expect(l.take(`k${i}`, 0).ok).toBe(true);
@@ -618,7 +737,8 @@ describe("chunk 32: ingest limits", () => {
 describe("chunk 32: analytics never feed back into play", () => {
   it("nothing outside src/analytics and its routes file reads the analytics module or tables", () => {
     const src = path.resolve(HERE, "../src");
-    const allowed = new Set([path.join("routes", "telemetry.ts"), "admin.ts", "app.ts"]);
+    // account/service.ts reads the account's own analytics for the export (QA D5) — out of play.
+    const allowed = new Set([path.join("routes", "telemetry.ts"), "admin.ts", "app.ts", path.join("account", "service.ts")]);
     const hits: string[] = [];
     const walk = (dir: string): void => {
       for (const f of readdirSync(dir)) {
@@ -640,9 +760,46 @@ describe("chunk 32: analytics never feed back into play", () => {
       expect(text, f).not.toMatch(/appendEvents|appendCoinCredits|spendCoin|INSERT INTO ledger_event/);
       for (const m of text.matchAll(/(?:INSERT INTO|UPDATE|DELETE FROM)\s+([a-z_]+)/g)) expect(["account_admin", "account_analytics", "analytics_client_event"], `${f}: ${m[0]}`).toContain(m[1]);
     }
+    // QA N9: walk the packages recursively, so a subfolder cannot hide a reference.
+    const files = (dir: string): string[] => readdirSync(dir).flatMap((f) => (statSync(path.join(dir, f)).isDirectory() ? files(path.join(dir, f)) : [path.join(dir, f)]));
     for (const pkg of ["resolver", "circle", "content"]) {
-      const dir = path.resolve(HERE, `../../../packages/${pkg}/src`);
-      for (const f of readdirSync(dir)) expect(readFileSync(path.join(dir, f), "utf8"), `${pkg}/${f}`).not.toMatch(/analytics|telemetry/i);
+      const all = files(path.resolve(HERE, `../../../packages/${pkg}/src`));
+      expect(all.length).toBeGreaterThan(3);
+      for (const f of all) expect(readFileSync(f, "utf8"), f).not.toMatch(/analytics|telemetry/i);
     }
+  });
+});
+
+describe("chunk 32 QA D6: the dashboard is bounded", () => {
+  it("runs in one READ ONLY transaction with a statement timeout", async () => {
+    const seen: string[] = [];
+    const spy: pg.Pool = new Proxy(appRole, {
+      get(target, prop, recv) {
+        if (prop !== "connect") return Reflect.get(target, prop, recv);
+        return async () => {
+          const client = await target.connect();
+          return new Proxy(client, {
+            get(c, k, r) {
+              if (k !== "query") return Reflect.get(c, k, r);
+              return (sql: unknown, ...rest: unknown[]) => {
+                if (typeof sql === "string") seen.push(sql);
+                return (c.query as (...a: unknown[]) => unknown).call(c, sql, ...rest);
+              };
+            },
+          });
+        };
+      },
+    });
+    await buildDashboard(spy, { nowMs: Date.now(), days: 30 });
+    expect(seen.slice(0, 3)).toEqual(["BEGIN", "SET TRANSACTION READ ONLY", expect.stringMatching(/^SET LOCAL statement_timeout = \d+$/)]);
+    expect(seen.at(-1)).toBe("COMMIT");
+    expect(seen.filter((q) => /^\s*(INSERT|UPDATE|DELETE)\b/i.test(q))).toEqual([]);
+  });
+
+  it("rate-limits /admin/* per admin (429); a non-admin still only ever sees the 404", async () => {
+    const codes: number[] = [];
+    for (let i = 0; i <= ADMIN_REQUESTS_PER_MINUTE; i++) codes.push((await call(admin, "GET", "/admin/dashboard?days=1")).statusCode);
+    expect(codes).toContain(429);
+    expect((await call(owner, "GET", "/admin/dashboard")).statusCode).toBe(404);
   });
 });

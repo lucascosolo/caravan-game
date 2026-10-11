@@ -1,0 +1,14 @@
+-- chunk 32: unlocks over the synthetic history in test/telemetry-scale.test.ts (120-day window)
+Sort
+  Sort Key: ((e.payload ->> 'pool'::text)), ((count(*))::integer) DESC, ((e.payload ->> 'nodeId'::text))
+  ->  HashAggregate
+        Group Key: (e.payload ->> 'pool'::text), (e.payload ->> 'nodeId'::text)
+        ->  Nested Loop Anti Join
+              Join Filter: (sa.id = e.account_id)
+              ->  Bitmap Heap Scan on ledger_event e
+                    Recheck Cond: ((event_type = 'unlock_node_purchased'::ledger_event_type) AND (occurred_at >= '2026-06-13 23:35:31.636+00'::timestamp with time zone) AND (occurred_at < '2026-10-11 23:35:31.636+00'::timestamp with time zone))
+                    ->  Bitmap Index Scan on ledger_event_type_time_idx
+                          Index Cond: ((event_type = 'unlock_node_purchased'::ledger_event_type) AND (occurred_at >= '2026-06-13 23:35:31.636+00'::timestamp with time zone) AND (occurred_at < '2026-10-11 23:35:31.636+00'::timestamp with time zone))
+              ->  Materialize
+                    ->  Index Only Scan using account_system_idx on account sa
+                          Filter: (id <> '00000000-0000-4000-8000-0000000000d0'::uuid)

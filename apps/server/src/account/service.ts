@@ -14,6 +14,7 @@
  *   only it owns are deleted; what it shares with other players (replays, their ledgers, their
  *   trips and menus) is anonymized to the tombstone. See the migration's header.
  */
+import { analyticsForExport } from "../analytics/clientEvents.js";
 import type pg from "pg";
 import { hashPassword, verifyPassword } from "../auth/password.js";
 import { withTransaction, type Queryable } from "../db/pool.js";
@@ -163,6 +164,8 @@ export async function exportAccount(db: Queryable, accountId: string): Promise<R
     onboarding: (await rows(db, "SELECT step, skipped_at, completed_at, updated_at FROM account_onboarding WHERE account_id = $1", [accountId]))[0] ?? null,
     ...(await storeRecordsForExport(db, accountId)),
     inboxPreferences: await rows(db, "SELECT category, enabled FROM inbox_preference WHERE account_id = $1 ORDER BY category", [accountId]),
+    // Chunk 32 QA D5: the usage-data setting and this account's own client events (no analytics id).
+    analytics: await analyticsForExport(db, accountId),
     devices: (await listDevices(db, accountId)).map((d) => ({ id: d.id, label: d.label, createdAt: d.created_at, lastSeenAt: d.last_seen_at, expiresAt: d.expires_at })),
     caravans: perCaravan,
     encounters,

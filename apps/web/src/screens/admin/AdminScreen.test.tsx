@@ -49,10 +49,26 @@ describe("AdminScreen (chunk 32)", () => {
     expect(within(grind).getByText(/WEEKLY_PAY_CEILING 60000/)).toBeInTheDocument();
     const bands = screen.getByTestId("pool-bands");
     expect(within(bands).getAllByRole("row")).toHaveLength(1 + dash.panels.poolHealth.bands.length);
-    expect(within(bands).getAllByText("ALARM: fewer than a full menu").length).toBe(dash.panels.poolHealth.bands.filter((b) => b.alarm === "empty").length);
+    for (const alarm of ["ok", "empty", "thin", "no_live", "authored_over_share"] as const) {
+      expect(within(bands).queryAllByText(STRINGS.admin.alarm(alarm)).length, alarm).toBe(dash.panels.poolHealth.bands.filter((b) => b.alarm === alarm).length);
+    }
     expect(screen.getByTestId("admin-alarms")).toHaveTextContent(STRINGS.admin.alarms(dash.panels.poolHealth.alarms));
     // A rate is always text; 2500 bp reads 25.00%.
     expect(within(screen.getByTestId("panel-overrunByBand")).getByText("25.00%")).toBeInTheDocument();
+  });
+
+  it("QA D3/D4/N7: the matchup, merge-level and fence panels, the funnel's one population with all buyers outside it, and the trickle note", async () => {
+    render(<AdminScreen api={fakeApi({ adminDashboard: () => Promise.resolve(dash) })} />);
+    await screen.findByTestId("admin-screen");
+    expect(within(screen.getByTestId("matchups")).getAllByRole("row")).toHaveLength(1 + dash.panels.matchups.length);
+    expect(dash.panels.matchups.length).toBeGreaterThan(0);
+    expect(within(screen.getByTestId("fences")).getAllByRole("row")).toHaveLength(1 + dash.panels.fences.length);
+    expect(within(screen.getByTestId("panel-mergeLevels")).getAllByRole("row")).toHaveLength(1 + dash.panels.mergeLevels.length);
+    const f = dash.panels.packFunnel;
+    expect(screen.getByTestId("admin-funnel")).toHaveTextContent(`Opened the game ${f.viewers} → opened the store ${f.storeViewers} → bought ${f.buyers}`);
+    expect(screen.getByTestId("admin-all-buyers")).toHaveTextContent(`${f.allBuyers} buyers in all`);
+    expect(f.buyers).toBeLessThanOrEqual(f.storeViewers);
+    expect(screen.getByTestId("grind-note")).toHaveTextContent(/apportioned by its stored accrual span/);
   });
 
   it("reloads with the chosen window", async () => {
