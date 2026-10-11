@@ -1,9 +1,36 @@
 import type { FastifyInstance } from "fastify";
-import { listEventsForAccount } from "../ledger/ledger.js";
-import { listProgressionForAccount, progressionRules } from "../progression/view.js";
+import type { Pool } from "../db/types.js";
+import { AppError } from "../services/errors.js";
+import {
+  listProgressionEventsForAccount,
+  listProgressionForAccount,
+  PROGRESSION_EVENTS_LIMIT_DEFAULT,
+  PROGRESSION_EVENTS_LIMIT_MAX,
+  progressionRules,
+} from "../progression/view.js";
 import { requireAuth } from "./require-auth.js";
 
-const PROGRESSION_EVENT_TYPES = new Set(["reputation_changed", "ladder_progress_gained", "unlock_points_granted"]);
+interface EventsQuery {
+  after?: number;
+  limit?: number;
+  pool?: Pool;
+}
+
+/**
+ * Query schema for the history endpoint (QA S4): Fastify validates and coerces the raw
+ * strings, so a malformed cursor, limit or pool is a 400, never a silent default or a 500.
+ * `after` is bounded by 2^53 − 1 because seq is read as a Number (see db/pool.ts).
+ */
+const EVENTS_QUERY_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    after: { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER, default: 0 },
+    limit: { type: "integer", minimum: 1, maximum: PROGRESSION_EVENTS_LIMIT_MAX, default: PROGRESSION_EVENTS_LIMIT_DEFAULT },
+    pool: { type: "string", enum: ["living", "trap", "siege"] },
+  },
+} as const;
+const EVENTS_QUERY_KEYS = new Set(Object.keys(EVENTS_QUERY_SCHEMA.properties));
 
 /**
  * Read endpoints for ladders and Reputation. Read-only by construction: there is no POST
@@ -16,30 +43,38 @@ export async function progressionRoutes(app: FastifyInstance): Promise<void> {
     return { pools: await listProgressionForAccount(app.db, account.id) };
   });
 
-  /** The player's own progression history, oldest first, cursor on seq. */
-  app.get<{ Querystring: { after?: string; limit?: string; pool?: string } }>(
+  /** The player's own progression history, oldest first, cursor on seq; filters apply in SQL. */
+  app.get<{ Querystring: EventsQuery }>(
     "/me/progression/events",
-    { preHandler: requireAuth },
+    {
+      schema: { querystring: EVENTS_QUERY_SCHEMA },
+      // Ajv's removeAdditional would silently drop unknown keys; an unknown key is a
+      // malformed query and gets a 400 like the rest.
+      preValidation: async (req) => {
+        const unknown = Object.keys((req.query ?? {}) as object).filter((k) => !EVENTS_QUERY_KEYS.has(k));
+        if (unknown.length > 0) throw new AppError(400, "bad_request", `unknown query parameter(s): ${unknown.join(", ")}`);
+      },
+      preHandler: requireAuth,
+    },
     async (req) => {
       const account = req.auth!.account;
-      const afterSeq = Number(req.query.after ?? 0);
-      const limit = Number(req.query.limit ?? 100);
-      const opts: { afterSeq?: number; limit?: number } = {};
-      if (Number.isFinite(afterSeq) && afterSeq >= 0) opts.afterSeq = afterSeq;
-      if (Number.isFinite(limit) && limit > 0) opts.limit = limit;
-      const page = await listEventsForAccount(app.db, account.id, opts);
-      const events = page
-        .filter((e) => PROGRESSION_EVENT_TYPES.has(e.event_type))
-        .filter((e) => !req.query.pool || e.payload["pool"] === req.query.pool)
-        .map((e) => ({
+      const opts: { afterSeq?: number; limit?: number; pool?: Pool } = {};
+      if (req.query.after !== undefined) opts.afterSeq = req.query.after;
+      if (req.query.limit !== undefined) opts.limit = req.query.limit;
+      if (req.query.pool !== undefined) opts.pool = req.query.pool;
+      const page = await listProgressionEventsForAccount(app.db, account.id, opts);
+      return {
+        events: page.events.map((e) => ({
           seq: e.seq,
           type: e.event_type,
           caravanId: e.caravan_id,
           causationId: e.causation_id,
           payload: e.payload,
           occurredAt: e.occurred_at.toISOString(),
-        }));
-      return { events, nextAfter: page.at(-1)?.seq ?? opts.afterSeq ?? 0 };
+        })),
+        nextAfter: page.nextAfter,
+        hasMore: page.hasMore,
+      };
     },
   );
 

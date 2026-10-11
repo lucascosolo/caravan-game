@@ -7,6 +7,8 @@ import { canonicalJson, validateDraft, type Json } from "../src/ledger/events.js
 import {
   advanceLadder,
   applyFloor,
+  assertReputationTunablesCoherent,
+  REPUTATION_BASE_DELTAS,
   deriveProgressionEvents,
   ENCOUNTER_OUTCOME_KINDS,
   gapMultiplier,
@@ -192,7 +194,7 @@ describe("Reputation gap scaling is pure and integer-only", () => {
     const loss = TUNABLES.REPUTATION_LOSS_ATTACKER;
     expect(gapScaledDelta(loss, 1000, 1000)).toBe(loss);
     expect(gapScaledDelta(loss, 1000 + d, 1000)).toBe(loss * 2); // favourite losing: double
-    expect(gapScaledDelta(loss, 1000, 1000 + d)).toBe(Math.trunc((loss * TUNABLES.REPUTATION_GAP_MULT_MIN) / FIXED_ONE)); // losing to a titan: small
+    expect(gapScaledDelta(loss, 1000, 1000 + d)).toBe(Math.trunc((loss * TUNABLES.REPUTATION_GAP_MULT_MIN_LOSS) / FIXED_ONE)); // losing to a titan: small, but floored higher than a win (D2)
     expect(gapMultiplier(0, 1)).toBe(FIXED_ONE);
     expect(gapMultiplier(12345, 0)).toBe(FIXED_ONE);
   });
@@ -234,6 +236,47 @@ describe("Reputation gap scaling is pure and integer-only", () => {
     expect(reputationBaseDelta("caravan", "stalemate")).toBe(TUNABLES.REPUTATION_CARAVAN_HELD);
     expect(reputationBaseDelta("caravan", "caravan_overrun")).toBe(TUNABLES.REPUTATION_CARAVAN_OVERRUN);
     expect(() => gapScaledDelta(1.5, 1000, 1000)).toThrow(RangeError);
+  });
+});
+
+describe("sandbagging shape (chunk 04 QA D2) and -0 hygiene (N4)", () => {
+  it("floors a loss at REPUTATION_GAP_MULT_MIN_LOSS and a win at REPUTATION_GAP_MULT_MIN; the loss floor is the higher one", () => {
+    expect(TUNABLES.REPUTATION_GAP_MULT_MIN_LOSS).toBeGreaterThan(TUNABLES.REPUTATION_GAP_MULT_MIN);
+    expect(gapMultiplier(100_000, -1)).toBe(TUNABLES.REPUTATION_GAP_MULT_MIN_LOSS);
+    expect(gapMultiplier(-100_000, 1)).toBe(TUNABLES.REPUTATION_GAP_MULT_MIN);
+    expect(gapMultiplier(100_000, 1)).toBe(TUNABLES.REPUTATION_GAP_MULT_MAX);
+    expect(gapMultiplier(-100_000, -1)).toBe(TUNABLES.REPUTATION_GAP_MULT_MAX);
+    // the QA probe's numbers: a loss at 400 vs 1000 pays half the base, a win at 100 vs 1000 double
+    expect(reputationDelta("party", "caravan_held", 400, 1000).delta).toBe(Math.trunc((TUNABLES.REPUTATION_LOSS_ATTACKER * TUNABLES.REPUTATION_GAP_MULT_MIN_LOSS) / FIXED_ONE));
+    expect(reputationDelta("party", "caravan_overrun", 100, 1000).delta).toBe(Math.trunc((TUNABLES.REPUTATION_WIN_ATTACKER * TUNABLES.REPUTATION_GAP_MULT_MAX) / FIXED_ONE));
+  });
+
+  it("tanking a rating against 1000-rated opponents takes far more losses than climbing back takes wins", () => {
+    let rep: number = TUNABLES.REPUTATION_START;
+    let losses = 0;
+    while (rep > TUNABLES.REPUTATION_FLOOR && losses < 100_000) {
+      rep = reputationDelta("party", "caravan_held", rep, TUNABLES.REPUTATION_START).after;
+      losses++;
+    }
+    let wins = 0;
+    while (rep < TUNABLES.REPUTATION_START && wins < 100_000) {
+      rep = reputationDelta("party", "caravan_overrun", rep, TUNABLES.REPUTATION_START).after;
+      wins++;
+    }
+    expect(losses).toBeGreaterThan(100);
+    expect(losses).toBeGreaterThan(3 * wins);
+  });
+
+  it("never yields -0, and the startup coherence assertion holds for the shipped registry", () => {
+    for (const base of REPUTATION_BASE_DELTAS) {
+      for (const gap of [-100_000, -5000, -400, -1, 0, 1, 400, 6000, 100_000]) {
+        const v = gapScaledDelta(base, 1000, 1000 + gap);
+        expect(Object.is(v, -0)).toBe(false);
+        expect(Math.abs(v)).toBeGreaterThanOrEqual(1); // |base| × floor ≥ FIXED_ONE: a delta never truncates to nothing
+      }
+    }
+    expect(Object.is(gapScaledDelta(0, 1000, 1000), -0)).toBe(false);
+    expect(() => assertReputationTunablesCoherent()).not.toThrow();
   });
 });
 
@@ -282,11 +325,38 @@ describe("event derivation", () => {
     expect(only(r.events, "reputation_changed")).toEqual(["caravan:living", "party:siege"]);
   });
 
-  it("moves trap Reputation only when traps were fielded; living and siege ratings always move", () => {
+  it("never moves trap Reputation (D1: nothing reads it); living and siege ratings always move", () => {
     const reps = (ev: ReturnType<typeof deriveProgressionEvents>["events"]) =>
       ev.filter((e) => e.type === "reputation_changed").map((e) => String(e.payload["pool"]));
     expect(reps(deriveProgressionEvents(freshSnapshot(), input("stalemate", ["living"], ["siege"])).events)).toEqual(["living", "siege"]);
-    expect(reps(deriveProgressionEvents(freshSnapshot(), input("stalemate", ["living", "trap"], [])).events)).toEqual(["living", "trap", "siege"]);
+    const withTraps = deriveProgressionEvents(freshSnapshot(), input("stalemate", ["living", "trap"], []));
+    expect(reps(withTraps.events)).toEqual(["living", "siege"]);
+    expect(withTraps.after.caravan.trap.reputation).toBe(TUNABLES.REPUTATION_START);
+    expect(withTraps.events.some((e) => e.type === "ladder_progress_gained" && e.payload["pool"] === "trap")).toBe(true); // the trap LADDER still earns
+    for (const outcome of ENCOUNTER_OUTCOME_KINDS) {
+      const snap = freshSnapshot();
+      snap.caravan.living.reputation = 1800;
+      const r = deriveProgressionEvents(snap, input(outcome, ["living", "trap"], ["siege"]));
+      expect(reps(r.events)).not.toContain("trap");
+      expect(r.after.caravan.trap.reputation).toBe(TUNABLES.REPUTATION_START);
+    }
+  });
+
+  it("writes no reputation_changed when the applied delta is 0 (N1): a rating on the floor stays silent", () => {
+    const snap = freshSnapshot();
+    snap.caravan.living.reputation = TUNABLES.REPUTATION_FLOOR;
+    const r = deriveProgressionEvents(snap, input("caravan_overrun", ["living"], ["siege"]));
+    const reps = r.events.filter((e) => e.type === "reputation_changed");
+    expect(reps.map((e) => e.payload["pool"])).toEqual(["siege"]);
+    expect(r.after.caravan.living.reputation).toBe(TUNABLES.REPUTATION_FLOOR);
+    expect(r.summary.caravan[0]!.reputation).toMatchObject({ delta: 0, floored: true });
+    // one step above the floor: the clamped event is written, with floored: true and the unclamped value
+    snap.caravan.living.reputation = TUNABLES.REPUTATION_FLOOR + 3;
+    const last = deriveProgressionEvents(snap, input("caravan_overrun", ["living"], ["siege"]));
+    const living = last.events.find((e) => e.type === "reputation_changed" && e.payload["pool"] === "living")!;
+    expect(living.payload).toMatchObject({ delta: -3, floored: true });
+    expect(living.payload["unclamped"]).toBeLessThan(-3);
+    for (const e of last.events) if (e.type === "reputation_changed") expect(e.payload["delta"]).not.toBe(0);
   });
 
   it("scales both sides by the gap between the caravan's living rating and the owner's siege rating", () => {

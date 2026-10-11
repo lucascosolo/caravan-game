@@ -403,12 +403,20 @@ export const TUNABLES = {
   /**
    * TUNABLE (chunk 04). The Elo-ish gap scaling, integer-only. For a rating gap g =
    * opponent − self: a win is scaled by (1 + g / DIVISOR), a loss by (1 − g / DIVISOR),
-   * each clamped to [MULT_MIN, MULT_MAX]. Beating someone DIVISOR above you doubles the
-   * gain; losing to someone DIVISOR below you doubles the loss. Blunts sandbagging
-   * (PHASE-2 §28): farming far-weaker parties pays a quarter of the base gain at most.
+   * a win clamped to [MULT_MIN, MULT_MAX] and a loss to [MULT_MIN_LOSS, MULT_MAX].
+   * Beating someone DIVISOR above you doubles the gain; losing to someone DIVISOR below
+   * you doubles the loss. Blunts sandbagging (PHASE-2 §31): farming far-weaker parties
+   * pays a quarter of the base gain at most.
+   *
+   * MULT_MIN_LOSS (chunk 04 QA D2): the loss-side floor is deliberately HIGHER than the
+   * win-side floor, so tanking a rating on purpose (losing to far stronger opponents) is
+   * about twice as slow as the win-side ramp would otherwise make it. Must satisfy
+   * |base delta| × MULT_MIN ≥ FIXED_ONE for every base delta, so no scaled delta
+   * truncates to zero (asserted at startup in apps/server/src/progression/reputation.ts).
    */
   REPUTATION_GAP_DIVISOR: 400,
   REPUTATION_GAP_MULT_MIN: fpMilli(250),
+  REPUTATION_GAP_MULT_MIN_LOSS: fpMilli(500),
   REPUTATION_GAP_MULT_MAX: fp(2),
 
   // ────────────────────────────────────────────────────────────────────────────────────

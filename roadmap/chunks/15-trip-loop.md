@@ -108,3 +108,15 @@ to trip structure. This is the specific way the concept drifted once already; wa
 - **Grind wall:** with `TRIPS_PER_HOUR_CAP` at 3, is free-path progress slow enough
   that the paid path stops feeling optional? Trip cap is not purchasable — but check
   its interaction with Coin earn rates.
+
+## Notes from chunk 04 QA
+
+- **N5 — no initial progression event at registration.** Registration writes no ledger
+  event for a pool's starting Reputation; `pool_progress` rows are created at
+  `REPUTATION_START` directly and the rebuild-from-zero fold
+  (`apps/server/src/ledger/projection.ts`, `zeroPool()`) hardcodes the same constant.
+  That is consistent today, but it means a retune of `REPUTATION_START` silently changes
+  what "zero" means for every existing account on the next rebuild. When this chunk wires
+  the first trip, decide whether registration (or the first trip) should emit an initial
+  `reputation_changed`-style event per pool so the fold starts from 0 and the constant is
+  recorded in the ledger. No change was made in chunk 04.

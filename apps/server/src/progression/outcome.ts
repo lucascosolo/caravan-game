@@ -15,26 +15,37 @@
  * again by the ledger's CHECK):
  *
  *   Caravan side (the player who was present)
- *     living Reputation  caravan-level  always — this is the caravan's MATCHMAKING rating
- *     trap   Reputation  account-level  when traps were fielded
+ *     living Reputation  caravan-level  every encounter — this is the caravan's
+ *                                       MATCHMAKING rating
  *     living/trap ladder                per pool fielded (LADDER_EARNING_POOLS.caravan)
  *   Party side (the owner who was not there)
- *     siege  Reputation  account-level  always — the standing party is an account-level
- *                                       object, so its MATCHMAKING rating is the owner's
- *                                       account-level offense pool: siege
+ *     siege  Reputation  account-level  every encounter — the standing party is an
+ *                                       account-level object, so its MATCHMAKING rating is
+ *                                       the owner's account-level offense pool: siege
+ *                                       ("offense Reputation, stored on the siege pool")
  *     siege  ladder                     when siege was fielded (LADDER_EARNING_POOLS.party)
+ *
+ *   trap Reputation NEVER MOVES (chunk 04 QA decision D1). Nothing reads it: a caravan is
+ *   matched by its living rating, a party by its owner's siege rating. A visible number
+ *   that never matters would violate GUARDRAILS §4, so it stays at REPUTATION_START until
+ *   a reader exists. The trap LADDER still rises through use.
  *
  * The rating gap for scaling is between the two matchmaking ratings: the caravan's living
  * Reputation and the owner's siege Reputation. Both start at REPUTATION_START.
+ *
+ * A Reputation change whose applied delta is 0 (a rating already on the floor) writes no
+ * event (chunk 04 QA N1): the ledger records movement, not the absence of it. The one event
+ * that first reaches the floor carries `floored: true` and the unclamped value.
  *
  * Ladder levels and granted unlock points are never reduced by anything here: the ladder
  * fold is monotone (ladder.ts), grants are only ever positive, and the DB refuses a
  * decrease anyway. An overrun — the worst outcome — still earns LADDER_GAIN_LOSS.
  */
+import { createHash } from "node:crypto";
 import type pg from "pg";
 import type { Queryable } from "../db/pool.js";
 import type { Pool, PoolProgressRow } from "../db/types.js";
-import type { LedgerEventDraft, LedgerEventRow } from "../ledger/events.js";
+import { canonicalJson, type Json, type LedgerEventDraft, type LedgerEventRow } from "../ledger/events.js";
 import { appendEvents, listEventsByCausation, lockAccountForAppend } from "../ledger/ledger.js";
 import { findCaravanById } from "../repo/caravans.js";
 import { getAccountPoolProgress, getCaravanPoolProgress } from "../repo/poolProgress.js";
@@ -50,7 +61,10 @@ export interface PoolState {
   ladderPoints: number;
 }
 
-/** The pools each side can move. Shape is fixed; keys are the pool names. */
+/**
+ * The pools each side can move. Shape is fixed; keys are the pool names. `caravan.trap`
+ * is read for its ladder only — its reputation is carried through unchanged (D1).
+ */
 export interface ProgressionSnapshot {
   caravan: { living: PoolState; trap: PoolState };
   party: { siege: PoolState };
@@ -129,9 +143,11 @@ export function deriveProgressionEvents(snapshot: ProgressionSnapshot, input: En
   const changeReputation = (side: Side, pool: Pool, state: PoolState): ReputationChange => {
     const self = side === "caravan" ? caravanRating : partyRating;
     const opponent = side === "caravan" ? partyRating : caravanRating;
+    if (state.reputation !== self) throw new TypeError(`${pool} is not the ${side} side's matchmaking rating`);
     const base = reputationBaseDelta(side, input.outcome);
     const change = applyFloor(state.reputation, gapScaledDelta(base, self, opponent));
     state.reputation = change.after;
+    if (change.delta === 0) return change; // on the floor already: nothing moved, nothing to record (N1)
     events.push({
       type: "reputation_changed",
       ...scope(pool, side),
@@ -187,8 +203,7 @@ export function deriveProgressionEvents(snapshot: ProgressionSnapshot, input: En
     const used = new Set(input.caravan.poolsUsed);
     const living: PoolChangeSummary = { pool: "living" };
     living.reputation = changeReputation("caravan", "living", after.caravan.living); // always: the matchmaking rating
-    const trap: PoolChangeSummary = { pool: "trap" };
-    if (used.has("trap")) trap.reputation = changeReputation("caravan", "trap", after.caravan.trap);
+    const trap: PoolChangeSummary = { pool: "trap" }; // ladder only; trap Reputation never moves (D1)
     for (const pool of LADDER_EARNING_POOLS.caravan) {
       if (!used.has(pool)) continue;
       const state = pool === "living" ? after.caravan.living : after.caravan.trap;
@@ -196,7 +211,7 @@ export function deriveProgressionEvents(snapshot: ProgressionSnapshot, input: En
       if (ladder) (pool === "living" ? living : trap).ladder = ladder;
     }
     summary.caravan.push(living);
-    if (trap.reputation || trap.ladder) summary.caravan.push(trap);
+    if (trap.ladder) summary.caravan.push(trap);
   }
 
   // ── Party side ──────────────────────────────────────────────────────────────────────
@@ -226,6 +241,43 @@ export function poolStateOf(row: PoolProgressRow): PoolState {
 /** The causation id progression events for a resolution job are written under. */
 export function progressionCausationId(jobId: string): string {
   return `progression:${jobId}`;
+}
+
+/**
+ * A stable digest of an encounter input (pools in canonical order), stored on every event
+ * the input produced as `payload.inputHash`. A retry under the same causation id must
+ * carry the same input; a different one is a caller bug and is refused rather than
+ * silently answered with the first input's events (chunk 04 QA S3).
+ */
+export function progressionInputHash(input: EncounterProgressionInput): string {
+  const canonical: Json = {
+    outcome: input.outcome,
+    caravan: { accountId: input.caravan.accountId, caravanId: input.caravan.caravanId, poolsUsed: [...input.caravan.poolsUsed].sort() },
+    party: { ownerAccountId: input.party.ownerAccountId, poolsUsed: [...input.party.poolsUsed].sort() },
+  };
+  return createHash("sha256").update(canonicalJson(canonical)).digest("hex");
+}
+
+export class ProgressionCausationMismatch extends Error {
+  constructor(causationId: string) {
+    super(`causation id '${causationId}' was already applied with a different encounter input`);
+    this.name = "ProgressionCausationMismatch";
+  }
+}
+
+/**
+ * Refuse to run outside an explicit transaction (chunk 04 QA N2). The append locks are
+ * transaction-scoped: on an autocommit client they would be released after the statement
+ * that took them, and the read-derive-append sequence would race. Detection: force an xid
+ * in one statement, then ask for it in the next — on an autocommit connection the first
+ * statement's transaction has already ended, so the second sees none.
+ */
+export async function assertInTransaction(client: pg.PoolClient): Promise<void> {
+  await client.query("SELECT pg_current_xact_id()");
+  const res = await client.query<{ xid: string | null }>("SELECT pg_current_xact_id_if_assigned()::text AS xid");
+  if (res.rows[0]?.xid == null) {
+    throw new Error("applyEncounterOutcome must run inside an explicit transaction (BEGIN … COMMIT); the append locks are transaction-scoped");
+  }
 }
 
 /** Read both sides' live pool state. Verifies the caravan belongs to the account named. */
@@ -263,11 +315,17 @@ export async function applyEncounterOutcome(
   input: EncounterProgressionInput,
 ): Promise<ApplyOutcomeResult> {
   validateProgressionInput(input);
+  await assertInTransaction(client);
+  const inputHash = progressionInputHash(input);
   for (const id of [input.caravan.accountId, input.party.ownerAccountId].sort()) await lockAccountForAppend(client, id);
   const prior = await listEventsByCausation(client, causationId);
-  if (prior.length > 0) return { created: false, events: prior, result: null };
+  if (prior.length > 0) {
+    if (prior.some((e) => e.payload["inputHash"] !== inputHash)) throw new ProgressionCausationMismatch(causationId);
+    return { created: false, events: prior, result: null };
+  }
   const snapshot = await readProgressionSnapshot(client, input);
   const result = deriveProgressionEvents(snapshot, input);
-  const events = await appendEvents(client, causationId, result.events);
+  const drafts = result.events.map((e) => ({ ...e, payload: { ...e.payload, inputHash } }));
+  const events = await appendEvents(client, causationId, drafts);
   return { created: true, events, result };
 }

@@ -118,3 +118,14 @@ Implementing this backwards would invert the game's central risk decision.
   must respect the cap for both.
 - **Generous acquisition holds up:** after a worst-case collapse, compute the real Coin
   and time cost to rebuild. Is recovery real in practice, not just in theory?
+
+## Notes from chunk 04 QA
+
+- **N6 — progression events expose the opponent's rating to the party owner.** Every
+  `reputation_changed` event carries `selfRating` and `opponentRating` so the gap scaling
+  is auditable, and `GET /me/progression/events` returns the player's own events verbatim.
+  For the passive side that means a party owner can read the exact living Reputation of
+  every caravan their party was served to. Decide in the post-fight report design whether
+  the owner should see the opponent's rating, a band, or nothing — and if less than the
+  raw number, filter at the read model, not by removing the field from the ledger (the
+  ledger is the auditable record). No change was made in chunk 04.

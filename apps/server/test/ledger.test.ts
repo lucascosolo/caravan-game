@@ -86,7 +86,7 @@ describe("scope split is a CHECK, not a convention", () => {
   it("living-pool progress must carry a caravan id; trap/siege must not", async () => {
     expect((await direct("ladder_progress_gained", null, { pool: "living", pointsDelta: 1, levelsGained: 0 }))?.code).toBe("23514");
     expect((await direct("ladder_progress_gained", caravanId, { pool: "trap", pointsDelta: 1, levelsGained: 0 }))?.code).toBe("23514");
-    expect((await direct("unlock_points_granted", caravanId, { pool: "siege", points: 1 }))?.code).toBe("23514");
+    expect((await direct("unlock_points_granted", caravanId, { pool: "siege", points: 1, rung: 1 }))?.code).toBe("23514");
     expect((await direct("reputation_changed", null, { pool: "living", delta: 1, reason: "t" }))?.code).toBe("23514");
     expect((await direct("reputation_changed", null, { delta: 1, reason: "t" }))?.code).toBe("23514"); // no pool at all
   });
@@ -136,8 +136,8 @@ describe("balances are projections of the log", () => {
         { type: "reputation_changed", accountId, caravanId, payload: { pool: "living", delta: 25, reason: "held" } },
         { type: "reputation_changed", accountId, payload: { pool: "trap", delta: -10, reason: "lost" } },
         { type: "ladder_progress_gained", accountId, payload: { pool: "siege", pointsDelta: 7, levelsGained: 0 } },
-        { type: "ladder_progress_gained", accountId, payload: { pool: "siege", pointsDelta: -7, levelsGained: 1 } },
-        { type: "unlock_points_granted", accountId, payload: { pool: "siege", points: 2 } },
+        { type: "ladder_progress_gained", accountId, payload: { pool: "siege", pointsDelta: 93, levelsGained: 1 } }, // cumulative: 7 + 93 = rung 1
+        { type: "unlock_points_granted", accountId, payload: { pool: "siege", points: 2, rung: 1 } },
         { type: "unlock_node_purchased", accountId, payload: { pool: "siege", nodeId: "siege.ram", cost: 1 } },
         { type: "ladder_progress_gained", accountId, caravanId, payload: { pool: "living", pointsDelta: 3, levelsGained: 0 } },
         // Informational events: no balance effect.
@@ -152,7 +152,7 @@ describe("balances are projections of the log", () => {
     expect(after.accountPools.siege).toEqual({
       reputation: TUNABLES.REPUTATION_START,
       ladderLevel: 1,
-      ladderPoints: 0,
+      ladderPoints: 100,
       unlockPointsGranted: 2,
       unlockPointsSpent: 1,
     });
@@ -197,7 +197,7 @@ describe("balances are projections of the log", () => {
     expect((await verifyProjection(pool, accountId)).ok).toBe(true);
   });
 
-  it("the live ledger trigger refuses a ladder decrease even through an event", async () => {
+  it("the ledger refuses a ladder decrease even through an event (the payload CHECK, before the projection trigger)", async () => {
     const err = await expectDbError(
       pool,
       `INSERT INTO ledger_event (event_type, account_id, caravan_id, causation_id, causation_seq, payload)
@@ -205,7 +205,7 @@ describe("balances are projections of the log", () => {
       [accountId],
     );
     expect(err?.code).toBe("23514");
-    expect(err?.message).toContain("ladder_level is permanent");
+    expect(err?.message).toContain("ledger_event_ladder_progress_nonneg"); // migration 003; chunk 01's trigger is the backstop behind it
   });
 });
 
@@ -222,7 +222,7 @@ describe("snapshots are a pure perf knob", () => {
 
     await append("test:after-snap", [
       coinDebitDraft({ accountId, amount: 3, reason: "x" }),
-      { type: "unlock_points_granted", accountId, caravanId, payload: { pool: "living", points: 4 } },
+      { type: "unlock_points_granted", accountId, caravanId, payload: { pool: "living", points: 4, rung: 1 } },
     ]);
     const z2 = await rebuildProjection(pool, accountId);
     const s2 = await rebuildProjection(pool, accountId, { fromSnapshot: true });
