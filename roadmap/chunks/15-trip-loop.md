@@ -166,3 +166,17 @@ re-implement it. Files: `apps/server/src/matchmaking/{trips,service}.ts`, migrat
   `escalation.applied / perEncounter / nextEncounter` and each candidate carries
   `reputation.gapBeyondBand` and `reputation.sandbagEarnMultiplier`; put both next to the
   stakes preview (unbanked Coin, exposed units) in the bank-or-push decision.
+
+## Note from chunk 17 QA (B1 / D2) — packed units and merging
+
+Packing (`POST /caravans/:id/manifest`) does not move `caravan.state`; this chunk flips it at
+trip start and end. The merge refusal for packed units does **not** depend on that flip:
+`apps/server/src/economy/merge.ts` refuses 409 `unit_packed` for any instance named in
+`packed.units` or `survivors.units` of an open manifest (`closed_at IS NULL`), in the preview
+and inside the commit transaction (after the caravan's FOR SHARE, which serializes against
+`lockManifest`'s FOR UPDATE). Keep both properties when building the trip loop: (1) a
+manifest stays open (`closed_at` NULL) for as long as its units are at risk, including
+between "packed" and "rode out"; (2) closing it at bank / overrun is what returns the
+survivors to the merge board. The `caravan_on_trip` check (chunk 16 QA S1) remains as a
+second, independent guard once this chunk sets the state.
+

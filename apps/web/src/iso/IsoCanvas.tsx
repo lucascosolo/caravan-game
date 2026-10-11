@@ -24,13 +24,16 @@ import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, us
 import { GestureMachine, type GestureEffect } from "./gestures.ts";
 import { hitRadiusPx, hitTestScreen } from "./hit.ts";
 import {
+  TILE_W,
   canvasToWorld,
   clampCamera,
+  clampZoom,
   fitCamera,
   focusCamera,
   isOnLattice,
   panCamera,
   pinchCamera,
+  project,
   snapToCell,
   worldToCanvas,
   zoomCameraAbout,
@@ -75,6 +78,41 @@ export interface IsoCanvasProps {
   readonly focus?: { readonly key: string; readonly rect: CellRect } | null;
   /** Called once if the renderer cannot start (no WebGL); the screen shows its text alternative. */
   readonly onUnavailable?: (reason: string) => void;
+  /**
+   * The opening frame (QA-17 S1): a rectangle of cells the camera opens on, filling the
+   * viewport, with a cell never narrower than `minCellPx` on screen. Omitted: the whole
+   * lattice fits. Pinch / wheel still zoom out to the whole island either way.
+   */
+  readonly frame?: FrameRect;
+}
+
+export interface FrameRect {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+  /** A cell's on-screen diamond width is never below this at the opening zoom (TOUCH_TARGET_MIN). */
+  readonly minCellPx?: number;
+}
+
+/** The camera that opens on `frame`: the rectangle's projected bounds centred and fitted, but no cell narrower than `minCellPx`. */
+export function frameCamera(viewportW: number, viewportH: number, frame: FrameRect, margin = 12): Camera {
+  const corners = [
+    project({ x: frame.x, y: frame.y }),
+    project({ x: frame.x + frame.w, y: frame.y }),
+    project({ x: frame.x + frame.w, y: frame.y + frame.h }),
+    project({ x: frame.x, y: frame.y + frame.h }),
+  ];
+  const minX = Math.min(...corners.map((c) => c.x));
+  const maxX = Math.max(...corners.map((c) => c.x));
+  const minY = Math.min(...corners.map((c) => c.y));
+  const maxY = Math.max(...corners.map((c) => c.y));
+  const fit = Math.min((viewportW - margin * 2) / (maxX - minX), (viewportH - margin * 2) / (maxY - minY));
+  const floor = (frame.minCellPx ?? 0) / TILE_W;
+  const zoom = clampZoom(Math.max(fit, floor));
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  return { zoom, offsetX: viewportW / 2 - cx * zoom, offsetY: viewportH / 2 - cy * zoom };
 }
 
 /**
@@ -88,7 +126,9 @@ function prefersReducedMotion(): boolean {
 }
 
 export const IsoCanvas = forwardRef<IsoCanvasHandle, IsoCanvasProps>(function IsoCanvas(props, ref) {
-  const { geometry, state, label, background = 0x1b1a17, focus, onUnavailable } = props;
+  const { geometry, state, label, background = 0x1b1a17, focus, onUnavailable, frame } = props;
+  const frameRef = useRef(frame);
+  frameRef.current = frame;
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<IsoScene | null>(null);
@@ -163,7 +203,10 @@ export const IsoCanvas = forwardRef<IsoCanvasHandle, IsoCanvasProps>(function Is
     const measure = (): { w: number; h: number } => ({ w: Math.max(1, Math.floor(host.clientWidth)), h: Math.max(1, Math.floor(host.clientHeight)) });
     const first = measure();
     sizeRef.current = first;
-    camRef.current = fitCamera(first.w, first.h, geometry.width, geometry.height);
+    const opening = frameRef.current;
+    camRef.current = opening
+      ? clampCamera(frameCamera(first.w, first.h, opening), first.w, first.h, geometry.width, geometry.height)
+      : fitCamera(first.w, first.h, geometry.width, geometry.height);
     scene
       .mount(canvas, first.w, first.h)
       .then(() => {
@@ -195,8 +238,13 @@ export const IsoCanvas = forwardRef<IsoCanvasHandle, IsoCanvasProps>(function Is
       applyCamera(zoomCameraAbout(camRef.current, e.deltaY < 0 ? 1.12 : 1 / 1.12, c.x, c.y));
     };
     canvas.addEventListener("wheel", onWheel, { passive: false });
+    // QA-17 N7: follow a change to the reduced-motion setting while mounted.
+    const mq = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+    const onMotion = (e: MediaQueryListEvent): void => scene.setReducedMotion(e.matches);
+    mq?.addEventListener?.("change", onMotion);
     return () => {
       disposed = true;
+      mq?.removeEventListener?.("change", onMotion);
       ro?.disconnect();
       canvas.removeEventListener("wheel", onWheel);
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);

@@ -46,6 +46,10 @@ CREATE TYPE ledger_event_type AS ENUM (
   'unit_merged',
   'unit_demerged_on_death',
   'unit_lost_on_wipe',
+  -- An instance removed by a content update (an authored party's roster rebuilt in place),
+  -- never by play. Caravan-scoped (the ELSE branch of ledger_event_scope below). Not a trip
+  -- loss: chunk 19 counts only unit_lost_on_wipe.
+  'unit_retired',
   'trip_started',
   'stop_resolved',
   'trip_banked',
@@ -133,6 +137,11 @@ CREATE TABLE ledger_event (
     event_type NOT IN ('coin_earned', 'coin_spent', 'coin_lost_on_wipe',
                        'coin_transferred_to_party_owner', 'coin_purchased')
     OR (jsonb_is_integer(payload->'amount') AND (payload->>'amount')::numeric >= 0)
+  ),
+  -- unit_retired names why the instance left; the reason is a closed set (events.ts
+  -- UNIT_RETIRED_REASONS), so a retirement can never be passed off as anything else.
+  CONSTRAINT ledger_event_unit_retired_reason CHECK (
+    event_type <> 'unit_retired' OR coalesce(payload->>'reason', '') IN ('authored_set_update')
   ),
   -- QA-02 S3: every number the projection folds is an integer-valued JSON number. The
   -- projection trigger below and projection.ts both cast these; without this CHECK a

@@ -10,6 +10,7 @@
  */
 import { ENTRY_BAND_DEPTH, GRID_HEIGHT, GRID_WIDTH, type Cell } from "@caravan/circle";
 import { cellToWorld, type BoardUnitEntity, type IsoSceneState, type SceneGeometry, type StructureEntity } from "../../iso/index.ts";
+import { VIEWER_STORAGE_PREFIX } from "../../auth/session.tsx";
 import { STRINGS } from "../../strings.ts";
 import { boardCells, canMergeDrop, type BoardLayout, type RosterUnit } from "./board.ts";
 
@@ -52,20 +53,27 @@ export interface TownSceneInput {
 
 /**
  * The scene state: board units at their cells (static), the structures, the mine, and the
- * board cells (outlined only while a unit is dragged — the renderer draws them only then).
+ * board cells (outlined only while a unit is being placed — the renderer draws them only then).
  * While a unit is dragged, units it cannot merge with are dimmed and the one under the
  * ghost is ringed if it can take the drop.
+ *
+ * "Being placed" includes tap-to-move (QA-17 S6, chunk 08 QA D5): while a unit is SELECTED
+ * the scene carries a placement ghost with no cell, so the lattice and the board cells show
+ * exactly as during a drag (nothing is drawn under a pointer that is not there), and the
+ * units the selection cannot merge with are dimmed. Deselecting hides them again.
  */
 export function townSceneState(input: TownSceneInput): IsoSceneState {
   const { units, layout, selectedId, drag, mineActive } = input;
   const byCell = new Map<string, string>();
   for (const [id, c] of layout) byCell.set(`${c.x},${c.y}`, id);
   const targetId = drag?.cell ? (byCell.get(`${drag.cell.x},${drag.cell.y}`) ?? null) : null;
+  const selected = drag === null && selectedId !== null ? units.find((u) => u.id === selectedId) : undefined;
+  const placingId = drag?.id ?? selected?.id ?? null;
   const boardUnits: BoardUnitEntity[] = [];
   for (const u of units) {
     const cell = layout.get(u.id);
     if (!cell) continue;
-    const dimmed = drag !== null && drag.id !== u.id && !canMergeDrop(units, drag.id, u.id);
+    const dimmed = placingId !== null && placingId !== u.id && !canMergeDrop(units, placingId, u.id);
     boardUnits.push({
       id: u.id,
       pos: cellToWorld(cell),
@@ -83,7 +91,12 @@ export function townSceneState(input: TownSceneInput): IsoSceneState {
     posts: [],
     attackers: [],
     siege: [],
-    drag: drag && dragged ? { kind: "unit", typeId: dragged.typeId, cell: drag.cell, valid: drag.valid } : null,
+    drag:
+      drag && dragged
+        ? { kind: "unit", typeId: dragged.typeId, cell: drag.cell, valid: drag.valid }
+        : selected
+          ? { kind: "unit", typeId: selected.typeId, cell: null, valid: true }
+          : null,
     threat: null,
     showRadii: false,
     boardUnits,
@@ -106,7 +119,12 @@ export function dropMeaning(units: readonly RosterUnit[], layout: BoardLayout, i
 
 // ── layout persistence: a per-viewer convenience, like a camera (never game state) ──────
 
-const KEY = (caravanId: string): string => `caravan.town.board.${caravanId}`;
+/**
+ * Keyed by account AND caravan (QA-17 D1): two people sharing a device never see each
+ * other's layout, and `clearViewerStorage` (sign-out) removes it with every other
+ * per-viewer key. Positions stay per device: another device lays the board out afresh.
+ */
+export const boardStorageKey = (accountId: string, caravanId: string): string => `${VIEWER_STORAGE_PREFIX}town.board.${accountId}.${caravanId}`;
 
 export interface StoredBoard {
   readonly layout: BoardLayout;
@@ -114,9 +132,9 @@ export interface StoredBoard {
   readonly known: ReadonlySet<string>;
 }
 
-export function loadLayout(caravanId: string): StoredBoard {
+export function loadLayout(accountId: string, caravanId: string): StoredBoard {
   try {
-    const raw = window.localStorage.getItem(KEY(caravanId));
+    const raw = window.localStorage.getItem(boardStorageKey(accountId, caravanId));
     if (!raw) return { layout: new Map(), known: new Set() };
     const parsed: unknown = JSON.parse(raw);
     const obj = parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as { cells?: unknown; known?: unknown }) : {};
@@ -133,9 +151,9 @@ export function loadLayout(caravanId: string): StoredBoard {
   }
 }
 
-export function saveLayout(caravanId: string, layout: BoardLayout, known: Iterable<string>): void {
+export function saveLayout(accountId: string, caravanId: string, layout: BoardLayout, known: Iterable<string>): void {
   try {
-    window.localStorage.setItem(KEY(caravanId), JSON.stringify({ cells: [...layout].map(([id, c]) => [id, c.x, c.y]), known: [...known] }));
+    window.localStorage.setItem(boardStorageKey(accountId, caravanId), JSON.stringify({ cells: [...layout].map(([id, c]) => [id, c.x, c.y]), known: [...known] }));
   } catch {
     // Storage blocked: the board simply re-lays out next time.
   }

@@ -19,11 +19,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, type Api } from "../../api/client.ts";
 import type { CaravanSummary, EconomyView, ManifestView, RecruitView, RefugeeView } from "../../api/types.ts";
 import { useApi } from "../../auth/session.tsx";
-import { IsoCanvas, type HitResult, type IsoCanvasHandle } from "../../iso/index.ts";
+import { IsoCanvas, MIN_HIT_RADIUS_PX, type HitResult, type IsoCanvasHandle } from "../../iso/index.ts";
+import type { FrameRect } from "../../iso/IsoCanvas.tsx";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { navigate } from "../../shell/router.tsx";
 import { STRINGS } from "../../strings.ts";
-import { boardCells, isBoardCell, layoutBoard, moveUnit, productHints, toOverflow, type BoardLayout, type RosterUnit } from "./board.ts";
+import { BOARD_ORIGIN, BOARD_SIDE, boardCells, isBoardCell, layoutBoard, moveUnit, productHints, toOverflow, type BoardLayout, type RosterUnit } from "./board.ts";
 import { BoardPanel, unitName } from "./BoardPanel.tsx";
 import { MergeDialog } from "./MergeDialog.tsx";
 import { MinePanel } from "./MinePanel.tsx";
@@ -33,6 +34,12 @@ import { RefugeePanel } from "./RefugeePanel.tsx";
 import { TOWN_GEOMETRY, dropMeaning, loadLayout, saveLayout, townSceneState, type TownDrag } from "./townScene.ts";
 
 const T = STRINGS.town;
+
+/**
+ * QA-17 S1: the town opens framed on the merge board, each cell's diamond at least a touch
+ * target wide (2 × MIN_HIT_RADIUS_PX = 44 px); pinch or wheel out to see the whole island.
+ */
+const BOARD_FRAME: FrameRect = { x: BOARD_ORIGIN.x, y: BOARD_ORIGIN.y, w: BOARD_SIDE, h: BOARD_SIDE, minCellPx: 2 * MIN_HIT_RADIUS_PX };
 
 const asApiError = (err: unknown): ApiError => (err instanceof ApiError ? err : new ApiError(0, "unknown", STRINGS.app.genericError));
 
@@ -47,6 +54,8 @@ const settle = async <V,>(p: Promise<V>): Promise<Part<V>> => {
 };
 
 interface Loaded {
+  /** The signed-in account: the board layout is kept per account AND caravan (QA-17 D1). */
+  readonly accountId: string;
   readonly caravan: CaravanSummary;
   readonly units: readonly RosterUnit[];
   readonly economy: EconomyView;
@@ -111,15 +120,17 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
           settle(api.recruitList(caravan.id)),
         ]);
         const units = rosterOf(caravan);
-        const stored = knownRef.current === null ? loadLayout(caravan.id) : { layout: layoutRef.current, known: knownRef.current };
+        const accountId = me.account.id;
+        const stored = knownRef.current === null ? loadLayout(accountId, caravan.id) : { layout: layoutRef.current, known: knownRef.current };
         // A unit the board already knew but has no cell for was sent to the overflow: it stays there.
         const keep = new Set([...stored.known].filter((id) => !stored.layout.has(id)));
         const next = layoutBoard(units, stored.layout, opts.hints ?? new Map(), keep);
         const known = new Set(units.map((u) => u.id));
         knownRef.current = known;
         setLayout(next);
-        saveLayout(caravan.id, next, known);
+        saveLayout(accountId, caravan.id, next, known);
         setLoaded({
+          accountId,
           caravan,
           units,
           economy,
@@ -142,6 +153,7 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
   }, [load]);
 
   const caravanId = loaded?.caravan.id ?? "";
+  const accountId = loaded?.accountId ?? "";
   const units = useMemo(() => loaded?.units ?? [], [loaded]);
   const onTrip = loaded?.caravan.state === "on_trip";
   const manifest = loaded?.manifest.kind === "ok" ? loaded.manifest.value : null;
@@ -151,9 +163,9 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
   const commitLayout = useCallback(
     (next: BoardLayout) => {
       setLayout(next);
-      if (caravanId) saveLayout(caravanId, next, knownRef.current ?? []);
+      if (caravanId && accountId) saveLayout(accountId, caravanId, next, knownRef.current ?? []);
     },
-    [caravanId],
+    [accountId, caravanId],
   );
 
   const openMerge = useCallback(
@@ -168,6 +180,9 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
   // ── canvas gestures: drag a unit onto another to merge, onto a free cell to move ──
   const updateDrag = useCallback(
     (id: string, cell: { x: number; y: number } | null) => {
+      // QA-17 N1: a pointer move inside the same cell changes nothing; skip the re-render.
+      const prev = dragRef.current;
+      if (prev && prev.id === id && (prev.cell === cell || (prev.cell !== null && cell !== null && prev.cell.x === cell.x && prev.cell.y === cell.y))) return;
       const meaning = dropMeaning(units, layoutRef.current, id, cell, isBoardCell);
       const valid = meaning.kind === "move" || (meaning.kind === "merge" && !mergeBlocked && !packedIds.has(id) && !packedIds.has(meaning.targetId));
       const next: TownDrag = { id, cell, valid };
@@ -177,7 +192,13 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
     [units, mergeBlocked, packedIds],
   );
   const canDrag = useCallback((hit: HitResult) => hit.kind === "unit", []);
-  const onDragBegin = useCallback((hit: HitResult) => updateDrag(hit.id, null), [updateDrag]);
+  const onDragBegin = useCallback(
+    (hit: HitResult) => {
+      dragRef.current = null;
+      updateDrag(hit.id, null);
+    },
+    [updateDrag],
+  );
   const onDragMove = useCallback((cell: { x: number; y: number } | null) => dragRef.current && updateDrag(dragRef.current.id, cell), [updateDrag]);
   const onDragEnd = useCallback(
     (cell: { x: number; y: number } | null) => {
@@ -270,6 +291,13 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
         <strong>{loaded.caravan.name}:</strong> {stateLine}
       </p>
       <p data-testid="town-balance">{T.balanceLine(loaded.economy.balance, loaded.economy.cap)}</p>
+      {loadError && (
+        // QA-17 S3: a failed RE-read (after a write, or a Retry) is shown above the board, never
+        // swallowed: what is drawn below is the last good read and may be out of date.
+        <div data-testid="town-reload-error">
+          <ErrorBox error={loadError} heading={T.reloadFailed} onRetry={() => void load()} />
+        </div>
+      )}
 
       <IsoCanvas
         ref={isoRef}
@@ -283,6 +311,7 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
         onDragMove={onDragMove}
         onDragEnd={onDragEnd}
         onUnavailable={() => setCanvasDown(true)}
+        frame={BOARD_FRAME}
       />
       {canvasDown && <p className="hint">{T.canvasUnavailable}</p>}
 
@@ -381,6 +410,7 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
           caravanId={caravanId}
           instanceIds={mergeIds}
           onCancel={() => setMergeIds(null)}
+          restoreFocusTo={() => document.getElementById("board-heading")}
           onDone={(res) => {
             const hints = productHints(layoutRef.current, mergeIds, res.producedInstanceIds);
             const name = loaded.units.find((u) => u.id === mergeIds[0]);

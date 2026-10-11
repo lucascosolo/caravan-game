@@ -12,6 +12,10 @@
  *   - siege picks, each with the exact fence tiers / trap types it counters;
  *   - save (free, instant): the server re-validates everything and its issue list is shown
  *     exactly; then what defenders will scout, byte for byte, and the results feed.
+ *
+ * QA-17 S4: the feed's Retry re-reads only the feed; an unsaved draft survives a tab switch
+ * (in memory, `draftStore.ts`) and is never thrown away without a confirm ("Reload the
+ * saved party" asks first when there are unsaved edits).
  */
 import { ENTRY_EDGES, type Cell, type EntryEdge, type PartyConfig, type TargetingStance } from "@caravan/circle";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -20,6 +24,7 @@ import type { IssueView, PartyFeedPage, PartyView } from "../../api/types.ts";
 import { useApi } from "../../auth/session.tsx";
 import { IsoCanvas, cellToWorld, type HitResult, type IsoCanvasHandle, type IsoSceneState } from "../../iso/index.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
+import { Modal } from "../../shell/Modal.tsx";
 import { STRINGS } from "../../strings.ts";
 import { CIRCLE_GEOMETRY } from "../trail/FormationScreen.tsx";
 import { ScoutPanel } from "../trail/ScoutPanel.tsx";
@@ -27,6 +32,7 @@ import { displayNameOf } from "../webs/catalogue.ts";
 import { ENTRY_BAND_DEPTH } from "@caravan/circle";
 import { addUnit, alongOf, canDropAt, configKey, countsByEdge, depthOf, edgeLength, moveTo, removeUnit, setEdge, setStance, setStart, toggleSiege } from "./partyModel.ts";
 import { formatWhen, humanizeIssue } from "../../shell/issues.ts";
+import { keepDraft, keptDraft } from "./draftStore.ts";
 
 const T = STRINGS.party;
 
@@ -56,18 +62,30 @@ export function PartyScreen(props: PartyScreenProps = {}): JSX.Element {
   const [feed, setFeed] = useState<PartyFeedPage | null>(null);
   const [feedError, setFeedError] = useState<ApiError | null>(null);
   const [canvasDown, setCanvasDown] = useState(false);
+  const [restored, setRestored] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const isoRef = useRef<IsoCanvasHandle>(null);
   const dragRef = useRef<Drag | null>(null);
 
-  const load = useCallback(async (): Promise<void> => {
-    setLoadError(null);
-    try {
-      const p = (await api.party()).party;
-      setParty(p);
-      setDraft(p.config);
-    } catch (err) {
-      setLoadError(asApiError(err));
-    }
+  /** Read the saved party. `discard` drops an unsaved draft (only after the player confirmed). */
+  const loadParty = useCallback(
+    async (opts: { readonly discard?: boolean } = {}): Promise<void> => {
+      setLoadError(null);
+      try {
+        const p = (await api.party()).party;
+        const kept = opts.discard ? null : keptDraft(p.id);
+        if (opts.discard) keepDraft(p.id, null);
+        setParty(p);
+        setDraft(kept ?? p.config);
+        setRestored(kept !== null && configKey(kept) !== configKey(p.config));
+      } catch (err) {
+        setLoadError(asApiError(err));
+      }
+    },
+    [api],
+  );
+  /** Read the results feed alone: its Retry never touches the draft (QA-17 S4). */
+  const loadFeed = useCallback(async (): Promise<void> => {
     try {
       setFeed(await api.partyFeed());
       setFeedError(null);
@@ -77,12 +95,18 @@ export function PartyScreen(props: PartyScreenProps = {}): JSX.Element {
   }, [api]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadParty();
+    void loadFeed();
+  }, [loadParty, loadFeed]);
 
   const roster = party?.roster ?? [];
   const entry = (ref: string) => roster.find((r) => r.instanceId === ref);
   const dirty = !!party && !!draft && configKey(party.config) !== configKey(draft);
+
+  // Keep an unsaved draft for when the player comes back to this tab (QA-17 S4).
+  useEffect(() => {
+    if (party && draft) keepDraft(party.id, dirty ? draft : null);
+  }, [party, draft, dirty]);
 
   const scene = useMemo<IsoSceneState>(() => {
     const units = draft?.units ?? [];
@@ -111,12 +135,21 @@ export function PartyScreen(props: PartyScreenProps = {}): JSX.Element {
   }, [draft, roster, selected, drag]);
 
   const updateDrag = useCallback((ref: string, cell: Cell | null) => {
+    // QA-17 N1: a pointer move inside the same cell changes nothing; skip the re-render.
+    const prev = dragRef.current;
+    if (prev && prev.ref === ref && (prev.cell === cell || (prev.cell !== null && cell !== null && prev.cell.x === cell.x && prev.cell.y === cell.y))) return;
     const next: Drag = { ref, cell, valid: !!cell && canDropAt(cell) };
     dragRef.current = next;
     setDrag(next);
   }, []);
   const canDrag = useCallback((hit: HitResult) => hit.kind === "attacker" && !busy, [busy]);
-  const onDragBegin = useCallback((hit: HitResult) => updateDrag(hit.id, null), [updateDrag]);
+  const onDragBegin = useCallback(
+    (hit: HitResult) => {
+      dragRef.current = null;
+      updateDrag(hit.id, null);
+    },
+    [updateDrag],
+  );
   const onDragMove = useCallback((cell: Cell | null) => dragRef.current && updateDrag(dragRef.current.ref, cell), [updateDrag]);
   const onDragEnd = useCallback((cell: Cell | null) => {
     const d = dragRef.current;
@@ -180,7 +213,7 @@ export function PartyScreen(props: PartyScreenProps = {}): JSX.Element {
     return (
       <section>
         <h1>{T.title}</h1>
-        <ErrorBox error={loadError} heading={T.loadFailed} onRetry={() => void load()} />
+        <ErrorBox error={loadError} heading={T.loadFailed} onRetry={() => void loadParty()} />
       </section>
     );
   }
@@ -247,6 +280,12 @@ export function PartyScreen(props: PartyScreenProps = {}): JSX.Element {
         </div>
       )}
       <p className="hint">{dirty ? T.unsaved : T.savedAt(formatWhen(party.savedAt))}</p>
+      {dirty && restored && (
+        <p className="notice" data-testid="party-draft-kept">
+          {T.draftKept}
+        </p>
+      )}
+      {loadError && <ErrorBox error={loadError} heading={T.loadFailed} onRetry={() => void loadParty()} />}
 
       <h2>{T.membersHeading}</h2>
       <p className="hint">{T.membersIntro}</p>
@@ -366,7 +405,7 @@ export function PartyScreen(props: PartyScreenProps = {}): JSX.Element {
           const on = draft.siege.includes(s.typeId);
           return (
             <li key={s.typeId} className="card card--siege" data-type={s.typeId}>
-              <label className="toggles" style={{ margin: 0 }}>
+              <label className="toggles" style={{ margin: 0, minHeight: "var(--tap)", alignItems: "center" }}>
                 <input type="checkbox" checked={on} disabled={busy || (!s.unlocked && !on)} onChange={() => edit((c) => toggleSiege(c, s.typeId))} />{" "}
                 <span className="card__name">{T.siegeToggle(s.displayName)}</span>
                 {!s.unlocked && <span className="hint"> · {T.siegeLocked}</span>}
@@ -401,7 +440,46 @@ export function PartyScreen(props: PartyScreenProps = {}): JSX.Element {
         <button type="button" className="btn btn--primary btn--block" disabled={busy || !dirty} onClick={() => void save()} data-testid="party-save">
           {busy ? T.saving : T.save}
         </button>
+        <button
+          type="button"
+          className="btn btn--block"
+          disabled={busy}
+          onClick={() => (dirty ? setConfirmDiscard(true) : void loadParty({ discard: true }))}
+          data-testid="party-reload"
+        >
+          {T.reload}
+        </button>
       </div>
+      {confirmDiscard && (
+        <Modal
+          title={T.discardTitle}
+          busy={false}
+          onCancel={() => setConfirmDiscard(false)}
+          testId="party-discard-dialog"
+          restoreFocusTo={() => document.querySelector<HTMLElement>("[data-testid=party-reload]")}
+          actions={
+            <>
+              <button type="button" className="btn" onClick={() => setConfirmDiscard(false)}>
+                {T.discardNo}
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() => {
+                  setConfirmDiscard(false);
+                  setStatus(null);
+                  void loadParty({ discard: true });
+                }}
+                data-testid="party-discard-confirm"
+              >
+                {T.discardYes}
+              </button>
+            </>
+          }
+        >
+          <p>{T.discardBody}</p>
+        </Modal>
+      )}
 
       {party.scout && (
         <details className="scout-details">
@@ -414,7 +492,7 @@ export function PartyScreen(props: PartyScreenProps = {}): JSX.Element {
       <section aria-labelledby="feed-heading" data-testid="party-feed">
         <h2 id="feed-heading">{T.feedHeading}</h2>
         <p className="hint">{T.feedIntro}</p>
-        {feedError && <ErrorBox error={feedError} onRetry={() => void load()} />}
+        {feedError && <ErrorBox error={feedError} onRetry={() => void loadFeed()} />}
         {feed && feed.entries.length === 0 && <p className="hint">{T.feedEmpty}</p>}
         {feed && feed.entries.length > 0 && (
           <ul className="cards">
@@ -423,7 +501,7 @@ export function PartyScreen(props: PartyScreenProps = {}): JSX.Element {
                 <div className="card__name">
                   {T.feedEntry(e.defender.username ?? T.unknownDefender, e.defender.caravanName ?? T.unknownDefender, e.encounterIndex === null ? "" : T.feedEncounter(e.encounterIndex))}
                 </div>
-                <div className="card__line">{e.outcomeKind ? T.feedOutcome(e.outcomeKind) : T.feedOutcomeUnknown}</div>
+                <div className="card__line">{(e.outcomeKind ? T.feedOutcomeKind(e.outcomeKind) : null) ?? T.feedOutcomeUnknown}</div>
                 <div className="card__line hint">
                   {T.feedCoin(e.coinEarned)} · {T.feedReputation(e.reputationDelta)} · {T.feedLadder(e.ladderPointsGained)} · {formatWhen(e.occurredAt)}
                 </div>

@@ -766,6 +766,7 @@ describe("QA X2 / N1 / S1 / N3 / N5: naming, parse prefix, id bound, snapshot id
   it("X2: the ledger vocabulary names the receiver as the party owner, in code and in the database enum, and the two agree", async () => {
     expect(LEDGER_EVENT_TYPES).toContain("coin_transferred_to_party_owner");
     expect(LEDGER_EVENT_TYPES).toContain("standing_party_invalidated");
+    expect(LEDGER_EVENT_TYPES).toContain("unit_retired");
     expect(LEDGER_EVENT_TYPES as readonly string[]).not.toContain("coin_transferred_to_defender");
     const labels = await pool.query<{ l: string }>("SELECT unnest(enum_range(NULL::ledger_event_type))::text AS l");
     expect(labels.rows.map((r) => r.l).sort()).toEqual([...LEDGER_EVENT_TYPES].sort());

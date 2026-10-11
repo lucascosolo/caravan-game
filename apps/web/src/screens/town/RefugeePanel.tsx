@@ -9,14 +9,22 @@
  * Every write names the menu it is about (`sequence` / `fromSequence`, chunk 18 QA S1),
  * taken from the last GET. The countdown counts down locally from the server's
  * `msUntilFreeRefresh` between reads and, on reaching zero, re-reads (GET never writes).
+ *
+ * QA-17 S2: a write whose answer is lost (status 0) may have landed. The panel says "could
+ * not confirm" and offers "Try again", which resends the SAME write (same `sequence` /
+ * `fromSequence`): the server replays a landed claim, refresh or reroll, never twice. The
+ * reroll confirm stays open for that. QA-17 N5: opening the reroll confirm re-reads the menu
+ * first, so the cost and balance it quotes are current. QA-17 S5: a claimed menu whose free
+ * refresh is due says the next menu is ready and that nothing is forfeited.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, type Api } from "../../api/client.ts";
 import type { RefugeeView } from "../../api/types.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { Modal } from "../../shell/Modal.tsx";
 import { STRINGS } from "../../strings.ts";
 import { collapseOffers, refugeeTimer } from "./refugeeModel.ts";
+import { SpendError, unconfirmed } from "./SpendError.tsx";
 
 const T = STRINGS.town;
 
@@ -43,7 +51,11 @@ export function RefugeePanel({ api, caravanId, view, readAt, onView, onReload, o
   const [busy, setBusy] = useState<null | "claim" | "refresh" | "reroll">(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [confirmReroll, setConfirmReroll] = useState(false);
+  const [confirmReroll, setConfirmReroll] = useState<{ readonly cost: number; readonly balance: number; readonly forfeits: boolean } | null>(null);
+  const [quoting, setQuoting] = useState(false);
+  /** The last write's answer was lost: what to resend, unchanged, on "Try again". */
+  const [lost, setLost] = useState<{ readonly kind: "claim" | "refresh" | "reroll"; readonly error: ApiError; readonly retry: () => Promise<void> } | null>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
 
   const timer = refugeeTimer(view, tick - readAt);
   // A one-second display clock for the countdown only (it counts nothing the server owns).
@@ -64,6 +76,8 @@ export function RefugeePanel({ api, caravanId, view, readAt, onView, onReload, o
     setBusy(kind);
     setError(null);
     setStatus(null);
+    setLost(null);
+    let keepConfirm = false;
     try {
       const r = await fn();
       onView(r.view, now());
@@ -71,10 +85,43 @@ export function RefugeePanel({ api, caravanId, view, readAt, onView, onReload, o
       setStatus(r.status);
       if (r.roster) onRosterChanged();
     } catch (err) {
-      setError(asApiError(err));
+      const e = asApiError(err);
+      if (unconfirmed(e)) {
+        // It may have landed: offer the very same write again (the server replays it).
+        setLost({ kind, error: e, retry: () => run(kind, fn) });
+        keepConfirm = kind === "reroll";
+      } else setError(e);
     } finally {
       setBusy(null);
-      setConfirmReroll(false);
+      if (!keepConfirm) setConfirmReroll(null);
+    }
+  };
+
+  /** Walked away from an unconfirmed write: re-read so what is shown is the server's. */
+  const dismissLost = (): void => {
+    setLost(null);
+    setConfirmReroll(null);
+    setStatus(T.spendUnconfirmedClosed);
+    onReload();
+    onRosterChanged();
+  };
+
+  const openReroll = async (): Promise<void> => {
+    setQuoting(true);
+    setError(null);
+    setStatus(null);
+    setLost(null);
+    try {
+      const fresh = await api.refugees(caravanId);
+      onView(fresh, now());
+      setTick(now());
+      if (!fresh.reroll.blockedByFreeRefresh && fresh.reroll.affordable) {
+        setConfirmReroll({ cost: fresh.reroll.nextCost, balance: fresh.balance, forfeits: fresh.reroll.forfeitsUnclaimedOffer });
+      }
+    } catch (err) {
+      setError(asApiError(err));
+    } finally {
+      setQuoting(false);
     }
   };
 
@@ -91,13 +138,15 @@ export function RefugeePanel({ api, caravanId, view, readAt, onView, onReload, o
   const reroll = (): Promise<void> =>
     run("reroll", async () => {
       const r = await api.rerollRefugees(caravanId, view.menu.sequence);
-      return { status: T.refugeeRerolled(r.coinCost, r.balanceAfter), view: r.refugees, roster: false };
+      return { status: r.replayed ? T.refugeeRerollReplayed : T.refugeeRerolled(r.coinCost, r.balanceAfter), view: r.refugees, roster: false };
     });
 
   const rr = view.reroll;
   return (
     <section aria-labelledby="refugees-heading" data-testid="refugee-panel" data-timer={timer.kind}>
-      <h2 id="refugees-heading">{T.refugeesHeading}</h2>
+      <h2 id="refugees-heading" ref={headingRef} tabIndex={-1}>
+        {T.refugeesHeading}
+      </h2>
       <p className="hint">{T.refugeesIntro}</p>
       <p className="hint">{T.refugeeSlots(view.menu.offers.length, offers.length)}</p>
       <ul className="cards" data-testid="refugee-offers">
@@ -116,7 +165,9 @@ export function RefugeePanel({ api, caravanId, view, readAt, onView, onReload, o
           </li>
         ))}
       </ul>
-      {claimed && claimedName && <p data-testid="refugee-claimed">{T.refugeeAlreadyClaimed(claimedName)}</p>}
+      {claimed && claimedName && (
+        <p data-testid="refugee-claimed">{timer.kind === "due" ? T.refugeeClaimedPick(claimedName) : T.refugeeAlreadyClaimed(claimedName)}</p>
+      )}
       {view.inventory.full && <p className="error">{T.inventoryFull}</p>}
 
       <div data-testid="refugee-timer">
@@ -141,14 +192,27 @@ export function RefugeePanel({ api, caravanId, view, readAt, onView, onReload, o
       ) : (
         <>
           {rr.forfeitsUnclaimedOffer && <p className="hint">{T.refugeeRerollForfeits}</p>}
-          <button type="button" className="btn btn--block" disabled={busy !== null || !rr.affordable} onClick={() => setConfirmReroll(true)} data-testid="refugee-reroll">
-            {T.refugeeReroll(rr.nextCost, rr.nextIndex)}
+          <button type="button" className="btn btn--block" disabled={busy !== null || quoting || !rr.affordable} onClick={() => void openReroll()} data-testid="refugee-reroll">
+            {quoting ? T.quoteLoading : T.refugeeReroll(rr.nextCost, rr.nextIndex)}
           </button>
           {!rr.affordable && <p className="hint">{T.refugeeUnaffordable}</p>}
         </>
       )}
 
       {error && <ErrorBox error={error} heading={T.refugeeRefused} />}
+      {lost && lost.kind !== "reroll" && (
+        <div data-testid="refugee-lost">
+          <SpendError error={lost.error} heading={T.refugeeRefused} />
+          <div className="row">
+            <button type="button" className="btn" disabled={busy !== null} onClick={dismissLost}>
+              {T.previewCancel}
+            </button>
+            <button type="button" className="btn btn--primary" disabled={busy !== null} onClick={() => void lost.retry()} data-testid="refugee-try-again">
+              {T.spendTryAgain}
+            </button>
+          </div>
+        </div>
+      )}
       {status && (
         <p className="notice" role="status">
           {status}
@@ -159,20 +223,28 @@ export function RefugeePanel({ api, caravanId, view, readAt, onView, onReload, o
         <Modal
           title={T.refugeeRerollConfirmTitle}
           busy={busy !== null}
-          onCancel={() => setConfirmReroll(false)}
+          onCancel={() => (lost ? dismissLost() : setConfirmReroll(null))}
           testId="reroll-dialog"
+          restoreFocusTo={() => headingRef.current}
           actions={
             <>
-              <button type="button" className="btn" disabled={busy !== null} onClick={() => setConfirmReroll(false)}>
+              <button type="button" className="btn" disabled={busy !== null} onClick={() => (lost ? dismissLost() : setConfirmReroll(null))}>
                 {T.previewCancel}
               </button>
-              <button type="button" className="btn btn--primary" disabled={busy !== null} onClick={() => void reroll()}>
-                {busy === "reroll" ? T.refugeeRerolling : T.refugeeRerollYes}
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={busy !== null}
+                onClick={() => void (lost?.kind === "reroll" ? lost.retry() : reroll())}
+                data-testid="reroll-confirm"
+              >
+                {busy === "reroll" ? T.refugeeRerolling : lost?.kind === "reroll" ? T.spendTryAgain : T.refugeeRerollYes}
               </button>
             </>
           }
         >
-          <p>{T.refugeeRerollConfirmBody(rr.nextCost, view.balance, rr.forfeitsUnclaimedOffer)}</p>
+          <p>{T.refugeeRerollConfirmBody(confirmReroll.cost, confirmReroll.balance, confirmReroll.forfeits)}</p>
+          {lost?.kind === "reroll" && <SpendError error={lost.error} heading={T.refugeeRefused} />}
         </Modal>
       )}
     </section>

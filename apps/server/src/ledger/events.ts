@@ -23,6 +23,8 @@ export const LEDGER_EVENT_TYPES = [
   "unit_merged",
   "unit_demerged_on_death",
   "unit_lost_on_wipe",
+  /** An instance removed by a content update, not by play: never a trip loss (chunk 25 follow-up). */
+  "unit_retired",
   "trip_started",
   "stop_resolved",
   "trip_banked",
@@ -53,6 +55,7 @@ export const LEDGER_EVENT_SCOPE: Readonly<Record<LedgerEventType, LedgerScope>> 
   unit_merged: "caravan",
   unit_demerged_on_death: "caravan",
   unit_lost_on_wipe: "caravan",
+  unit_retired: "caravan",
   trip_started: "caravan",
   stop_resolved: "caravan",
   trip_banked: "caravan",
@@ -127,6 +130,22 @@ export interface UnlockPointsGrantedPayload extends PoolPayload {
 export interface UnlockNodePurchasedPayload extends PoolPayload {
   nodeId: string;
   cost: number;
+}
+
+/**
+ * Why a `unit_retired` instance left the roster. `unit_retired` is NOT a loss: no fight
+ * causes it, so chunk 19 counts only `unit_lost_on_wipe` as a trip loss.
+ *   authored_set_update : a content drop rebuilt a system (authored) party's roster in place.
+ */
+export const UNIT_RETIRED_REASONS = ["authored_set_update"] as const;
+export type UnitRetiredReason = (typeof UNIT_RETIRED_REASONS)[number];
+
+/** The `unit_retired` payload. */
+export interface UnitRetiredPayload extends JsonObject {
+  unitInstanceId: string;
+  unitTypeId: string;
+  mergeLevel: number;
+  reason: UnitRetiredReason;
 }
 
 /** A draft event as produced by a job handler or a request-driven writer. */
@@ -221,6 +240,12 @@ export function validateDraft(draft: LedgerEventDraft): void {
     const amount = draft.payload["amount"];
     if (typeof amount !== "number" || !Number.isInteger(amount) || amount < 0) {
       fail("requires a non-negative integer payload.amount");
+    }
+  }
+  if (draft.type === "unit_retired") {
+    const reason = draft.payload["reason"];
+    if (typeof reason !== "string" || !(UNIT_RETIRED_REASONS as readonly string[]).includes(reason)) {
+      fail(`requires payload.reason of ${UNIT_RETIRED_REASONS.join("|")}`);
     }
   }
   canonicalJson(draft.payload); // throws on non-integer numbers

@@ -688,6 +688,14 @@ export const TUNABLES = {
   BOARD_SLOTS: 36,
   /** TUNABLE (chunk 17). The board is a BOARD_SIDE × BOARD_SIDE square; BOARD_SLOTS must equal its square (asserted by the client's board model test). */
   BOARD_SIDE: 6,
+  /**
+   * TUNABLE (chunk 17, MINE_ANIMATION; QA-17 N7). Milliseconds for one full turn of the town
+   * mine's head-frame wheel while the store is below the cap. Presentation only: the wheel
+   * counts nothing (the balance shown is the server's), it stops at the cap and under
+   * reduced motion, and nothing in the resolver or the economy reads it. An integer like
+   * every tunable (12 500 ms = 0.08 turns per second).
+   */
+  MINE_WHEEL_MS_PER_TURN: 12_500,
 
   // ────────────────────────────────────────────────────────────────────────────────────
   // Merge recipes (PROJECT.md §7). Fixed by design; listed so the guardrail test can read them.

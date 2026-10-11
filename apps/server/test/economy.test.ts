@@ -558,3 +558,66 @@ describe("QA round 1 punch list (roadmap/qa/16-punchlist.md)", () => {
     expect(after.rows).toEqual(before.rows);
   });
 });
+
+describe("QA round 1 punch list (roadmap/qa/17-punchlist.md)", () => {
+  async function pack(caravanId: string, accountId: string, unitIds: string[]) {
+    const { token } = await issueSession(pool, accountId);
+    return app.inject({
+      method: "POST",
+      url: `/caravans/${caravanId}/manifest`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { units: unitIds, traps: [], fence: null },
+    });
+  }
+
+  it("B1: a unit packed in an open manifest cannot be merged — preview and commit 409 unit_packed, whatever caravan.state says", async () => {
+    const { accountId, caravanId } = await fresh("b1");
+    await setBalance(accountId, 5000);
+    const [p1, p2, f1, f2] = await units(caravanId, 1, 4);
+    const packed = await pack(caravanId, accountId, [p1!, p2!]);
+    expect(packed.statusCode).toBe(201);
+    // Packing does not move the caravan state (chunk 15 does); the refusal must not depend on it.
+    expect((await pool.query("SELECT state FROM caravan WHERE id = $1", [caravanId])).rows[0].state).toBe("in_town");
+    for (const ids of [[p1!, p2!], [p1!, f1!], [f2!.toUpperCase(), p2!.toUpperCase()]]) {
+      const pv = await appErr(previewMerge(pool, { accountId, caravanId, instanceIds: ids }));
+      expect(pv).toMatchObject({ statusCode: 409, code: "unit_packed" });
+      const cm = await appErr(performMerge(pool, { accountId, caravanId, instanceIds: ids, confirmInParty: true }));
+      expect(cm).toMatchObject({ statusCode: 409, code: "unit_packed" });
+    }
+    const { token } = await issueSession(pool, accountId);
+    for (const url of [`/me/caravans/${caravanId}/merge/preview`, `/me/caravans/${caravanId}/merge`]) {
+      const http = await app.inject({ method: "POST", url, headers: { authorization: `Bearer ${token}` }, payload: { instanceIds: [p1, f1] } });
+      expect(http.statusCode).toBe(409);
+      expect(http.json()).toMatchObject({ error: "unit_packed", packed: [p1] });
+    }
+    // Nothing moved: roster, Coin.
+    expect((await listUnitInstancesForCaravan(pool, caravanId)).map((r) => r.id).sort()).toEqual([p1, p2, f1, f2].sort());
+    expect((await readCoinBalance(pool, accountId)).balance).toBe(5000);
+    // A state flip either way changes nothing (the check reads the manifest, not the state).
+    await pool.query("UPDATE caravan SET state = 'on_trip' WHERE id = $1", [caravanId]);
+    await pool.query("UPDATE caravan SET state = 'in_town' WHERE id = $1", [caravanId]);
+    expect(await appErr(performMerge(pool, { accountId, caravanId, instanceIds: [p1!, p2!] }))).toMatchObject({ code: "unit_packed" });
+    // Units NOT packed merge normally while the manifest is open.
+    expect((await performMerge(pool, { accountId, caravanId, instanceIds: [f1!, f2!] })).produced.length).toBe(1);
+    // Once the trip ends (the manifest closes) the survivors are town units again.
+    await pool.query("UPDATE wagon_manifest SET closed_at = now() WHERE caravan_id = $1 AND closed_at IS NULL", [caravanId]);
+    expect((await performMerge(pool, { accountId, caravanId, instanceIds: [p1!, p2!] })).produced.length).toBe(1);
+  });
+
+  it("B1: pack and merge racing on the same units — exactly one succeeds", async () => {
+    for (let round = 0; round < 6; round++) {
+      const { accountId, caravanId } = await fresh(`b1race${round}`);
+      await setBalance(accountId, 5000);
+      const ids = await units(caravanId, 1, 2);
+      const [packed, merged] = await Promise.allSettled([
+        pack(caravanId, accountId, ids),
+        performMerge(pool, { accountId, caravanId, instanceIds: ids }),
+      ]);
+      const packOk = packed.status === "fulfilled" && packed.value.statusCode === 201;
+      const mergeOk = merged.status === "fulfilled";
+      expect(packOk && mergeOk).toBe(false);
+      expect(packOk || mergeOk).toBe(true);
+      if (packOk) expect(merged).toMatchObject({ status: "rejected", reason: { code: "unit_packed" } });
+    }
+  });
+});

@@ -33,6 +33,7 @@ import {
 import { TUNABLES } from "@caravan/content";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ApiError, type Api } from "../../api/client.ts";
+import { onViewerReset } from "../../auth/session.tsx";
 import type { FormationView, IssueView, ManifestView } from "../../api/types.ts";
 import { IsoCanvas, cellToWorld, type CellRect, type HitResult, type IsoCanvasHandle, type IsoSceneState, type SceneGeometry } from "../../iso/index.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
@@ -82,6 +83,8 @@ export const AUTOSAVE_DEBOUNCE_MS = 1200;
  * storage, nothing survives a reload — the server's draft is the durable copy.
  */
 const localDrafts = new Map<string, Formation>();
+// Sign-out forgets them (QA-17 S4's per-viewer reset): the next person never sees this arrangement.
+onViewerReset(() => localDrafts.clear());
 export function clearLocalDrafts(): void {
   localDrafts.clear();
 }

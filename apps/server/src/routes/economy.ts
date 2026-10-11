@@ -7,7 +7,7 @@
 import { TUNABLES } from "@caravan/content";
 import type { FastifyInstance } from "fastify";
 import { encounterCoinSchedule, overflowForecast } from "../economy/coin.js";
-import { UnitInPartyError, mergeCostTable, performMerge, previewMerge } from "../economy/merge.js";
+import { UnitInPartyError, UnitPackedError, mergeCostTable, performMerge, previewMerge } from "../economy/merge.js";
 import { accrueTrickle } from "../economy/trickle.js";
 import { badRequest } from "../services/errors.js";
 import { requireAuth } from "./require-auth.js";
@@ -119,6 +119,9 @@ export async function economyRoutes(app: FastifyInstance): Promise<void> {
   app.setErrorHandler((err: Error, _req, reply) => {
     if (err instanceof UnitInPartyError) {
       return reply.code(err.statusCode).send({ error: err.code, message: err.message, inParty: err.inParty });
+    }
+    if (err instanceof UnitPackedError) {
+      return reply.code(err.statusCode).send({ error: err.code, message: err.message, packed: err.packed });
     }
     throw err;
   });

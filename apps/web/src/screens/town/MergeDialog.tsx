@@ -28,6 +28,8 @@ export interface MergeDialogProps {
   readonly instanceIds: readonly string[];
   readonly onDone: (result: MergeResultView) => void;
   readonly onCancel: () => void;
+  /** Focus target on close when the opener (a chip the merge consumed) is gone (QA-17 N4). */
+  readonly restoreFocusTo?: () => HTMLElement | null;
 }
 
 const asApiError = (err: unknown): ApiError => (err instanceof ApiError ? err : new ApiError(0, "unknown", STRINGS.app.genericError));
@@ -60,7 +62,7 @@ function StatsColumn({ heading, count, stats, testId }: { heading: string; count
   );
 }
 
-export function MergeDialog({ api, caravanId, instanceIds, onDone, onCancel }: MergeDialogProps): JSX.Element {
+export function MergeDialog({ api, caravanId, instanceIds, onDone, onCancel, restoreFocusTo }: MergeDialogProps): JSX.Element {
   const [preview, setPreview] = useState<MergePreview | null>(null);
   const [loadError, setLoadError] = useState<ApiError | null>(null);
   const [commitError, setCommitError] = useState<ApiError | null>(null);
@@ -99,6 +101,7 @@ export function MergeDialog({ api, caravanId, instanceIds, onDone, onCancel }: M
       busy={busy}
       onCancel={onCancel}
       testId="merge-dialog"
+      {...(restoreFocusTo ? { restoreFocusTo } : {})}
       actions={
         <>
           <button type="button" className="btn" disabled={busy} onClick={onCancel}>
@@ -142,7 +145,7 @@ export function MergeDialog({ api, caravanId, instanceIds, onDone, onCancel }: M
           {preview.requiresConfirmInParty && (
             <div className="error" role="alert" data-testid="merge-in-party">
               <p style={{ marginTop: 0 }}>{T.previewInParty(preview.consumed.inParty.length)}</p>
-              <label className="toggles" style={{ margin: 0 }}>
+              <label className="toggles" style={{ margin: 0, minHeight: "var(--tap)", alignItems: "center" }}>
                 <input type="checkbox" checked={inPartyOk} disabled={busy} onChange={(e) => setInPartyOk(e.target.checked)} data-testid="merge-in-party-confirm" />{" "}
                 {T.previewInPartyCheckbox}
               </label>
