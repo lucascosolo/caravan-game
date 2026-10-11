@@ -30,7 +30,7 @@ import { partyLoot } from "../src/trip/loot.js";
 import { TRIP_SETTLE_HOOKS, encounterResolverAvailable, startTrip, type StakesPreview, type TripStatusView } from "../src/trip/service.js";
 import { chosenEncounterTerms, transferCausationId } from "../src/trip/stakes.js";
 import { appRolePool, expectDbError, testPool, truncateAll, unique } from "./helpers.js";
-import { doubleHandlers, type EncounterPlan } from "./trip-double.js";
+import { doubleHandlers, type EncounterPlan } from "../src/dev/tripDouble.js";
 
 
 const pool = testPool();
