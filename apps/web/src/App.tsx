@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 import { useSession, SessionProvider } from "./auth/session.tsx";
 import { LoginScreen } from "./screens/login/LoginScreen.tsx";
+import { AccountScreen } from "./screens/account/AccountScreen.tsx";
 import { WebsScreen } from "./screens/webs/WebsScreen.tsx";
 import { STRINGS } from "./strings.ts";
 import { OnboardingProvider, useOnboarding } from "./onboarding/OnboardingProvider.tsx";
@@ -60,6 +61,9 @@ function Routed(): JSX.Element {
       break;
     case "inbox":
       screen = <InboxScreen />;
+      break;
+    case "account":
+      screen = <AccountScreen />;
       break;
     case "town":
     case "login":

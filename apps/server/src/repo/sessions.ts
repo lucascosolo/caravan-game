@@ -3,11 +3,12 @@ import type { SessionRow } from "../db/types.js";
 
 export async function insertSession(
   db: Queryable,
-  input: { accountId: string; tokenHash: string; expiresAt: Date },
+  input: { accountId: string; tokenHash: string; expiresAt: Date; deviceId?: string },
 ): Promise<SessionRow> {
+  // Chunk 30: without a device id the database gives the session a device of its own (migration 019).
   const res = await db.query<SessionRow>(
-    `INSERT INTO session (account_id, token_hash, expires_at) VALUES ($1, $2, $3) RETURNING *`,
-    [input.accountId, input.tokenHash, input.expiresAt],
+    `INSERT INTO session (account_id, token_hash, expires_at, device_id) VALUES ($1, $2, $3, $4) RETURNING *`,
+    [input.accountId, input.tokenHash, input.expiresAt, input.deviceId ?? null],
   );
   return res.rows[0]!;
 }
@@ -40,6 +41,19 @@ export async function evictSessionsBeyondCap(db: Queryable, accountId: string, c
        ORDER BY created_at DESC, id DESC OFFSET $2
      )`,
     [accountId, cap],
+  );
+  return res.rowCount ?? 0;
+}
+
+/** Chunk 30: keep only a device's `cap` newest sessions (several tabs of one browser). */
+export async function evictDeviceSessionsBeyondCap(db: Queryable, deviceId: string, cap: number): Promise<number> {
+  if (!Number.isInteger(cap) || cap < 1) throw new RangeError(`session cap must be a positive integer, got ${cap}`);
+  const res = await db.query(
+    `DELETE FROM session WHERE id IN (
+       SELECT id FROM session WHERE device_id = $1
+       ORDER BY created_at DESC, id DESC OFFSET $2
+     )`,
+    [deviceId, cap],
   );
   return res.rowCount ?? 0;
 }

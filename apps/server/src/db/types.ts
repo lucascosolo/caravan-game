@@ -5,14 +5,21 @@ export type CaravanState = "in_town" | "on_trip";
 
 export interface AccountRow {
   id: string;
-  username: string;
-  password_hash: string;
+  /** Chunk 30: null for a guest (and the erasure tombstone); set once, by linking. */
+  username: string | null;
+  /** Chunk 30: null exactly when username is. */
+  password_hash: string | null;
   coin_balance: number;
   coin_storage_cap: number;
   created_at: Date;
   /** Chunk 14/25: a non-player owner of authored cold-start parties. Never logs in, never holds Coin. */
   is_system: boolean;
+  /** Chunk 30: when the guest linked a username + password (registration counts as linked at creation). */
+  linked_at: Date | null;
 }
+
+/** Chunk 30: an account with a login (registered, or a guest that linked one). */
+export type LinkedAccountRow = AccountRow & { username: string; password_hash: string };
 
 export interface CaravanRow {
   id: string;
@@ -69,12 +76,17 @@ export interface SessionRow {
   token_hash: string;
   created_at: Date;
   expires_at: Date;
+  /** Chunk 30: the device this bearer session was issued to (migration 019). */
+  device_id: string;
 }
 
 /** Public shape of an account (never includes the password hash). */
 export interface AccountPublic {
   id: string;
-  username: string;
+  /** Chunk 30: null for a guest. */
+  username: string | null;
+  /** Chunk 30: true until a username + password is linked. */
+  guest: boolean;
   coinBalance: number;
   coinStorageCap: number;
   createdAt: string;
@@ -84,6 +96,7 @@ export function toAccountPublic(row: AccountRow): AccountPublic {
   return {
     id: row.id,
     username: row.username,
+    guest: row.username === null,
     coinBalance: row.coin_balance,
     coinStorageCap: row.coin_storage_cap,
     createdAt: row.created_at.toISOString(),

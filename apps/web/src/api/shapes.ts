@@ -126,7 +126,8 @@ const poolProgress: Guard<PoolProgressView> = object({
 
 export const progressionShape: Guard<ProgressionResponse> = object({ pools: array(poolProgress, { maxLength: 64 }) });
 
-const account = object({ id: ID, username: NAME });
+/** Chunk 30: a guest has no username; `guest` says so explicitly. */
+const account = object({ id: ID, username: nullable(NAME), guest: boolean() });
 
 /** A roster row as `GET /me` lists it (chunk 17 reads the roster and the caravan's state from here). */
 const unitInstance: Guard<UnitInstanceView> = object({ id: ID, caravan_id: ID, unit_type_id: ID, merge_level: integer({ min: 1, max: 5 }) });

@@ -98,7 +98,10 @@ export async function listPartyFeed(db: Queryable, accountId: string, opts: { be
   const caravanIds = [...new Set(served.map((e) => str(e.payload["defenderCaravanId"])).filter((x): x is string => x !== null))];
   const caravans = caravanIds.length
     ? await db.query<{ id: string; name: string; region_id: string; username: string | null }>(
-        `SELECT c.id, c.name, c.region_id, a.username
+        // Chunk 30: a caravan whose player deleted their account is the erasure tombstone's (a
+        // system account): the strike stays in the feed, with nothing about who it was.
+        `SELECT c.id, CASE WHEN a.is_system THEN NULL ELSE c.name END AS name, CASE WHEN a.is_system THEN NULL ELSE c.region_id END AS region_id,
+                CASE WHEN a.is_system THEN NULL ELSE a.username END AS username
          FROM caravan c LEFT JOIN account a ON a.id = c.account_id
          WHERE c.id = ANY($1::uuid[])`,
         [caravanIds],
