@@ -1381,3 +1381,58 @@ lattice, touch targets) is chunk 17's town screen; everything it needs is in `GE
 especially whether any path can reach `unit_instance` or `standing_party` from the
 resolution path, whether the preview and the scout can ever diverge, and whether the
 chunk 02 placeholder handler and chunk 14 need the invalid-party error surfaced.
+
+### 2026-10-11 — Chunk 06 (unlock web UI) QA punch list: all 17 items closed (`built`, awaiting re-audit)
+
+**Fixed** in a worktree on `e0f32b8` (`roadmap/phase-2-spec`), `apps/web/**` plus the chunk
+file and the punch list only. Everything in `roadmap/qa/06-punchlist.md` (B1, S1–S8, N1–N8)
+is closed; each item there carries its closure note.
+
+- **Two new scaffold conventions (B1), documented in `apps/web/README.md` for chunk 08 and
+  every later screen:** (1) payload guards — `src/api/shape.ts` is a dependency-free
+  combinator validator (`string / boolean / integer / literal / nullable / optional / array /
+  object`, bounds on numbers and lists); `src/api/shapes.ts` declares a guard per response,
+  typed against `types.ts`; `createApi` runs the guard on every 2xx body and raises
+  `ApiError(0, "bad_payload", message, detail=path)`. (2) `src/shell/ErrorBoundary.tsx`
+  wraps `<Routed>` in `App.tsx` and renders the same `ErrorBox` + Retry (now in
+  `src/shell/ErrorBox.tsx`, re-exported from `WebsScreen` so existing imports hold; it takes
+  an optional `onRetry`). `ApiError` gained an optional `detail`.
+- **A11y (S1–S4):** `ConfirmDialog` portals under `<body>`, inerts everything else, traps
+  Tab, restores focus to the opener (`restoreFocusTo` fallback when a successful spend removed
+  it); `NodeCard`'s accessible name is its content; pool tabs are a roving-tabindex tablist
+  with arrows / Home / End and `aria-controls`; the sheet focuses its heading on open and
+  hands focus back to the card on close.
+- **Server state only (S7, N8):** no shortfall arithmetic ("Not enough points yet" when
+  `missing` is empty and `affordable` false), no remainder in the confirm; tapping Unlock
+  re-fetches and opens the confirm only if the fresh read still says affordable; the
+  post-spend notice quotes `points.available` from the spend response and the dialog stays
+  busy until the re-read lands. `NodeCard` / `NodeDetail` dropped the now-unused `available`
+  prop (webs-screen-internal; `WebGraph`'s API is unchanged).
+- **S5 typography:** root `100%`, every size rem, floor `0.75rem`, no `text-size-adjust`.
+  **S6** kind-aware `accessGranted(kind)`. **N1** hidden source maps. **N2** dashed unmet
+  edges. **N3** tier row top padding. **N4** catalogue strings into `strings.ts`. **N5**
+  canonical-hash rewrite (`readRoute`), `#/login` → `#/town` when signed in. **N6** dotted
+  env + `vite-env.d.ts`. **N7** placeholder `public/icon.svg` in the manifest (real set:
+  chunk 34).
+- **S8 e2e:** exact costs per pool asserted; a second test registers a fresh account via the
+  API, grants 5 trap points by inserting an `unlock_points_granted` ledger event through `pg`
+  (new web devDependency, e2e only), runs cancel then confirm → spend → re-fetch in the UI and
+  checks `GET /me/unlocks` agrees. `playwright.config.ts` takes `E2E_WEB_PORT` so two
+  checkouts can run e2e side by side (`scripts/e2e.mjs` already took `E2E_PORT`).
+
+**Verification (real output):** `pnpm --filter @caravan/web test` → 5 files, 41 tests
+passing (was 3 files / 9). `pnpm --filter @caravan/web typecheck` clean; root
+`pnpm typecheck` clean (content, resolver, circle, web, server). `pnpm build` clean
+(212 kB JS / 68 kB gzip). `E2E_PORT=3961 E2E_WEB_PORT=4261 E2E_DATABASE_URL=…caravan_dev_f06
+pnpm e2e` → 2 passed, twice consecutively (5.0 s, 6.4 s). A fixer probe at 360×640 on the
+built app: tier label 8 px clear of the first card on every tier at 100% and 150%; unmet
+edges `stroke-dasharray: 6 5`, met edges solid; root pref 24 px scales `.node__cost`
+13 → 19.5 px; at 150% root: 0 px horizontal overflow, no clipped control, no page errors.
+
+**Not done here:** `roadmap/INDEX.md` (outside this fixer's file set) still says `built`;
+the coordinator flips it after the re-audit. One observation for the coordinator, not a
+change: `scripts/e2e.mjs` health-checks `/health` on `E2E_PORT` even when its own server
+failed to bind, so with another checkout's server already on 3917 it would run the suite
+against that server; passing a distinct `E2E_PORT` per checkout avoids it.
+
+**Next:** QA re-audit of chunk 06 against the punch list; then `built` → `QA'd` in INDEX.md.

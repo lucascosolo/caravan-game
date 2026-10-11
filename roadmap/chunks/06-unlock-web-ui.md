@@ -1,6 +1,7 @@
 # Chunk 06 — Unlock web UI
 
-**Depends on:** 05. **Status:** built (2026-10-11; see "Build notes" at the end).
+**Depends on:** 05. **Status:** built (2026-10-11; see "Build notes" at the end); QA punch
+list `roadmap/qa/06-punchlist.md` fully closed the same day (see "QA fixes"), awaiting re-audit.
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 ## Goal
@@ -103,3 +104,36 @@ client"). What QA should know:
   a locked capstone's cost and stat sheet.
 - **Not built, deliberately:** nothing offers to buy points or nodes with Coin; there is no
   client-side `checkSpend` preview (the server's `affordable` flag is the preview).
+
+## QA fixes (2026-10-11, Maker closing `roadmap/qa/06-punchlist.md`)
+
+What changed against the build notes above; the punch list carries the per-item closures.
+
+- **Payload guards and an error boundary are now scaffold conventions** (B1). The API client
+  validates every 2xx body against a guard in `src/api/shapes.ts` (bounds: tier 0..32, lists
+  capped) and raises `ApiError(0, "bad_payload")` with the offending path; a malformed
+  `/me/unlocks`, `/me/progression`, `/me` or spend answer shows `ErrorBox` + Retry instead of
+  a blank page. `ErrorBoundary` (`src/shell`) wraps the routed screens. Both are written up
+  in `apps/web/README.md` so chunk 08 and later screens adopt them unchanged.
+- **The client derives nothing** (S7, N8). The lock reason is the server's `missing` list, or
+  "Not enough points yet" when `affordable` is false with nothing missing; there is no "N more
+  points needed" and no remainder in the confirm. Tapping Unlock re-fetches first and only
+  opens the confirm if the fresh read still says affordable; the quote is that read's cost and
+  balance. The post-spend notice quotes `points.available` from the spend response, and the
+  dialog stays busy until all three views are re-read.
+- **Accessibility** (S1–S5): a real modal (portal, `inert` page, focus trap, Escape, focus
+  restored to the opener); content-named cards with hidden glyphs; a roving-tabindex tablist
+  with arrow keys and `aria-controls`; the sheet focuses its heading and returns focus to the
+  card; type in rem off a 100% root, floor 0.75rem. Checked at 150% root scale: no overflow,
+  nothing clipped.
+- **Copy** (S6): the reached-state line is per kind — unit "recruit it in town", trap / fence
+  "deploy it from the wagon-circle editor", siege "add it to your party" — each ending "this
+  node gives no instance".
+- **Nits**: hidden source maps; dashed unmet edges; tier label clear of the cards; catalogue
+  strings in `strings.ts`; canonical hash rewrite and `#/login` → `#/town` when signed in;
+  dotted `import.meta.env`; a placeholder SVG app icon (chunk 34 owns the real set).
+- **Tests**: `WebsScreen.test.tsx` 30 (was 6: +15 malformed-payload cases, spend-shape, XSS as
+  text, S1×2, S2, S3, S4, S6, N8, retry), `shape.test.ts` 5, `ErrorBoundary.test.tsx` 1,
+  `router.test.ts` 3, `client.test.ts` 2 → 41. `e2e/smoke.spec.ts` 2: exact costs per pool,
+  and a fresh-account confirm → spend → re-fetch pass with points granted by an
+  `unlock_points_granted` ledger insert (S8), checked against `GET /me/unlocks`.

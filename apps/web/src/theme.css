@@ -5,6 +5,11 @@
  * Colour is never the only carrier of meaning (PHASE-2 §35): node states carry a word and
  * an icon, affinities carry a shape. The accent colours are from the Okabe–Ito palette,
  * which stays distinguishable under deuteranopia / protanopia / tritanopia.
+ *
+ * Type scales with the player's setting (QA-06 S5): the root is 100% (the browser / OS
+ * preference, 16px by default), every font-size is in rem, nothing goes below 0.75rem,
+ * and text-size-adjust is left to the platform. Box sizes that must stay thumb-sized
+ * (--tap, --tab-h) are px on purpose.
  */
 :root {
   --bg: #1b1a17;
@@ -36,9 +41,10 @@ body,
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font);
-  font-size: 16px;
   line-height: 1.35;
-  -webkit-text-size-adjust: 100%;
+}
+html {
+  font-size: 100%;
 }
 button,
 input,
@@ -86,7 +92,7 @@ a {
   background: none;
   border: 0;
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   cursor: pointer;
 }
 .tabbar__tab[aria-current="page"] {
@@ -94,7 +100,7 @@ a {
   font-weight: 600;
 }
 .tabbar__glyph {
-  font-size: 20px;
+  font-size: 1.25rem;
   line-height: 1;
 }
 
@@ -129,7 +135,7 @@ a {
 }
 .field__label {
   display: block;
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--fg-muted);
   margin-bottom: 4px;
 }
@@ -143,7 +149,7 @@ a {
   background: var(--bg-sunken);
 }
 .hint {
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--fg-muted);
 }
 .error {
@@ -156,8 +162,12 @@ a {
 }
 .error__code {
   font-family: ui-monospace, monospace;
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--fg-muted);
+}
+.error__detail {
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
 }
 .notice {
   border: 1px solid var(--ok);
@@ -168,11 +178,11 @@ a {
   background: var(--bg-raised);
 }
 h1 {
-  font-size: 22px;
+  font-size: 1.375rem;
   margin: 0 0 8px;
 }
 h2 {
-  font-size: 18px;
+  font-size: 1.125rem;
   margin: 16px 0 8px;
 }
 .visually-hidden {
@@ -197,7 +207,7 @@ h2 {
   border: 1px solid var(--line);
   background: var(--bg-raised);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 .pooltabs__tab[aria-selected="true"] {
   border-color: var(--accent);
@@ -218,11 +228,11 @@ h2 {
 }
 .pointbox__num {
   display: block;
-  font-size: 22px;
+  font-size: 1.375rem;
   font-weight: 700;
 }
 .pointbox__lbl {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--fg-muted);
 }
 
@@ -246,19 +256,25 @@ h2 {
 .graph__edge--met {
   stroke: var(--ok);
 }
+/* An unmet prerequisite edge is dashed as well as grey (QA-06 N2). */
+.graph__edge--unmet {
+  stroke-dasharray: 6 5;
+}
 .graph__tier {
   position: relative;
   display: flex;
   gap: 10px;
   justify-content: center;
   align-items: stretch;
-  padding: 10px 0 28px;
+  /* Top clearance holds the tier label clear of the first card at any text size (QA-06 N3). */
+  padding: 1.25rem 0 28px;
 }
 .graph__tierlabel {
   position: absolute;
   left: 0;
-  top: -2px;
-  font-size: 11px;
+  top: 0;
+  line-height: 1;
+  font-size: 0.75rem;
   color: var(--fg-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -297,19 +313,19 @@ h2 {
 }
 .node__name {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 .node__cost {
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 .node__state {
-  font-size: 12px;
+  font-size: 0.75rem;
   display: inline-flex;
   align-items: center;
   gap: 4px;
 }
 .node__req {
-  font-size: 11px;
+  font-size: 0.75rem;
   color: var(--fg-muted);
 }
 .state-icon {
@@ -320,7 +336,7 @@ h2 {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 .affinity svg {
   width: 12px;
@@ -349,12 +365,24 @@ h2 {
   align-items: center;
   gap: 8px;
 }
+.sheet__title {
+  margin: 0;
+}
+.sheet__title:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+.sheet__subtitle {
+  font-size: 0.9375rem;
+  margin: 12px 0 4px;
+}
 .statlist {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 4px 12px;
   margin: 8px 0;
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 .statlist dt {
   color: var(--fg-muted);
@@ -365,7 +393,7 @@ h2 {
 .flavor {
   font-style: italic;
   color: var(--fg-muted);
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 /* confirm dialog */

@@ -58,26 +58,26 @@ function abilityLines(a: Ability): StatLine[] {
   ];
   switch (a.archetype) {
     case "burst_radius":
-      lines.push({ label: "Radius (cells)", value: fixedToText(a.radius) }, { label: "Damage", value: `×${fixedToText(a.damageMult)} one hit` });
+      lines.push({ label: S.radius, value: fixedToText(a.radius) }, { label: S.damage, value: S.oneHit(fixedToText(a.damageMult)) });
       break;
     case "heavy_strike":
-      lines.push({ label: "Damage", value: `×${fixedToText(a.damageMult)} one hit` });
+      lines.push({ label: S.damage, value: S.oneHit(fixedToText(a.damageMult)) });
       break;
     case "heal_radius":
       lines.push(
-        { label: "Radius (cells)", value: fixedToText(a.radius) },
-        { label: "Heals", value: `${fixedToText(a.healFraction * 100)}% of max HP` },
+        { label: S.radius, value: fixedToText(a.radius) },
+        { label: S.heals, value: S.healsValue(fixedToText(a.healFraction * 100)) },
         { label: S.charges, value: String(a.charges) },
       );
       break;
     case "self_buff":
-      lines.push({ label: "Bonus damage", value: `+${fixedToText(a.damageBonus)}` }, { label: "Duration", value: millisToText(a.duration) });
+      lines.push({ label: S.bonusDamage, value: S.bonusValue(fixedToText(a.damageBonus)) }, { label: S.duration, value: millisToText(a.duration) });
       break;
     case "dash":
-      lines.push({ label: "Distance (cells)", value: fixedToText(a.distance) });
+      lines.push({ label: S.distance, value: fixedToText(a.distance) });
       break;
     case "structure_breaker":
-      lines.push({ label: "Fence damage", value: `×${fixedToText(a.fenceDamageMult)} one hit` });
+      lines.push({ label: S.fenceDamage, value: S.oneHit(fixedToText(a.fenceDamageMult)) });
       break;
   }
   return lines;
@@ -112,8 +112,8 @@ export function describeType(id: string): GrantedType {
       trap.effect === null
         ? S.effectNone
         : trap.effect.kind === "root"
-          ? `Root for ${millisToText(trap.effect.duration)}`
-          : `Slow ×${fixedToText(trap.effect.magnitude)} for ${millisToText(trap.effect.duration)}`;
+          ? S.effectRoot(millisToText(trap.effect.duration))
+          : S.effectSlow(fixedToText(trap.effect.magnitude), millisToText(trap.effect.duration));
     return {
       kind: "trap",
       kindLabel: STRINGS.webs.kindTrap,
@@ -153,7 +153,7 @@ export function describeType(id: string): GrantedType {
       displayName: siege.displayName,
       flavor: siege.flavor,
       affinity: null,
-      stats: [{ label: S.counters, value: `${siege.counters.category} ${siege.counters.kind}s` }],
+      stats: [{ label: S.counters, value: S.countersValue(siege.counters.category, siege.counters.kind) }],
     };
   }
   // A node id the content package does not know: show the id rather than hide the node.

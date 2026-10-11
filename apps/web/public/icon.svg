@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Placeholder app icon (QA-06 N7): a wagon wheel on the theme background. Chunk 34 (PWA / store wrap) replaces it with the real icon set. -->
+  <rect width="64" height="64" rx="14" fill="#1b1a17"/>
+  <g fill="none" stroke="#e69f00" stroke-width="4" stroke-linecap="round">
+    <circle cx="32" cy="32" r="22"/>
+    <circle cx="32" cy="32" r="5"/>
+    <path d="M32 10v17M32 37v17M10 32h17M37 32h17M16.4 16.4l12 12M35.6 35.6l12 12M47.6 16.4l-12 12M28.4 35.6l-12 12"/>
+  </g>
+</svg>
