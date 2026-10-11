@@ -1,0 +1,30 @@
+{
+  "name": "@caravan/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Caravan Vaults game server: Node + Fastify + Postgres. Schema, auth, event ledger and job queue.",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:migrate": "tsx src/db/migrate.ts up",
+    "db:rollback": "tsx src/db/migrate.ts down",
+    "db:reset": "tsx src/db/migrate.ts reset",
+    "db:status": "tsx src/db/migrate.ts status",
+    "db:seed": "tsx src/seed.ts"
+  },
+  "dependencies": {
+    "@caravan/content": "workspace:*",
+    "fastify": "^5.6.1",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "@types/pg": "^8.15.5",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

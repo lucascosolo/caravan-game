@@ -1,6 +1,6 @@
 # Chunk 01 — Data model & auth scaffolding
 
-**Depends on:** nothing. **Status:** not started.
+**Depends on:** nothing. **Status:** built.
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 ## Goal

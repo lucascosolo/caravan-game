@@ -1,0 +1,23 @@
+{
+  "name": "caravan-vaults",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r --if-present typecheck",
+    "lint": "pnpm -r --if-present lint",
+    "test": "pnpm -r --if-present test",
+    "dev": "pnpm --filter @caravan/server dev",
+    "db:migrate": "pnpm --filter @caravan/server db:migrate",
+    "db:rollback": "pnpm --filter @caravan/server db:rollback",
+    "db:reset": "pnpm --filter @caravan/server db:reset",
+    "db:seed": "pnpm --filter @caravan/server db:seed",
+    "db:status": "pnpm --filter @caravan/server db:status"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "@caravan/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Placeholder for the client (PixiJS). The client never runs the simulation; it renders a stored log. Built from chunk 06/08 onward."
+}

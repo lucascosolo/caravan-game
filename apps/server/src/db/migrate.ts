@@ -1,0 +1,154 @@
+/**
+ * Plain-SQL migration runner. Migrations live in apps/server/migrations as paired files
+ * `NNN_name.up.sql` / `NNN_name.down.sql`. Each migration runs in its own transaction and
+ * is recorded in `schema_migrations`.
+ *
+ * CLI:  tsx src/db/migrate.ts up | down [steps] | reset | status
+ */
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import type pg from "pg";
+import { createPool } from "./pool.js";
+
+export interface Migration {
+  id: number;
+  name: string;
+  up: string;
+  down: string;
+}
+
+const MIGRATIONS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../migrations");
+
+export function loadMigrations(dir: string = MIGRATIONS_DIR): Migration[] {
+  const files = readdirSync(dir);
+  const ups = files.filter((f) => f.endsWith(".up.sql")).sort();
+  return ups.map((file) => {
+    const match = /^(\d+)_(.+)\.up\.sql$/.exec(file);
+    if (!match) throw new Error(`Migration file name not understood: ${file}`);
+    const id = Number(match[1]);
+    const name = match[2]!;
+    const downFile = `${match[1]}_${name}.down.sql`;
+    if (!files.includes(downFile)) throw new Error(`Migration ${file} has no matching ${downFile}`);
+    return {
+      id,
+      name,
+      up: readFileSync(path.join(dir, file), "utf8"),
+      down: readFileSync(path.join(dir, downFile), "utf8"),
+    };
+  });
+}
+
+async function ensureTable(pool: pg.Pool): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      id integer PRIMARY KEY,
+      name text NOT NULL,
+      applied_at timestamptz NOT NULL DEFAULT now()
+    )`);
+}
+
+export async function appliedMigrationIds(pool: pg.Pool): Promise<number[]> {
+  await ensureTable(pool);
+  const res = await pool.query<{ id: number }>("SELECT id FROM schema_migrations ORDER BY id");
+  return res.rows.map((r) => r.id);
+}
+
+export async function migrateUp(pool: pg.Pool, migrations: Migration[] = loadMigrations()): Promise<string[]> {
+  const applied = new Set(await appliedMigrationIds(pool));
+  const ran: string[] = [];
+  for (const m of migrations) {
+    if (applied.has(m.id)) continue;
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(m.up);
+      await client.query("INSERT INTO schema_migrations (id, name) VALUES ($1, $2)", [m.id, m.name]);
+      await client.query("COMMIT");
+      ran.push(`${m.id}_${m.name}`);
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw new Error(`Migration ${m.id}_${m.name} (up) failed: ${(err as Error).message}`);
+    } finally {
+      client.release();
+    }
+  }
+  return ran;
+}
+
+export async function migrateDown(
+  pool: pg.Pool,
+  steps = 1,
+  migrations: Migration[] = loadMigrations(),
+): Promise<string[]> {
+  const applied = await appliedMigrationIds(pool);
+  const byId = new Map(migrations.map((m) => [m.id, m]));
+  const ran: string[] = [];
+  for (const id of applied.slice().reverse().slice(0, steps)) {
+    const m = byId.get(id);
+    if (!m) throw new Error(`Applied migration ${id} has no file on disk; cannot roll back`);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(m.down);
+      await client.query("DELETE FROM schema_migrations WHERE id = $1", [m.id]);
+      await client.query("COMMIT");
+      ran.push(`${m.id}_${m.name}`);
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw new Error(`Migration ${m.id}_${m.name} (down) failed: ${(err as Error).message}`);
+    } finally {
+      client.release();
+    }
+  }
+  return ran;
+}
+
+/** Roll everything back, then apply everything. Used by the test suite. */
+export async function migrateReset(pool: pg.Pool, migrations: Migration[] = loadMigrations()): Promise<void> {
+  const applied = await appliedMigrationIds(pool);
+  await migrateDown(pool, applied.length, migrations);
+  await migrateUp(pool, migrations);
+}
+
+async function main(): Promise<void> {
+  const [command = "up", arg] = process.argv.slice(2);
+  const pool = createPool();
+  try {
+    switch (command) {
+      case "up": {
+        const ran = await migrateUp(pool);
+        console.log(ran.length ? `Applied: ${ran.join(", ")}` : "Nothing to apply.");
+        break;
+      }
+      case "down": {
+        const ran = await migrateDown(pool, arg ? Number(arg) : 1);
+        console.log(ran.length ? `Rolled back: ${ran.join(", ")}` : "Nothing to roll back.");
+        break;
+      }
+      case "reset": {
+        await migrateReset(pool);
+        console.log("Reset complete.");
+        break;
+      }
+      case "status": {
+        const applied = new Set(await appliedMigrationIds(pool));
+        for (const m of loadMigrations()) {
+          console.log(`${applied.has(m.id) ? "[x]" : "[ ]"} ${m.id}_${m.name}`);
+        }
+        break;
+      }
+      default:
+        throw new Error(`Unknown command '${command}'. Use: up | down [steps] | reset | status`);
+    }
+  } finally {
+    await pool.end();
+  }
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((err) => {
+    console.error(err instanceof Error ? err.message : err);
+    process.exit(1);
+  });
+}

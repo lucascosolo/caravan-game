@@ -91,11 +91,27 @@ The client **never runs the simulation** — it renders a stored log.
 
 ## Build / test / run
 
-*Nothing is implemented yet — chunk 01 sets this up and fills this in.*
+Requirements: Node 22, pnpm 10, Postgres 16 with two databases the `caravan` role owns
+(`caravan` for dev, `caravan_test` for the test suite). Connection strings are read from
+`DATABASE_URL` / `TEST_DATABASE_URL`; the defaults in `.env.example` match the local setup.
 
 ```
-# install       — TBD
-# run (dev)     — TBD
-# test          — TBD
+pnpm install                 # install the whole workspace
+pnpm typecheck               # tsc --noEmit in every package
+pnpm lint                    # resolver isolation rules + their self-test (packages/resolver)
+pnpm test                    # vitest, against TEST_DATABASE_URL; resets that schema first
+
+pnpm db:migrate              # apply pending SQL migrations to DATABASE_URL
+pnpm db:rollback             # roll back the most recent migration
+pnpm db:reset                # roll back everything, then re-apply
+pnpm db:status               # show which migrations are applied
+pnpm db:seed                 # idempotent dev account: dev / devpassword, region desert
+
+pnpm dev                     # Fastify on http://127.0.0.1:3000 (PORT/HOST override), tsx watch
+
 # resolver determinism harness — TBD (chunk 13; this one matters most)
 ```
+
+Migrations are plain SQL pairs in `apps/server/migrations/NNN_name.{up,down}.sql`, run by
+`apps/server/src/db/migrate.ts`. Server routes so far: `POST /auth/register`,
+`POST /auth/login`, `POST /auth/logout`, `GET /me`, `GET /health` (bearer token auth).
