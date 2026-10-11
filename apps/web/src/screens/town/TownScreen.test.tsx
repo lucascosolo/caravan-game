@@ -4,7 +4,7 @@ import { forwardRef, useImperativeHandle } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, type Api } from "../../api/client.ts";
 import type { IsoCanvasProps } from "../../iso/index.ts";
-import { CARAVAN_ID, economyView, fakeApi, meWith, mergePreview, recruitView, refugeeView, uid, type FixtureUnit } from "../../test/townFixtures.ts";
+import { ACCOUNT_ID, CARAVAN_ID, economyView, fakeApi, meWith, mergePreview, recruitView, refugeeView, uid, type FixtureUnit } from "../../test/townFixtures.ts";
 import { RefugeePanel } from "./RefugeePanel.tsx";
 import { RecruitPanel } from "./RecruitPanel.tsx";
 import { TownScreen } from "./TownScreen.tsx";
@@ -120,7 +120,7 @@ describe("TownScreen", () => {
     expect(previewMerge).toHaveBeenCalledWith(CARAVAN_ID, [uid(2), uid(1)]);
     const d = within(dialog);
     expect(await d.findByTestId("merge-cost")).toHaveTextContent("Cost: 250 Coin (250 per resulting unit)");
-    expect(d.getByTestId("merge-balance")).toHaveTextContent("Balance: 1200 Coin, including 40 trickled in and not yet written.");
+    expect(d.getByTestId("merge-balance")).toHaveTextContent("Balance: 1200 Coin, including the trickle so far (40).");
     expect(d.getByTestId("merge-slots")).toHaveTextContent("2 slots become 1: frees 1");
     expect(d.getByTestId("merge-consumed")).toHaveTextContent("800");
     expect(d.getByTestId("merge-produced")).toHaveTextContent("720");
@@ -255,9 +255,11 @@ describe("RefugeePanel", () => {
   it("reroll: the cost and balance are confirmed in a real modal before anything is spent", async () => {
     const user = userEvent.setup();
     const rerollRefugees = vi.fn(async () => ({ replayed: false, fromSequence: 7, coinCost: 150, balanceAfter: 1050, refugees: refugeeView({ menu: { sequence: 8, origin: "reroll" as const } }) }));
-    render(<RefugeePanel {...base} api={fakeApi({ rerollRefugees })} view={refugeeView()} readAt={0} now={() => 0} />);
+    const refugees = vi.fn(async () => refugeeView());
+    render(<RefugeePanel {...base} api={fakeApi({ rerollRefugees, refugees })} view={refugeeView()} readAt={0} now={() => 0} />);
     await user.click(screen.getByTestId("refugee-reroll"));
-    const dialog = screen.getByRole("dialog", { name: "Pay for a sooner menu?" });
+    const dialog = await screen.findByRole("dialog", { name: "Pay for a sooner menu?" });
+    expect(refugees).toHaveBeenCalledTimes(1);
     expect(dialog).toHaveTextContent("Spend 150 of 1200 Coin for a new menu now, drawn from the same unlocked pool. This menu's unclaimed offers are forfeited.");
     expect(rerollRefugees).not.toHaveBeenCalled();
     await user.click(within(dialog).getByRole("button", { name: "Spend Coin" }));
@@ -277,7 +279,8 @@ describe("RecruitPanel", () => {
       inventory: { count: 4, cap: 200, room: 196, full: false },
     }));
     const onRecruited = vi.fn();
-    render(<RecruitPanel api={fakeApi({ recruit })} caravanId={CARAVAN_ID} view={recruitView({ recruitable: [...recruitView().recruitable.slice(0, 1), { ...recruitView().recruitable[1]!, affordable: false }] })} onRecruited={onRecruited} />);
+    const recruitList = vi.fn(async () => recruitView());
+    render(<RecruitPanel api={fakeApi({ recruit, recruitList })} caravanId={CARAVAN_ID} view={recruitView({ recruitable: [...recruitView().recruitable.slice(0, 1), { ...recruitView().recruitable[1]!, affordable: false }] })} onRecruited={onRecruited} />);
     const list = within(screen.getByTestId("recruit-list"));
     expect(list.getByRole("button", { name: "Recruit Dust Rider for 600 Coin" })).toBeEnabled();
     expect(list.getByRole("button", { name: "Recruit Well Digger for 600 Coin" })).toBeDisabled();
@@ -287,7 +290,8 @@ describe("RecruitPanel", () => {
     expect(locked.getAllByText("Not for sale — reach it in the Webs")).toHaveLength(2);
     expect(locked.queryByRole("button")).toBeNull();
     await user.click(list.getByRole("button", { name: "Recruit Dust Rider for 600 Coin" }));
-    const dialog = screen.getByRole("dialog", { name: "Recruit a mercenary?" });
+    const dialog = await screen.findByRole("dialog", { name: "Recruit a mercenary?" });
+    expect(recruitList).toHaveBeenCalledTimes(1);
     expect(dialog).toHaveTextContent("Spend 600 of 1200 Coin for one level-1 Dust Rider?");
     expect(recruit).not.toHaveBeenCalled();
     await user.click(within(dialog).getByRole("button", { name: "Spend Coin" }));
@@ -297,3 +301,156 @@ describe("RecruitPanel", () => {
   });
 });
 
+
+// ── QA-17 punch list (roadmap/qa/17-punchlist.md) ────────────────────────────────────
+
+describe("QA-17", () => {
+  const lostAnswer = (): ApiError => new ApiError(0, "network", "fetch failed");
+
+  it("S2 + N5: recruit re-reads the quote first; a lost answer keeps the dialog with the same requestId and 'Try again' replays it", async () => {
+    const user = userEvent.setup();
+    let n = 0;
+    const recruit = vi.fn(async (_c: string, typeId: string, _requestId: string) => {
+      n += 1;
+      if (n === 1) throw lostAnswer();
+      return { replayed: true, acquired: { unitTypeId: typeId, instanceId: uid(7), mergeLevel: 1, source: "mercenary", coinCost: 600 }, coinCost: 600, balanceAfter: 300, inventory: { count: 4, cap: 200, room: 196, full: false } };
+    });
+    // The list the panel was rendered with says 1200; the fresh read says 900 — the confirm quotes 900.
+    const recruitList = vi.fn(async () => recruitView({ balance: 900 }));
+    const onRecruited = vi.fn();
+    render(<RecruitPanel api={fakeApi({ recruit, recruitList })} caravanId={CARAVAN_ID} view={recruitView()} onRecruited={onRecruited} />);
+    await user.click(within(screen.getByTestId("recruit-list")).getByRole("button", { name: "Recruit Dust Rider for 600 Coin" }));
+    const dialog = await screen.findByRole("dialog", { name: "Recruit a mercenary?" });
+    expect(dialog).toHaveTextContent("Spend 600 of 900 Coin");
+    await user.click(within(dialog).getByTestId("recruit-confirm"));
+    // Still open, says "could not confirm" (never "refused" / "Nothing was changed").
+    const lost = await within(dialog).findByTestId("spend-unconfirmed");
+    expect(lost).toHaveTextContent("Could not confirm whether this went through");
+    expect(lost).toHaveTextContent("not charged twice");
+    expect(dialog.textContent).not.toMatch(/refused|Nothing was changed/);
+    expect(within(dialog).getByTestId("recruit-confirm")).toHaveTextContent("Try again");
+    await user.click(within(dialog).getByTestId("recruit-confirm"));
+    expect(recruit).toHaveBeenCalledTimes(2);
+    expect(recruit.mock.calls[1]![2]).toBe(recruit.mock.calls[0]![2]);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(await screen.findByRole("status")).toHaveTextContent("had already gone through; nothing was charged twice");
+    expect(onRecruited).toHaveBeenCalled();
+  });
+
+  it("S2: a real refusal closes the dialog and shows the server's message", async () => {
+    const user = userEvent.setup();
+    const recruit = vi.fn(async () => {
+      throw new ApiError(409, "insufficient_coin", "not enough Coin: 600 needed, 100 available");
+    });
+    render(<RecruitPanel api={fakeApi({ recruit, recruitList: vi.fn(async () => recruitView()) })} caravanId={CARAVAN_ID} view={recruitView()} onRecruited={() => {}} />);
+    await user.click(within(screen.getByTestId("recruit-list")).getByRole("button", { name: "Recruit Dust Rider for 600 Coin" }));
+    await user.click(within(await screen.findByRole("dialog")).getByTestId("recruit-confirm"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByTestId("recruit-panel")).toHaveTextContent("not enough Coin: 600 needed, 100 available");
+  });
+
+  it("S2: a reroll whose answer is lost stays open; 'Try again' resends the same fromSequence", async () => {
+    const user = userEvent.setup();
+    const rerollRefugees = vi
+      .fn()
+      .mockRejectedValueOnce(lostAnswer())
+      .mockResolvedValue({ replayed: true, fromSequence: 7, coinCost: 150, balanceAfter: 1050, refugees: refugeeView({ menu: { sequence: 8, origin: "reroll" as const } }) });
+    render(<RefugeePanel api={fakeApi({ rerollRefugees, refugees: vi.fn(async () => refugeeView()) })} caravanId={CARAVAN_ID} view={refugeeView()} readAt={0} now={() => 0} onView={() => {}} onReload={() => {}} onRosterChanged={() => {}} />);
+    await user.click(screen.getByTestId("refugee-reroll"));
+    const dialog = await screen.findByRole("dialog", { name: "Pay for a sooner menu?" });
+    await user.click(within(dialog).getByTestId("reroll-confirm"));
+    expect(await within(dialog).findByTestId("spend-unconfirmed")).toHaveTextContent("Could not confirm");
+    await user.click(within(dialog).getByRole("button", { name: "Try again" }));
+    expect(rerollRefugees).toHaveBeenCalledTimes(2);
+    expect(rerollRefugees.mock.calls.map((c) => c[1])).toEqual([7, 7]);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(await screen.findByRole("status")).toHaveTextContent("nothing was charged twice");
+  });
+
+  it("S2: a claim whose answer is lost offers 'Try again' with the same sequence", async () => {
+    const user = userEvent.setup();
+    const claimRefugee = vi
+      .fn()
+      .mockRejectedValueOnce(lostAnswer())
+      .mockResolvedValue({ replayed: true, acquired: { unitTypeId: "desert.dust_rider", instanceId: uid(5), mergeLevel: 1, source: "refugee", coinCost: 0 }, refugees: refugeeView() });
+    render(<RefugeePanel api={fakeApi({ claimRefugee })} caravanId={CARAVAN_ID} view={refugeeView()} readAt={0} now={() => 0} onView={() => {}} onReload={() => {}} onRosterChanged={() => {}} />);
+    await user.click(within(screen.getByTestId("refugee-offers")).getByRole("button", { name: "Take Dust Rider" }));
+    const lost = await screen.findByTestId("refugee-lost");
+    expect(lost).toHaveTextContent("Could not confirm");
+    await user.click(within(lost).getByTestId("refugee-try-again"));
+    expect(claimRefugee.mock.calls.map((c) => c[2])).toEqual([7, 7]);
+    expect(await screen.findByRole("status")).toHaveTextContent("nothing was taken twice");
+  });
+
+  it("S5: claimed and due says the next menu is ready and nothing is forfeited, with no 'on the timer' line", () => {
+    render(
+      <RefugeePanel
+        api={fakeApi()}
+        caravanId={CARAVAN_ID}
+        view={refugeeView({ menu: { claimed: { unitTypeId: "desert.dust_rider", instanceId: uid(5), claimedAtMs: 5 } }, timer: { freeRefreshDue: true, msUntilFreeRefresh: 0 }, reroll: { blockedByFreeRefresh: true } })}
+        readAt={0}
+        now={() => 0}
+        onView={() => {}}
+        onReload={() => {}}
+        onRosterChanged={() => {}}
+      />,
+    );
+    const panel = screen.getByTestId("refugee-panel");
+    expect(screen.getByTestId("refugee-timer")).toHaveTextContent("Your next free menu is ready: take it now (nothing is forfeited).");
+    expect(screen.getByTestId("refugee-claimed").textContent).toBe("This menu's pick was Dust Rider.");
+    expect(screen.getByTestId("refugee-timer").textContent).not.toMatch(/forfeits this one/);
+    expect(panel).not.toHaveTextContent("The next menu arrives on the timer.");
+  });
+
+  it("S3: a failed re-read after a recruit is shown above the board, with the last good board still drawn", async () => {
+    const user = userEvent.setup();
+    const me = vi.fn().mockResolvedValueOnce(meWith(RIDERS)).mockRejectedValue(new ApiError(503, "unavailable", "down"));
+    const recruit = vi.fn(async (_c: string, typeId: string) => ({ replayed: false, acquired: { unitTypeId: typeId, instanceId: uid(7), mergeLevel: 1, source: "mercenary", coinCost: 600 }, coinCost: 600, balanceAfter: 600, inventory: { count: 4, cap: 200, room: 196, full: false } }));
+    render(<TownScreen api={townApi(RIDERS, { me, recruit })} />);
+    await screen.findByTestId("town-screen");
+    await user.click(within(screen.getByTestId("recruit-list")).getByRole("button", { name: "Recruit Dust Rider for 600 Coin" }));
+    await user.click(within(await screen.findByRole("dialog")).getByTestId("recruit-confirm"));
+    const box = await screen.findByTestId("town-reload-error");
+    expect(box).toHaveTextContent("Could not re-read the town");
+    expect(box).toHaveTextContent("down");
+    expect(within(box).getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByTestId("board-count")).toHaveTextContent("3 of 36");
+  });
+
+  it("S6: selecting a unit shows the lattice and board cells (a placement ghost with no cell); deselecting hides them", async () => {
+    const user = userEvent.setup();
+    render(<TownScreen api={townApi()} />);
+    await screen.findByTestId("town-screen");
+    const canvas = screen.getByTestId("iso-canvas");
+    expect(canvas).toHaveAttribute("data-drag", "no");
+    await user.click(screen.getByText(`tap-${uid(3)}`));
+    expect(canvas).toHaveAttribute("data-drag", "yes");
+    await user.click(screen.getByText(`tap-${uid(3)}`));
+    expect(canvas).toHaveAttribute("data-drag", "no");
+  });
+
+  it("D1: the board layout is stored under the account AND the caravan, and sign-out's reset removes it", async () => {
+    const { resetViewerState } = await import("../../auth/session.tsx");
+    const { boardStorageKey } = await import("./townScene.ts");
+    render(<TownScreen api={townApi()} />);
+    await screen.findByTestId("town-screen");
+    const key = boardStorageKey(ACCOUNT_ID, CARAVAN_ID);
+    expect(key).toContain(ACCOUNT_ID);
+    expect(key).toContain(CARAVAN_ID);
+    expect(window.localStorage.getItem(key)).not.toBeNull();
+    window.localStorage.setItem("unrelated", "kept");
+    resetViewerState();
+    expect(window.localStorage.getItem(key)).toBeNull();
+    expect(window.localStorage.getItem("unrelated")).toBe("kept");
+  });
+
+  it("N2: the merge balance names the trickle only when some is pending", async () => {
+    const user = userEvent.setup();
+    const previewMerge = vi.fn(async (_c: string, ids: readonly string[]) => mergePreview(ids, { pendingTrickle: 0 }));
+    render(<TownScreen api={townApi(RIDERS, { previewMerge })} />);
+    await screen.findByTestId("town-screen");
+    await user.click(screen.getByText("drag-first-onto-second"));
+    const balance = await within(await screen.findByRole("dialog")).findByTestId("merge-balance");
+    expect(balance.textContent).toBe("Balance: 1200 Coin.");
+  });
+});

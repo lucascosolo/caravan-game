@@ -66,7 +66,7 @@ describe("OutfitScreen", () => {
     await user.click(within(screen.getByTestId("outfit-traps")).getByRole("button", { name: "Add Spike Pit" }));
     await user.selectOptions(screen.getByTestId("outfit-fence-tier"), "fence.brush_pile");
     await user.click(screen.getByTestId("outfit-ride-out"));
-    const dialog = screen.getByRole("dialog", { name: "Ride out with this manifest?" });
+    const dialog = screen.getByRole("dialog", { name: "Pack the caravan with this manifest?" });
     expect(dialog).toHaveTextContent("1 living unit");
     expect(dialog).toHaveTextContent("1 trap");
     expect(dialog).toHaveTextContent(`${TUNABLES.FENCE_MATERIAL_BUDGET} segments of Brush Pile`);

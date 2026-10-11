@@ -2,10 +2,11 @@ import { GRID_WIDTH, PARTY_CONFIG_VERSION } from "@caravan/circle";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { forwardRef, useImperativeHandle } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, type Api } from "../../api/client.ts";
 import type { PartyConfigBody } from "../../api/types.ts";
 import type { IsoCanvasProps } from "../../iso/index.ts";
+import { resetViewerState } from "../../auth/session.tsx";
 import { fakeApi, partyView, uid } from "../../test/townFixtures.ts";
 import { PartyScreen } from "./PartyScreen.tsx";
 
@@ -41,6 +42,9 @@ function api(over: Partial<Api> = {}): Api {
     ...over,
   });
 }
+
+// The unsaved draft is kept in memory across mounts (QA-17 S4); each test starts signed-out-clean.
+beforeEach(() => resetViewerState());
 
 describe("PartyScreen", () => {
   it("shows the template rules, the server's validity issues, the roster and the siege counters", async () => {
@@ -107,5 +111,82 @@ describe("PartyScreen", () => {
     expect(issues).toHaveTextContent("Dust Rider · L2: unit type Dust Rider is not unlocked");
     expect(issues.textContent).not.toMatch(/type_locked|desert\.dust_rider|00000000-/);
     expect(issues).toHaveTextContent("at most 2 siege pieces");
+  });
+});
+
+describe("PartyScreen — QA-17", () => {
+  const entry = (seq: number, outcomeKind: string | null) => ({
+    seq,
+    occurredAt: "2026-10-11T12:00:00.000Z",
+    jobId: null,
+    encounterIndex: 1,
+    defender: { username: "rival", caravanName: "Their Caravan", regionId: "desert" },
+    outcomeKind,
+    coinEarned: 0,
+    reputationDelta: 0,
+    ladderPointsGained: 0,
+  });
+
+  it("S4: the feed's Retry re-reads only the feed; the unsaved draft stays", async () => {
+    const user = userEvent.setup();
+    const party = vi.fn(async () => ({ party: partyView() }));
+    const partyFeed = vi
+      .fn()
+      .mockRejectedValueOnce(new ApiError(503, "unavailable", "down"))
+      .mockResolvedValue({ entries: [], nextBefore: 0, hasMore: false });
+    render(<PartyScreen api={api({ party, partyFeed })} />);
+    await screen.findByTestId("party-screen");
+    await user.click(within(screen.getByTestId("party-roster")).getByRole("button", { name: /Add Dust Rider L2/ }));
+    expect(screen.getByTestId("party-screen")).toHaveAttribute("data-dirty", "true");
+    await user.click(within(screen.getByTestId("party-feed")).getByRole("button", { name: "Retry" }));
+    expect(await within(screen.getByTestId("party-feed")).findByText(/Not served yet/)).toBeInTheDocument();
+    expect(party).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("party-screen")).toHaveAttribute("data-dirty", "true");
+    expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-attackers", "1");
+  });
+
+  it("S4: leaving the tab and coming back keeps the unsaved draft", async () => {
+    const user = userEvent.setup();
+    const first = render(<PartyScreen api={api()} />);
+    await screen.findByTestId("party-screen");
+    await user.click(within(screen.getByTestId("party-roster")).getByRole("button", { name: /Add Dust Rider L2/ }));
+    first.unmount();
+    render(<PartyScreen api={api()} />);
+    expect(await screen.findByTestId("party-draft-kept")).toHaveTextContent("Unsaved changes kept from earlier");
+    expect(screen.getByTestId("party-screen")).toHaveAttribute("data-dirty", "true");
+    expect(within(screen.getByTestId("party-members")).getAllByRole("listitem")).toHaveLength(1);
+  });
+
+  it("S4: reloading the saved party asks before discarding unsaved edits", async () => {
+    const user = userEvent.setup();
+    const party = vi.fn(async () => ({ party: partyView() }));
+    render(<PartyScreen api={api({ party })} />);
+    await screen.findByTestId("party-screen");
+    await user.click(within(screen.getByTestId("party-roster")).getByRole("button", { name: /Add Dust Rider L2/ }));
+    await user.click(screen.getByTestId("party-reload"));
+    const dialog = await screen.findByRole("dialog", { name: "Discard unsaved changes?" });
+    await user.click(within(dialog).getByRole("button", { name: "Keep editing" }));
+    expect(screen.getByTestId("party-screen")).toHaveAttribute("data-dirty", "true");
+    expect(party).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByTestId("party-reload"));
+    await user.click(within(await screen.findByRole("dialog")).getByTestId("party-discard-confirm"));
+    await vi.waitFor(() => expect(screen.getByTestId("party-screen")).toHaveAttribute("data-dirty", "false"));
+    expect(party).toHaveBeenCalledTimes(2);
+  });
+
+  it("N3: feed outcomes are worded for the player, never the raw kind", async () => {
+    const partyFeed = vi.fn(async () => ({ entries: [entry(3, "placeholder_unresolved"), entry(2, "core_overrun"), entry(1, "something_new")], nextBefore: 0, hasMore: false }));
+    render(<PartyScreen api={api({ partyFeed })} />);
+    const feed = await screen.findByTestId("party-feed");
+    await within(feed).findByText("Outcome: not fought out yet");
+    expect(feed).toHaveTextContent("Outcome: your party overran the caravan");
+    expect(feed).toHaveTextContent("Outcome: recorded");
+    expect(feed.textContent).not.toMatch(/placeholder_unresolved|core_overrun|something_new/);
+  });
+
+  it("S7: the siege toggle labels are at least a touch target tall", async () => {
+    render(<PartyScreen api={api()} />);
+    const siege = await screen.findByTestId("party-siege");
+    for (const label of siege.querySelectorAll("label")) expect((label as HTMLElement).style.minHeight).toBe("var(--tap)");
   });
 });

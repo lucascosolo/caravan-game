@@ -68,7 +68,7 @@ export function BoardPanel(props: BoardPanelProps): JSX.Element {
 
   return (
     <section aria-labelledby="board-heading" data-testid="board-panel">
-      <h2 id="board-heading">{T.boardHeading}</h2>
+      <h2 id="board-heading" tabIndex={-1}>{T.boardHeading}</h2>
       <p className="hint">{T.boardIntro(BOARD_SLOTS)}</p>
       <p data-testid="board-count">{T.boardCount(onBoardUnits.length, BOARD_SLOTS, over.length)}</p>
       {units.length === 0 && <p className="hint">{T.boardEmpty}</p>}

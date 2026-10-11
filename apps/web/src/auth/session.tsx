@@ -20,6 +20,44 @@ export interface SessionContextValue {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
+/**
+ * Prefix of every per-viewer convenience a screen keeps in `localStorage` (presentation
+ * only, like a camera: the town's board layout, QA-17 D1). Signing out removes every key
+ * under it, so the next person on this device starts from a clean layout.
+ */
+export const VIEWER_STORAGE_PREFIX = "caravan.viewer.";
+
+const viewerResets = new Set<() => void>();
+
+/**
+ * Register in-memory per-viewer state to drop on sign-out (QA-17 S4: the party builder's
+ * unsaved draft, kept across tab switches). Returns the unregister function.
+ */
+export function onViewerReset(reset: () => void): () => void {
+  viewerResets.add(reset);
+  return () => viewerResets.delete(reset);
+}
+
+/** Sign-out: every per-viewer convenience, in storage and in memory, is forgotten. */
+export function resetViewerState(): void {
+  clearViewerStorage();
+  for (const reset of viewerResets) reset();
+}
+
+export function clearViewerStorage(): void {
+  try {
+    const store = window.localStorage;
+    const doomed: string[] = [];
+    for (let i = 0; i < store.length; i++) {
+      const key = store.key(i);
+      if (key !== null && key.startsWith(VIEWER_STORAGE_PREFIX)) doomed.push(key);
+    }
+    for (const key of doomed) store.removeItem(key);
+  } catch {
+    // Storage blocked or absent: nothing was kept, so nothing to clear.
+  }
+}
+
 export function SessionProvider({ children, fetchImpl }: { children: ReactNode; fetchImpl?: typeof fetch }): JSX.Element {
   const [session, setSession] = useState<Session | null>(null);
   // The api reads the token through a ref so one client instance serves every render.
@@ -43,6 +81,7 @@ export function SessionProvider({ children, fetchImpl }: { children: ReactNode; 
     } catch {
       // The server may already consider the session gone; locally it is gone either way.
     }
+    resetViewerState();
     setSession(null);
   }, [api]);
 

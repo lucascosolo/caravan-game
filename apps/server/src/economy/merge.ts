@@ -10,7 +10,9 @@
  *
  * Server-validated against the caller's own instances: all on the named caravan, which
  * must belong to the account AND be in town (QA S1: units on an open trip are at risk and
- * stay at risk — nothing is repaired or merged mid-trip); same type; same level; count
+ * stay at risk — nothing is repaired or merged mid-trip); none of them packed in an open
+ * manifest (QA-17 B1, 409 `unit_packed`: checked against the manifest rows themselves, never
+ * against `caravan.state`, which only chunk 15's trip start/end moves); same type; same level; count
  * exactly a recipe's `spend`. Everything that needs no row (ids well-formed, distinct,
  * a recipe for the count) is checked before the first query (QA N2, S3).
  *
@@ -255,6 +257,45 @@ function assertInTown(state: CaravanState): void {
   if (state !== "in_town") throw conflict("caravan_on_trip", "units cannot be merged while the caravan is on a trip; nothing is repaired mid-trip");
 }
 
+/**
+ * QA-17 B1: the ids among `instanceIds` that an OPEN manifest of any of the account's caravans
+ * names in `packed.units` or `survivors.units`. A packed unit is at risk for the whole trip
+ * (GUARDRAILS, bounded stakes): merging it away would be loss evasion and leave the manifest
+ * pointing at nothing. This reads the manifests directly, so it holds whatever
+ * `caravan.state` says (packing does not move the state; chunk 15's trip start does).
+ * In the commit it runs after the caravan's FOR SHARE, which conflicts with `lockManifest`'s
+ * FOR UPDATE, so packing cannot slip in between this check and the delete.
+ */
+async function packedAmong(db: Queryable, accountId: string, instanceIds: readonly string[]): Promise<string[]> {
+  const res = await db.query<{ ref: string }>(
+    `SELECT DISTINCT lower(u.ref) AS ref
+       FROM wagon_manifest m
+       JOIN caravan c ON c.id = m.caravan_id
+       CROSS JOIN LATERAL (
+         SELECT e ->> 'ref' AS ref FROM jsonb_array_elements(CASE WHEN jsonb_typeof(m.packed -> 'units') = 'array' THEN m.packed -> 'units' ELSE '[]'::jsonb END) e
+         UNION
+         SELECT e ->> 'ref' AS ref FROM jsonb_array_elements(CASE WHEN jsonb_typeof(m.survivors -> 'units') = 'array' THEN m.survivors -> 'units' ELSE '[]'::jsonb END) e
+       ) u
+      WHERE c.account_id = $1 AND m.closed_at IS NULL AND lower(u.ref) = ANY($2::text[])
+      ORDER BY 1`,
+    [accountId, instanceIds],
+  );
+  return res.rows.map((r) => r.ref);
+}
+
+/** 409 `unit_packed`: at least one of the units is packed for a trip (QA-17 B1). */
+export class UnitPackedError extends AppError {
+  constructor(public readonly packed: readonly string[]) {
+    super(409, "unit_packed", `${packed.length} of these units are packed for a trip; a packed unit stays at risk until the trip ends and cannot be merged`);
+    this.name = "UnitPackedError";
+  }
+}
+
+async function assertNotPacked(db: Queryable, accountId: string, instanceIds: readonly string[]): Promise<void> {
+  const packed = await packedAmong(db, accountId, instanceIds);
+  if (packed.length > 0) throw new UnitPackedError(packed);
+}
+
 /** Everything the player commits against, before they commit (GUARDRAILS §4). Read-only. */
 export async function previewMerge(
   db: Queryable,
@@ -263,6 +304,7 @@ export async function previewMerge(
   assertCaravanId(input.caravanId);
   const instanceIds = normalizeInstanceIds(input.instanceIds);
   assertInTown(await readOwnedCaravanState(db, input.accountId, input.caravanId, false));
+  await assertNotPacked(db, input.accountId, instanceIds);
   const rows = await db.query<UnitInstanceRow>(
     "SELECT * FROM unit_instance WHERE id = ANY($1::uuid[]) AND caravan_id = $2 ORDER BY id",
     [instanceIds, input.caravanId],
@@ -324,7 +366,8 @@ function mergeCausationId(caravanId: string, instanceIds: readonly string[]): st
  *   1. account append lock (serializes every Coin movement and merge for this account)
  *   2. the caravan is the caller's (404) — then, if this exact merge already committed,
  *      return its stored outcome (QA S6)
- *   3. the caravan is in town (409 `caravan_on_trip`, QA S1), FOR SHARE for the transaction
+ *   3. the caravan is in town (409 `caravan_on_trip`, QA S1), FOR SHARE for the transaction;
+ *      no input is packed in an open manifest (409 `unit_packed`, QA-17 B1)
  *   4. lock + validate the input instances (ownership, type, level, recipe, cap)
  *   5. DELETE the inputs (row count must equal `spend`), INSERT the outputs
  *   6. `spendCoin`: flush the trickle, balance >= cost else `insufficient_coin` (rolls
@@ -345,6 +388,7 @@ export async function performMerge(
     const state = await readOwnedCaravanState(client, input.accountId, caravanId, true);
     if (await causationExists(client, causationId)) return replayMerge(client, input.accountId, caravanId, causationId);
     assertInTown(state);
+    await assertNotPacked(client, input.accountId, instanceIds);
     const locked = await client.query<UnitInstanceRow>(
       "SELECT * FROM unit_instance WHERE id = ANY($1::uuid[]) AND caravan_id = $2 ORDER BY id FOR UPDATE",
       [instanceIds, caravanId],

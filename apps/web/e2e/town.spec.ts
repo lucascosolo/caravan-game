@@ -6,8 +6,13 @@
  *   sign in → claim a refugee → recruit a second copy of the same type → DRAG one onto the
  *   other on the real PixiJS canvas → the merge preview quotes cost and balance → confirm →
  *   set up the standing party (add the merged unit, a stance, DRAG it onto the east entry
- *   band, save) → outfit the caravan (unit, trap, fence) → ride out → "Packed, waiting to
+ *   band, save) → outfit the caravan (unit, trap, fence) → pack → "Packed, waiting to
  *   ride out." The server's own views are checked after each write.
+ *
+ * QA-17 additions: the town opens framed on the board with every cell ≥ 44 px wide (S1);
+ * selecting a unit shows the lattice, deselecting hides it (S6); the 44 px check covers
+ * inputs by their labels, selects and summaries too (S7); a packed unit cannot be merged
+ * through the API (B1); the board layout is stored per account and sign-out clears it (D1).
  */
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import pg from "pg";
@@ -58,15 +63,22 @@ async function registerAndFund(request: APIRequestContext): Promise<{ username: 
   return { username, password, token: body.token };
 }
 
-/** Portrait 360×640 (the smallest target): no horizontal scroll, every visible button at least 44px tall. */
+/**
+ * Portrait 360×640 (the smallest target): no horizontal scroll, every visible control at
+ * least 44px tall — buttons, selects, summaries, links, and checkboxes / radios measured by
+ * the label that carries them (the label is the touch target; QA-17 S7).
+ */
 async function fitsPortrait(page: Page): Promise<void> {
   const r = await page.evaluate(() => {
     const doc = document.scrollingElement ?? document.documentElement;
     // PixiJS's own off-screen accessibility hook is not a control the player sees.
-    const small = [...document.querySelectorAll("button")].filter((b) => !b.title.startsWith("select to enable accessibility")).filter((b) => {
-      const rect = b.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0 && rect.height < 43.5;
-    }).map((b) => `${b.textContent ?? ""} (${Math.round(b.getBoundingClientRect().height)}px)`);
+    const controls = [...document.querySelectorAll<HTMLElement>("button, select, summary, a[href], input[type=checkbox], input[type=radio]")];
+    const small = controls.filter((b) => !(b.title ?? "").startsWith("select to enable accessibility")).filter((b) => {
+      const own = b.getBoundingClientRect();
+      if (own.width === 0 || own.height === 0) return false;
+      const target = b.tagName === "INPUT" ? (b.closest("label") ?? b).getBoundingClientRect() : own;
+      return target.height < 43.5;
+    }).map((b) => `${b.tagName}:${(b.textContent ?? "").trim().slice(0, 40)} (${Math.round((b.tagName === "INPUT" ? (b.closest("label") ?? b) : b).getBoundingClientRect().height)}px)`);
     return { scroll: doc.scrollWidth, width: window.innerWidth, small };
   });
   expect(r.scroll).toBeLessThanOrEqual(r.width);
@@ -97,6 +109,21 @@ test("claim a refugee, merge by drag with confirm, set up the party, outfit and 
   expect(await latticeAlpha(page)).toBe(0);
   await fitsPortrait(page);
 
+  // ── QA-17 S1: opened framed on the 6×6 board (13..18), each cell's diamond ≥ 44 px wide ──
+  await page.getByTestId("iso-canvas").scrollIntoViewIfNeeded();
+  await page.waitForFunction(() => !!(window as unknown as { __isoDebug?: IsoDebug }).__isoDebug?.cellToClient({ x: 13, y: 13 }));
+  const left = await cellToClient(page, { x: 13, y: 13 });
+  const right = await cellToClient(page, { x: 14, y: 12 });
+  expect(Math.abs(right.x - left.x)).toBeGreaterThanOrEqual(44);
+  const box = (await page.getByTestId("iso-canvas").boundingBox())!;
+  for (const c of [{ x: 13, y: 13 }, { x: 18, y: 13 }, { x: 18, y: 18 }, { x: 13, y: 18 }]) {
+    const p = await cellToClient(page, c);
+    expect(p.x).toBeGreaterThanOrEqual(box.x);
+    expect(p.x).toBeLessThanOrEqual(box.x + box.width);
+    expect(p.y).toBeGreaterThanOrEqual(box.y);
+    expect(p.y).toBeLessThanOrEqual(box.y + box.height);
+  }
+
   // ── refugee: take the first offer ──
   const firstOffer = page.getByTestId("refugee-offers").getByRole("button", { name: /^Take / }).first();
   const takeLabel = (await firstOffer.textContent())!.trim();
@@ -118,11 +145,21 @@ test("claim a refugee, merge by drag with confirm, set up the party, outfit and 
   await expect(chips).toHaveCount(2);
   const a = cellOf(await chips.nth(0).locator(".chip__sub").textContent());
   const b = cellOf(await chips.nth(1).locator(".chip__sub").textContent());
+
+  // ── QA-17 S6: a tap selects a unit (tap-to-move counts as placing): the lattice shows; Done hides it ──
+  await page.getByTestId("iso-canvas").scrollIntoViewIfNeeded();
+  const tapAt = await cellToClient(page, a);
+  await page.mouse.click(tapAt.x, tapAt.y);
+  await expect(page.getByTestId("board-selection")).toBeVisible();
+  await expect.poll(() => latticeAlpha(page)).toBeGreaterThan(0);
+  await page.getByTestId("board-selection").getByRole("button", { name: "Done" }).click();
+  await expect.poll(() => latticeAlpha(page)).toBe(0);
+
   await dragCell(page, a, b);
   expect(await latticeAlpha(page)).toBeLessThanOrEqual(0.38);
   const merge = page.getByRole("dialog", { name: "Merge preview" });
   await expect(merge.getByTestId("merge-cost")).toHaveText("Cost: 250 Coin (250 per resulting unit)");
-  await expect(merge.getByTestId("merge-balance")).toContainText(/Balance: \d+ Coin, including \d+ trickled in/);
+  await expect(merge.getByTestId("merge-balance")).toHaveText(/^Balance: \d+ Coin(, including the trickle so far \(\d+\))?\.$/);
   await expect(merge.getByTestId("merge-slots")).toContainText("2 slots become 1: frees 1");
   await expect(merge).toContainText("not stronger than the consumed ones combined");
   await merge.getByTestId("merge-confirm").click();
@@ -163,7 +200,7 @@ test("claim a refugee, merge by drag with confirm, set up the party, outfit and 
   await expect(page.getByTestId("outfit-forecast")).toContainText("Your store has room for");
   await fitsPortrait(page);
   await page.getByTestId("outfit-ride-out").click();
-  const ride = page.getByRole("dialog", { name: "Ride out with this manifest?" });
+  const ride = page.getByRole("dialog", { name: "Pack the caravan with this manifest?" });
   await expect(ride).toContainText("1 living unit");
   await ride.getByTestId("outfit-confirm").click();
   await expect(page.getByTestId("outfit-packed")).toContainText("Packed, waiting to ride out.");
@@ -171,6 +208,26 @@ test("claim a refugee, merge by drag with confirm, set up the party, outfit and 
   await page.getByTestId("outfit-back").click();
   await expect(page.getByTestId("caravan-state")).toHaveAttribute("data-state", "packed");
   await expect(page.getByTestId("caravan-state")).toContainText("Packed, waiting to ride out.");
-  const manifest = await request.get(`/api/caravans/${encodeURIComponent((await (await request.get("/api/me", { headers: auth })).json()).caravans[0].id)}/manifest`, { headers: auth });
+  const meNow = (await (await request.get("/api/me", { headers: auth })).json()) as { account: { id: string }; caravans: { id: string; units: { id: string }[] }[] };
+  const caravanId = meNow.caravans[0]!.id;
+  const manifest = await request.get(`/api/caravans/${encodeURIComponent(caravanId)}/manifest`, { headers: auth });
   expect(manifest.status()).toBe(200);
+  const packedRef = ((await manifest.json()) as { manifest: { packed: { units: { ref: string }[] } } }).manifest.packed.units[0]!.ref;
+
+  // ── QA-17 B1: the server refuses to merge a packed unit, whatever the caravan state says ──
+  const extra = await request.post(`/api/me/caravans/${caravanId}/recruit`, { headers: auth, data: { unitTypeId: (await (await request.get(`/api/me/caravans/${caravanId}/recruit`, { headers: auth })).json()).recruitable[0].unitTypeId, requestId: crypto.randomUUID() } });
+  expect(extra.status(), await extra.text()).toBe(201);
+  const fresh2 = ((await extra.json()) as { acquired: { instanceId: string } }).acquired.instanceId;
+  for (const path of ["merge/preview", "merge"]) {
+    const refused = await request.post(`/api/me/caravans/${caravanId}/${path}`, { headers: auth, data: { instanceIds: [packedRef, fresh2] } });
+    expect(refused.status()).toBe(409);
+    expect(await refused.json()).toMatchObject({ error: "unit_packed", packed: [packedRef] });
+  }
+
+  // ── QA-17 D1: the layout is kept per account + caravan, and signing out forgets it ──
+  const keys = await page.evaluate(() => Object.keys(window.localStorage));
+  expect(keys).toContain(`caravan.viewer.town.board.${meNow.account.id}.${caravanId}`);
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByLabel("Username")).toBeVisible();
+  expect((await page.evaluate(() => Object.keys(window.localStorage))).filter((k) => k.startsWith("caravan.viewer."))).toEqual([]);
 });

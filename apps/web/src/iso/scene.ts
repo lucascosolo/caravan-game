@@ -22,6 +22,7 @@
  * positions straight in (`fixedToWorld` on the log's fixed-point coordinates).
  */
 import { Application, Container, Graphics, Text } from "pixi.js";
+import { TUNABLES } from "@caravan/content";
 import {
   TILE_H,
   TILE_W,
@@ -63,8 +64,8 @@ export interface SceneOptions {
 /** GRID_VISIBILITY tunable: lattice alpha while a drag is active, and the fade speed per second. */
 export const LATTICE_ALPHA = 0.38;
 export const LATTICE_FADE_PER_SECOND = 6;
-/** MINE_ANIMATION tunable (chunk 17, presentation only): how fast the mine wheel turns while the mine is active. */
-export const MINE_WHEEL_TURNS_PER_SECOND = 0.08;
+/** MINE_ANIMATION (chunk 17, presentation only): `TUNABLES.MINE_WHEEL_MS_PER_TURN` in the registry (QA-17 N7). */
+const MINE_WHEEL_MS_PER_TURN = TUNABLES.MINE_WHEEL_MS_PER_TURN;
 
 const TIERS = [
   { grow: 7, drop: 34, fill: PALETTE.tier3 },
@@ -108,11 +109,16 @@ export class IsoScene {
   /** The mine's head-frame wheel (chunk 17): the ONE ambient animation, cosmetic, no counting. */
   private mineWheel: Graphics | null = null;
   private mineActive = false;
+  /** The wheel's angle survives the per-update redraw of the structures (QA-17 N1: no snap back to 0). */
+  private mineWheelAngle = 0;
+  /** `prefers-reduced-motion`, live: the canvas follows changes to the setting (QA-17 N7). */
+  private reducedMotion: boolean;
 
   constructor(private readonly opts: SceneOptions) {
     this.skins = opts.skins ?? PLACEHOLDER_SKINS;
     this.entities.sortableChildren = true;
     this.lattice.alpha = 0;
+    this.reducedMotion = opts.reducedMotion;
     this.world.addChild(this.island, this.lattice, this.overlays, this.entities, this.ghost);
   }
 
@@ -163,15 +169,24 @@ export class IsoScene {
     // MINE_ANIMATION (chunk 17): a slow, constant turn while the mine is active (below the
     // storage cap), still at the cap, still under reduced motion. It never advances a
     // number: the displayed balance is the server's, read lazily, not ticked here.
-    if (this.mineWheel && this.mineActive && !this.opts.reducedMotion) this.mineWheel.rotation += (MINE_WHEEL_TURNS_PER_SECOND * 2 * Math.PI * deltaMs) / 1000;
+    if (this.mineWheel && this.mineActive && !this.reducedMotion) {
+      this.mineWheelAngle = (this.mineWheelAngle + (2 * Math.PI * deltaMs) / MINE_WHEEL_MS_PER_TURN) % (2 * Math.PI);
+      this.mineWheel.rotation = this.mineWheelAngle;
+    }
     const target = this.latticeTarget;
     if (this.lattice.alpha === target) return;
-    if (this.opts.reducedMotion) {
+    if (this.reducedMotion) {
       this.lattice.alpha = target;
       return;
     }
     const step = (LATTICE_FADE_PER_SECOND * deltaMs) / 1000;
     this.lattice.alpha = this.lattice.alpha < target ? Math.min(target, this.lattice.alpha + step) : Math.max(target, this.lattice.alpha - step);
+  }
+
+  /** Follow a change to `prefers-reduced-motion` while mounted (QA-17 N7): the wheel stops, the fade becomes a toggle. */
+  setReducedMotion(reduced: boolean): void {
+    this.reducedMotion = reduced;
+    if (reduced) this.lattice.alpha = this.latticeTarget;
   }
 
   /** Current lattice opacity: tests and the e2e assert it is 0 whenever nothing is dragged. */
@@ -451,6 +466,7 @@ export class IsoScene {
           wheel.moveTo(Math.cos(a) * TILE_H * 0.45, Math.sin(a) * TILE_H * 0.45).lineTo(-Math.cos(a) * TILE_H * 0.45, -Math.sin(a) * TILE_H * 0.45).stroke({ width: 2, color: PALETTE.wire });
         }
         wheel.position.set(top.x, top.y);
+        wheel.rotation = this.mineWheelAngle;
         this.mineWheel = wheel;
         node.addChild(g, wheel);
       } else node.addChild(g);
