@@ -43,7 +43,7 @@ building the mirror image of this game is the easiest mistake available.
 | # | Chunk | One-line summary | Depends on | Status |
 |---|-------|------------------|------------|--------|
 | 01 | [Data model & auth scaffolding](chunks/01-data-model-and-auth.md) | Account/caravan schema with the load-bearing progress split, plus minimal auth. | — | done |
-| 02 | [Event ledger & job queue](chunks/02-ledger-and-job-queue.md) | Append-only event log for Coin/Reputation/outcomes, and the one-shot resolution job queue. | 01 | built |
+| 02 | [Event ledger & job queue](chunks/02-ledger-and-job-queue.md) | Append-only event log for Coin/Reputation/outcomes, and the one-shot resolution job queue. | 01 | done |
 | 03 | [Content data & tunables registry](chunks/03-content-data-and-tunables.md) | Living units (per region), traps, siege, abilities, affinity matrix — all balance numbers in one tunables file. | 01 | done |
 | 04 | [Ladders & Reputation](chunks/04-ladders-and-reputation.md) | Per-pool use-driven ladders granting permanent unlock points; separate volatile Reputation number. | 01, 02 | done |
 | 05 | [Unlock webs (data + spend)](chunks/05-unlock-webs.md) | Three visible non-random webs; spending granted points to gain *access* (not instances). | 03, 04 | built |
