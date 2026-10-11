@@ -290,6 +290,7 @@ describe("after the first trip (chunk 24)", () => {
     expect(card).not.toHaveTextContent("what you packed is lost");
     // An encounter-1 overrun: no stake choice was made, so none is claimed.
     expect(card).not.toHaveTextContent("itemized before");
+    expect(card).toHaveTextContent("The party you just faced was a standing party");
     await userEvent.setup().click(within(card).getByTestId("guide-raise-party"));
     await screen.findByTestId("guide-party-empty");
     expect(saveParty).not.toHaveBeenCalled();

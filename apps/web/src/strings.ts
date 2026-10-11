@@ -1240,6 +1240,9 @@ export const STRINGS = {
     voidedTitle: "Your first trip could not be resolved",
     voidedBody: (encounter: number, survived: number): string =>
       `Encounter ${encounter} could not be resolved on the server, so nothing of that fight was applied. The trip ended as a bank after ${survived === 0 ? "no survived encounter: nothing was credited and nothing was lost" : survived === 1 ? "the 1 encounter you survived" : `the ${survived} encounters you survived`}. The ride still used one of your trips for the hour.`,
+    /** A trip that ended at its first fight: one party faced, not several. */
+    partyBodyOne:
+      "The party you just faced was a standing party: another player's (or a labelled authored outfit). Its owner was not there and lost nothing. Yours works the same way: it is served into other players' trips while you are away, and you read afterwards how it did.",
     partyBodyNoFight:
       "Every raiding party you are served is a standing party: another player's (or a labelled authored outfit). Its owner is not there and loses nothing. Yours works the same way: it is served into other players' trips while you are away, and you read afterwards how it did.",
     partyRaise: "Raise my party from my roster",

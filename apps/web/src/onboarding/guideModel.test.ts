@@ -88,7 +88,7 @@ describe("the guide's step model (chunk 24)", () => {
   it("pre-fills the standing party from the roster with the builder's defaults, never past the cap, never a locked type", () => {
     const view = expectShape(partyShape, partyJson.body).party;
     // A party that already fields every unlocked roster unit: nothing to add.
-    const full = { ...view, config: { ...view.config, units: view.roster.filter((r) => r.unlocked).map((r) => ({ ref: r.instanceId, stance: "nearest" as const, edge: "north" as const })) } };
+    const full = { ...view, config: { ...view.config, units: prefillParty({ ...view, config: { ...view.config, units: [] } })!.units } };
     expect(prefillParty(full)).toBeNull();
     // The recorded party (which the starting roster, chunk 24 QA D1, outnumbers) keeps its own and adds the rest.
     const topped = prefillParty(view)!;

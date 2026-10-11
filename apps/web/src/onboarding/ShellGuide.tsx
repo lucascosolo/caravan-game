@@ -243,7 +243,7 @@ export function ShellGuide({ api, route, onPartySaved, pollMs = GUIDE_POLL_MS }:
             </div>
           )}
           {passiveHeading && <h3 className="h3">{G.partyPassiveTitle}</h3>}
-          <p>{voided && voided.voidedEncounter <= 1 ? G.partyBodyNoFight : G.partyBody}</p>
+          <p>{voided && voided.voidedEncounter <= 1 ? G.partyBodyNoFight : firstFightLost ? G.partyBodyOne : G.partyBody}</p>
           {raise.kind === "raised" && (
             <p className="notice" role="status" data-testid="guide-party-raised">
               {G.partyRaised(raise.n)}

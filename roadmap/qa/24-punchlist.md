@@ -293,3 +293,55 @@ Given D1, word it as a plan: "face two encounters, then bank if you are still st
 - **S1** is fixed on main (commit 8679d87, an unclosed CSS rule from the chunk 24/29 merge). The fixer adds a check that would catch it: a CSS parse check in the web build, or a test asserting a guide rule applies.
 - **S2–S5 and every nit are in scope.** S5: add an e2e path that ends in an overrun, using a per-encounter script in the test double. For S4, the active guide step sits next to the canvas, and "do it for me" scrolls or keeps the circle visible.
 - The "never resolves without the test flag" observation is closed. Chunk 13's fix round added the in-process worker on main after this review's base.
+
+## Fix round 1 (2026-10-11, chunk 24 fixer) — every item closed
+
+- **D1 — closed (mechanism; the numbers are the balance pass's).** `TUNABLES.STARTING_ROSTER`
+  (`{ copiesPerStarterType: 1 }`, one delimited block in tunables.ts) is granted by
+  `createCaravanForAccount` (`acquisition/startingRoster.ts`), the one caravan-creation path, so
+  registration, a guest account and a future second caravan all get it; no route grants it. Each
+  instance goes through `grantUnit` (access check, level 1, one `unit_acquired` with source
+  `starting_roster`, coinCost 0, cause `starting_roster:<caravanId>`). It covers the region's
+  tier-0 living nodes only. System (authored) caravans get none: their roster is the authored spec.
+  **No backfill:** existing caravans have played under the old rule, and a retroactive grant would
+  favour some accounts over others mid-flight. Tests: `test/starting-roster.test.ts` (the same for
+  every caravan of a region; in the ledger; no Coin, no unlock points; reached set = the starters;
+  creation path not route; none for system caravans). The guide's roster step now teaches
+  acquisition: it moves on when a refugee is CLAIMED (the menu's `claimed`/sequence), not when the
+  roster has a unit; the copy names the starting roster; "Raise my party" pre-fills from it. Hold
+  rate is NOT fixed by this round: with the real resolver, two fresh walks (desert 360×740,
+  badlands 320×568, authored outfits only) were both overrun at encounter 1 (Tumbleweed
+  Syndicate; Saguaro Toll Company), every packed unit lost — the balance pass's acceptance.
+- **D2 — closed.** `pushAdvice(preview)` reads `GET …/trip/preview`: bank when a standing packed
+  unit is under half HP, none is standing, or every trap is spent and more fence is broken than
+  stands; otherwise one push is suggested with its risk named ("Your call"). "pushes once" is gone
+  (a test scans every guide string). Real-resolver walk: a rider at 296/620 got "suggests banking".
+- **S1 — check added.** `apps/web/src/theme.test.ts`: braces balance (comments/strings skipped),
+  no style rule nested in another, the guide's rules are top-level and the parsed `.guide` rule is
+  dashed. Verified it fails on theme.css from 8679d87~1. The e2e also asserts a computed dashed border.
+- **S2 — closed.** The overrun card lists what the ended trip recorded: lost outright (still
+  standing at the collapse), de-merged and kept, Coin lost. An encounter-1 overrun no longer claims
+  a stake choice was itemized.
+- **S3 — closed.** After an overrun or a void the card leads with that heading; the passive side
+  follows under "Meanwhile, your own party meets other players' caravans".
+- **S4 — closed.** The guided arrangement shows only the next step in full, in the slot right under
+  the canvas; the rest and "now scout why" fold into `<details>`; every "do it for me" scrolls the
+  circle into view. The e2e measures the circle in view at each tap and after it.
+- **S5 — closed.** `DOUBLE_SCRIPT` (dev double): an unfenced encounter-1 circle is overrun (a laid
+  trap kills the lowest-ref post, which comes home de-merged). The onboarding e2e walks overrun
+  with a survivor and with no one left; the copy scan covers `main` and dialogs. Found and fixed on
+  the way: a fast overrun closed the manifest before the formation screen's post-commit re-read, which
+  404'd and stranded the player on the formation screen (now tolerated; FormationScreen test).
+- **N1 — closed.** (a) `advance` to `done` only from `party` (else 409 `onboarding_not_finished`;
+  use /skip). (b) migration 022: BEFORE DELETE guard (the row only goes with its account) and a
+  TRUNCATE guard.
+- **N2 — closed.** Smallest = least total HP, then fewest siege, then fewest raiders, then menu order;
+  the copy names the siege count. Test with the Cougar Ridge / Powder Thief pair.
+- **N3 — closed.** Agreement for one raider / all raiders; edges lower case mid-sentence.
+- **N4 — closed.** `confirmUnposted`: "stands in the wagon circle".
+- **N5 — closed.** A voided first trip gets its own card (what was applied; the ride still used a
+  trip); one-fight trips say "the party you just faced".
+- **N6 — closed.** The first read retries twice (600 ms, 2 s); a 4xx is not retried.
+- **N7 — closed.** No tab bar under the first screen.
+- **N8 — closed.** Raising the party scrolls to the top of the Party screen.
+- **N9 — closed.** "face two encounters, then bank if you are still standing".

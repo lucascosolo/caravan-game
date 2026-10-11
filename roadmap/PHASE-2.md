@@ -244,7 +244,17 @@ explain, unprompted, which side they play actively and which side is passive.
 town a "camp"? Does the player ever "attack" anything? Guardrail 3: can the tutorial grant
 a unit type outside the starting nodes?
 
-**Status: built** (2026-10-11, chunk 24 Maker). Build notes:
+**Status: QA'd, fix round 1 in** (2026-10-11, chunk 24 fixer; punch list `roadmap/qa/24-punchlist.md`, every
+item closed). `done` waits on the balance pass's D1 acceptance (the guided first fight held most of the time
+with the real resolver; today two fresh real-resolver walks were both overrun at encounter 1). Fix round 1
+supersedes two build notes below: **every caravan now starts with `TUNABLES.STARTING_ROSTER`** (granted at
+caravan creation through the ordinary ledgered grant, the region's starters only, no Coin, no backfill), so
+the refugee step teaches acquisition rather than supplying the only unit; and the bank-or-push card now
+**recommends from the server's stakes preview** instead of saying the trip pushes once. Migration 022 guards
+`account_onboarding` against DELETE; the e2e double overruns an unfenced encounter 1 so the overrun path is
+walked end to end.
+
+Build notes (chunk 24 Maker):
 
 - **What the first session is.** Register (the region field now reads "Permanent: chosen once for
   this caravan and never swapped…") → **the first screen** (`onboarding/WelcomeScreen.tsx`, before
