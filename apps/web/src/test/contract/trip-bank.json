@@ -4,10 +4,10 @@
   "body": {
     "tripId": "00000000-0000-4000-8000-000000000001",
     "encountersSurvived": 2,
-    "requested": 1400,
-    "credited": 1400,
+    "requested": 1189,
+    "credited": 1189,
     "discarded": 0,
-    "balanceAfter": 2400,
+    "balanceAfter": 2189,
     "restored": {
       "unitsHealed": [
         {
@@ -27,7 +27,7 @@
       ],
       "trapsRestocked": 1,
       "fenceSegmentsRebuilt": 1,
-      "deMergePending": []
+      "deMerged": []
     },
     "replayed": false
   }

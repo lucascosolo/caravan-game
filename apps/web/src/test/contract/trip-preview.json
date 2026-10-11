@@ -17,17 +17,18 @@
     },
     "bankNow": {
       "encounterCoin": 400,
-      "deliveryBonus": 500,
-      "total": 900,
+      "deliveryBonus": 125,
+      "total": 525,
       "forecast": {
         "balance": 1000,
         "cap": 50000,
         "room": 49000,
-        "prospectiveEarn": 900,
-        "wouldCredit": 900,
+        "prospectiveEarn": 525,
+        "wouldCredit": 525,
         "wouldDiscard": 0,
         "atCap": false
-      }
+      },
+      "unitsDeMerged": []
     },
     "units": [
       {
@@ -69,7 +70,9 @@
           "hp": 470
         }
       ],
-      "unitsDeMergedNotDestroyed": []
+      "unitsDeMergedNotDestroyed": [],
+      "unitDyingInTheFinalFight": "de_merged_not_destroyed",
+      "coinGoesTo": "overrunning_party_owner_capped"
     },
     "traps": {
       "remaining": [],
@@ -207,8 +210,8 @@
     },
     "nextEncounter": {
       "index": 2,
-      "reward": 500,
-      "bankTotalIfSurvived": 1400,
+      "reward": 539,
+      "bankTotalIfSurvived": 1189,
       "difficulty": {
         "escalationApplied": 15,
         "risePerEncounter": 15,

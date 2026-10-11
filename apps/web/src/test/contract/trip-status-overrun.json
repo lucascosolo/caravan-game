@@ -90,7 +90,7 @@
             "diedAtEncounter": 1
           }
         ],
-        "lossesApplied": false
+        "lossesApplied": true
       }
     },
     "rules": {

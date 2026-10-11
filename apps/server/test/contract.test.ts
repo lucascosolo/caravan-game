@@ -314,7 +314,10 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     // The cap: one more use spent (fixture: the owner role moves the stored timestamp forward
     // as a third start would), then the start refusal the client reads `cap` / `retryAfterSeconds` from.
     await pool.query("UPDATE trip_cap SET tat_ms = $2 WHERE account_id = $1", [p.accountId, FROZEN_MS + TRIPS_PER_HOUR_CAP * TRIP_CAP_REGEN_MS]);
-    expect((await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: posted, traps: [], fence: null })).statusCode).toBe(201);
+    // Chunk 19: units standing when the caravan fell are destroyed, so pack what survives.
+    const left = (await pool.query<{ id: string }>("SELECT id FROM unit_instance WHERE caravan_id = $1 ORDER BY id LIMIT 1", [p.caravanId])).rows.map((r) => r.id);
+    expect(left.length, "the overrun left at least one unit (the one that died in the fight is de-merged, not destroyed)").toBeGreaterThan(0);
+    expect((await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: left, traps: [], fence: null })).statusCode).toBe(201);
     await record("trip-start-refused", "POST /me/caravans/:id/trip/start", await call(p, "POST", `${tripUrl}/start`), 409);
 
     // The storefront's writes (chunk 20 web screens), recorded LAST so the rows they insert do
