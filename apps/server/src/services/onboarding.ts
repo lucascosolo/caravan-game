@@ -4,7 +4,7 @@
  * caravan-level living-unit progress.
  */
 import type pg from "pg";
-import { PASSWORD_MIN, USERNAME_MAX, USERNAME_MIN } from "../config.js";
+import { CARAVAN_NAME_MAX, CARAVAN_NAME_MIN, PASSWORD_MAX, PASSWORD_MIN, USERNAME_MAX, USERNAME_MIN } from "../config.js";
 import { withTransaction } from "../db/pool.js";
 import type { AccountRow, CaravanRow } from "../db/types.js";
 import { hashPassword } from "../auth/password.js";
@@ -26,14 +26,32 @@ export function normalizeUsername(raw: string): string {
   return username;
 }
 
+/** Trimmed, 1..CARAVAN_NAME_MAX characters, no control characters. */
+export function normalizeCaravanName(raw: string): string {
+  const name = raw.trim();
+  // eslint-disable-next-line no-control-regex
+  if (name.length < CARAVAN_NAME_MIN || name.length > CARAVAN_NAME_MAX || /[\u0000-\u001f\u007f]/.test(name)) {
+    throw badRequest(
+      "invalid_caravan_name",
+      `caravanName must be ${CARAVAN_NAME_MIN}-${CARAVAN_NAME_MAX} characters after trimming, with no control characters`,
+    );
+  }
+  return name;
+}
+
 export async function registerAccount(
   pool: pg.Pool,
   input: { username: string; password: string; regionId: string; caravanName?: string },
 ): Promise<{ account: AccountRow; caravan: CaravanRow }> {
   const username = normalizeUsername(input.username);
-  if (typeof input.password !== "string" || input.password.length < PASSWORD_MIN) {
-    throw badRequest("invalid_password", `password must be at least ${PASSWORD_MIN} characters`);
+  if (
+    typeof input.password !== "string" ||
+    input.password.length < PASSWORD_MIN ||
+    input.password.length > PASSWORD_MAX
+  ) {
+    throw badRequest("invalid_password", `password must be ${PASSWORD_MIN}-${PASSWORD_MAX} characters`);
   }
+  const caravanName = input.caravanName !== undefined ? normalizeCaravanName(input.caravanName) : undefined;
   const passwordHash = await hashPassword(input.password);
 
   return withTransaction(pool, async (client) => {
@@ -57,7 +75,7 @@ export async function registerAccount(
       accountId: account.id,
       regionId: input.regionId,
     };
-    if (input.caravanName !== undefined) caravanInput.name = input.caravanName;
+    if (caravanName !== undefined) caravanInput.name = caravanName;
     const caravan = await createCaravanForAccount(client, caravanInput);
     return { account, caravan };
   });

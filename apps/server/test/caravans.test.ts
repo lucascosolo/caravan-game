@@ -51,21 +51,30 @@ describe("caravan", () => {
   });
 
   it("a second caravan can be inserted directly with no schema change", async () => {
-    const second = await pool.query<{ id: string }>(
-      "INSERT INTO caravan (account_id, region_id, name) VALUES ($1, 'badlands', 'Second') RETURNING id",
-      [accountId],
-    );
-    const secondId = second.rows[0]!.id;
-    // Its own caravan-level living progress, independent of the first caravan's.
-    await pool.query("INSERT INTO pool_progress (pool, caravan_id, reputation) VALUES ('living', $1, 1000)", [secondId]);
-    const list = await listCaravansForAccount(pool, accountId);
-    expect(list.map((c) => c.id)).toEqual([caravanId, secondId]);
-    const living = await pool.query(
-      "SELECT caravan_id FROM pool_progress WHERE pool = 'living' AND caravan_id = ANY($1)",
-      [[caravanId, secondId]],
-    );
-    expect(living.rowCount).toBe(2);
-    await pool.query("DELETE FROM caravan WHERE id = $1", [secondId]);
+    // Inside a transaction that is rolled back: a caravan cannot be deleted while its
+    // account exists (it owns ladder progress), so this is the only way to undo it.
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const second = await client.query<{ id: string }>(
+        "INSERT INTO caravan (account_id, region_id, name) VALUES ($1, 'badlands', 'Second') RETURNING id",
+        [accountId],
+      );
+      const secondId = second.rows[0]!.id;
+      // Its own caravan-level living progress, independent of the first caravan's.
+      await client.query("INSERT INTO pool_progress (pool, caravan_id, reputation) VALUES ('living', $1, 1000)", [secondId]);
+      const list = await listCaravansForAccount(client, accountId);
+      expect(list.map((c) => c.id)).toEqual([caravanId, secondId]);
+      const living = await client.query(
+        "SELECT caravan_id FROM pool_progress WHERE pool = 'living' AND caravan_id = ANY($1)",
+        [[caravanId, secondId]],
+      );
+      expect(living.rowCount).toBe(2);
+    } finally {
+      await client.query("ROLLBACK").catch(() => undefined);
+      client.release();
+    }
+    expect((await listCaravansForAccount(pool, accountId)).length).toBe(1);
   });
 
   it("v1 app logic refuses a second caravan (tunable MAX_CARAVANS_PER_ACCOUNT)", async () => {

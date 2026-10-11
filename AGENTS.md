@@ -92,8 +92,28 @@ The client **never runs the simulation** — it renders a stored log.
 ## Build / test / run
 
 Requirements: Node 22, pnpm 10, Postgres 16 with two databases the `caravan` role owns
-(`caravan` for dev, `caravan_test` for the test suite). Connection strings are read from
-`DATABASE_URL` / `TEST_DATABASE_URL`; the defaults in `.env.example` match the local setup.
+(`caravan` for dev, `caravan_test` for the test suite). The defaults in `.env.example`
+match the local setup.
+
+**Two DB roles, two URLs.** The schema's permanence guards are triggers and CHECKs that
+the owner role could simply disable, so the server never runs as the owner:
+
+- `MIGRATE_DATABASE_URL` — the owner role `caravan`. Used by `pnpm db:migrate` /
+  `db:rollback` / `db:reset` / `db:roles` and by the test suite's schema reset. Falls
+  back to `DATABASE_URL` when unset.
+- `DATABASE_URL` — the DML-only login role `caravan_app` (SELECT/INSERT/UPDATE/DELETE on
+  tables, USAGE on sequences; no ALTER, TRUNCATE, TRIGGER or CREATE). The running server
+  and `pnpm db:seed` use it.
+- `TEST_DATABASE_URL` — owner role on the test database; the suite resets its schema and
+  re-applies `apps/server/db/roles.sql` on every run, then connects as `caravan_app` to
+  prove the guards hold against the server's own role.
+
+`caravan_app` is created and granted by `apps/server/db/roles.sql` (idempotent; a role is
+cluster-level, so it is a script, not a migration). `pnpm db:migrate` and `pnpm db:reset`
+apply it after migrating; `pnpm --filter @caravan/server exec tsx src/db/migrate.ts roles`
+applies it alone (no `db:roles` script yet: `apps/server/package.json` belongs to chunk 02's
+in-flight change). Default privileges on the
+owner role mean tables added by later migrations are covered without extra GRANTs.
 
 ```
 pnpm install                 # install the whole workspace
@@ -101,10 +121,11 @@ pnpm typecheck               # tsc --noEmit in every package
 pnpm lint                    # resolver isolation rules + their self-test (packages/resolver)
 pnpm test                    # vitest, against TEST_DATABASE_URL; resets that schema first
 
-pnpm db:migrate              # apply pending SQL migrations to DATABASE_URL
+pnpm db:migrate              # apply pending SQL migrations to MIGRATE_DATABASE_URL, then db/roles.sql
 pnpm db:rollback             # roll back the most recent migration
-pnpm db:reset                # roll back everything, then re-apply
+pnpm db:reset                # roll back everything, re-apply, then db/roles.sql
 pnpm db:status               # show which migrations are applied
+pnpm --filter @caravan/server exec tsx src/db/migrate.ts roles   # caravan_app role + grants only
 pnpm db:seed                 # idempotent dev account: dev / devpassword, region desert
 
 pnpm dev                     # Fastify on http://127.0.0.1:3000 (PORT/HOST override), tsx watch

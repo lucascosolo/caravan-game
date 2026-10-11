@@ -122,3 +122,46 @@ for float literals, bare `/`, `**` and banned Math calls (verified to fire on a 
 
 **Next:** hand to adversarial QA against GUARDRAILS §1/§2 and the chunk's checklist —
 especially the merge curve under an HP×DPS metric and whether affinity does enough work.
+
+### 2026-10-11 — Chunk 01 (data model & auth): QA round 1 closed (items 1–3, 9–17)
+
+**Closed** against `roadmap/qa/01-punchlist.md` (commit c1ce47e). Items 4–8 (resolver
+lint evasions) stay with the chunk 21 Maker, who owns `eslint.config.js`.
+
+- **1** `BEFORE TRUNCATE` statement triggers refuse TRUNCATE on `pool_progress` and
+  `caravan`; `test/helpers.ts` wipes with `DELETE FROM account` (cascades through the row
+  guards legitimately).
+- **2** `caravan_guard_delete`: a caravan cannot be deleted while its account exists (it
+  owns the living ladder); still cascades away with the account.
+- **3** Two DB roles. `apps/server/db/roles.sql` (idempotent, applied by `db:migrate`/
+  `db:reset`/`migrate.ts roles` and by the test global setup) creates `caravan_app`, a
+  non-superuser DML-only login role with default privileges for future tables. The server
+  runs as it (`DATABASE_URL`); migrations use the owner (`MIGRATE_DATABASE_URL`, falls
+  back to `DATABASE_URL`). Documented in `.env.example` and AGENTS.md. Tests connected as
+  `caravan_app` prove `ALTER TABLE ... DISABLE TRIGGER`, `TRUNCATE`, `DROP`, `CREATE` and
+  touching `schema_migrations` are all refused (42501) while the guards still bite through
+  it, and that a table the owner creates later is covered by the default grants.
+- **9** `PASSWORD_MAX` 128; `caravanName` trimmed, 1–40 chars, no control characters.
+- **10** Login verifies against a fixed dummy scrypt hash when the username is unknown
+  (test asserts the unknown path costs at least half the known path).
+- **11** Authorization must match `/^Bearer\s+(\S+)$/i`; trailing tokens are rejected.
+- **12** Issuing a session purges that account's expired rows and caps live sessions at
+  `SESSIONS_PER_ACCOUNT_MAX` (10), oldest evicted.
+- **13** `unlock_points_spent` may never decrease (permanence trigger).
+- **14** `CHECK (length(unit_type_id) > 0)`; migration comment states the one-living-row-
+  per-caravan invariant is app-enforced until chunk 04.
+- **15** Comment at `account_coin_within_cap`: it is a hard CHECK, credits must clamp first.
+- **16** Migrations sorted by parsed numeric id; duplicate ids rejected (unit-tested).
+- **17** Comment at the bigint type parser: lossy above 2^53, chunk 02 must pick per column.
+
+**Verified:** `pnpm test` in `apps/server` against `caravan_test_qa01`: 7 files, 81 tests
+passing (includes chunk 02's in-flight `ledger.test.ts`). `pnpm typecheck` clean.
+`pnpm lint` passes (resolver self-test). Applied `roles.sql` to the dev `caravan` database
+so the new `DATABASE_URL` default works.
+
+**Not done / notes:** no `db:roles` package script was added because `apps/server/package.json`
+carries chunk 02's uncommitted edits; the long-form `pnpm --filter @caravan/server exec tsx
+src/db/migrate.ts roles` is documented instead (one-line follow-up for whoever next touches
+that file). `caravans.test.ts` was adjusted to undo its direct second-caravan insert by
+transaction rollback, since a caravan can no longer be deleted directly. Chunk 01 stays
+`built` in INDEX.md until items 4–8 close.

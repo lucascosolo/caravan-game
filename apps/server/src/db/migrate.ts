@@ -3,12 +3,16 @@
  * `NNN_name.up.sql` / `NNN_name.down.sql`. Each migration runs in its own transaction and
  * is recorded in `schema_migrations`.
  *
- * CLI:  tsx src/db/migrate.ts up | down [steps] | reset | status
+ * Runs as the schema OWNER role (MIGRATE_DATABASE_URL); the server itself runs as the
+ * DML-only role that db/roles.sql creates. `roles` applies that script.
+ *
+ * CLI:  tsx src/db/migrate.ts up | down [steps] | reset | status | roles
  */
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type pg from "pg";
+import { migrateDatabaseUrl } from "../config.js";
 import { createPool } from "./pool.js";
 
 export interface Migration {
@@ -19,11 +23,17 @@ export interface Migration {
 }
 
 const MIGRATIONS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../migrations");
+const ROLES_SQL = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../db/roles.sql");
 
+/**
+ * Migrations are ordered by their PARSED numeric id, not by file name: "10_x" must run
+ * after "9_x". Two files with the same id (however padded) are an error, because the
+ * applied-ids table could not tell them apart.
+ */
 export function loadMigrations(dir: string = MIGRATIONS_DIR): Migration[] {
   const files = readdirSync(dir);
-  const ups = files.filter((f) => f.endsWith(".up.sql")).sort();
-  return ups.map((file) => {
+  const ups = files.filter((f) => f.endsWith(".up.sql"));
+  const migrations = ups.map((file) => {
     const match = /^(\d+)_(.+)\.up\.sql$/.exec(file);
     if (!match) throw new Error(`Migration file name not understood: ${file}`);
     const id = Number(match[1]);
@@ -37,6 +47,20 @@ export function loadMigrations(dir: string = MIGRATIONS_DIR): Migration[] {
       down: readFileSync(path.join(dir, downFile), "utf8"),
     };
   });
+  migrations.sort((a, b) => a.id - b.id);
+  for (let i = 1; i < migrations.length; i++) {
+    const prev = migrations[i - 1]!;
+    const cur = migrations[i]!;
+    if (prev.id === cur.id) {
+      throw new Error(`Duplicate migration id ${cur.id}: ${prev.id}_${prev.name} and ${cur.id}_${cur.name}`);
+    }
+  }
+  return migrations;
+}
+
+/** Create/refresh the DML-only app role and its grants (db/roles.sql). Owner connection. */
+export async function applyRoles(pool: pg.Pool, file: string = ROLES_SQL): Promise<void> {
+  await pool.query(readFileSync(file, "utf8"));
 }
 
 async function ensureTable(pool: pg.Pool): Promise<void> {
@@ -113,12 +137,13 @@ export async function migrateReset(pool: pg.Pool, migrations: Migration[] = load
 
 async function main(): Promise<void> {
   const [command = "up", arg] = process.argv.slice(2);
-  const pool = createPool();
+  const pool = createPool(migrateDatabaseUrl());
   try {
     switch (command) {
       case "up": {
         const ran = await migrateUp(pool);
         console.log(ran.length ? `Applied: ${ran.join(", ")}` : "Nothing to apply.");
+        await applyRoles(pool);
         break;
       }
       case "down": {
@@ -128,7 +153,13 @@ async function main(): Promise<void> {
       }
       case "reset": {
         await migrateReset(pool);
+        await applyRoles(pool);
         console.log("Reset complete.");
+        break;
+      }
+      case "roles": {
+        await applyRoles(pool);
+        console.log("Applied db/roles.sql (caravan_app role + grants).");
         break;
       }
       case "status": {
@@ -139,7 +170,7 @@ async function main(): Promise<void> {
         break;
       }
       default:
-        throw new Error(`Unknown command '${command}'. Use: up | down [steps] | reset | status`);
+        throw new Error(`Unknown command '${command}'. Use: up | down [steps] | reset | status | roles`);
     }
   } finally {
     await pool.end();

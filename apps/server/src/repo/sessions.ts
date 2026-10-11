@@ -24,3 +24,27 @@ export async function findLiveSessionByTokenHash(db: Queryable, tokenHash: strin
 export async function deleteSession(db: Queryable, id: string): Promise<void> {
   await db.query("DELETE FROM session WHERE id = $1", [id]);
 }
+
+/** Remove an account's expired sessions. Returns how many were removed. */
+export async function purgeExpiredSessions(db: Queryable, accountId: string): Promise<number> {
+  const res = await db.query("DELETE FROM session WHERE account_id = $1 AND expires_at <= now()", [accountId]);
+  return res.rowCount ?? 0;
+}
+
+/** Keep only the `cap` newest sessions for an account (oldest evicted). Returns how many went. */
+export async function evictSessionsBeyondCap(db: Queryable, accountId: string, cap: number): Promise<number> {
+  if (!Number.isInteger(cap) || cap < 1) throw new RangeError(`session cap must be a positive integer, got ${cap}`);
+  const res = await db.query(
+    `DELETE FROM session WHERE id IN (
+       SELECT id FROM session WHERE account_id = $1
+       ORDER BY created_at DESC, id DESC OFFSET $2
+     )`,
+    [accountId, cap],
+  );
+  return res.rowCount ?? 0;
+}
+
+export async function countSessionsForAccount(db: Queryable, accountId: string): Promise<number> {
+  const res = await db.query<{ n: string }>("SELECT count(*)::text AS n FROM session WHERE account_id = $1", [accountId]);
+  return Number(res.rows[0]!.n);
+}

@@ -1,12 +1,17 @@
 DROP TABLE IF EXISTS session;
 DROP TABLE IF EXISTS unit_instance;
+DROP TRIGGER IF EXISTS pool_progress_guard_truncate ON pool_progress;
 DROP TRIGGER IF EXISTS pool_progress_guard_delete ON pool_progress;
 DROP TRIGGER IF EXISTS pool_progress_guard_permanence ON pool_progress;
 DROP TABLE IF EXISTS pool_progress;
 DROP FUNCTION IF EXISTS pool_progress_guard_delete();
 DROP FUNCTION IF EXISTS pool_progress_guard_permanence();
+DROP TRIGGER IF EXISTS caravan_guard_truncate ON caravan;
+DROP TRIGGER IF EXISTS caravan_guard_delete ON caravan;
 DROP TRIGGER IF EXISTS caravan_guard_immutable ON caravan;
 DROP TABLE IF EXISTS caravan;
+DROP FUNCTION IF EXISTS guard_refuse_truncate();
+DROP FUNCTION IF EXISTS caravan_guard_delete();
 DROP FUNCTION IF EXISTS caravan_guard_immutable();
 DROP TABLE IF EXISTS standing_party;
 DROP TABLE IF EXISTS home_town;

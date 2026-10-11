@@ -38,6 +38,10 @@ CREATE TABLE account (
   created_at       timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT account_username_unique    UNIQUE (username),
   CONSTRAINT account_coin_nonneg        CHECK (coin_balance >= 0),
+  -- HARD cap, not a clamp: a write that would push coin_balance above coin_storage_cap
+  -- is REFUSED, not truncated. Any code that credits Coin (chunk 16 earnings, chunk 19
+  -- transfer-to-winner, chunk 20 purchases) must clamp to the cap BEFORE writing and
+  -- record the overflow it discarded, or the credit fails outright.
   CONSTRAINT account_coin_within_cap    CHECK (coin_balance <= coin_storage_cap),
   CONSTRAINT account_coin_cap_positive  CHECK (coin_storage_cap > 0)
 );
@@ -92,6 +96,34 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER caravan_guard_immutable
   BEFORE UPDATE ON caravan FOR EACH ROW EXECUTE FUNCTION caravan_guard_immutable();
 
+-- Delete guard: a caravan carries its living-unit ladder and unlock points (caravan-level
+-- progress, GUARDRAILS §5), which are permanent. Deleting the caravan would erase them,
+-- so a caravan may only disappear by cascade when its account is deleted. (Postgres runs
+-- ON DELETE CASCADE after the account row is gone, so the cascade passes this check.)
+CREATE FUNCTION caravan_guard_delete() RETURNS trigger AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM account WHERE id = OLD.account_id) THEN
+    RAISE EXCEPTION 'caravan % is permanent while its account exists (it owns ladder progress)', OLD.id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN OLD;
+END
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER caravan_guard_delete
+  BEFORE DELETE ON caravan FOR EACH ROW EXECUTE FUNCTION caravan_guard_delete();
+
+-- TRUNCATE fires no row triggers, so it would bypass the delete guards above and below.
+-- Refuse it outright on every guarded table (statement-level trigger). Test suites wipe
+-- rows with DELETE FROM account, which cascades through the row triggers legitimately.
+CREATE FUNCTION guard_refuse_truncate() RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION 'TRUNCATE is refused on % (it would bypass the row-level permanence guards)', TG_TABLE_NAME
+    USING ERRCODE = 'check_violation';
+END
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER caravan_guard_truncate
+  BEFORE TRUNCATE ON caravan FOR EACH STATEMENT EXECUTE FUNCTION guard_refuse_truncate();
+
 -- ---------------------------------------------------------------------------------
 -- Pool progress: Reputation (a rating, never spent), ladder (permanent), unlock points
 -- (granted permanently; spent against the web in chunk 05). One row per (owner, pool).
@@ -116,7 +148,8 @@ CREATE TABLE pool_progress (
   -- Permanent. Granted exactly once per rung crossed. Never decreases (trigger below).
   unlock_points_granted integer     NOT NULL DEFAULT 0,
   -- Points committed to the unlock web (chunk 05). Spending is the ONLY thing that moves
-  -- this; it can never exceed what was granted.
+  -- this; it can never exceed what was granted and never decreases (trigger below):
+  -- PROJECT.md has no refund or respec.
   unlock_points_spent   integer     NOT NULL DEFAULT 0,
   created_at            timestamptz NOT NULL DEFAULT now(),
   updated_at            timestamptz NOT NULL DEFAULT now(),
@@ -143,6 +176,10 @@ BEGIN
   IF NEW.unlock_points_granted < OLD.unlock_points_granted THEN
     RAISE EXCEPTION 'pool_progress.unlock_points_granted is permanent and may never decrease (% -> %)',
       OLD.unlock_points_granted, NEW.unlock_points_granted USING ERRCODE = 'check_violation';
+  END IF;
+  IF NEW.unlock_points_spent < OLD.unlock_points_spent THEN
+    RAISE EXCEPTION 'pool_progress.unlock_points_spent may never decrease: there is no refund or respec (% -> %)',
+      OLD.unlock_points_spent, NEW.unlock_points_spent USING ERRCODE = 'check_violation';
   END IF;
   IF NEW.pool <> OLD.pool
      OR NEW.account_id IS DISTINCT FROM OLD.account_id
@@ -173,11 +210,18 @@ END
 $$ LANGUAGE plpgsql;
 CREATE TRIGGER pool_progress_guard_delete
   BEFORE DELETE ON pool_progress FOR EACH ROW EXECUTE FUNCTION pool_progress_guard_delete();
+CREATE TRIGGER pool_progress_guard_truncate
+  BEFORE TRUNCATE ON pool_progress FOR EACH STATEMENT EXECUTE FUNCTION guard_refuse_truncate();
 
 -- ---------------------------------------------------------------------------------
 -- Living-unit instances: caravan-scoped, with a merge level. Merge cap is 5 for everyone
 -- (GUARDRAILS §2); the per-death penalty floors at 1 (chunk 19), never below.
--- unit_type_id references the content package (chunk 03), validated in app code.
+-- unit_type_id references the content package (chunk 03), validated in app code; the
+-- schema only refuses the empty string.
+--
+-- INVARIANT (app-enforced until chunk 04 owns ladders): every caravan has exactly one
+-- pool_progress row with pool = 'living'. createCaravanForAccount inserts it in the same
+-- transaction as the caravan; a caravan without one has no ladder to climb.
 -- ---------------------------------------------------------------------------------
 CREATE TABLE unit_instance (
   id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -185,7 +229,8 @@ CREATE TABLE unit_instance (
   unit_type_id text        NOT NULL,
   merge_level  smallint    NOT NULL DEFAULT 1,
   created_at   timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT unit_instance_merge_level_range CHECK (merge_level BETWEEN 1 AND 5)
+  CONSTRAINT unit_instance_merge_level_range CHECK (merge_level BETWEEN 1 AND 5),
+  CONSTRAINT unit_instance_type_nonempty      CHECK (length(unit_type_id) > 0)
 );
 CREATE INDEX unit_instance_caravan_idx ON unit_instance (caravan_id);
 
