@@ -199,3 +199,13 @@ N9. **Test gaps.** No test seeds the authored set (S1). No test runs concurrent 
 payload rename. The one-way grep of `packages/{resolver,circle,content}/src` uses a
 non-recursive `readdirSync` (telemetry.test.ts:643-646): fine while those dirs are flat, silent once one gets a subfolder. Fix: add the three tests named in S1 / S2
 / D1, drive one merge and one unlock through the routes, and walk the packages recursively.
+
+## Orchestrator decisions (2026-10-11)
+
+- **D1:** count a stalemate by the outcome kind (`stalemate`), not by `endTick >= TICK_CAP`. Fix the test that pins 0.
+- **D2:** sessions come from the server's own receipt times. A client batch carries a per-session sequence number. The server de-duplicates on it and clamps `agoMs` to the batch's flush window. The client sends a heartbeat about once a minute while the page is visible, and flushes on `visibilitychange` to hidden. Do not add `sendBeacon` with credentials in the URL.
+- **D3: add both panels.** For §20 #1, a win rate by affinity matchup and by merge level, from the stored formation and party snapshots and the outcome. For §20 #4, fence breakage by tier, from the stored outcome's broken segments.
+- **D4:** a single population for the whole funnel: accounts that have not opted out. The buyer count is filtered the same way, so conversion can never exceed 100 %.
+- **D5:** the account export includes the analytics setting and the account's own client events.
+- **D6:** a statement timeout on every dashboard query, a rate limit on `/admin/*`, and the `days` cap lowered to the largest window that passes the EXPLAIN gate. The gate compares the live plan's scan types with the checked-in plan, not just its existence.
+- **S1, S2 and every nit are in scope.** S1: every panel excludes system accounts. Add a test that seeds the cold-start parties. S2: ingest and the opt-out save serialize on the account's analytics row, for example with `SELECT … FOR UPDATE` in one transaction. N8: the client reads the opt-out from the server at start.
