@@ -21,6 +21,15 @@
 -- from the moment it is enqueued, so later edits by either side cannot alter history.
 
 -- ---------------------------------------------------------------------------------
+-- Ownership key (QA-02 S2)
+-- ---------------------------------------------------------------------------------
+-- A caravan is already unique by id; this second key lets ledger_event and resolution_job
+-- reference (caravan_id, account_id) together, so an account-A row can never name a
+-- caravan owned by account B. The split (GUARDRAILS §5) is then a constraint on the pair,
+-- not just on each column.
+ALTER TABLE caravan ADD CONSTRAINT caravan_id_account_unique UNIQUE (id, account_id);
+
+-- ---------------------------------------------------------------------------------
 -- Ledger
 -- ---------------------------------------------------------------------------------
 CREATE TYPE ledger_event_type AS ENUM (
@@ -68,9 +77,23 @@ LANGUAGE sql IMMUTABLE STRICT AS $$
   SELECT t IN ('encounter_resolved', 'stop_resolved', 'party_served_as_encounter')
 $$;
 
+-- An integer-valued JSON number (QA-02 S3). Payload numbers that the projection folds must
+-- be exactly this; a string "3", a 1.5 or a missing key fails the CHECK, never the fold.
+CREATE FUNCTION jsonb_is_integer(j jsonb) RETURNS boolean
+LANGUAGE sql IMMUTABLE AS $$
+  SELECT j IS NOT NULL AND jsonb_typeof(j) = 'number'
+     AND (j #>> '{}')::numeric = trunc((j #>> '{}')::numeric)
+$$;
+
 CREATE TABLE ledger_event (
   -- Global total order of the ledger. Assigned at insert; appends for one account are
   -- serialized by an advisory lock in app code so per-account seq order == commit order.
+  --
+  -- READ AS A JS NUMBER (QA-02 N2). db/pool.ts parses every bigint column through
+  -- Number(), which is exact only below 2^53. A bigserial here is deliberately read that
+  -- way: at one event per millisecond, continuously, 2^53 takes ~285,000 years, so no
+  -- game-lifetime ledger approaches the lossy range. If seq is ever read with BigInt
+  -- precision elsewhere, read it as `seq::text`; nothing in this codebase needs to.
   seq              bigserial         PRIMARY KEY,
   event_type       ledger_event_type NOT NULL,
   account_id       uuid              NOT NULL REFERENCES account (id) ON DELETE CASCADE,
@@ -87,6 +110,9 @@ CREATE TABLE ledger_event (
   occurred_at      timestamptz       NOT NULL DEFAULT now(),
   CONSTRAINT ledger_event_causation_unique UNIQUE (causation_id, causation_seq),
   CONSTRAINT ledger_event_causation_seq_nonneg CHECK (causation_seq >= 0),
+  -- QA-02 S2: when a caravan is named it must belong to this event's account.
+  CONSTRAINT ledger_event_caravan_owned_by_account
+    FOREIGN KEY (caravan_id, account_id) REFERENCES caravan (id, account_id) ON DELETE CASCADE,
   CONSTRAINT ledger_event_payload_is_object CHECK (jsonb_typeof(payload) = 'object'),
   CONSTRAINT ledger_event_scope_matches_type CHECK (
     (ledger_event_scope(event_type) = 'account' AND caravan_id IS NULL) OR
@@ -103,8 +129,19 @@ CREATE TABLE ledger_event (
   CONSTRAINT ledger_event_coin_amount CHECK (
     event_type NOT IN ('coin_earned', 'coin_spent', 'coin_lost_on_wipe',
                        'coin_transferred_to_defender', 'coin_purchased')
-    OR (coalesce(jsonb_typeof(payload->'amount'), '') = 'number' AND (payload->>'amount')::numeric >= 0
-        AND (payload->>'amount')::numeric = trunc((payload->>'amount')::numeric))
+    OR (jsonb_is_integer(payload->'amount') AND (payload->>'amount')::numeric >= 0)
+  ),
+  -- QA-02 S3: every number the projection folds is an integer-valued JSON number. The
+  -- projection trigger below and projection.ts both cast these; without this CHECK a
+  -- string delta would commit and then crash every rebuild.
+  CONSTRAINT ledger_event_pool_payload_integers CHECK (
+    CASE event_type
+      WHEN 'reputation_changed'     THEN jsonb_is_integer(payload->'delta')
+      WHEN 'ladder_progress_gained' THEN jsonb_is_integer(payload->'pointsDelta') AND jsonb_is_integer(payload->'levelsGained')
+      WHEN 'unlock_points_granted'  THEN jsonb_is_integer(payload->'points')
+      WHEN 'unlock_node_purchased'  THEN jsonb_is_integer(payload->'cost')
+      ELSE true
+    END
   )
 );
 CREATE INDEX ledger_event_account_seq_idx ON ledger_event (account_id, seq);
@@ -134,10 +171,39 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER ledger_event_guard_delete
   BEFORE DELETE ON ledger_event FOR EACH ROW EXECUTE FUNCTION ledger_event_guard_delete();
 
+-- Append-only: TRUNCATE fires no row triggers, so refuse it outright (QA-02 S7). The app
+-- role has no TRUNCATE privilege either (db/roles.sql); this catches the owner.
+CREATE TRIGGER ledger_event_guard_truncate
+  BEFORE TRUNCATE ON ledger_event FOR EACH STATEMENT EXECUTE FUNCTION guard_refuse_truncate();
+
+-- QA-02 N1: causation_seq is contiguous from 0 within a cause, in insert order. Event i
+-- can only land once event i-1 has. appendEvents inserts in array order so this never
+-- fires for it; it exists so a hand-written or out-of-order insert cannot leave a gap
+-- that only verifyJobReplay would notice later.
+CREATE FUNCTION ledger_event_guard_causation_seq() RETURNS trigger AS $$
+BEGIN
+  IF NEW.causation_seq > 0 AND NOT EXISTS (
+    SELECT 1 FROM ledger_event WHERE causation_id = NEW.causation_id AND causation_seq = NEW.causation_seq - 1
+  ) THEN
+    RAISE EXCEPTION 'ledger_event causation_seq must be contiguous: % has no seq % (cause %)',
+      NEW.causation_id, NEW.causation_seq - 1, NEW.causation_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER ledger_event_guard_causation_seq
+  BEFORE INSERT ON ledger_event FOR EACH ROW EXECUTE FUNCTION ledger_event_guard_causation_seq();
+
 -- Live projection. The ONLY writer of account.coin_balance and of the progress numbers
 -- on pool_progress is this trigger; application code appends events and reads the result.
 -- The fold here must match src/ledger/projection.ts exactly (tested).
-CREATE FUNCTION ledger_event_project() RETURNS trigger AS $$
+--
+-- SECURITY DEFINER (QA-02 S1): the function runs as the table owner, so the projected
+-- columns can be REVOKEd from the app role (db/roles.sql) and still move when an event is
+-- appended. search_path is pinned so a definer-rights function cannot be hijacked.
+CREATE FUNCTION ledger_event_project() RETURNS trigger
+SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
   amt bigint;
   n   integer;
@@ -213,6 +279,32 @@ CREATE TABLE ledger_snapshot (
   PRIMARY KEY (account_id, through_seq)
 );
 
+-- Insert-only (QA-02 S7): a snapshot is a derived fact about the log through a seq, and
+-- the log never changes, so neither does the snapshot. verifyProjection checks the latest
+-- snapshot against a from-zero fold through its seq, so a tampered snapshot is a finding,
+-- never a silently different starting point. Rows leave only by account cascade.
+CREATE FUNCTION ledger_snapshot_guard_update() RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION 'ledger_snapshot is insert-only: UPDATE refused (account %, through_seq %)',
+    OLD.account_id, OLD.through_seq USING ERRCODE = 'check_violation';
+END
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER ledger_snapshot_guard_update
+  BEFORE UPDATE ON ledger_snapshot FOR EACH ROW EXECUTE FUNCTION ledger_snapshot_guard_update();
+CREATE FUNCTION ledger_snapshot_guard_delete() RETURNS trigger AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM account WHERE id = OLD.account_id) THEN
+    RAISE EXCEPTION 'ledger_snapshot is insert-only: DELETE refused (account %, through_seq %)',
+      OLD.account_id, OLD.through_seq USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN OLD;
+END
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER ledger_snapshot_guard_delete
+  BEFORE DELETE ON ledger_snapshot FOR EACH ROW EXECUTE FUNCTION ledger_snapshot_guard_delete();
+CREATE TRIGGER ledger_snapshot_guard_truncate
+  BEFORE TRUNCATE ON ledger_snapshot FOR EACH STATEMENT EXECUTE FUNCTION guard_refuse_truncate();
+
 -- ---------------------------------------------------------------------------------
 -- Job queue
 -- ---------------------------------------------------------------------------------
@@ -229,13 +321,17 @@ CREATE TABLE resolution_job (
   -- Everything the handler needs, snapshotted at enqueue. Immutable (trigger).
   input            jsonb       NOT NULL,
   status           job_status  NOT NULL DEFAULT 'queued',
-  -- Number of leases taken so far. Fences failure bookkeeping (a stale worker's failure
-  -- cannot clobber a newer lease). Completion is guarded by the row lock + status instead:
-  -- first valid completion wins, since every completion is a pure function of `input`.
+  -- Number of leases taken so far. Together with leased_by it is the completion FENCE
+  -- (QA-02 B1): a commit lands only while the row is 'leased' to this worker, at this
+  -- attempt number, with the lease not yet expired. A stale worker (its lease expired or
+  -- re-leased) loses cleanly: its transaction is rolled back and nothing is written.
   attempts         integer     NOT NULL DEFAULT 0,
   max_attempts     integer     NOT NULL,
   leased_by        text,
   lease_expires_at timestamptz,
+  -- QA-02 N3: a failed attempt re-queues with exponential backoff rather than at the head
+  -- of the queue. A queued job is ready only once this has passed.
+  next_attempt_at  timestamptz NOT NULL DEFAULT now(),
   last_error       text,
   result           jsonb,
   created_at       timestamptz NOT NULL DEFAULT now(),
@@ -248,7 +344,10 @@ CREATE TABLE resolution_job (
   ),
   CONSTRAINT resolution_job_leased_shape      CHECK (
     status <> 'leased' OR lease_expires_at IS NOT NULL
-  )
+  ),
+  -- QA-02 S2: the job's caravan belongs to the job's (defending) account.
+  CONSTRAINT resolution_job_caravan_owned_by_account
+    FOREIGN KEY (caravan_id, account_id) REFERENCES caravan (id, account_id) ON DELETE CASCADE
 );
 CREATE INDEX resolution_job_ready_idx ON resolution_job (created_at, id) WHERE status IN ('queued', 'leased');
 CREATE INDEX resolution_job_caravan_idx ON resolution_job (caravan_id);
@@ -263,6 +362,12 @@ BEGIN
   END IF;
   IF OLD.status = 'completed' THEN
     RAISE EXCEPTION 'resolution_job % is completed and immutable', OLD.id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  -- Parked is terminal for workers (QA-02 B1): only the operator path (requeueParkedJob)
+  -- moves a parked job, and it goes back to 'queued', never straight to 'completed'.
+  IF OLD.status = 'parked' AND NEW.status <> 'queued' THEN
+    RAISE EXCEPTION 'resolution_job % is parked: it can only be re-queued by an operator', OLD.id
       USING ERRCODE = 'check_violation';
   END IF;
   IF NEW.attempts < OLD.attempts THEN
@@ -286,3 +391,5 @@ END
 $$ LANGUAGE plpgsql;
 CREATE TRIGGER resolution_job_guard_delete
   BEFORE DELETE ON resolution_job FOR EACH ROW EXECUTE FUNCTION resolution_job_guard_delete();
+CREATE TRIGGER resolution_job_guard_truncate
+  BEFORE TRUNCATE ON resolution_job FOR EACH STATEMENT EXECUTE FUNCTION guard_refuse_truncate();

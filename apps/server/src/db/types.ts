@@ -84,6 +84,8 @@ export interface ResolutionJobRow {
   max_attempts: number;
   leased_by: string | null;
   lease_expires_at: Date | null;
+  /** A queued job is ready only once this has passed (retry backoff, QA-02 N3). */
+  next_attempt_at: Date;
   last_error: string | null;
   result: Record<string, unknown> | null;
   created_at: Date;

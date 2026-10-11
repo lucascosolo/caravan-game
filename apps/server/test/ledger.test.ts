@@ -9,7 +9,7 @@ import { buildApp } from "../src/app.js";
 import { withTransaction } from "../src/db/pool.js";
 import { coinCreditDraft, coinDebitDraft } from "../src/ledger/coin.js";
 import { canonicalJson, validateDraft, type LedgerEventDraft } from "../src/ledger/events.js";
-import { appendEvents, countEventsForAccount, listEventsByCausation, listEventsForAccount } from "../src/ledger/ledger.js";
+import { appendEvents, countEventsForAccount, listEventsByCausation, listEventsForAccount, lockAccountsForAppend } from "../src/ledger/ledger.js";
 import { maybeSnapshot, projectionKey, readLiveProjection, rebuildProjection, verifyProjection } from "../src/ledger/projection.js";
 import { rebuildAll } from "../src/ledger/rebuild.js";
 import { getAccountPoolProgress, getCaravanPoolProgress } from "../src/repo/poolProgress.js";
@@ -127,6 +127,7 @@ describe("balances are projections of the log", () => {
   it("folds coin, reputation, ladder and unlock events into the live columns", async () => {
     const before = await readLiveProjection(pool, accountId);
     await withTransaction(pool, async (c) => {
+      await lockAccountsForAppend(c, [accountId]);
       const credit = await coinCreditDraft(c, { type: "coin_earned", accountId, amount: 250, reason: "bank" });
       await appendEvents(c, "test:fold", [
         credit,
@@ -172,6 +173,7 @@ describe("balances are projections of the log", () => {
   it("a credit is clamped to the storage cap and the event says so", async () => {
     const cap = (await pool.query<{ coin_storage_cap: number; coin_balance: number }>("SELECT coin_storage_cap, coin_balance FROM account WHERE id = $1", [accountId])).rows[0]!;
     const rows = await withTransaction(pool, async (c) => {
+      await lockAccountsForAppend(c, [accountId]);
       const credit = await coinCreditDraft(c, { type: "coin_transferred_to_defender", accountId, amount: cap.coin_storage_cap * 2, reason: "wipe", extra: { fromAccountId: "x" } });
       return appendEvents(c, "test:clamp", [credit]);
     });
@@ -242,7 +244,9 @@ describe("GET /me/ledger", () => {
     expect(body.events.length).toBe(2);
     expect(body.events[0].seq).toBeLessThan(body.events[1].seq);
     expect(body.events[0]).toMatchObject({ accountId, causationId: "test:append-only", causationSeq: 0, type: "coin_earned" });
+    expect(body.hasMore).toBe(true);
     const rest = await app.inject({ method: "GET", url: `/me/ledger?after=${body.nextAfter}&limit=500`, headers });
+    expect(rest.json().hasMore).toBe(false);
     const total = await listEventsForAccount(pool, accountId, { limit: 500 });
     expect(rest.json().events.length).toBe(total.length - 2);
     expect(canonicalJson(rest.json().events.map((e: { seq: number }) => e.seq))).toBe(canonicalJson(total.slice(2).map((e) => e.seq)));

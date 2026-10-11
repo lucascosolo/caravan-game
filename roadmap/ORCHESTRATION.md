@@ -638,3 +638,44 @@ From chunk 10 onward every Maker and fixer runs in its own git worktree on a bra
 named `chunk/NN`, and the orchestrator merges into `roadmap/phase-2-spec`. The shared
 working tree caused three staging incidents in the first batch (45c04b3, 3137656,
 a9a49a9).
+
+### 2026-10-11 — chunk 02 QA round 1 closed
+
+Maker closed B1, S1–S9, N1–N4 from `roadmap/qa/02-punchlist.md` (details per item there).
+Migration 002 and `db/roles.sql` edited in place (nothing deployed). Regression file:
+`apps/server/test/qa02-regressions.test.ts` (27 tests, every QA probe reproduction);
+`jobs.test.ts`, `ledger.test.ts`, `concurrency.test.ts` updated for the new rules.
+
+**Signature / behaviour changes other chunks should know about** (all in `src/ledger`,
+`src/jobs`; no in-tree consumer outside chunk 02 used the changed functions):
+
+- `lockJobForCompletion(client, jobId, fence)` and `markJobCompleted(client, jobId, result,
+  fence)` now REQUIRE a `LeaseFence {workerId, attempts}` (B1). Only `worker.ts` and chunk
+  02's tests called them. `markJobFailed` gained an optional 5th `{workerId, backoffMs}`.
+- `coinCreditDraft` keeps its signature but no longer takes the account lock: it asserts
+  the lock is already held and throws a message naming the fix (S5). The rule for any
+  transaction that writes several accounts: `lockAccountsForAppend(client, ids)` first,
+  then build drafts, then `appendEvents`. Chunk 04's `outcome.ts` (sorted locks up front)
+  and chunk 16's `appendCoinCredits` (single account) already follow it.
+- The worker clamps handler Coin credits to the cap at commit (S6), so a pure handler
+  emits requested amounts; chunk 13/19 handlers need no balance access.
+- `DEFAULT_HANDLERS.encounter_resolution` parks every job while `RESOLVER_VERSION < 1`
+  (S9). **Chunk 13 must bump `RESOLVER_VERSION` to >= 1** when the resolver lands and
+  replace the placeholder body; tests that need an encounter to complete register
+  `PLACEHOLDER_HANDLERS` explicitly.
+- `GET /me/ledger` validates `after`/`limit` (400 on garbage) and returns `hasMore`.
+- `ResolutionJobRow` gained `next_attempt_at` (N3) in `src/db/types.ts` (chunk 02 section).
+- The app DB role can no longer UPDATE `account.coin_balance` or the five projected
+  `pool_progress` columns (S1); `repo/poolProgress.ts`'s `raiseLadderLevel` /
+  `grantUnlockPoints` therefore only work on an owner connection (nothing in `src` calls
+  them; progress moves through ledger events). Two assertions in `test/qa01-guards.test.ts`
+  were adjusted for this, the only edit outside chunk 02's paths.
+
+**Verification** (shared tree, concurrent Makers' files included):
+`cd apps/server && TEST_DATABASE_URL=...caravan_test_qa02 npx vitest run` → 16 files,
+224 tests passing, twice in a row. Root `pnpm typecheck`, `pnpm lint`, `pnpm test:boundary`
+clean. `DATABASE_URL=...caravan_test_qa02 pnpm --filter @caravan/server ledger:rebuild`
+→ 0 mismatches. Not done: the QA probe script itself was not re-run (it calls the old
+unfenced signatures); its reproductions live in the regression file instead.
+
+**Next:** QA re-audit of chunk 02 (status stays `built` until QA signs off).

@@ -16,12 +16,27 @@ export async function rebuildAll(pool: Parameters<typeof verifyProjection>[0], a
       : (await pool.query<{ id: string }>("SELECT id FROM account ORDER BY created_at, id")).rows.map((r) => r.id);
   const mismatches: string[] = [];
   for (const id of ids) {
-    const r = await verifyProjection(pool, id);
-    if (!r.ok) mismatches.push(id);
-    console.log(`${r.ok ? "ok  " : "DIFF"} ${id} (${r.eventsFolded} events)`);
-    if (!r.ok) {
+    // One bad account is reported as a mismatch and never stops the sweep (QA-02 S3).
+    let r: Awaited<ReturnType<typeof verifyProjection>> | undefined;
+    let failure: string | undefined;
+    try {
+      r = await verifyProjection(pool, id);
+    } catch (err) {
+      failure = err instanceof Error ? err.message : String(err);
+    }
+    const ok = r?.ok === true;
+    if (!ok) mismatches.push(id);
+    console.log(`${ok ? "ok  " : "DIFF"} ${id}${r ? ` (${r.eventsFolded} events)` : ""}`);
+    if (failure) console.log("  error:   ", failure);
+    if (r && !r.ok) {
+      if (r.error) console.log("  error:   ", r.error);
       console.log("  live:    ", JSON.stringify(r.live));
       console.log("  rebuilt: ", JSON.stringify(r.rebuilt));
+      if (r.snapshot && !r.snapshot.ok) {
+        console.log(`  snapshot through ${r.snapshot.throughSeq} disagrees with the log:`);
+        console.log("  stored:  ", JSON.stringify(r.snapshot.stored));
+        console.log("  refold:  ", JSON.stringify(r.snapshot.rebuilt));
+      }
     }
   }
   return { checked: ids.length, mismatches };

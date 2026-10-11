@@ -6,8 +6,8 @@ import { RESOLVER_VERSION } from "@caravan/resolver";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withTransaction } from "../src/db/pool.js";
 import type { ResolutionJobRow } from "../src/db/types.js";
-import { DEFAULT_HANDLERS, enqueueEncounterResolution } from "../src/jobs/handlers/encounterResolution.js";
-import { countJobsByStatus, encounterJobId, enqueueJob, getJob, leaseNextJob, lockJobForCompletion } from "../src/jobs/queue.js";
+import { DEFAULT_HANDLERS, PLACEHOLDER_HANDLERS, enqueueEncounterResolution } from "../src/jobs/handlers/encounterResolution.js";
+import { JobInputConflictError, countJobsByStatus, encounterJobId, enqueueJob, getJob, leaseNextJob, lockJobForCompletion } from "../src/jobs/queue.js";
 import { JOB_MAX_ATTEMPTS } from "../src/jobs/tunables.js";
 import { drain, dryRunJob, runOnce, verifyJobReplay, type HandlerRegistry } from "../src/jobs/worker.js";
 import { canonicalJson, type Json } from "../src/ledger/events.js";
@@ -23,7 +23,7 @@ let owner: { accountId: string; caravanId: string };
 /** A test job kind that moves balances, so projections can be checked. */
 const TEST_COIN_KIND = "test_coin";
 const handlers: HandlerRegistry = {
-  ...DEFAULT_HANDLERS,
+  ...PLACEHOLDER_HANDLERS,
   [TEST_COIN_KIND]: (job) => {
     const amount = job.input["amount"] as number;
     return {
@@ -37,6 +37,8 @@ const handlers: HandlerRegistry = {
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Retry immediately: these tests drive retries by hand (the backoff itself is tested in qa02-regressions). */
+const retryBackoffMs = () => 0;
 
 async function enqueueEncounter(tripId: string, encounterIndex = 0, formation: Record<string, Json> = { fences: [{ x: 1, y: 2 }], traps: [], posts: [] }) {
   return withTransaction(pool, (c) =>
@@ -70,12 +72,25 @@ describe("deterministic ids and idempotent enqueue", () => {
 
   it("enqueueing the same encounter twice returns the first job and appends nothing", async () => {
     const a = await enqueueEncounter("trip-dup");
-    const b = await enqueueEncounter("trip-dup", 0, { fences: [{ x: 9, y: 9 }], traps: [], posts: [] });
+    // The owner edits their party in between: a retry of the same commit is still a no-op.
+    await pool.query("UPDATE standing_party SET updated_at = now() + interval '1 minute' WHERE account_id = $1", [owner.accountId]);
+    const b = await enqueueEncounter("trip-dup");
     expect(a.created).toBe(true);
     expect(b.created).toBe(false);
     expect(b.job.id).toBe(a.job.id);
-    expect(b.job.input).toEqual(a.job.input); // the second formation never replaced the first
+    expect(b.job.input).toEqual(a.job.input); // the first snapshot stands
     expect((await listEventsByCausation(pool, `enqueue:${a.job.id}`)).length).toBe(1);
+  });
+
+  it("re-committing the same encounter with a DIFFERENT formation is a conflict, not a silent no-op (QA-02 S4)", async () => {
+    const a = await enqueueEncounter("trip-conflict");
+    await expect(enqueueEncounter("trip-conflict", 0, { fences: [{ x: 9, y: 9 }], traps: [], posts: [] })).rejects.toBeInstanceOf(JobInputConflictError);
+    expect((await getJob(pool, a.job.id))!.input).toEqual(a.job.input);
+    expect((await listEventsByCausation(pool, `enqueue:${a.job.id}`)).length).toBe(1);
+    // The generic queue applies the same rule to any job id.
+    await enqueueJob(pool, { id: "test:conflict", kind: TEST_COIN_KIND, accountId: defender.accountId, caravanId: defender.caravanId, input: { amount: 1 } });
+    expect((await enqueueJob(pool, { id: "test:conflict", kind: TEST_COIN_KIND, accountId: defender.accountId, caravanId: defender.caravanId, input: { amount: 1 } })).created).toBe(false);
+    await expect(enqueueJob(pool, { id: "test:conflict", kind: TEST_COIN_KIND, accountId: defender.accountId, caravanId: defender.caravanId, input: { amount: 2 } })).rejects.toBeInstanceOf(JobInputConflictError);
   });
 
   it("the job input carries both snapshots and the resolver version", async () => {
@@ -97,11 +112,11 @@ describe("deterministic ids and idempotent enqueue", () => {
 });
 
 describe("lease, complete, retry, park", () => {
-  beforeAll(() => drain(pool, { workerId: "setup", handlers })); // clear what the enqueue tests left queued
+  beforeAll(() => drain(pool, { workerId: "setup", handlers, retryBackoffMs })); // clear what the enqueue tests left queued
 
   it("runOnce resolves one job and commits its events under the job id with the resolver version", async () => {
     const { job } = await enqueueEncounter("trip-run");
-    const outcome = await runOnce(pool, { workerId: "w1", handlers });
+    const outcome = await runOnce(pool, { workerId: "w1", handlers, retryBackoffMs });
     expect(outcome.kind).toBe("completed");
     if (outcome.kind !== "completed") return;
     expect(outcome.eventCount).toBe(2);
@@ -122,20 +137,20 @@ describe("lease, complete, retry, park", () => {
   });
 
   it("an idle queue returns idle; drain stops on its own", async () => {
-    expect(await runOnce(pool, { workerId: "w1", handlers })).toEqual({ kind: "idle" });
-    expect(await drain(pool, { workerId: "w1", handlers })).toEqual([]);
+    expect(await runOnce(pool, { workerId: "w1", handlers, retryBackoffMs })).toEqual({ kind: "idle" });
+    expect(await drain(pool, { workerId: "w1", handlers, retryBackoffMs })).toEqual([]);
   });
 
   it("replaying a completed job commits nothing new", async () => {
     const { job } = await enqueueEncounter("trip-replay");
-    await drain(pool, { workerId: "w1", handlers });
+    await drain(pool, { workerId: "w1", handlers, retryBackoffMs });
     const before = await listEventsByCausation(pool, job.id);
     expect(before.length).toBe(2);
     // A second worker pass: nothing to lease.
-    expect(await drain(pool, { workerId: "w2", handlers })).toEqual([]);
-    // Forcing the completion path by hand: the completed row is refused.
+    expect(await drain(pool, { workerId: "w2", handlers, retryBackoffMs })).toEqual([]);
+    // Forcing the completion path by hand, even with the winning worker's own fence: refused.
     await withTransaction(pool, async (c) => {
-      expect(await lockJobForCompletion(c, job.id)).toBeNull();
+      expect(await lockJobForCompletion(c, job.id, { workerId: "w1", attempts: 1 })).toBeNull();
     });
     // Forcing the ledger by hand under the same causation id: the unique key refuses it.
     const dup = await expectDbError(
@@ -162,6 +177,7 @@ describe("lease, complete, retry, park", () => {
     const opts = {
       workerId: "crashy",
       handlers,
+      retryBackoffMs,
       afterAppend: async (j: ResolutionJobRow, client: import("pg").PoolClient) => {
         // Events are in the transaction at this point...
         expect((await client.query("SELECT count(*)::int AS n FROM ledger_event WHERE causation_id = $1", [j.id])).rows[0].n).toBe(2);
@@ -197,7 +213,7 @@ describe("lease, complete, retry, park", () => {
       },
     };
     const { job } = await enqueueJob(pool, { id: "test:boom", kind: "boom", accountId: defender.accountId, caravanId: defender.caravanId, input: {} });
-    const outcomes = await drain(pool, { workerId: "w1", handlers: boom });
+    const outcomes = await drain(pool, { workerId: "w1", handlers: boom, retryBackoffMs });
     expect(outcomes.map((o) => o.kind)).toEqual(Array(JOB_MAX_ATTEMPTS).fill("failed"));
     const parked = (await getJob(pool, job.id))!;
     expect(parked).toMatchObject({ status: "parked", attempts: JOB_MAX_ATTEMPTS, last_error: "Error: always fails" });
@@ -207,7 +223,7 @@ describe("lease, complete, retry, park", () => {
 
   it("an unknown job kind fails and parks rather than committing anything", async () => {
     await enqueueJob(pool, { id: "test:unknown", kind: "no_such_kind", accountId: defender.accountId, caravanId: defender.caravanId, input: {} });
-    const outcomes = await drain(pool, { workerId: "w1", handlers });
+    const outcomes = await drain(pool, { workerId: "w1", handlers, retryBackoffMs });
     expect(outcomes.every((o) => o.kind === "failed")).toBe(true);
     expect((await getJob(pool, "test:unknown"))!.status).toBe("parked");
   });
@@ -218,9 +234,9 @@ describe("lease, complete, retry, park", () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
     // Slow worker: 1ms lease, then blocks until the fast worker has finished.
-    const slow = runOnce(pool, { workerId: "slow", handlers, visibilityTimeoutMs: 1, beforeComplete: () => gate });
+    const slow = runOnce(pool, { workerId: "slow", handlers, retryBackoffMs, visibilityTimeoutMs: 1, beforeComplete: () => gate });
     await sleep(30);
-    const fast = await runOnce(pool, { workerId: "fast", handlers });
+    const fast = await runOnce(pool, { workerId: "fast", handlers, retryBackoffMs });
     expect(fast.kind).toBe("completed");
     release();
     const slowOutcome = await slow;
@@ -234,7 +250,7 @@ describe("lease, complete, retry, park", () => {
   it("a lease that would exceed max_attempts parks the job instead", async () => {
     await enqueueJob(pool, { id: "test:expire-park", kind: TEST_COIN_KIND, accountId: defender.accountId, caravanId: defender.caravanId, input: { amount: 1 }, maxAttempts: 1 });
     const never = new Promise<void>(() => undefined);
-    void runOnce(pool, { workerId: "stuck", handlers, visibilityTimeoutMs: 1, beforeComplete: () => never });
+    void runOnce(pool, { workerId: "stuck", handlers, retryBackoffMs, visibilityTimeoutMs: 1, beforeComplete: () => never });
     await sleep(30);
     expect(await leaseNextJob(pool, "w2")).toBeNull();
     expect((await getJob(pool, "test:expire-park"))!.status).toBe("parked");
@@ -268,7 +284,7 @@ describe("history is frozen", () => {
   });
 
   it("the owner editing their party mid-resolution does not change what was resolved", async () => {
-    await drain(pool, { workerId: "setup", handlers });
+    await drain(pool, { workerId: "setup", handlers, retryBackoffMs });
     const { job } = await enqueueEncounter("trip-edit");
     const servedSavedAt = (job.input["party"] as { savedAt: string }).savedAt;
     const outcome = await runOnce(pool, {
@@ -311,8 +327,10 @@ describe("determinism", () => {
   });
 
   it("the handler has no access to anything but its input", () => {
-    const src = DEFAULT_HANDLERS.encounter_resolution.toString();
-    for (const banned of ["Date", "Math.random", "process.", "query(", "fetch("]) expect(src.includes(banned), banned).toBe(false);
+    for (const handler of [DEFAULT_HANDLERS.encounter_resolution, PLACEHOLDER_HANDLERS.encounter_resolution]) {
+      const src = handler.toString();
+      for (const banned of ["Date", "Math.random", "process.", "query(", "fetch("]) expect(src.includes(banned), banned).toBe(false);
+    }
   });
 
   it("every ledger event this suite wrote carries a deterministic causation id", async () => {

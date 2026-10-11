@@ -24,6 +24,47 @@ export async function lockAccountForAppend(client: pg.PoolClient, accountId: str
   await client.query("SELECT pg_advisory_xact_lock($1, hashtext($2))", [LOCK_NS_ACCOUNT, accountId]);
 }
 
+/**
+ * Take the append locks for several accounts, in SORTED id order, for the rest of the
+ * transaction. This is the one lock-ordering rule for the ledger (QA-02 S5): a transaction
+ * that will touch several accounts takes all of their locks here, up front, before it reads
+ * any balance or builds any draft. Two transactions that both do this can never deadlock,
+ * whatever accounts they share. (Advisory xact locks are re-entrant, so appendEvents
+ * re-taking them afterwards is harmless.)
+ */
+export async function lockAccountsForAppend(client: pg.PoolClient, accountIds: Iterable<string>): Promise<string[]> {
+  const ids = [...new Set(accountIds)].sort();
+  for (const id of ids) await lockAccountForAppend(client, id);
+  return ids;
+}
+
+/**
+ * Is this transaction already holding the append lock for `accountId`? Read from pg_locks
+ * for the current backend: a two-key advisory xact lock shows up with classid = key1,
+ * objid = key2 (as an unsigned 32-bit value) and objsubid = 2.
+ */
+export async function isAccountAppendLockHeld(client: pg.PoolClient, accountId: string): Promise<boolean> {
+  const res = await client.query<{ held: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM pg_locks
+       WHERE locktype = 'advisory' AND pid = pg_backend_pid() AND granted
+         AND classid = $1 AND objsubid = 2
+         AND objid::bigint = (hashtext($2)::bigint & 4294967295)
+     ) AS held`,
+    [LOCK_NS_ACCOUNT, accountId],
+  );
+  return res.rows[0]!.held;
+}
+
+/** Throw a readable error unless the append lock for `accountId` is held by this transaction. */
+export async function assertAccountAppendLockHeld(client: pg.PoolClient, accountId: string, what: string): Promise<void> {
+  if (!(await isAccountAppendLockHeld(client, accountId))) {
+    throw new Error(
+      `${what}: the append lock for account ${accountId} is not held. Take every account's lock first with lockAccountsForAppend(client, ids) (sorted order), then build drafts.`,
+    );
+  }
+}
+
 /** Take the per-caravan resolution lock (TRIP_LOCK_MODE) for the rest of the transaction. */
 export async function lockCaravanForResolution(client: pg.PoolClient, caravanId: string): Promise<void> {
   await client.query("SELECT pg_advisory_xact_lock($1, hashtext($2))", [LOCK_NS_CARAVAN, caravanId]);
@@ -32,7 +73,8 @@ export async function lockCaravanForResolution(client: pg.PoolClient, caravanId:
 /**
  * Append a batch of events under one causation id, inside the caller's transaction.
  * Events get causation_seq 0..n-1 in array order. Account locks are taken in sorted id
- * order (deadlock-free across concurrent batches). A retried cause that already committed
+ * order (deadlock-free across concurrent batches — PROVIDED the caller took no account
+ * lock out of order earlier in the transaction; see lockAccountsForAppend). A retried cause that already committed
  * hits the (causation_id, causation_seq) unique constraint and the whole batch fails —
  * callers that want "commit nothing new" semantics check for prior completion first (the
  * job worker does) and treat 23505 here as the backstop, never the primary mechanism.
@@ -76,6 +118,24 @@ export async function listEventsForAccount(
     [accountId, opts.afterSeq ?? 0, limit],
   );
   return res.rows;
+}
+
+/**
+ * One page of an account's ledger plus whether more follows (QA-02 S8). `limit` is the
+ * page size (1..500); one extra row is fetched to decide `hasMore`.
+ */
+export async function listEventsPageForAccount(
+  db: Queryable,
+  accountId: string,
+  opts: { afterSeq?: number; limit?: number } = {},
+): Promise<{ events: LedgerEventRow[]; hasMore: boolean }> {
+  const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500);
+  const res = await db.query<LedgerEventRow>(
+    `SELECT * FROM ledger_event WHERE account_id = $1 AND seq > $2 ORDER BY seq LIMIT $3`,
+    [accountId, opts.afterSeq ?? 0, limit + 1],
+  );
+  const hasMore = res.rows.length > limit;
+  return { events: hasMore ? res.rows.slice(0, limit) : res.rows, hasMore };
 }
 
 export async function listEventsByCausation(db: Queryable, causationId: string): Promise<LedgerEventRow[]> {

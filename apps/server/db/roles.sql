@@ -46,3 +46,32 @@ ALTER DEFAULT PRIVILEGES FOR ROLE caravan IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO caravan_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE caravan IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO caravan_app;
+
+-- ---------------------------------------------------------------------------------
+-- Projected columns are read-only for the app (QA-02 S1)
+-- ---------------------------------------------------------------------------------
+-- account.coin_balance and the progress numbers on pool_progress are PROJECTIONS of the
+-- ledger: the only legitimate writer is ledger_event_project(), which runs as the owner
+-- (SECURITY DEFINER, migration 002). Column-level privileges only bite when no table-level
+-- UPDATE is held, so revoke the table grant and re-grant UPDATE on every OTHER column.
+-- The column list is read from the catalog so a later migration that adds a column to
+-- either table does not have to remember this; re-run `pnpm db:roles` after migrating.
+REVOKE UPDATE ON TABLE account, pool_progress FROM caravan_app;
+DO $$
+DECLARE
+  cols text;
+BEGIN
+  SELECT string_agg(quote_ident(column_name), ', ' ORDER BY ordinal_position) INTO cols
+    FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'account'
+     AND column_name NOT IN ('coin_balance');
+  EXECUTE format('GRANT UPDATE (%s) ON TABLE account TO caravan_app', cols);
+
+  SELECT string_agg(quote_ident(column_name), ', ' ORDER BY ordinal_position) INTO cols
+    FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'pool_progress'
+     AND column_name NOT IN ('reputation', 'ladder_level', 'ladder_points',
+                             'unlock_points_granted', 'unlock_points_spent');
+  EXECUTE format('GRANT UPDATE (%s) ON TABLE pool_progress TO caravan_app', cols);
+END
+$$;

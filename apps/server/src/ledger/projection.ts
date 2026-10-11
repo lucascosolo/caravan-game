@@ -178,22 +178,53 @@ export function projectionKey(state: AccountProjection): string {
 }
 
 export interface VerifyResult {
+  /** True only when the live columns match the from-zero fold AND the latest snapshot does. */
   ok: boolean;
   live: AccountProjection;
   rebuilt: AccountProjection;
   eventsFolded: number;
+  /** Set when the fold itself could not run (a malformed payload, say). ok is false then. */
+  error?: string;
+  /** The latest checkpoint checked against a from-zero fold through its seq, if one exists. */
+  snapshot?: { throughSeq: number; ok: boolean; stored: AccountProjection; rebuilt: AccountProjection };
+}
+
+/** Snapshot state as stored, with zero rows for caravans created after it (same merge rebuildProjection uses). */
+function mergeSnapshotState(zero: AccountProjection, stored: AccountProjection): AccountProjection {
+  return { ...zero, ...stored, caravanPools: { ...zero.caravanPools, ...stored.caravanPools } };
 }
 
 /**
- * Rebuild from zero and compare with the live columns. Taken under the account's append
- * lock so no event lands between the two reads.
+ * Rebuild from zero and compare with the live columns, and compare the latest snapshot
+ * (if any) with a from-zero fold through its seq (QA-02 S7). Taken under the account's
+ * append lock so no event lands between the reads. NEVER THROWS for a bad ledger
+ * (QA-02 S3): a payload the fold cannot apply makes this return ok=false with `error`,
+ * so `ledger:rebuild` reports it as a mismatch and keeps checking other accounts.
  */
 export async function verifyProjection(pool: pg.Pool, accountId: string): Promise<VerifyResult> {
   return withTransaction(pool, async (client) => {
     await lockAccountForAppend(client, accountId);
     const live = await readLiveProjection(client, accountId);
-    const { state: rebuilt, eventsFolded } = await rebuildProjection(client, accountId);
-    return { ok: projectionKey(live) === projectionKey(rebuilt), live, rebuilt, eventsFolded };
+    const zero = zeroProjection(await caravanIdsOf(client, accountId));
+    try {
+      const { state: rebuilt, eventsFolded } = await rebuildProjection(client, accountId);
+      const result: VerifyResult = { ok: projectionKey(live) === projectionKey(rebuilt), live, rebuilt, eventsFolded };
+      const snap = await client.query<{ through_seq: number; state: AccountProjection }>(
+        "SELECT through_seq, state FROM ledger_snapshot WHERE account_id = $1 ORDER BY through_seq DESC LIMIT 1",
+        [accountId],
+      );
+      const row = snap.rows[0];
+      if (row) {
+        const stored = mergeSnapshotState(zero, row.state);
+        const through = await rebuildProjection(client, accountId, { throughSeq: row.through_seq });
+        const snapOk = projectionKey(stored) === projectionKey(through.state);
+        result.snapshot = { throughSeq: row.through_seq, ok: snapOk, stored, rebuilt: through.state };
+        if (!snapOk) result.ok = false;
+      }
+      return result;
+    } catch (err) {
+      return { ok: false, live, rebuilt: zero, eventsFolded: 0, error: err instanceof Error ? err.message : String(err) };
+    }
   });
 }
 

@@ -2,14 +2,16 @@
  * Concurrency, driven for real against Postgres with several workers at once:
  *   - one standing party served into many encounters simultaneously;
  *   - many resolutions for one account (two caravans) at the same time;
- *   - short leases + slow handlers so leases get stolen while work is in flight.
- * In every case: each job commits exactly once, balances equal the sum of the log, and
+ *   - short leases + slow handlers so leases expire while work is in flight: every stale
+ *     worker loses cleanly (QA-02 B1), nothing commits twice, and the operator path
+ *     re-queues the parked jobs under a lease that fits.
+ * In every case: no job commits more than once, balances equal the sum of the log, and
  * the party template is byte-identical afterwards.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withTransaction } from "../src/db/pool.js";
-import { DEFAULT_HANDLERS, enqueueEncounterResolution } from "../src/jobs/handlers/encounterResolution.js";
-import { countJobsByStatus, enqueueJob, getJob } from "../src/jobs/queue.js";
+import { PLACEHOLDER_HANDLERS, enqueueEncounterResolution } from "../src/jobs/handlers/encounterResolution.js";
+import { countJobsByStatus, enqueueJob, getJob, requeueParkedJob } from "../src/jobs/queue.js";
 import { drain, type HandlerRegistry, type RunOutcome } from "../src/jobs/worker.js";
 import { canonicalJson, type Json } from "../src/ledger/events.js";
 import { listEventsByCausation, listEventsForAccount } from "../src/ledger/ledger.js";
@@ -21,7 +23,7 @@ const pool = testPool();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const handlers: HandlerRegistry = {
-  ...DEFAULT_HANDLERS,
+  ...PLACEHOLDER_HANDLERS,
   test_coin: (job) => ({
     events: [
       { type: "coin_earned", accountId: job.accountId, payload: { amount: job.input["amount"] as number, reason: "test" } },
@@ -38,7 +40,7 @@ async function partyBytes(accountId: string): Promise<string> {
 }
 
 async function runWorkers(n: number, extra: Partial<Parameters<typeof drain>[1]> = {}): Promise<RunOutcome[]> {
-  const all = await Promise.all(Array.from({ length: n }, (_, i) => drain(pool, { workerId: `w${i}`, handlers, ...extra })));
+  const all = await Promise.all(Array.from({ length: n }, (_, i) => drain(pool, { workerId: `w${i}`, handlers, retryBackoffMs: () => 0, ...extra })));
   return all.flat();
 }
 
@@ -155,10 +157,13 @@ describe("many resolutions for one account at once", () => {
   });
 });
 
-describe("lease stealing under load", () => {
+describe("lease expiry under load (QA-02 B1)", () => {
   const JOBS = 24;
   let accountId: string;
   let caravanId: string;
+  const slowHandler = async (job: { id: string }) => {
+    await sleep(20 + (Number(job.id.split(":")[1]) % 3) * 10);
+  };
 
   beforeAll(async () => {
     const a = await registerAccount(pool, { username: unique("steal"), password: "password123", regionId: "desert" });
@@ -166,21 +171,28 @@ describe("lease stealing under load", () => {
     caravanId = a.caravan.id;
   });
 
-  it("with 5ms leases and 20-40ms handlers, every job still commits exactly once", async () => {
+  it("with 5ms leases and 20-40ms handlers every attempt loses cleanly: nothing commits, jobs park with 'lease expired'", async () => {
     for (let i = 0; i < JOBS; i++) {
-      await enqueueJob(pool, { id: `steal:${i}`, kind: "test_coin", accountId, caravanId, input: { amount: 3 }, maxAttempts: 50 });
+      await enqueueJob(pool, { id: `steal:${i}`, kind: "test_coin", accountId, caravanId, input: { amount: 3 }, maxAttempts: 4 });
     }
-    const outcomes = await runWorkers(5, {
-      visibilityTimeoutMs: 5,
-      beforeComplete: async (job) => {
-        await sleep(20 + (Number(job.id.split(":")[1]) % 3) * 10);
-      },
-    });
-    const completed = outcomes.filter((o) => o.kind === "completed").length;
-    const superseded = outcomes.filter((o) => o.kind === "superseded").length;
-    expect(completed).toBe(JOBS);
+    const outcomes = await runWorkers(5, { visibilityTimeoutMs: 5, beforeComplete: slowHandler });
+    expect(outcomes.filter((o) => o.kind === "completed").length).toBe(0);
     expect(outcomes.filter((o) => o.kind === "failed").length).toBe(0);
-    expect(superseded).toBeGreaterThan(0); // the scenario actually happened
+    expect(outcomes.filter((o) => o.kind === "superseded").length).toBeGreaterThan(0); // the scenario actually happened
+    expect(await countJobsByStatus(pool)).toMatchObject({ queued: 0, leased: 0, parked: JOBS }); // completed counts earlier describes' jobs
+    for (let i = 0; i < JOBS; i++) {
+      const job = (await getJob(pool, `steal:${i}`))!;
+      expect(job.last_error).toBe("lease expired");
+      expect((await listEventsByCausation(pool, job.id)).length).toBe(0);
+    }
+    expect((await readLiveProjection(pool, accountId)).coinBalance).toBe(0);
+  });
+
+  it("re-queued by the operator under a lease that fits the handler, every job commits exactly once", async () => {
+    for (let i = 0; i < JOBS; i++) expect((await requeueParkedJob(pool, `steal:${i}`))?.status).toBe("queued");
+    const outcomes = await runWorkers(5, { visibilityTimeoutMs: 5_000, beforeComplete: slowHandler });
+    expect(outcomes.filter((o) => o.kind === "completed").length).toBe(JOBS);
+    expect(outcomes.filter((o) => o.kind !== "completed").length).toBe(0);
     expect(await countJobsByStatus(pool)).toMatchObject({ queued: 0, leased: 0, parked: 0 });
     expect((await readLiveProjection(pool, accountId)).coinBalance).toBe(JOBS * 3);
     for (let i = 0; i < JOBS; i++) expect((await listEventsByCausation(pool, `steal:${i}`)).length).toBe(3);

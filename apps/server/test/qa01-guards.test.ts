@@ -95,8 +95,9 @@ describe("item 3: the server's DB role cannot switch the guards off", () => {
 
   it("can do ordinary DML (the game still works)", async () => {
     const { account } = await registerAccount(appDb, { username: unique("app"), password: "password123", regionId: "mountain" });
-    const res = await appDb.query("UPDATE account SET coin_balance = 5 WHERE id = $1 RETURNING coin_balance", [account.id]);
-    expect(res.rows[0]).toEqual({ coin_balance: 5 });
+    // coin_balance is a ledger projection the app role may no longer write (QA-02 S1); any other column still works.
+    const res = await appDb.query("UPDATE account SET coin_storage_cap = coin_storage_cap + 5 WHERE id = $1 RETURNING coin_storage_cap", [account.id]);
+    expect(res.rows[0]).toEqual({ coin_storage_cap: account.coin_storage_cap + 5 });
     await appDb.query("DELETE FROM session WHERE account_id = $1", [account.id]);
   });
 
@@ -120,7 +121,8 @@ describe("item 3: the server's DB role cannot switch the guards off", () => {
 
   it("the guards still bite through the app role, so they are not merely owner-only policy", async () => {
     const dec = await expectDbError(appDb, "UPDATE pool_progress SET ladder_level = ladder_level - 1 WHERE id = $1", [livingId]);
-    expect(dec?.code).toBe("23514");
+    // Since QA-02 S1 the app role cannot write ladder_level at all (42501); the permanence trigger (23514) is behind that.
+    expect(["23514", "42501"]).toContain(dec?.code);
     const del = await expectDbError(appDb, "DELETE FROM caravan WHERE id = $1", [caravanId]);
     expect(del?.code).toBe("23514");
   });
