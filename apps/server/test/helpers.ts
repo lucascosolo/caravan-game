@@ -20,13 +20,27 @@ export function appRolePool(): pg.Pool {
   return createPool(appRoleUrl(resolveTestDatabaseUrl()));
 }
 
-/** Run a statement and return the error it throws (or null). */
+/**
+ * Run a statement and return the error it throws (or null).
+ *
+ * node-pg rejects a query on the server's ErrorResponse, which Postgres sends BEFORE it
+ * aborts the failed transaction, so for a moment the backend still holds the row locks the
+ * failed statement took. A test that next leases on ANOTHER connection (`FOR UPDATE SKIP
+ * LOCKED`) could skip the very row it just probed and see an empty queue (qa02-round2's
+ * "idle where completed was expected", only under CPU load). So the statement runs on a
+ * dedicated connection, and one more round trip on that connection (answered only after the
+ * abort has released its locks) completes before this returns.
+ */
 export async function expectDbError(db: pg.Pool, sql: string, params: unknown[] = []): Promise<(Error & { code?: string }) | null> {
+  const client = await db.connect();
   try {
-    await db.query(sql, params);
+    await client.query(sql, params);
     return null;
   } catch (err) {
     return err as Error & { code?: string };
+  } finally {
+    await client.query("SELECT 1").catch(() => undefined);
+    client.release();
   }
 }
 

@@ -16,6 +16,8 @@ export interface InboxStrikeView {
   readonly defender: { readonly username: string | null; readonly caravanName: string | null; readonly regionId: string | null };
   readonly coinEarned: number;
   readonly coinTransferred: number;
+  /** What the owner's storage cap discarded from this strike's credits (the results feed's number). */
+  readonly coinDiscardedAtCap: number;
   readonly reputationDelta: number;
   readonly ladderPointsGained: number;
 }
@@ -33,6 +35,8 @@ export interface StrikeDetailView {
   readonly ladderPointsGained: number;
   readonly windowStartMs: number;
   readonly windowEndMs: number;
+  /** False for an older batch sent without its lines: fetch them with `inboxStrikes(window)`. */
+  readonly linesIncluded: boolean;
   readonly strikes: readonly InboxStrikeView[];
   readonly notListed: number;
 }
@@ -93,6 +97,8 @@ export interface InboxView {
   readonly items: readonly InboxItemView[];
   readonly unreadCount: number;
   readonly preferences: readonly InboxPreferenceView[];
+  /** Strike batches not listed (past the 30th, or older than the horizon); null when none. The results feed has them. */
+  readonly olderStrikes: { readonly batchesPastLimit: number; readonly beforeHorizon: boolean } | null;
   readonly strikeBatchWindowMs: number;
   readonly horizonMs: number;
   readonly delivery: "in_app";
@@ -102,4 +108,18 @@ export interface InboxUnreadView {
   readonly unreadCount: number;
 }
 
-export type InboxMarkRequest = { readonly all: true } | { readonly marks: readonly { readonly key: string; readonly version: number }[] };
+/** The key and the version the client is SHOWING, for each item to mark (there is no "mark everything": chunk 29 QA S1). */
+export interface InboxMarkRequest {
+  readonly marks: readonly { readonly key: string; readonly version: number }[];
+}
+
+/** The inbox after a mark, plus the keys it no longer shows (nothing was stored for them). */
+export interface InboxMarkResult extends InboxView {
+  readonly ignored: readonly string[];
+}
+
+/** GET /me/inbox/strikes/:window — one older batch's lines. */
+export interface InboxStrikeLinesView {
+  readonly window: number;
+  readonly strikes: readonly InboxStrikeView[];
+}

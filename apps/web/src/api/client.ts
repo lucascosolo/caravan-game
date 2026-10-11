@@ -49,8 +49,8 @@ import {
 } from "./shapes.ts";
 import { bankResultShape, encounterCommitShape, pushResultShape, stakesPreviewShape, tripStartShape, tripStatusShape } from "./tripShapes.ts";
 import { replayShape } from "./replayShapes.ts";
-import { inboxShape, inboxUnreadShape } from "./inboxShapes.ts";
-import type { InboxCategoryView, InboxMarkRequest, InboxUnreadView, InboxView } from "./inboxTypes.ts";
+import { inboxMarkResultShape, inboxShape, inboxStrikeLinesShape, inboxUnreadShape } from "./inboxShapes.ts";
+import type { InboxCategoryView, InboxMarkRequest, InboxMarkResult, InboxStrikeLinesView, InboxUnreadView, InboxView } from "./inboxTypes.ts";
 import { onboardingChangeShape, onboardingShape, type OnboardingChange, type OnboardingResponse } from "../onboarding/shapes.ts";
 import type { OnboardingStep } from "../onboarding/steps.ts";
 import type { ReplayView } from "./replayTypes.ts";
@@ -194,7 +194,9 @@ export interface Api {
   // The in-app inbox (chunk 29 routes). Derived by the server; read state is the server's.
   inbox(): Promise<InboxView>;
   inboxUnread(): Promise<InboxUnreadView>;
-  markInboxRead(req: InboxMarkRequest): Promise<InboxView>;
+  markInboxRead(req: InboxMarkRequest): Promise<InboxMarkResult>;
+  /** One older strike batch's lines (the inbox itemizes only the newest batches). */
+  inboxStrikes(window: number): Promise<InboxStrikeLinesView>;
   setInboxPreferences(preferences: Partial<Record<InboxCategoryView, boolean>>): Promise<InboxView>;
   // The first-session guide (chunk 24 routes). Account-level, forward-only; a marker of what the
   // player has seen, never a grant. Skip is refused (409 `onboarding_first_screen`) on the first screen.
@@ -303,7 +305,8 @@ export function createApi(opts: ApiOptions): Api {
     replay: (jobId) => request("GET", `/me/encounters/${encodeURIComponent(jobId)}/replay`, replayShape),
     inbox: () => request("GET", "/me/inbox", inboxShape),
     inboxUnread: () => request("GET", "/me/inbox/unread", inboxUnreadShape),
-    markInboxRead: (req) => request("POST", "/me/inbox/read", inboxShape, req),
+    markInboxRead: (req) => request("POST", "/me/inbox/read", inboxMarkResultShape, req),
+    inboxStrikes: (window) => request("GET", `/me/inbox/strikes/${encodeURIComponent(String(window))}`, inboxStrikeLinesShape),
     setInboxPreferences: (preferences) => request("PUT", "/me/inbox/preferences", inboxShape, { preferences }),
     onboarding: () => request("GET", "/me/onboarding", onboardingShape),
     advanceOnboarding: (step) => request("POST", "/me/onboarding/advance", onboardingChangeShape, { step }),

@@ -264,6 +264,11 @@ describe("S4: the worker settles in its completion transaction; the owner is pai
     const [credit] = await byCause(transferCausationId(jobId));
     expect(credit!.payload).toMatchObject({ reason: "party_loot", amount: 5, overflowDiscarded: loot - 5 });
     expect(await balanceOf(owner)).toBe(cap);
+    // Retire this capped owner from the pool: later tests draw from the twelve owners by seed
+    // (random trip ids), and one that drew an owner with no headroom would see its credits
+    // clamped (the overrun test's transfer + party win). Siege 0 is beyond ±WIDTH_MAX of every
+    // centre searched in this file.
+    await pool.query("UPDATE pool_progress SET reputation = 0 WHERE account_id = $1 AND pool = 'siege'", [owner]);
   });
 
   it("an overrun pays the transfer + party win and NO loot; a stalemate pays the owner nothing", async () => {
@@ -294,18 +299,26 @@ describe("S4: the worker settles in its completion transaction; the owner is pai
 
   it("a system (authored) owner: the reported loot is 0 and nothing is credited, at resolution or later", async () => {
     await seedAuthoredParties(appRole);
-    const d = await makeDefender();
-    await pool.query("UPDATE pool_progress SET reputation = 4000 WHERE caravan_id = $1 AND pool = 'living'", [d.caravanId]);
-    await pack(d);
-    const tripId = await start(d);
-    await searchAndChoose(d, 1, (cs) => cs.find((c) => c.owner.authored)!.candidateId);
-    const jobId = await arrangeAndCommit(d, 1);
-    const job = (await getJob(pool, jobId))!;
-    expect((job.input as { partyLootFull: number }).partyLootFull).toBe(0);
-    await hooked(doubleHandlers({ 1: { kind: "caravan_held", depth: 1000 } }));
-    expect((await getJob(pool, jobId))!.result).toMatchObject({ outcome: { kind: "caravan_held", loot: 0 } });
-    expect(await byCause(transferCausationId(jobId))).toEqual([]);
-    expect((await pool.query("SELECT 1 FROM trip_encounter WHERE trip_id = $1", [tripId])).rowCount).toBe(1);
+    try {
+      const d = await makeDefender();
+      await pool.query("UPDATE pool_progress SET reputation = 4000 WHERE caravan_id = $1 AND pool = 'living'", [d.caravanId]);
+      await pack(d);
+      const tripId = await start(d);
+      await searchAndChoose(d, 1, (cs) => cs.find((c) => c.owner.authored)!.candidateId);
+      const jobId = await arrangeAndCommit(d, 1);
+      const job = (await getJob(pool, jobId))!;
+      expect((job.input as { partyLootFull: number }).partyLootFull).toBe(0);
+      await hooked(doubleHandlers({ 1: { kind: "caravan_held", depth: 1000 } }));
+      expect((await getJob(pool, jobId))!.result).toMatchObject({ outcome: { kind: "caravan_held", loot: 0 } });
+      expect(await byCause(transferCausationId(jobId))).toEqual([]);
+      expect((await pool.query("SELECT 1 FROM trip_encounter WHERE trip_id = $1", [tripId])).rowCount).toBe(1);
+    } finally {
+      // Retire the authored set again (owner role, as the suite's per-file reset does). The later
+      // tests' default pick is "the first live candidate", and with 96 authored parties in the
+      // pool a seeded draw (random trip ids) can serve three authored parties, leaving no live
+      // candidate to pick. Later tests draw from the twelve live owners the beforeAll made.
+      await pool.query("DELETE FROM account WHERE is_system");
+    }
   });
 
   it("a settle that fails inside the worker is rolled back alone: the resolution commits and the lazy settle still folds it once", async () => {

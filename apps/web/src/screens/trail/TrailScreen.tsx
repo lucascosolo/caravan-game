@@ -384,7 +384,7 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
     case "decide":
       return deciding ? (
         <>
-        {guiding && <ResultGuide encounter={state.encounter} deciding />}
+        {guiding && <ResultGuide encounter={state.encounter} deciding api={api} caravanId={state.caravanId} />}
         <BankOrPushScreen api={api} caravanId={state.caravanId} tripId={state.tripId} encounterIndex={state.encounter.index} onDecided={decided} onStale={stale} />
         </>
       ) : (

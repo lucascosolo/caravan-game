@@ -70,6 +70,18 @@ export async function listPartyFeed(db: Queryable, accountId: string, opts: { be
   const hasMore = page.rows.length > limit;
   const served = hasMore ? page.rows.slice(0, limit) : page.rows;
   if (served.length === 0) return { entries: [], nextBefore: 0, hasMore: false };
+  const entries = await partyFeedEntries(db, accountId, served);
+  return { entries, nextBefore: hasMore ? served.at(-1)!.seq : 0, hasMore };
+}
+
+/**
+ * The feed's entries for already-read `party_served_as_encounter` rows of `accountId` (in the
+ * order given). Exported for the inbox (chunk 29 QA S4): it picks its rows by time window in
+ * one query and builds every line through this, so each line is exactly the feed's entry.
+ * Two queries, however many rows.
+ */
+export async function partyFeedEntries(db: Queryable, accountId: string, served: readonly LedgerEventRow[]): Promise<PartyFeedEntry[]> {
+  if (served.length === 0) return [];
 
   // A resolution's owner-side effects live under three causation ids: the job's own (what the
   // worker committed), `progression:<jobId>` (chunk 15's settle runs chunk 04's writer under
@@ -157,5 +169,5 @@ export async function listPartyFeed(db: Queryable, accountId: string, opts: { be
       ladderPointsGained,
     };
   });
-  return { entries, nextBefore: hasMore ? served.at(-1)!.seq : 0, hasMore };
+  return entries;
 }

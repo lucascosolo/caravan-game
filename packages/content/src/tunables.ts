@@ -821,6 +821,20 @@ export const TUNABLES = {
    */
   UNIT_INVENTORY_CAP: 200,
 
+  // ── BEGIN STARTING_ROSTER (chunk 24 QA D1 mechanism; the balance pass owns the value) ──
+  /**
+   * TUNABLE (chunk 24 QA D1, PHASE-2 §24 "the starting roster"). What EVERY new caravan is
+   * granted at creation, through the ordinary acquisition grant (`grantUnit`: the access
+   * check, a level-1 instance, one `unit_acquired` event with source "starting_roster" and
+   * coinCost 0 per instance). `copiesPerStarterType` level-1 copies of each of the caravan's
+   * region's STARTING living types (the living web's tier-0 nodes, which every caravan has
+   * reached free at creation) — so it can never reach outside the starting nodes
+   * (GUARDRAILS §3), grants no Coin and no unlock point, and is the same rule for every
+   * caravan (not a tutorial gift). 0 turns it off. An integer, never negative.
+   */
+  STARTING_ROSTER: { copiesPerStarterType: 1 },
+  // ── END STARTING_ROSTER ──
+
   // ────────────────────────────────────────────────────────────────────────────────────
   // Chunk 17 — the home town's merge board. Presentation-side limits only: the board is a
   // working surface backed by the overflow inventory (UNIT_INVENTORY_CAP above), so it can

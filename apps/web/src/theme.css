@@ -924,6 +924,18 @@ h2 {
 .inbox-new {
   font-weight: 700;
 }
+/* QA S3: a caravan name may be 40 characters with no space; let it break rather than widen the page. */
+.inbox .card__line,
+.inbox .hint {
+  overflow-wrap: anywhere;
+}
+.inbox-older {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
 .inbox-strikes {
   list-style: none;
   padding: 0;
@@ -994,6 +1006,13 @@ h2 {
 .guide__skip {
   margin-top: 0.5rem;
   background: transparent;
+}
+/* QA S4: the guided arrangement shows its next step in full; the rest, and the why, fold away. */
+.guide__all {
+  margin-top: 0.5rem;
+}
+.guide__all > summary {
+  font-weight: 400;
 }
 .welcome__lead {
   font-size: 1.0625rem;

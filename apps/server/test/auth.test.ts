@@ -3,6 +3,7 @@
  */
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { startingRosterTypes } from "../src/acquisition/startingRoster.js";
 import { buildApp } from "../src/app.js";
 import { testPool, truncateAll, unique } from "./helpers.js";
 
@@ -68,7 +69,9 @@ describe("auth flow", () => {
     expect(body.account.username).toBe(username);
     expect(Array.isArray(body.caravans)).toBe(true);
     expect(body.caravans).toHaveLength(1);
-    expect(body.caravans[0].units).toEqual([]);
+    // Chunk 24 QA D1: the starting roster, level 1, nothing else.
+    expect(body.caravans[0].units.map((u: { unit_type_id: string }) => u.unit_type_id).sort()).toEqual(startingRosterTypes("desert"));
+    expect(body.caravans[0].units.every((u: { merge_level: number }) => u.merge_level === 1)).toBe(true);
     expect(body.poolProgress.map((p: { pool: string }) => p.pool).sort()).toEqual(["living", "siege", "trap"]);
   });
 
