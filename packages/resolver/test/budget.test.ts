@@ -35,10 +35,14 @@ describe("budgets", () => {
     const time = (f: () => unknown, runs: number) => {
       f();
       const times: number[] = [];
+      // CPU time of this process (vitest runs each file in its own forked worker), not wall time:
+      // the bound is the resolver's cost, and a runner loaded by other test files (QA-13 S6) must
+      // not fail it. The bounds are unchanged.
       for (let i = 0; i < runs; i++) {
-        const start = performance.now();
+        const start = process.cpuUsage();
         f();
-        times.push(performance.now() - start);
+        const used = process.cpuUsage(start);
+        times.push((used.user + used.system) / 1000);
       }
       return times.sort((a, b) => a - b);
     };
