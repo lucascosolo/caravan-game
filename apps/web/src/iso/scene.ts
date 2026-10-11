@@ -21,7 +21,7 @@
  * Replay (chunk 22): `replayUnits` and `marks` in the state. Entity positions are world points, not cells. A replay feeds interpolated
  * positions straight in (`fixedToWorld` on the log's fixed-point coordinates).
  */
-import { Application, Container, Graphics, Text } from "pixi.js";
+import { Application, Container, Graphics, Text, UPDATE_PRIORITY } from "pixi.js";
 import { TUNABLES } from "@caravan/content";
 import {
   TILE_H,
@@ -89,6 +89,37 @@ const SCRUB: readonly { x: number; y: number; r: number }[] = [
   { x: 38, y: 16, r: 0.4 },
 ];
 
+/** QA-22 N9: the ticker sleeps after this many frames with nothing changing (it wakes on any update, camera move or resize). */
+const IDLE_FRAMES_BEFORE_STOP = 3;
+
+/** Per canvas element: the mounts queued on it, run one after another (QA-22 N9). */
+interface CanvasSlot {
+  chain: Promise<void>;
+  queued: number;
+}
+const SLOTS = new WeakMap<HTMLCanvasElement, CanvasSlot>();
+function canvasSlot(canvas: HTMLCanvasElement): CanvasSlot {
+  let s = SLOTS.get(canvas);
+  if (!s) {
+    s = { chain: Promise.resolve(), queued: 0 };
+    SLOTS.set(canvas, s);
+  }
+  return s;
+}
+
+/**
+ * Destroy an Application. When another scene is about to mount on the same canvas it will get
+ * the SAME WebGL context back from `getContext`, so the context must not be force-lost here
+ * (PixiJS's GlContextSystem.destroy calls WEBGL_lose_context.loseContext()).
+ */
+function destroyApp(app: Application, keepContext: boolean): void {
+  if (keepContext) {
+    const ctx = (app.renderer as unknown as { context?: { extensions?: { loseContext?: unknown } } }).context;
+    if (ctx?.extensions) ctx.extensions.loseContext = null;
+  }
+  app.destroy(false, { children: true });
+}
+
 function pts(points: readonly { x: number; y: number }[]): number[] {
   const out: number[] = [];
   for (const p of points) out.push(p.x, p.y);
@@ -108,7 +139,15 @@ export class IsoScene {
   private readonly nodes = new Map<string, { sig: string; node: Container }>();
   private ghostSig = "";
   private readonly entities = new Container();
+  /** Chunk 22 QA S5: replay marks sit ABOVE the units, so a death cross or an ability star is never hidden by a sprite. */
+  private readonly marksLayer = new Graphics();
   private readonly ghost = new Container();
+  /** Chunk 22 QA N9: destroy() was called (possibly before `mount` finished initialising). */
+  private disposed = false;
+  /** Frames the renderer has drawn (a probe: the e2e and tests read it to prove the canvas keeps updating). */
+  private frames = 0;
+  /** Idle frames since the last change; the ticker stops after a few (QA N9: no rAF while nothing moves). */
+  private idleFrames = 0;
   private readonly skins: SkinRegistry;
   private latticeTarget = 0;
   private state: IsoSceneState | null = null;
@@ -120,29 +159,59 @@ export class IsoScene {
   private mineWheelAngle = 0;
   /** `prefers-reduced-motion`, live: the canvas follows changes to the setting (QA-17 N7). */
   private reducedMotion: boolean;
+  /** The canvas this scene mounted on (QA-22 N9: mounts on one element are serialized). */
+  private canvas: HTMLCanvasElement | null = null;
 
   constructor(private readonly opts: SceneOptions) {
     this.skins = opts.skins ?? PLACEHOLDER_SKINS;
     this.entities.sortableChildren = true;
     this.lattice.alpha = 0;
     this.reducedMotion = opts.reducedMotion;
-    this.world.addChild(this.island, this.lattice, this.threatLayer, this.overlays, this.entities, this.ghost);
+    this.world.addChild(this.island, this.lattice, this.threatLayer, this.overlays, this.entities, this.marksLayer, this.ghost);
   }
 
-  /** Create the renderer on a canvas. Resolves once the first frame can draw; rejects if WebGL is unavailable. */
+  /**
+   * Create the renderer on a canvas. Resolves once the first frame can draw; rejects if WebGL is unavailable.
+   *
+   * QA-22 N9: mounts on ONE canvas element are serialized (React StrictMode mounts, unmounts and
+   * remounts on the same element before the first `app.init` resolves). A scene destroyed before
+   * its init finished destroys its Application as soon as it exists — without forcing a context
+   * loss when a later scene is queued on the same canvas, since that scene will use the same
+   * WebGL context. Before this, the first Application was never destroyed and kept drawing stale
+   * state on the shared canvas ("location is not from the associated program").
+   */
   async mount(canvas: HTMLCanvasElement, width: number, height: number): Promise<void> {
-    const app = new Application();
-    await app.init({
-      canvas,
-      width,
-      height,
-      background: this.opts.background,
-      antialias: true,
-      resolution: Math.min(2, typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1),
-      autoDensity: true,
-      preference: "webgl",
-    });
-    this.app = app;
+    const slot = canvasSlot(canvas);
+    slot.queued += 1;
+    const prior = slot.chain;
+    let release!: () => void;
+    slot.chain = new Promise<void>((r) => (release = r));
+    try {
+      await prior;
+      slot.queued -= 1;
+      if (this.disposed) return;
+      const app = new Application();
+      await app.init({
+        canvas,
+        width,
+        height,
+        background: this.opts.background,
+        antialias: true,
+        resolution: Math.min(2, typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1),
+        autoDensity: true,
+        preference: "webgl",
+      });
+      if (this.disposed) {
+        destroyApp(app, slot.queued > 0);
+        return;
+      }
+      this.app = app;
+      this.canvas = canvas;
+    } finally {
+      release();
+    }
+    const app = this.app;
+    if (!app) return;
     // QA N3: PixiJS's AccessibilitySystem (loaded with the browser extensions during init)
     // builds its own hidden DOM overlay on Tab — and a touch "hook" button on mobile — which
     // would duplicate, out of date, the DOM lists that ARE this scene's text alternative.
@@ -153,7 +222,39 @@ export class IsoScene {
     this.drawIsland();
     this.drawLattice();
     app.ticker.add((ticker) => this.tick(ticker.deltaMS));
+    // After the render (LOW priority): count the frame, then stop the ticker once nothing has changed for a few frames.
+    app.ticker.add(
+      () => {
+        this.frames += 1;
+        if (this.animating()) this.idleFrames = 0;
+        else if (++this.idleFrames >= IDLE_FRAMES_BEFORE_STOP) app.ticker.stop();
+      },
+      undefined,
+      UPDATE_PRIORITY.UTILITY,
+    );
     if (this.state) this.update(this.state);
+  }
+
+  /** Frames drawn so far (a probe for tests and the e2e: a canvas that stops updating stops counting). */
+  get framesDrawn(): number {
+    return this.frames;
+  }
+
+  /** Whether the ticker is running (QA N9: it sleeps while nothing changes). */
+  get ticking(): boolean {
+    return this.app?.ticker.started ?? false;
+  }
+
+  /** Something on screen is still moving by itself: the lattice fade, or the town's mine wheel. */
+  private animating(): boolean {
+    return this.lattice.alpha !== this.latticeTarget || (this.mineWheel !== null && this.mineActive && !this.reducedMotion);
+  }
+
+  /** A change was made: draw again (restart the ticker if it went to sleep). */
+  private wake(): void {
+    this.idleFrames = 0;
+    const t = this.app?.ticker;
+    if (t && !t.started) t.start();
   }
 
   /** Whether PixiJS's accessibility overlay is active (it must never be, QA N3; the e2e presses Tab and asks). */
@@ -168,16 +269,19 @@ export class IsoScene {
 
   resize(width: number, height: number): void {
     this.app?.renderer.resize(width, height);
+    this.wake();
   }
 
   setCamera(cam: Camera): void {
     this.world.position.set(cam.offsetX, cam.offsetY);
     this.world.scale.set(cam.zoom);
+    this.wake();
   }
 
   destroy(): void {
+    this.disposed = true;
     this.mounted = false;
-    this.app?.destroy(false, { children: true });
+    if (this.app) destroyApp(this.app, this.canvas !== null && canvasSlot(this.canvas).queued > 0);
     this.app = null;
   }
 
@@ -205,6 +309,7 @@ export class IsoScene {
   setReducedMotion(reduced: boolean): void {
     this.reducedMotion = reduced;
     if (reduced) this.lattice.alpha = this.latticeTarget;
+    this.wake();
   }
 
   /** Current lattice opacity: tests and the e2e assert it is 0 whenever nothing is dragged. */
@@ -278,7 +383,16 @@ export class IsoScene {
     this.drawThreat(state);
     this.drawOverlays(state);
     this.drawEntities(state);
+    this.drawMarks(state);
     this.drawGhost(state);
+    this.wake();
+  }
+
+  /** Replay marks (chunk 22): one shape per kind of log row, fading with age, ABOVE the units (QA S5). */
+  private drawMarks(state: IsoSceneState): void {
+    const g = this.marksLayer;
+    g.clear();
+    for (const m of state.marks ?? []) this.drawMark(g, m);
   }
 
   private drawThreat(state: IsoSceneState): void {
@@ -328,37 +442,64 @@ export class IsoScene {
     if (state.showRadii) for (const p of state.posts) this.drawRadii(g, p.pos, p, p.selected ? 0.9 : 0.5);
     // Entry-band tint for the core so the goal is readable.
     if ((geo.fixtures ?? "circle") === "circle") for (const c of geo.coreCells) g.poly(pts(cellDiamond(c))).fill({ color: PALETTE.core, alpha: 0.18 });
-    // Replay marks (chunk 22): one shape per kind of log row, fading with age.
-    for (const m of state.marks ?? []) this.drawMark(g, m);
   }
 
-  /** A replay mark: the shape says what happened (colour is a second channel, never the only one). */
+  /**
+   * A replay mark: the shape says what happened (colour is a second channel, never the only one).
+   * Sized to at least a unit's footprint (QA S5); a mark over a unit is lifted to the unit's body.
+   */
   private drawMark(g: Graphics, m: ReplayMarkEntity): void {
     const c = project(m.pos);
     const alpha = Math.max(0, Math.min(1, 1 - m.age)) * 0.95;
-    const r = TILE_W * (0.35 + 0.25 * m.age);
+    const r = TILE_W * (0.62 + 0.3 * m.age);
+    const body = TILE_H * 0.35; // a unit marker's centre sits this far above its ground point
     switch (m.kind) {
+      case "hit":
+      case "fence_hit": {
+        if (!m.from) break;
+        const a = project(m.from);
+        const ay = a.y - body;
+        const by = m.kind === "hit" ? c.y - body : c.y - TILE_H * 0.5;
+        if (m.kind === "hit") {
+          g.moveTo(a.x, ay).lineTo(c.x, by).stroke({ width: 2.5, color: PALETTE.hit, alpha });
+        } else {
+          // Dashed: a blow on a fence, not on a unit.
+          const n = 6;
+          for (let i = 0; i < n; i += 2) {
+            g.moveTo(a.x + ((c.x - a.x) * i) / n, ay + ((by - ay) * i) / n).lineTo(a.x + ((c.x - a.x) * (i + 1)) / n, ay + ((by - ay) * (i + 1)) / n);
+          }
+          g.stroke({ width: 2.5, color: PALETTE.hit, alpha });
+        }
+        // A small burst where it landed.
+        g.circle(c.x, by, 3 + 3 * (1 - m.age)).fill({ color: PALETTE.hit, alpha: alpha * 0.8 });
+        break;
+      }
       case "trap":
-        g.ellipse(c.x, c.y, r, r / 2).stroke({ width: 3, color: PALETTE.trap, alpha });
+        g.ellipse(c.x, c.y, r, r / 2).stroke({ width: 3.5, color: PALETTE.trap, alpha });
         break;
-      case "death":
-        g.moveTo(c.x - r / 2, c.y - r / 4).lineTo(c.x + r / 2, c.y + r / 4).moveTo(c.x + r / 2, c.y - r / 4).lineTo(c.x - r / 2, c.y + r / 4);
-        g.stroke({ width: 3, color: PALETTE.outlineDark, alpha });
+      case "death": {
+        const y = c.y - body;
+        g.moveTo(c.x - r / 2, y - r / 4).lineTo(c.x + r / 2, y + r / 4).moveTo(c.x + r / 2, y - r / 4).lineTo(c.x - r / 2, y + r / 4);
+        g.stroke({ width: 6, color: PALETTE.outlineDark, alpha });
+        g.moveTo(c.x - r / 2, y - r / 4).lineTo(c.x + r / 2, y + r / 4).moveTo(c.x + r / 2, y - r / 4).lineTo(c.x - r / 2, y + r / 4);
+        g.stroke({ width: 3, color: PALETTE.lattice, alpha });
         break;
+      }
       case "fence":
-        g.rect(c.x - r / 2, c.y - r / 4, r, r / 2).stroke({ width: 3, color: PALETTE.attacker, alpha });
+        g.rect(c.x - r / 2, c.y - r / 4 - body, r, r / 2).stroke({ width: 3.5, color: PALETTE.fenceBreak, alpha });
         break;
       case "ability": {
-        const spikes = 5;
+        const spikes = 6;
+        const y = c.y - body;
         for (let i = 0; i < spikes; i++) {
           const a = (i / spikes) * Math.PI * 2;
-          g.moveTo(c.x, c.y).lineTo(c.x + Math.cos(a) * r * 0.6, c.y + (Math.sin(a) * r * 0.6) / 2);
+          g.moveTo(c.x + Math.cos(a) * r * 0.2, y + (Math.sin(a) * r * 0.2) / 2).lineTo(c.x + Math.cos(a) * r * 0.6, y + (Math.sin(a) * r * 0.6) / 2);
         }
-        g.stroke({ width: 2, color: PALETTE.siege, alpha });
+        g.stroke({ width: 3, color: PALETTE.siege, alpha });
         break;
       }
       case "core":
-        g.poly(pts([{ x: c.x, y: c.y - r / 2 }, { x: c.x + r, y: c.y }, { x: c.x, y: c.y + r / 2 }, { x: c.x - r, y: c.y }])).stroke({ width: 3, color: PALETTE.core, alpha });
+        g.poly(pts([{ x: c.x, y: c.y - r / 2 }, { x: c.x + r, y: c.y }, { x: c.x, y: c.y + r / 2 }, { x: c.x - r, y: c.y }])).stroke({ width: 3.5, color: PALETTE.core, alpha });
         break;
     }
   }
@@ -500,17 +641,25 @@ export class IsoScene {
     // Replay units (chunk 22): both sides, wherever the log puts them; HP bar from the log's HP.
     for (const u of state.replayUnits ?? []) {
       // HP is quantized for the node signature only, so a unit is rebuilt on a visible change, not every hit point.
+      // (QA S4: a single hit can move nothing here; the hit's own mark shows it.)
       const hpQ = Math.round(Math.max(0, Math.min(1, u.hpFraction)) * 20);
-      this.keep(seen, `replay:${u.id}`, `${u.typeId}|${u.level}|${u.side}|${hpQ}`, u.pos, 2, () => {
+      this.keep(seen, `replay:${u.id}`, `${u.typeId}|${u.level}|${u.side}|${hpQ}|${u.stance ?? ""}|${u.highlighted ? 1 : 0}`, u.pos, 2, () => {
         const node = new Container();
+        if (u.highlighted) {
+          const ring = new Graphics();
+          ring.ellipse(0, 0, TILE_W * 0.55, TILE_H * 0.55).stroke({ width: 3, color: PALETTE.core, alpha: 1 });
+          node.addChild(ring);
+        }
         if (u.side === "attacker") node.addChild(this.dashedRing());
-        const m = this.marker(this.skins.unit(u.typeId, u.side), { x: 0, y: 0 }, 1, 2, false);
+        const m = this.marker(this.skins.unit(u.typeId, u.side), { x: 0, y: 0 }, 1, 2, u.highlighted ?? false);
         m.position.set(0, 0);
         node.addChild(m);
         const bar = this.hpBar(hpQ / 20, u.side === "attacker" ? PALETTE.attacker : PALETTE.defender);
         bar.position.set(0, -TILE_H * 1.15);
         node.addChild(bar);
         node.addChild(this.badge(String(u.level), TILE_W * 0.22, -TILE_H * 0.55));
+        if (u.stance === "guard" || u.stance === "hold" || u.stance === "reserve") node.addChild(this.stanceMark(u.stance));
+        else if (u.stance) node.addChild(this.raiderStanceMark(u.stance));
         return node;
       });
     }
@@ -720,6 +869,22 @@ export class IsoScene {
     if (stance === "guard") g.moveTo(-5, y + 4).lineTo(0, y - 2).lineTo(5, y + 4).stroke({ width: 2, color: 0xf1e9d6 });
     else if (stance === "hold") g.rect(-4, y - 2, 8, 6).fill(0xf1e9d6);
     else g.circle(0, y + 1, 4).stroke({ width: 2, color: 0xf1e9d6 });
+    return g;
+  }
+
+  /**
+   * A raider's targeting stance (chunk 22 QA D1), told apart by shape: nearest = a dot in a
+   * ring (whatever is closest), traps = a downward triangle (the trap glyph), core = a small
+   * diamond (the core's shape).
+   */
+  private raiderStanceMark(stance: "nearest" | "traps" | "core"): Graphics {
+    const g = new Graphics();
+    const y = TILE_H * 0.35 + 1;
+    if (stance === "nearest") {
+      g.circle(0, y, 4).stroke({ width: 2, color: 0xf1e9d6 });
+      g.circle(0, y, 1.5).fill(0xf1e9d6);
+    } else if (stance === "traps") g.poly([-5, y - 3, 5, y - 3, 0, y + 5]).fill(0xf1e9d6);
+    else g.poly([0, y - 4, 5, y, 0, y + 4, -5, y]).fill(0xf1e9d6);
     return g;
   }
 

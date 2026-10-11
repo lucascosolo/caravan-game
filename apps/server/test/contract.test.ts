@@ -401,12 +401,30 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     const replayUrl = `/me/encounters/${encodeURIComponent(commit.jobId)}/replay`;
     expect((await call(v, "GET", replayUrl)).statusCode).toBe(409);
     expect(await drain(appRole, { workerId: "contract-real", handlers: DEFAULT_HANDLERS, retryBackoffMs: () => 0 })).toHaveLength(1);
-    const mine = (await record("replay", "GET /me/encounters/:jobId/replay", await call(v, "GET", replayUrl), 200)) as { viewer: string; renderable: boolean; log: unknown };
+    // Chunk 22 QA S8: the trip loop folds the outcome in on the next read, so the replay's `settled` (ledger) is filled.
+    expect((await call(v, "GET", vTrip)).statusCode).toBe(200);
+    const mine =(await record("replay", "GET /me/encounters/:jobId/replay", await call(v, "GET", replayUrl), 200)) as { viewer: string; renderable: boolean; log: unknown };
     const theirs = (await record("replay-owner", "GET /me/encounters/:jobId/replay (party owner)", await call(fought, "GET", replayUrl), 200)) as { viewer: string; log: unknown };
     expect(mine).toMatchObject({ viewer: "caravan", renderable: true });
     expect(theirs.viewer).toBe("party_owner");
     // The recorded (renamed) log is still a valid replay: the web suite plays it.
     expect(() => readReplay((normalise(mine) as { log: unknown }).log)).not.toThrow();
+    // Chunk 22 QA D1 / S8 / N10: siege and stance labels from the job's snapshots; the settled
+    // itemization from the ledger, per viewer; the owner's body carries no trip id or stored block.
+    const mineBody = mine as unknown as { labels: { siege: { typeId: string }[]; units: { side: string; stance: string | null }[] }; settled: { applied: boolean; reputation: unknown[] } };
+    expect(mineBody.labels.siege.map((s) => s.typeId)).toEqual(["siege.battering_wagon"]);
+    expect(mineBody.labels.units.every((u) => u.stance !== null)).toBe(true);
+    expect(mineBody.settled.applied).toBe(true);
+    expect(mineBody.settled.reputation.length).toBeGreaterThan(0);
+    const theirsBody = theirs as unknown as Record<string, unknown> & { outcome: Record<string, unknown>; settled: { coin: { reason: string }[] } };
+    expect(theirsBody).toMatchObject({ tripId: null, stored: null });
+    expect("units" in theirsBody.outcome).toBe(false);
+    expect(JSON.stringify(theirsBody.settled)).not.toContain(v.accountId);
+    // D2: the caravan's fights within retention, newest first — the real-resolver one (a log) and the player's double-resolved ones (no log).
+    const recent = (await record("encounters", "GET /me/encounters", await call(v, "GET", "/me/encounters"), 200)) as { encounters: { jobId: string; replay: string }[] };
+    expect(recent.encounters).toEqual([expect.objectContaining({ jobId: commit.jobId, replay: "log" })]);
+    const history = (await record("encounters-history", "GET /me/encounters (three fights, two trips)", await call(p, "GET", "/me/encounters"), 200)) as { encounters: { encounterIndex: number; replay: string }[] };
+    expect(history.encounters.map((x) => [x.encounterIndex, x.replay])).toEqual([[1, "no_log"], [2, "no_log"], [1, "no_log"]]);
 
     // Chunk 15 QA D3 (+ N2), recorded LAST so its rows shift no earlier fixture's ids: a trip
     // whose second encounter cannot be resolved (the double's outcome is refused, so the job

@@ -54,6 +54,7 @@ export function fakeApi(over: Partial<Api> = {}): Api {
     equipCosmetic: notCalled,
     unequipCosmetic: notCalled,
     replay: notCalled,
+    recentFights: notCalled,
     inbox: notCalled,
     inboxUnread: notCalled,
     markInboxRead: notCalled,

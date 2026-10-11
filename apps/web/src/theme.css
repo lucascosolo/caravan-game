@@ -833,13 +833,53 @@ h2 {
   gap: 0.75rem;
   min-width: 0;
 }
+/* QA S3: the stage (field + latest moments) is pinned at the top of the scrolling dialog, so the
+   field and what is happening are always read together; controls, summary and feed scroll under it.
+   The dialog pads 16px, so the stage sticks 16px up to reach its top edge. */
 .replay__stage {
-  position: relative;
-  --iso-h: clamp(12rem, 42vh, 26rem);
+  position: sticky;
+  top: -16px;
+  z-index: 7;
+  margin: 0 -16px;
+  padding: 0 16px 0.5rem;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--line);
+  --iso-h: clamp(11rem, 38vh, 26rem);
 }
-/* Inside the scrolling dialog the canvas scrolls with the page rather than pinning. */
+.replay__field {
+  position: relative;
+}
+/* The stage itself is what pins; the canvas inside it does not stick on its own. */
 .replay__stage .iso {
   position: relative;
+}
+/* QA S2: a vertical swipe on the replay's field scrolls the dialog; a sideways drag or a pinch still moves the camera. */
+.iso__canvas--scroll {
+  touch-action: pan-y;
+}
+.replay__siege {
+  position: absolute;
+  top: 0.35rem;
+  left: 0.35rem;
+  right: 0.35rem;
+  z-index: 6;
+  margin: 0;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.8rem;
+  border-radius: var(--radius);
+  background: rgba(18, 17, 16, 0.78);
+  color: #f1e9d6;
+  pointer-events: none;
+}
+.replay__strip {
+  margin: 0.4rem 0 0;
+  min-height: 3.6em;
+  font-size: 0.9rem;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.replay__strip > li {
+  padding: 0.05rem 0;
 }
 .replay__end {
   position: absolute;
@@ -848,6 +888,27 @@ h2 {
   bottom: 0.5rem;
   z-index: 6;
   border-left-color: var(--accent);
+  max-height: calc(100% - 1rem);
+  overflow-y: auto;
+}
+.replay__summary > summary {
+  font-weight: 600;
+}
+.replay__line-btn {
+  display: block;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0.25rem 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.replay__line-btn[aria-pressed="true"] {
+  box-shadow: inset 3px 0 0 var(--accent);
+  padding-left: 0.5rem;
 }
 .replay__controls {
   display: grid;

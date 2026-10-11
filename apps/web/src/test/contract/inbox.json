@@ -15,11 +15,11 @@
           "overran": 0,
           "stalemate": 0,
           "other": 0,
-          "coinEarned": 353,
+          "coinEarned": 724,
           "coinTransferred": 0,
           "coinDiscardedAtCap": 0,
-          "reputationDelta": -15,
-          "ladderPointsGained": 10,
+          "reputationDelta": -29,
+          "ladderPointsGained": 20,
           "windowStartMs": 1790000000000,
           "windowEndMs": 1790000120000,
           "strikes": [
@@ -34,10 +34,10 @@
                 "caravanName": "Caravan",
                 "regionId": "desert"
               },
-              "coinEarned": 0,
+              "coinEarned": 371,
               "coinTransferred": 0,
-              "reputationDelta": 0,
-              "ladderPointsGained": 0
+              "reputationDelta": -14,
+              "ladderPointsGained": 10
             },
             {
               "seq": 1,
