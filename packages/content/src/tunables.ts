@@ -662,6 +662,17 @@ export const TUNABLES = {
   UNIT_INVENTORY_CAP: 200,
 
   // ────────────────────────────────────────────────────────────────────────────────────
+  // Chunk 17 — the home town's merge board. Presentation-side limits only: the board is a
+  // working surface backed by the overflow inventory (UNIT_INVENTORY_CAP above), so it can
+  // never block acquisition (GUARDRAILS §3) and never touches a stat or a resolution rule.
+  // ────────────────────────────────────────────────────────────────────────────────────
+
+  /** TUNABLE (chunk 17). Visible merge-board slots: BOARD_SIDE × BOARD_SIDE cells of the town's flat centre. Tight enough to push merging, loose enough not to punish. */
+  BOARD_SLOTS: 36,
+  /** TUNABLE (chunk 17). The board is a BOARD_SIDE × BOARD_SIDE square; BOARD_SLOTS must equal its square (asserted by the client's board model test). */
+  BOARD_SIDE: 6,
+
+  // ────────────────────────────────────────────────────────────────────────────────────
   // Merge recipes (PROJECT.md §7). Fixed by design; listed so the guardrail test can read them.
   // ────────────────────────────────────────────────────────────────────────────────────
   MERGE_RECIPES: [

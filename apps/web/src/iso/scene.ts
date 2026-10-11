@@ -7,8 +7,12 @@
  * never sees), the flat central play area, the four parked wagons on the ring corners, the
  * core, the lattice overlay (visible ONLY while something is being dragged, fading in and
  * out — instantly under reduced motion), the entity layers (fences, traps, posts, attackers,
- * siege) in painter's depth order, and the overlays (aggro/leash/attack-range circles at
- * true radii, the threat bands on the attacker's entry edges, gap markers).
+ * siege; and, for the town, structures and static board units) in painter's depth order,
+ * and the overlays (aggro/leash/attack-range circles at true radii, the threat bands on
+ * the attacker's entry edges, gap markers, the merge board's cells while a unit is dragged).
+ * The town (chunk 17) sets `geometry.fixtures = "town"`: no core, no parked wagons — it is
+ * a settlement, never a circle, and never attacked. Its only motion is the mine wheel's
+ * ambient turn, which counts nothing.
  *
  * What it does not own: any game state. `update(state)` redraws from a plain description
  * (types.ts); `setCamera` applies a pure camera (projection.ts); `hitTest` is pure (hit.ts).
@@ -30,7 +34,7 @@ import {
   type WorldPoint,
 } from "./projection.ts";
 import { PALETTE, PLACEHOLDER_SKINS, type PlaceholderSkin, type Skin, type SkinRegistry } from "./skins.ts";
-import type { EntryEdgeName, IsoSceneState, PostEntity } from "./types.ts";
+import type { EntryEdgeName, IsoSceneState, PostEntity, StructureEntity } from "./types.ts";
 
 /** The lattice and the fixed features the scene draws for every place (from the resolver's geometry). */
 export interface SceneGeometry {
@@ -40,6 +44,12 @@ export interface SceneGeometry {
   readonly ringCells: readonly CellLike[];
   readonly anchorCells: readonly CellLike[];
   readonly entryBandDepth: number;
+  /**
+   * Which fixed features the place has: the wagon circle's core and parked wagons
+   * ("circle", the default) or none ("town" — the settlement draws its own structures from
+   * the state; it has no core because it is never attacked, GUARDRAILS §0).
+   */
+  readonly fixtures?: "circle" | "town";
 }
 
 export interface SceneOptions {
@@ -53,6 +63,8 @@ export interface SceneOptions {
 /** GRID_VISIBILITY tunable: lattice alpha while a drag is active, and the fade speed per second. */
 export const LATTICE_ALPHA = 0.38;
 export const LATTICE_FADE_PER_SECOND = 6;
+/** MINE_ANIMATION tunable (chunk 17, presentation only): how fast the mine wheel turns while the mine is active. */
+export const MINE_WHEEL_TURNS_PER_SECOND = 0.08;
 
 const TIERS = [
   { grow: 7, drop: 34, fill: PALETTE.tier3 },
@@ -93,6 +105,9 @@ export class IsoScene {
   private latticeTarget = 0;
   private state: IsoSceneState | null = null;
   private mounted = false;
+  /** The mine's head-frame wheel (chunk 17): the ONE ambient animation, cosmetic, no counting. */
+  private mineWheel: Graphics | null = null;
+  private mineActive = false;
 
   constructor(private readonly opts: SceneOptions) {
     this.skins = opts.skins ?? PLACEHOLDER_SKINS;
@@ -142,9 +157,13 @@ export class IsoScene {
     this.app = null;
   }
 
-  // ── per-frame: only the lattice fade is animated ──────────────────────────────────
+  // ── per-frame: the lattice fade, and (town) the mine wheel's ambient turn ─────────
 
   private tick(deltaMs: number): void {
+    // MINE_ANIMATION (chunk 17): a slow, constant turn while the mine is active (below the
+    // storage cap), still at the cap, still under reduced motion. It never advances a
+    // number: the displayed balance is the server's, read lazily, not ticked here.
+    if (this.mineWheel && this.mineActive && !this.opts.reducedMotion) this.mineWheel.rotation += (MINE_WHEEL_TURNS_PER_SECOND * 2 * Math.PI * deltaMs) / 1000;
     const target = this.latticeTarget;
     if (this.lattice.alpha === target) return;
     if (this.opts.reducedMotion) {
@@ -250,6 +269,15 @@ export class IsoScene {
         g.poly(pts(cellDiamond(c))).stroke({ width: 1.5, color: PALETTE.gap, alpha: 0.35 });
       }
     }
+    // The merge board (town) while a unit is being dragged: its cells outlined, so the
+    // limited surface is visible exactly when it matters and reads as a place at rest.
+    if (state.drag?.kind === "unit" && state.boardCells) {
+      const taken = new Set((state.boardUnits ?? []).map((u) => `${Math.floor(u.pos.x)},${Math.floor(u.pos.y)}`));
+      for (const c of state.boardCells) {
+        const free = !taken.has(`${c.x},${c.y}`);
+        g.poly(pts(cellDiamond(c))).fill({ color: free ? PALETTE.lattice : PALETTE.outlineDark, alpha: free ? 0.22 : 0.15 });
+      }
+    }
     // Ring positions while a fence is being dragged, so the 28 targets are visible.
     if (state.drag?.kind === "fence") {
       const taken = new Set(state.fences.map((f) => `${f.cell.x},${f.cell.y}`));
@@ -261,7 +289,7 @@ export class IsoScene {
     // Aggro / leash / attack range as continuous circles at true radii (ellipses on screen).
     if (state.showRadii) for (const p of state.posts) this.drawRadii(g, p.pos, p, p.selected ? 0.9 : 0.5);
     // Entry-band tint for the core so the goal is readable.
-    for (const c of geo.coreCells) g.poly(pts(cellDiamond(c))).fill({ color: PALETTE.core, alpha: 0.18 });
+    if ((geo.fixtures ?? "circle") === "circle") for (const c of geo.coreCells) g.poly(pts(cellDiamond(c))).fill({ color: PALETTE.core, alpha: 0.18 });
   }
 
   private drawRadii(
@@ -290,13 +318,31 @@ export class IsoScene {
     const layer = this.entities;
     layer.removeChildren().forEach((c) => c.destroy({ children: true }));
     const geo = this.opts.geometry;
-    // Fixed features first: the core and the four parked wagons.
-    const coreCenter = {
-      x: geo.coreCells.reduce((s, c) => s + c.x + 0.5, 0) / geo.coreCells.length,
-      y: geo.coreCells.reduce((s, c) => s + c.y + 0.5, 0) / geo.coreCells.length,
-    };
-    layer.addChild(this.marker(this.skins.core(), coreCenter, 1.6, 1, false));
-    for (const a of geo.anchorCells) layer.addChild(this.marker(this.skins.wagonAnchor(), cellToWorld(a), 1, 1, false));
+    this.mineWheel = null;
+    this.mineActive = state.mine?.active ?? false;
+    // Fixed features first: the core and the four parked wagons (the wagon circle only).
+    if ((geo.fixtures ?? "circle") === "circle" && geo.coreCells.length > 0) {
+      const coreCenter = {
+        x: geo.coreCells.reduce((s, c) => s + c.x + 0.5, 0) / geo.coreCells.length,
+        y: geo.coreCells.reduce((s, c) => s + c.y + 0.5, 0) / geo.coreCells.length,
+      };
+      layer.addChild(this.marker(this.skins.core(), coreCenter, 1.6, 1, false));
+      for (const a of geo.anchorCells) layer.addChild(this.marker(this.skins.wagonAnchor(), cellToWorld(a), 1, 1, false));
+    }
+    // Town structures (chunk 17): inert scenery, drawn from the state, never simulated.
+    for (const s of state.structures ?? []) layer.addChild(this.structure(s));
+    // Board units (chunk 17): static markers, a level badge, no stance, no radii, no HP.
+    for (const u of state.boardUnits ?? []) {
+      const skin = this.skins.unit(u.typeId, "defender");
+      const node = this.marker(u.dimmed && skin.kind === "placeholder" ? { ...skin, fill: PALETTE.trapSpent } : skin, u.pos, u.target ? 1.15 : 1, 2, u.selected ?? false);
+      node.addChild(this.badge(String(u.mergeLevel), TILE_W * 0.22, -TILE_H * 0.55));
+      if (u.target) {
+        const ring = new Graphics();
+        ring.ellipse(0, 0, TILE_W * 0.42, TILE_H * 0.42).stroke({ width: 2, color: PALETTE.core, alpha: 0.95 });
+        node.addChild(ring);
+      }
+      layer.addChild(node);
+    }
     for (const f of state.fences) {
       const pos = cellToWorld(f.cell);
       const node = this.marker(this.skins.fence(f.tierId), pos, 1, 1, f.selected ?? false);
@@ -320,7 +366,7 @@ export class IsoScene {
       layer.addChild(node);
     }
     for (const a of state.attackers) {
-      const node = this.marker(this.skins.unit(a.typeId, "attacker"), a.pos, 1, 2, false);
+      const node = this.marker(this.skins.unit(a.typeId, "attacker"), a.pos, 1, 2, a.selected ?? false);
       node.addChild(this.badge(String(a.mergeLevel), TILE_W * 0.22, -TILE_H * 0.55));
       layer.addChild(node);
     }
@@ -343,13 +389,79 @@ export class IsoScene {
       this.drawRadii(rg, pos, d.radii, 0.9);
       this.ghost.addChild(rg);
     }
-    const skin = d.kind === "fence" ? this.skins.fence(d.typeId) : d.kind === "trap" ? this.skins.trap(d.typeId) : this.skins.unit(d.typeId, "defender");
+    const skin =
+      d.kind === "fence"
+        ? this.skins.fence(d.typeId)
+        : d.kind === "trap"
+          ? this.skins.trap(d.typeId)
+          : this.skins.unit(d.typeId, d.kind === "attacker" ? "attacker" : "defender");
     const m = this.marker(skin, pos, 1, 3, false);
     m.alpha = 0.75;
     this.ghost.addChild(m);
   }
 
   // ── drawing helpers ───────────────────────────────────────────────────────────────
+
+  /**
+   * A town structure (chunk 17): a flat-roofed false-front building, a corral or the mine
+   * head-frame, built from the same placeholder vocabulary as the markers (sprites arrive
+   * with chunk 26 through the skin seam). The footprint sits on `cell`..`cell + (w, h)`.
+   */
+  private structure(s: StructureEntity): Container {
+    const node = new Container();
+    const origin = project({ x: s.cell.x, y: s.cell.y });
+    node.position.set(origin.x, origin.y);
+    node.zIndex = depthKey({ x: s.cell.x + s.w, y: s.cell.y + s.h }, 1);
+    const g = new Graphics();
+    // Footprint corners relative to the origin.
+    const n = { x: 0, y: 0 };
+    const e = project({ x: s.cell.x + s.w, y: s.cell.y });
+    const so = project({ x: s.cell.x + s.w, y: s.cell.y + s.h });
+    const w = project({ x: s.cell.x, y: s.cell.y + s.h });
+    const rel = (p: { x: number; y: number }) => ({ x: p.x - origin.x, y: p.y - origin.y });
+    const E = rel(e);
+    const S = rel(so);
+    const W = rel(w);
+    if (s.kind === "corral") {
+      g.poly(pts([n, E, S, W])).fill({ color: 0x9c8a5a, alpha: 0.7 }).stroke({ width: 2, color: PALETTE.timber });
+      for (const [a, b] of [
+        [n, E],
+        [E, S],
+        [S, W],
+        [W, n],
+      ] as const) {
+        g.moveTo(a.x, a.y - 6).lineTo(b.x, b.y - 6).stroke({ width: 2, color: PALETTE.timber });
+      }
+    } else {
+      const height = s.kind === "mine" ? TILE_H * 1.1 : TILE_H * 1.6;
+      const roofColor = s.kind === "mine" ? 0x5a4a3a : 0x6b4e2e;
+      const wallColor = s.kind === "mine" ? 0x7a6a55 : 0xb08a5a;
+      // Two visible walls (south-east and south-west faces), then the roof on top.
+      g.poly(pts([E, S, { x: S.x, y: S.y - height }, { x: E.x, y: E.y - height }])).fill(wallColor).stroke({ width: 1, color: PALETTE.outlineDark });
+      g.poly(pts([S, W, { x: W.x, y: W.y - height }, { x: S.x, y: S.y - height }])).fill({ color: wallColor, alpha: 0.8 }).stroke({ width: 1, color: PALETTE.outlineDark });
+      g.poly(pts([n, E, S, W].map((p) => ({ x: p.x, y: p.y - height })))).fill(roofColor).stroke({ width: 1.5, color: PALETTE.outlineDark });
+      if (s.kind === "mine") {
+        // The head-frame: an A-frame over the shaft and the wheel the tick turns.
+        const top = { x: S.x, y: S.y - height - TILE_H * 1.4 };
+        g.moveTo(E.x, E.y - height).lineTo(top.x, top.y).lineTo(W.x, W.y - height).stroke({ width: 3, color: PALETTE.timber });
+        const wheel = new Graphics();
+        wheel.circle(0, 0, TILE_H * 0.45).stroke({ width: 3, color: PALETTE.wire });
+        for (let i = 0; i < 4; i++) {
+          const a = (i * Math.PI) / 4;
+          wheel.moveTo(Math.cos(a) * TILE_H * 0.45, Math.sin(a) * TILE_H * 0.45).lineTo(-Math.cos(a) * TILE_H * 0.45, -Math.sin(a) * TILE_H * 0.45).stroke({ width: 2, color: PALETTE.wire });
+        }
+        wheel.position.set(top.x, top.y);
+        this.mineWheel = wheel;
+        node.addChild(g, wheel);
+      } else node.addChild(g);
+    }
+    if (s.kind === "corral") node.addChild(g);
+    const t = new Text({ text: s.label, style: { fontSize: 10, fill: 0xf1e9d6, fontFamily: "system-ui, sans-serif", fontWeight: "700" }, resolution: 2 });
+    t.anchor.set(0.5);
+    t.position.set(S.x, S.y + 4);
+    node.addChild(t);
+    return node;
+  }
 
   private marker(skin: Skin, pos: WorldPoint, scaleMul: number, layerBias: number, selected: boolean): Container {
     if (skin.kind !== "placeholder") throw new Error("sprite skins arrive with chunk 26; only placeholder skins can be drawn");

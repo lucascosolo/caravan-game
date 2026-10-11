@@ -52,6 +52,18 @@ function fakeApi(over: Partial<Api> = {}): Api {
     searchCandidates: notCalled,
     candidates: notCalled,
     chooseCandidate: notCalled,
+    economy: notCalled,
+    previewMerge: notCalled,
+    commitMerge: notCalled,
+    refugees: notCalled,
+    claimRefugee: notCalled,
+    refreshRefugees: notCalled,
+    rerollRefugees: notCalled,
+    recruitList: notCalled,
+    recruit: notCalled,
+    party: notCalled,
+    saveParty: notCalled,
+    partyFeed: notCalled,
     ...over,
   };
 }

@@ -6,24 +6,45 @@
  * Bounds are generous ceilings, not balance: they exist so a corrupt number cannot size a
  * render (a tier builds a row of the graph) or an unbounded list cannot stall the page.
  */
-import { formationFromJson, isEntryEdge, isTargetingStance, manifestFromJson, type PartyScoutView, type ScoutSiege, type ScoutUnit } from "@caravan/circle";
+import { formationFromJson, isEntryEdge, isTargetingStance, manifestFromJson, partyConfigFromJson, type PartyScoutView, type ScoutSiege, type ScoutUnit } from "@caravan/circle";
 import { isAbilityArchetype, isAffinityCategory, type Ability, type Fixed, type Millis, type SiegeCounter } from "@caravan/content";
-import { ShapeError, array, boolean, integer, literal, nullable, object, string, type Guard } from "./shape.ts";
+import { ShapeError, array, boolean, integer, literal, nullable, object, optional, string, type Guard } from "./shape.ts";
 import type {
+  AcquiredView,
   AuthResponse,
   BandView,
   CandidateMenuResponse,
   CandidateMenuView,
   CandidateView,
   ChoiceView,
+  EconomyView,
   FormationResponse,
   FormationView,
+  InventoryStatusView,
+  IssueView,
   ManifestResponse,
   ManifestView,
   MeResponse,
+  MergePreview,
+  MergeResultView,
+  PartyFeedPage,
+  PartyResponse,
+  PartyView,
   PoolProgressView,
   ProgressionResponse,
+  RecruitResult,
+  RecruitView,
+  RefugeeClaimResult,
+  RefugeeMenuView,
+  RefugeeOfferView,
+  RefugeeRefreshResult,
+  RefugeeRerollResult,
+  RefugeeView,
+  RosterEntryView,
   SpendResult,
+  UnitInstanceView,
+  UnitStatsView,
+  UnitTypeSummaryView,
   UnlockNodeView,
   UnlockPoints,
   UnlockWebView,
@@ -92,9 +113,21 @@ export const progressionShape: Guard<ProgressionResponse> = object({ pools: arra
 
 const account = object({ id: ID, username: NAME });
 
+/** A roster row as `GET /me` lists it (chunk 17 reads the roster and the caravan's state from here). */
+const unitInstance: Guard<UnitInstanceView> = object({ id: ID, caravan_id: ID, unit_type_id: ID, merge_level: integer({ min: 1, max: 5 }) });
+
 export const meShape: Guard<MeResponse> = object({
   account,
-  caravans: array(object({ id: ID, name: NAME, region_id: ID }), { maxLength: 64 }),
+  caravans: array(
+    object({
+      id: ID,
+      name: NAME,
+      region_id: ID,
+      state: optional(literal("in_town", "on_trip")),
+      units: optional(array(unitInstance, { maxLength: 10_000 })),
+    }),
+    { maxLength: 64 },
+  ),
 });
 
 export const authShape: Guard<AuthResponse> = object({ token: string({ maxLength: 4096 }), expiresAt: string({ maxLength: 64 }), account });
@@ -264,3 +297,229 @@ const menu: Guard<CandidateMenuView> = object({
 export const menuShape: Guard<CandidateMenuResponse> = object({ menu });
 
 export const choiceShape: Guard<ChoiceView> = object({ menu, chosen: candidate });
+
+// ── Economy & merging (chunk 16 routes), read by the Town tab (chunk 17) ──────────────
+
+/** Coin amounts: a generous ceiling so a corrupt number cannot size a render or a meter. */
+const COIN = integer({ min: 0, max: 1_000_000_000 });
+
+/** Exactly `null` (a field the server promises is never set, such as a recruit cooldown). */
+const nullOnly: Guard<null> = (v, path) => {
+  if (v !== null) throw new ShapeError(path, "null", v);
+  return null;
+};
+const MS = integer({ min: 0, max: Number.MAX_SAFE_INTEGER });
+const LEVEL = integer({ min: 1, max: 5 });
+
+/** `{ "2": 250, … }`: an object whose every value is a Coin amount (keys are the resulting level). */
+const costTable: Guard<Readonly<Record<string, number>>> = (v, path) => {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) throw new ShapeError(path, "object", v);
+  const out: Record<string, number> = {};
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) out[k] = COIN(val, `${path}.${k}`);
+  return out;
+};
+
+const recipe = object({ spend: integer({ min: 1, max: 64 }), produce: integer({ min: 1, max: 64 }) });
+
+export const economyShape: Guard<EconomyView> = object({
+  balance: COIN,
+  cap: COIN,
+  room: COIN,
+  atCap: boolean(),
+  trickle: object({
+    ratePerHour: COIN,
+    msPerCoin: integer({ min: 1 }),
+    pending: COIN,
+    ledgerBalance: COIN,
+    nextCoinInMs: nullable(MS),
+    accruedThroughMs: MS,
+  }),
+  overflow: object({ prospectiveEarn: COIN, wouldCredit: COIN, wouldDiscard: COIN, warn: boolean(), message: string({ maxLength: 1024 }) }),
+  earn: object({ encounterSchedule: array(COIN, { maxLength: 64 }), bankedTripBonus: COIN, partyWin: COIN }),
+  merge: object({ costPerResultingUnitByLevel: costTable, recipes: array(recipe, { maxLength: 8 }), levelCap: LEVEL, slotCost: integer({ min: 1, max: 64 }) }),
+});
+
+const unitStats: Guard<UnitStatsView> = object({
+  hp: integer({ min: 0, max: 100_000_000 }),
+  offense: integer({ min: 0, max: 1_000_000 }),
+  defense: integer({ min: 0, max: 1_000_000 }),
+  damageOutputMult: integer({ min: 0 }),
+  multDen: integer({ min: 1 }),
+  referenceHit: integer({ min: 0, max: 100_000_000 }),
+});
+
+export const mergePreviewShape: Guard<MergePreview> = object({
+  caravanId: ID,
+  unitTypeId: ID,
+  unitDisplayName: NAME,
+  recipe,
+  fromLevel: LEVEL,
+  toLevel: LEVEL,
+  costPerUnit: COIN,
+  totalCost: COIN,
+  balance: COIN,
+  pendingTrickle: COIN,
+  affordable: boolean(),
+  consumed: object({
+    instanceIds: array(ID, { maxLength: 64 }),
+    inParty: array(ID, { maxLength: 64 }),
+    count: integer({ min: 1, max: 64 }),
+    slots: integer({ min: 0, max: 4096 }),
+    perUnit: unitStats,
+    combined: unitStats,
+  }),
+  requiresConfirmInParty: boolean(),
+  produced: object({ count: integer({ min: 1, max: 64 }), slots: integer({ min: 0, max: 4096 }), perUnit: unitStats, combined: unitStats }),
+  slotsFreed: integer({ min: 0, max: 4096 }),
+  ability: object({ archetype: ID, displayName: NAME }),
+});
+
+export const mergeResultShape: Guard<MergeResultView> = object({
+  replayed: boolean(),
+  merged: object({ unitTypeId: ID, fromLevel: LEVEL, toLevel: LEVEL, coinCost: COIN }),
+  consumedInstanceIds: array(ID, { maxLength: 64 }),
+  producedInstanceIds: array(ID, { maxLength: 64 }),
+  produced: array(unitInstance, { maxLength: 64 }),
+  balanceAfter: COIN,
+});
+
+// ── Unit acquisition (chunk 18 routes), read by the Town tab ─────────────────────────
+
+const unitSummary = { unitTypeId: ID, displayName: NAME, affinity: ID, ability: object({ archetype: ID, displayName: NAME }) };
+const unitTypeSummary: Guard<UnitTypeSummaryView> = object(unitSummary);
+const inventory: Guard<InventoryStatusView> = object({ count: COUNT, cap: COUNT, room: COUNT, full: boolean() });
+const refugeeOffer: Guard<RefugeeOfferView> = object({ ...unitSummary, slot: integer({ min: 0, max: 64 }) });
+
+const refugeeMenu: Guard<RefugeeMenuView> = object({
+  sequence: integer({ min: 1, max: 2_147_483_647 }),
+  origin: literal("free", "reroll"),
+  rerollsThisWindow: integer({ min: 0, max: 100_000 }),
+  offers: array(refugeeOffer, { maxLength: 64 }),
+  generatedAtMs: MS,
+  claimed: nullable(object({ unitTypeId: ID, instanceId: ID, claimedAtMs: MS })),
+});
+
+export const refugeeViewShape: Guard<RefugeeView> = object({
+  caravanId: ID,
+  menu: refugeeMenu,
+  timer: object({ intervalMs: integer({ min: 1 }), windowOpenedAtMs: MS, nextFreeRefreshAtMs: MS, msUntilFreeRefresh: MS, freeRefreshDue: boolean(), refreshedNow: boolean() }),
+  reroll: object({
+    nextCost: COIN,
+    nextIndex: integer({ min: 0, max: 100_000 }),
+    schedule: array(COIN, { maxLength: 64 }),
+    affordable: boolean(),
+    forfeitsUnclaimedOffer: boolean(),
+    blockedByFreeRefresh: boolean(),
+  }),
+  balance: COIN,
+  pendingTrickle: COIN,
+  inventory,
+});
+
+const acquired: Guard<AcquiredView> = object({ unitTypeId: ID, instanceId: ID, mergeLevel: LEVEL, source: ID, coinCost: COIN });
+
+export const refugeeClaimShape: Guard<RefugeeClaimResult> = object({ replayed: boolean(), acquired, refugees: refugeeViewShape });
+export const refugeeRefreshShape: Guard<RefugeeRefreshResult> = object({
+  replayed: boolean(),
+  fromSequence: integer({ min: 1, max: 2_147_483_647 }),
+  forfeitedOffers: nullable(array(refugeeOffer, { maxLength: 64 })),
+  refugees: refugeeViewShape,
+});
+export const refugeeRerollShape: Guard<RefugeeRerollResult> = object({
+  replayed: boolean(),
+  fromSequence: integer({ min: 1, max: 2_147_483_647 }),
+  coinCost: COIN,
+  balanceAfter: COIN,
+  refugees: refugeeViewShape,
+});
+
+export const recruitViewShape: Guard<RecruitView> = object({
+  caravanId: ID,
+  costBase: COIN,
+  scaling: string({ maxLength: 64 }),
+  recruitable: array(object({ ...unitSummary, cost: COIN, affordable: boolean() }), { maxLength: 256 }),
+  locked: array(unitTypeSummary, { maxLength: 256 }),
+  balance: COIN,
+  pendingTrickle: COIN,
+  inventory,
+  // GUARDRAILS §3 / chunk 18: recruit has no cooldown and no daily limit; a body that says otherwise is a bad body.
+  availability: object({ cooldown: nullOnly, dailyLimit: nullOnly }),
+});
+
+export const recruitResultShape: Guard<RecruitResult> = object({ replayed: boolean(), acquired, coinCost: COIN, balanceAfter: COIN, inventory });
+
+// ── Standing raid party (chunk 09 routes), the Party tab ─────────────────────────────
+
+const partyConfig = parsedBy(partyConfigFromJson, "party config");
+/** A validation issue; `subject` is present only when the server set it (exact optional, so built by hand). */
+const issue: Guard<IssueView> = (v, path) => {
+  const base = object({ code: ID, message: string({ maxLength: 2048 }) })(v, path);
+  const subject = optional(string({ maxLength: 256 }))((v as Record<string, unknown>)["subject"], `${path}.subject`);
+  return subject === undefined ? base : { ...base, subject };
+};
+
+const rosterEntry: Guard<RosterEntryView> = object({
+  instanceId: ID,
+  caravanId: ID,
+  typeId: ID,
+  displayName: NAME,
+  mergeLevel: LEVEL,
+  slotCost: literal(1),
+  offense: integer({ min: 0, max: 1_000_000 }),
+  defense: integer({ min: 0, max: 1_000_000 }),
+  hp: integer({ min: 0, max: 100_000_000 }),
+  unlocked: boolean(),
+  inParty: boolean(),
+  packedOnTrip: boolean(),
+  aliveOnTrip: nullable(boolean()),
+});
+
+const siegeCatalogEntry: Guard<ScoutSiege & { readonly unlocked: boolean }> = (v, path) => {
+  const s = scoutSiege(v, path);
+  const u = object({ unlocked: boolean() })(v, path);
+  return { ...s, unlocked: u.unlocked };
+};
+
+const partyView: Guard<PartyView> = object({
+  id: ID,
+  slot: integer({ min: 0, max: 64 }),
+  savedAt: TIMESTAMP,
+  hash: ID,
+  config: partyConfig,
+  valid: boolean(),
+  issues: array(issue, { maxLength: 1024 }),
+  scout: nullable(scoutViewShape),
+  edges: array(predicate(isEntryEdge, "entry edge"), { maxLength: 4 }),
+  caps: object({ units: COUNT, siege: COUNT, edges: integer({ min: 1, max: 4 }), editCooldownMs: literal(0), partiesPerAccount: integer({ min: 1, max: 64 }) }),
+  // The party is a template (GUARDRAILS §0): a body claiming otherwise is a bad body.
+  rules: object({
+    template: literal(true),
+    neverConsumed: literal(true),
+    unitsMayAlsoBePackedOnTrips: literal(true),
+    ratingInUse: literal("offense"),
+    stances: array(predicate(isTargetingStance, "targeting stance"), { maxLength: 8 }),
+  }),
+  roster: array(rosterEntry, { maxLength: 10_000 }),
+  siegeCatalog: array(siegeCatalogEntry, { maxLength: 64 }),
+});
+
+export const partyShape: Guard<PartyResponse> = object({ party: partyView });
+
+export const partyFeedShape: Guard<PartyFeedPage> = object({
+  entries: array(
+    object({
+      seq: integer({ min: 0 }),
+      occurredAt: TIMESTAMP,
+      jobId: nullable(ID),
+      encounterIndex: nullable(integer({ min: 0, max: MAX_ENCOUNTER })),
+      defender: object({ username: nullable(NAME), caravanName: nullable(NAME), regionId: nullable(ID) }),
+      outcomeKind: nullable(ID),
+      coinEarned: COIN,
+      reputationDelta: integer(),
+      ladderPointsGained: integer({ min: 0 }),
+    }),
+    { maxLength: 256 },
+  ),
+  nextBefore: integer({ min: 0 }),
+  hasMore: boolean(),
+});

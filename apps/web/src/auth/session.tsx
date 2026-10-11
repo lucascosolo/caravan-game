@@ -55,3 +55,14 @@ export function useSession(): SessionContextValue {
   if (!ctx) throw new Error("useSession must be used inside <SessionProvider>");
   return ctx;
 }
+
+/**
+ * The session's API client, or `override` when one is given (a screen's component test
+ * injects a fake and renders without a provider). Calls `useContext` unconditionally.
+ */
+export function useApi(override?: Api): Api {
+  const ctx = useContext(SessionContext);
+  const api = override ?? ctx?.api;
+  if (!api) throw new Error("useApi must be used inside <SessionProvider> or given an api");
+  return api;
+}

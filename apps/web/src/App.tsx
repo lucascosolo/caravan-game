@@ -1,13 +1,17 @@
-import { useEffect } from "react";
+import { Suspense, lazy, useEffect } from "react";
 import { useSession, SessionProvider } from "./auth/session.tsx";
 import { LoginScreen } from "./screens/login/LoginScreen.tsx";
-import { Placeholder } from "./screens/Placeholder.tsx";
-import { TrailScreen } from "./screens/trail/TrailScreen.tsx";
 import { WebsScreen } from "./screens/webs/WebsScreen.tsx";
+import { STRINGS } from "./strings.ts";
+
+// The screens that draw on the iso canvas are lazy chunks (chunk 08 QA S3): PixiJS stays
+// out of the login chunk and loads only once a canvas screen is opened.
+const TownScreen = lazy(() => import("./screens/town/TownScreen.tsx").then((m) => ({ default: m.TownScreen })));
+const PartyScreen = lazy(() => import("./screens/party/PartyScreen.tsx").then((m) => ({ default: m.PartyScreen })));
+const TrailScreen = lazy(() => import("./screens/trail/TrailScreen.tsx").then((m) => ({ default: m.TrailScreen })));
 import { AppShell } from "./shell/AppShell.tsx";
 import { ErrorBoundary } from "./shell/ErrorBoundary.tsx";
 import { navigate, useRoute } from "./shell/router.tsx";
-import { STRINGS } from "./strings.ts";
 
 function Routed(): JSX.Element {
   const { session, signOut } = useSession();
@@ -35,16 +39,24 @@ function Routed(): JSX.Element {
       screen = <TrailScreen />;
       break;
     case "party":
-      screen = <Placeholder title={STRINGS.tabs.party} body={STRINGS.placeholder.party} />;
+      screen = <PartyScreen />;
       break;
     case "town":
     case "login":
     default:
-      screen = <Placeholder title={STRINGS.tabs.town} body={STRINGS.placeholder.town} />;
+      screen = <TownScreen />;
   }
   return (
     <AppShell route={route === "login" ? "town" : route} username={session.account.username} onSignOut={() => void signOut()}>
-      {screen}
+      <Suspense
+        fallback={
+          <p className="hint" role="status">
+            {STRINGS.app.loading}
+          </p>
+        }
+      >
+        {screen}
+      </Suspense>
     </AppShell>
   );
 }

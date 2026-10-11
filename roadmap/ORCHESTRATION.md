@@ -2034,3 +2034,50 @@ resolver test count (53) is stale; not edited (outside this task's files).
 
 **Next:** QA re-audit of chunk 11 round 1.
 
+### 2026-10-11 — Chunk 17 (home town: merge board, mine, outfitting, navigation): `not started` → `built`
+
+**Built** in worktree `worktree-agent-a3e7265caf4877cda` (base `058bc0b`, fast-forwarded to
+`roadmap/phase-2-spec` at `1ed535b` before committing), taking over a Maker cut off by a rate
+limit (its API client / guards / iso extensions / strings / board + party models were kept).
+Full notes in the chunk file's "Build notes". Open questions decided as proposed: outfit
+flow, overflow inventory, mine purely presentational.
+
+- **Town tab** (`apps/web/src/screens/town`): settlement on the shared iso renderer
+  (`fixtures: "town"`: no core, no parked wagons; saloon, store, bank, outfitter, livery,
+  mine head-frame); units static on a 6×6 board (`BOARD_SLOTS` 36) with the overflow beyond;
+  board cells and lattice only during a drag; mine wheel the only ambient motion (stopped at
+  the cap and under reduced motion; no number ticks). Merge by drag or tap-tap → server
+  preview (cost, balance incl. pending trickle, combined stats before/after, slots freed,
+  in-party warning + explicit confirm → `confirmInParty: true`) → commit; explicit 2→1 and
+  5→3 buttons per group; refusals verbatim. Mine panel (balance, rate, cap, room right now,
+  cap/forecast warning, no upgrade). Refugees (3 slots, duplicates collapsed, countdown from
+  the server's ms, re-read at zero, free-refresh-due action, reroll cost confirmed; required
+  sequence/fromSequence). Mercenaries (every unlocked type at its cost, locked types "reach
+  it in the Webs"). Navigation to Outfit / Trail / Party / Webs / Packs (not built).
+- **Outfit the caravan**: units vs `DEPLOYMENT_SLOT_CAP`, traps vs `TRAP_SLOT_CAP`, fence vs
+  `FENCE_MATERIAL_BUDGET`, over-cap warnings, server Coin forecast, modal confirm → `POST
+  /caravans/:id/manifest` → "Packed, waiting to ride out." (trip start is chunk 15's).
+- **Party tab**: the standing-party builder (composition, stance per unit, edge + start
+  cell by dragging onto entry bands or from list selects, siege with counter targets, save
+  with the server's issue list by name, scouting preview, results feed).
+- **Chunk 08 QA patterns adopted** per the coordinator: lazy Town/Party/Trail (PixiJS in the
+  `IsoCanvas` chunk), ≥ 22 px screen hit radius, `pan-y` chips, DOM alternative to canvas
+  placement, issue refs mapped to names, no raw ids/codes/ISO times/chunk numbers in chunk
+  17 copy. Menu/choice guards untouched (chunk 08 fixer's B1).
+
+**Test output:** `pnpm test` (TEST_DATABASE_URL=…/caravan_test_c17): content 75, resolver
+119, circle 94, web 16 files / 119 tests (was 11 / 83), server 28 files / 512 — all
+passing. Root `pnpm typecheck`, `pnpm lint`, `pnpm test:boundary` clean; `pnpm build` clean.
+`pnpm e2e` against `caravan_dev_c17` (E2E_PORT 3981, E2E_WEB_PORT 4281): smoke ×2 and
+`town.spec.ts` pass (360×640: refugee → recruit → canvas-drag merge → confirm → party drag +
+save → outfit → pack); `formation.spec.ts` fails with `bad_payload` on
+`menu.usedAuthoredFallback` — the known QA-08 B1 drift, same on `roadmap/phase-2-spec`.
+
+**Flags for QA / other chunks:** the server lets a unit packed in an open manifest be merged
+(merge checks only `caravan.state`, which packing does not move) — the UI does not offer it;
+chunk 15/16 should refuse it server-side. Board positions are client-side (localStorage).
+`pnpm e2e` leaves one `e2e_town_*` account per run.
+
+**Next:** adversarial QA against the chunk 17 checklist (no simulation in town, never
+attackable, mine presentational, merge legibility, full board + recruit, grid visibility,
+one renderer).

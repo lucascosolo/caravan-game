@@ -1,6 +1,6 @@
 # Chunk 17 — Home town: merge board, mine, and hub
 
-**Depends on:** 03, 08, 16. **Status:** not started.
+**Depends on:** 03, 08, 16. **Status:** built.
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 ## Goal
@@ -159,3 +159,116 @@ detail — escalate rather than deciding it here.
   It should behave identically here, in the defense builder, and in the party builder.
 - **One renderer:** confirm the town reuses chunk 08's isometric renderer rather than
   reimplementing isometric projection and depth sorting. Two renderers will diverge.
+
+## Build notes (2026-10-11)
+
+**Open questions, decided as proposed:** (1) a dedicated "Outfit the caravan" flow
+launched from the town, ending in a real-modal confirm that packs the manifest
+(`POST /caravans/:id/manifest`) and shows **"Packed, waiting to ride out."** — opening the
+trip itself is chunk 15's; (2) the board is a working surface over the overflow
+(`UNIT_INVENTORY_CAP`): acquisition never looks at the board, a unit with no free cell
+lands in the overflow; (3) the mine is purely presentational — it renders the server's
+`trickle.ratePerHour`, `balance`, `cap`, `room`, with no button, sink or rate change.
+
+**Where it lives** (`apps/web/src`):
+- `screens/town/` — `TownScreen.tsx` (loader, caravan state, canvas gestures, navigation),
+  `board.ts` (pure board model: layout, moves, merge-drop eligibility, groups, picks,
+  product hints), `townScene.ts` (pure scene builder for the shared renderer, the
+  settlement's structures, per-viewer board persistence), `BoardPanel.tsx` (the DOM twin:
+  board/overflow chips, the merge groups with a button per recipe — the explicit 5 → 3
+  affordance), `MergeDialog.tsx`, `MinePanel.tsx`, `RefugeePanel.tsx` + `refugeeModel.ts`,
+  `RecruitPanel.tsx`, `OutfitScreen.tsx` + `outfitModel.ts`.
+- `screens/party/` — `PartyScreen.tsx` (the standing raid party builder chunk 09 deferred
+  here) + `partyModel.ts` (pure config edits).
+- `shell/Modal.tsx` — the real-modal chrome generalized from `ConfirmDialog` (portal, inert
+  siblings, focus trap, Escape, focus restore); `auth/session.tsx#useApi` lets a screen take
+  an injected client in component tests.
+- `iso/` — extended, not duplicated: `geometry.fixtures: "town"` (no core, no parked
+  wagons), optional `boardUnits` / `structures` / `mine` / `boardCells` in the scene state,
+  a `"unit"` hit kind, `"unit"` / `"attacker"` drag ghosts, `selected` on attackers. The
+  board cells are outlined only while a unit is dragged; the lattice rule is unchanged.
+  The mine wheel is the only ambient motion (`MINE_WHEEL_TURNS_PER_SECOND`, stopped at the
+  cap and under reduced motion); it advances no number.
+- API: `api/{client,shapes,types}.ts` — economy, merge preview/commit, refugees
+  (GET/claim/refresh/reroll), recruit (GET/POST), party (GET/PUT), party feed, each with its
+  payload guard. The recruit guard refuses a body claiming a cooldown or daily limit; the
+  party guard refuses one whose `rules` are not a template.
+- Tunables: `BOARD_SLOTS` 36 and `BOARD_SIDE` 6 in `packages/content/src/tunables.ts`.
+
+**Decisions and assumptions (confirm in QA):**
+- **Board positions are presentation**, like a camera: the server holds no board. The
+  layout is client-side, persisted per caravan in `localStorage` (a convenience: it may
+  come back empty and the board simply re-lays out, deterministically, in id order). A
+  unit the player sent to the overflow stays there; new units take the first free cell.
+- **Merge interaction:** drag a unit onto one of the same type and level (or tap one, then
+  the other) → the preview dialog asks the server; the drop target goes first in
+  `instanceIds` so the product lands on its cell. 2 → 1 and 5 → 3 are also offered per
+  (type, level) group with the quoted cost (`costPerResultingUnitByLevel × produce`,
+  display only; the preview is authoritative). The preview shows cost, balance including
+  the pending trickle, unaffordability, slots before/after, the consumed units' COMBINED
+  stats beside the produced units' combined stats, the damage multiplier, the unchanged
+  ability, and "not stronger than the consumed ones combined". A unit in the standing
+  party needs a checkbox before the confirm enables and is sent as `confirmInParty: true`.
+  Server refusals (409 `caravan_on_trip`, `insufficient_coin`, …) are shown verbatim.
+- **Packed units are not offered for merging** while a manifest is open. The server does
+  not refuse that today (it checks only `caravan.state`, and packing does not move the
+  state — chunk 15 does): flagged for chunk 15/16.
+- **Refugee timer:** a one-second display clock counts down from the server's
+  `msUntilFreeRefresh` between reads; at zero the panel re-reads (GET never writes) and
+  shows the server's `freeRefreshDue`, with "Take the free menu now" (`POST refresh`). A
+  reroll is not offered while a free menu is due (`blockedByFreeRefresh`); its cost
+  (150 / 300 / 600 from the server's schedule) is on the button and confirmed in a modal.
+  Duplicate slots are collapsed ("offered 2×"). Every write names `sequence` /
+  `fromSequence` from the last GET.
+- **Recruit** lists every `recruitable` type with its cost and every `locked` type as "Not
+  for sale — reach it in the Webs" with a link to the Webs. Each confirm carries a fresh
+  `requestId` (a retry of the same POST replays).
+- **Coin forecast** (mine and outfit) is the server's `overflow.message` for the shortest
+  trip (`encounterSchedule[0] + bankedTripBonus`, both server numbers).
+- **Outfit caps** are measured, not enforced: the meters read `DEPLOYMENT_SLOT_CAP`,
+  `TRAP_SLOT_CAP`, `FENCE_MATERIAL_BUDGET` and warn when a draft is over; the server's
+  packer decides and its issue list is shown. Trap types and fence tiers offered are the
+  reached nodes of the trap web.
+- **Party builder** draws the party's units as attackers on the wagon-circle geometry they
+  will attack (the shared renderer), shows all four entry bands while dragging and the used
+  ones at rest; drops off a band change nothing. Stance per unit from `rules.stances`, edge
+  buttons re-snap into the band, siege checkboxes with counters and the exact target types
+  (locked siege disabled). Saved via `PUT /me/party`; a 400 shows every issue. The scouting
+  preview (`party.scout`) reuses the trail's `ScoutPanel`; the feed pages with `before`.
+- **Cross-chunk drift NOT fixed here (owned by the chunk 08 fixer, QA-08 B1):** the web
+  candidate-menu guard still expects `owner.accountId` / `usedAuthoredFallback`, which the
+  server dropped / renamed (chunk 14 QA N4/N5, chunk 25), so `e2e/formation.spec.ts` fails
+  with `bad_payload` on this branch exactly as it does on `roadmap/phase-2-spec`. The menu
+  and choice guards are untouched. The e2e specs click tabs inside the Main navigation
+  (the town's own navigation buttons share their names).
+- **Adopted from chunk 08 QA (coordinator instruction):** Town, Party and Trail are
+  `React.lazy` chunks (PixiJS lives in the `IsoCanvas` chunk, not the login/index chunk);
+  canvas hit radius never below `MIN_HIT_RADIUS_PX` 22 px on screen (`hitTest` takes a
+  radius, `IsoCanvas` derives it from the camera); `touch-action: pan-y` on every town /
+  party / outfit chip (none of them is a drag source — the canvas is); the party builder
+  has a DOM alternative to dragging (edge buttons + "position along the edge" and "how far
+  in" selects, `partyModel.cellOnEdge`); server issue refs are shown by name
+  (`shell/issues.ts#humanizeIssue`, used by the party and outfit issue lists), no issue
+  codes, raw ids, ISO timestamps or chunk numbers in town/party/outfit copy. Radii are not
+  drawn by any chunk 17 screen (the √2 fix in `scene.ts` is the chunk 08 fixer's B2).
+- Guards for chunk 17's routes (economy, merge, refugees, recruit, party, party feed) were
+  checked against the server on `roadmap/phase-2-spec` (merged into this branch at
+  `1ed535b`): none of those routes changed shape; the e2e runs them against the real
+  merged server. No store/cosmetics guard was added (no store screen in this chunk).
+- `.dialog` now scrolls inside itself at 360×640 with sticky actions (the merge preview is
+  taller than a small phone).
+
+**Tests:** component/model tests for the board model, the scene (no core, no attackers,
+units static during a drag), merge preview → confirm (incl. the in-party confirm and a
+verbatim refusal, the 5 → 3 button), the refugee timer states (counting / stale → re-read /
+due), duplicates collapsed, reroll confirm, recruit list (unlocked with cost, locked
+"reach it in the Webs"), the party builder (issues shown, drag to a band, off-band refused,
+save sends exactly the config, refused save lists every issue), outfit caps and pack, and
+the payload guards against the fixtures. Playwright `e2e/town.spec.ts` at 360×640: sign in
+→ claim a refugee → recruit a second copy → drag one onto the other on the real canvas →
+preview → confirm → party (add, stance, drag onto the east band, save; server agrees) →
+outfit (unit, trap, fence) → ride out → "Packed, waiting to ride out."; asserts no
+horizontal scroll and every visible button ≥ 44px tall. The party step in the e2e drags on the canvas; the list selects are covered by the component test.
+
+**Not built:** the store screen (packs) — the town lists it as not built; trip start
+(chunk 15); a packs/cosmetics surface; board positions on the server.

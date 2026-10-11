@@ -31,7 +31,7 @@ async function signIn(page: import("@playwright/test").Page, username: string, p
 test("logs in and shows the whole unlock web with exact costs per pool", async ({ page }) => {
   await signIn(page, USERNAME, PASSWORD);
 
-  await page.getByRole("button", { name: "Webs" }).click();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "Webs" }).click();
   await expect(page.getByRole("heading", { name: "Unlock webs" })).toBeVisible();
 
   // Living web of the seeded desert caravan: a locked capstone is visible with its exact cost
@@ -105,7 +105,7 @@ test("one confirm → spend → re-fetch pass against the real server (S8)", asy
   await grantTrapPoints(fresh.accountId, GRANTED);
 
   await signIn(page, fresh.username, fresh.password);
-  await page.getByRole("button", { name: "Webs" }).click();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "Webs" }).click();
   await page.getByRole("tab", { name: "Traps & fences" }).click();
   const trap = page.getByTestId("web-trap");
   await expect(trap.getByTestId("points-available")).toHaveText(String(GRANTED));

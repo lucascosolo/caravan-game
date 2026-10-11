@@ -52,6 +52,8 @@ export interface AttackerEntity {
   readonly mergeLevel: number;
   readonly stance: "nearest" | "traps" | "core";
   readonly hpFraction: number;
+  /** The party builder (chunk 17) highlights the unit being edited; the trail never sets it. */
+  readonly selected?: boolean;
 }
 
 /** A siege piece shown at its party's edge (siege has no cell of its own in the model). */
@@ -63,9 +65,44 @@ export interface SiegeEntity {
   readonly along: number;
 }
 
+/**
+ * A unit sitting on the home town's merge board (chunk 17). Completely static: it has no
+ * stance, no radii, no HP and never moves on its own. `dimmed` marks a unit that cannot
+ * take the current drop (wrong type or level); `target` marks the one under the ghost.
+ */
+export interface BoardUnitEntity {
+  readonly id: string;
+  readonly pos: WorldPoint;
+  readonly typeId: string;
+  readonly mergeLevel: number;
+  readonly selected?: boolean;
+  readonly dimmed?: boolean;
+  readonly target?: boolean;
+}
+
+/** A town building: inert scenery drawn at a cell with a footprint (chunk 17). Never simulated. */
+export interface StructureEntity {
+  readonly id: string;
+  readonly kind: "building" | "mine" | "corral";
+  readonly cell: { readonly x: number; readonly y: number };
+  /** Cells wide / deep. */
+  readonly w: number;
+  readonly h: number;
+  readonly label: string;
+}
+
+/**
+ * The mine's ambient state (chunk 17, MINE_ANIMATION): `active` drives a slow cosmetic turn
+ * of the head-frame wheel; it is OFF at the storage cap. Nothing here counts anything: the
+ * balance is the server's lazily-computed number, not a per-second tick.
+ */
+export interface MineState {
+  readonly active: boolean;
+}
+
 /** What is being dragged right now. The lattice is visible iff this is non-null. */
 export interface DragGhost {
-  readonly kind: "fence" | "trap" | "post";
+  readonly kind: "fence" | "trap" | "post" | "unit" | "attacker";
   readonly typeId: string;
   /** Snapped target; null while the pointer is off the lattice. */
   readonly cell: { readonly x: number; readonly y: number } | null;
@@ -92,6 +129,12 @@ export interface IsoSceneState {
   readonly threat: ThreatOverlay | null;
   /** SHOW_AGGRO_LEASH_OVERLAY: continuous circles at true radii for every post. */
   readonly showRadii: boolean;
+  // ── chunk 17 (home town): all optional so the circle and the replay are unchanged ──
+  readonly boardUnits?: readonly BoardUnitEntity[];
+  readonly structures?: readonly StructureEntity[];
+  readonly mine?: MineState | null;
+  /** The merge board's cells; outlined only while a unit is being dragged. */
+  readonly boardCells?: readonly { readonly x: number; readonly y: number }[];
 }
 
 export const EMPTY_SCENE: IsoSceneState = {
@@ -107,6 +150,6 @@ export const EMPTY_SCENE: IsoSceneState = {
 
 /** What a hit test returns: the nearest entity under a world point, if any. */
 export interface HitResult {
-  readonly kind: "fence" | "trap" | "post" | "attacker";
+  readonly kind: "fence" | "trap" | "post" | "attacker" | "unit";
   readonly id: string;
 }

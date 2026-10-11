@@ -83,6 +83,12 @@ is the backstop for everything else.
   Shift+Tab trapped inside, Escape cancels, `aria-labelledby` + `aria-describedby`, focus
   on the safe action on open, focus restored to the opener on close (or to a
   `restoreFocusTo` fallback when the opener is gone).
+- `Modal` (`src/shell/Modal.tsx`, chunk 17) is the same pattern as reusable chrome: the
+  caller supplies the body and the action buttons, so a preview that is still loading or
+  was refused shows inside the same dialog. The merge preview, reroll, recruit and ride-out
+  confirms use it. A dialog scrolls inside itself (sticky actions) on a 360×640 screen.
+- A screen that takes an injected client for component tests calls `useApi(props.api)`
+  (`src/auth/session.tsx`) instead of `useSession().api`.
 - A bottom sheet (`NodeDetail`) moves focus to its heading (`tabIndex={-1}`) when it opens or
   changes subject, and returns it to the element that opened it when it closes.
 - A tablist uses a roving tabindex (one tab stop; arrows, Home, End move the selection) and
