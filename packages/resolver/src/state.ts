@@ -23,6 +23,7 @@
 import { CELL_ANCHOR, CELL_FREE, emptyGrid, type PathGrid, type Waypoint } from "./path.js";
 import { type Ability, type AffinityCategory, type Cell, type Fixed, type FixedPoint, type PostStance, type TrapCategory, type TrapEffect, type FenceCategory, cellCenter, cellKey } from "./battlefield.js";
 import { FIXED_ONE, fixedSq, fpMul, type Millis } from "./fixed.js";
+import { coreDistSq } from "./outcome.js";
 import type { AffinityMatrix, ResolveInput, SiegeCounter, Stance } from "./input.js";
 
 export type Side = "attacker" | "defender";
@@ -150,6 +151,12 @@ export interface UnitState {
   /** Tick on which this unit first stood on a core cell, or −1. */
   reachedCoreTick: number;
   /**
+   * Chunk 13 DEPTH_METRIC (outcome.ts): attackers' squared distance to the core block at
+   * spawn, and the smallest one sampled at the end of any tick since. 0 / 0 for posted units.
+   */
+  readonly coreStartSq: number;
+  coreClosestSq: number;
+  /**
    * Chunk 12 — ABILITY_COOLDOWN: the first tick on which the ability may fire. Starts at
    * ABILITY_FIRST_USE_DELAY (floor(abilityCooldownTicks × firstUseDelayMult)); after a firing
    * on tick t it is t + abilityCooldownTicks. A ready ability whose condition is not
@@ -176,6 +183,8 @@ export interface FenceState {
   readonly segment: number;
   readonly cell: Cell;
   readonly category: FenceCategory;
+  /** Content fence tier (label only; chunk 13's replay names it). */
+  readonly tierId: string;
   readonly maxHp: number;
   /** Whether the party carries a siege piece countering this segment's category (SIEGE_FENCE_DAMAGE_MULT applies). */
   readonly siegeCountered: boolean;
@@ -349,6 +358,8 @@ export function initialState(input: ResolveInput): SimState {
       x: pos.x,
       y: pos.y,
       hp: u.hp,
+      coreStartSq: coreDistSq(pos.x, pos.y),
+      coreClosestSq: coreDistSq(pos.x, pos.y),
       ...common(u.ability, u.attackRange, u.attackCooldown, u.mergeLevel, pos),
     });
   }
@@ -380,6 +391,8 @@ export function initialState(input: ResolveInput): SimState {
       x: p.pos.x,
       y: p.pos.y,
       hp: p.hp,
+      coreStartSq: 0,
+      coreClosestSq: 0,
       ...common(p.ability, p.attackRange, p.attackCooldown, p.mergeLevel, p.pos),
       // A posted unit starts standing on its post; `hold` is logged only when it first moves.
       holding: true,
@@ -391,6 +404,7 @@ export function initialState(input: ResolveInput): SimState {
     segment: f.segment,
     cell: f.cell,
     category: f.category,
+    tierId: f.tierId,
     maxHp: f.maxHp,
     siegeCountered: siegeCounters("fence", f.category),
     hp: f.hp,

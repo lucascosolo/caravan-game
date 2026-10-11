@@ -25,7 +25,7 @@
  * Nothing here is account-level: no account id, no Coin, no purchase or entitlement state
  * can reach the resolver through this structure (GUARDRAILS §2).
  */
-import { AFFINITY_MATRIX, TUNABLES, getFenceTier, getTrapType, getUnitType } from "@caravan/content";
+import { AFFINITY_MATRIX, CONTENT, TUNABLES, getFenceTier, getSiegeType, getTrapType, getUnitType, mergeStatMult, scaleInt } from "@caravan/content";
 import {
   BATTLEFIELD_VERSION,
   CORE_CELLS,
@@ -42,9 +42,12 @@ import {
   type BattlefieldFence,
   type BattlefieldPost,
   type BattlefieldTrap,
+  type Party as ResolverParty,
+  type PartyUnit as ResolverPartyUnit,
   type ResolverTunables,
 } from "@caravan/resolver";
 import type { Formation } from "./formation.js";
+import type { Party } from "./party.js";
 import type { Manifest } from "./manifest.js";
 
 export {
@@ -132,6 +135,49 @@ export function toBattlefield(manifest: Manifest, formation: Formation): Battlef
 }
 
 /**
+ * Chunk 13: the served standing party as the RESOLVER sees it — the owner's choices (stance,
+ * approach edge, start cell, siege) joined with CONTENT stats, the same way `toBattlefield`
+ * joins a formation. Every unit enters at full HP (a standing party is a template: it is never
+ * worn down, GUARDRAILS §0): maxHp = type HP × MERGE_STAT_MULT_BY_LEVEL[level], floored, exactly
+ * as a manifest computes a posted unit's; the OFFENSE rating is the unscaled type value (chunk
+ * 03 QA B1 — the multiplier applies to HP and to each hit's output inside the resolver). A siege
+ * piece's ref is its type id (a party carries each type at most once). Arrays come out in ref
+ * order. Throws on an unknown type id.
+ */
+export function toResolverParty(party: Party): ResolverParty {
+  const units = [...party.units]
+    .sort((a, b) => (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0))
+    .map((u): ResolverPartyUnit => {
+      const type = getUnitType(u.typeId);
+      if (!type) throw new Error(`unknown unit type '${u.typeId}'`);
+      const maxHp = scaleInt(type.hp, mergeStatMult(u.mergeLevel));
+      return {
+        ref: u.ref,
+        typeId: u.typeId,
+        mergeLevel: u.mergeLevel,
+        stance: u.stance,
+        entry: { edge: u.edge, cell: { x: u.cell.x, y: u.cell.y } },
+        hp: maxHp,
+        maxHp,
+        affinity: type.affinity,
+        offense: type.offense,
+        moveSpeed: type.moveSpeed,
+        attackRange: type.attackRange,
+        attackCooldown: type.attackCooldown,
+        ability: type.ability,
+      };
+    });
+  const siege = [...party.siege]
+    .sort((a, b) => (a.typeId < b.typeId ? -1 : a.typeId > b.typeId ? 1 : 0))
+    .map((s) => {
+      const type = getSiegeType(s.typeId);
+      if (!type) throw new Error(`unknown siege type '${s.typeId}'`);
+      return { ref: s.typeId, typeId: s.typeId, counters: type.counters };
+    });
+  return { v: 1, units, siege };
+}
+
+/**
  * The chunk 10, 11 and 12 tunables, read from the registry and handed to the resolver as plain
  * input: the clock and cadences, the affinity multipliers and the matrix (content's
  * affinity.ts, copied as data), the merge multiplier table, the trap trigger radius, the
@@ -163,4 +209,14 @@ export function resolverTunables(): ResolverTunables {
     structureBreakerFirstUseMult: TUNABLES.STRUCTURE_BREAKER_FIRST_USE_MULT,
     fenceHitSegmentCap: TUNABLES.FENCE_HIT_SEGMENT_CAP,
   };
+}
+
+/**
+ * Chunk 13 (QA-15 S3): everything a resolution READS from content, as one plain object — the
+ * unit, trap, siege and fence tables `toBattlefield` / `toResolverParty` look stats up in, and
+ * the resolver tunables. The server hashes it (RESOLUTION_CONTENT_HASH), stamps the hash on
+ * every encounter job at enqueue and refuses to resolve a job whose stamp differs.
+ */
+export function resolutionContent(): { readonly units: unknown; readonly traps: unknown; readonly siege: unknown; readonly fences: unknown; readonly tunables: ResolverTunables } {
+  return { units: CONTENT.units, traps: CONTENT.traps, siege: CONTENT.siege, fences: CONTENT.fences, tunables: resolverTunables() };
 }

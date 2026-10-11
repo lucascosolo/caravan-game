@@ -1,21 +1,20 @@
 /**
- * The encounter-resolution job: enqueue side (formation snapshot + the pre-taken party
- * snapshot + formation_committed event) and the pure handler the worker runs.
+ * The encounter-resolution job: enqueue side (formation snapshot + the survivors it was
+ * committed against + the pre-taken party snapshot + the content stamp + formation_committed
+ * event) and the pure handler the worker runs.
  *
- * The handler's outcome is a PLACEHOLDER until the resolver is wired in (chunk 13). The
- * placeholder is exported for tests; the production DEFAULT_HANDLERS entry refuses to run
- * while ENCOUNTER_RESOLUTION_WIRED is false (QA-02 S9), so no permanent resolution of
- * nothing is written. The gate is a server-side flag, NOT `RESOLVER_VERSION`: chunk 10
- * shipped the resolver core at RESOLVER_VERSION 1 (movement and breaching only — no combat,
- * no end conditions, no outcome), so the version alone does not mean "an encounter can be
- * resolved". TODO(chunk-13): implement trip/outcome.ts `productionEncounterResolver` over
- * @caravan/resolver (chunk 15 built the handler around it: `makeEncounterResolutionHandler`)
- * and flip ENCOUNTER_RESOLUTION_WIRED. Coin, unit and Reputation effects are NOT written
- * here: the trip loop's settle step (trip/service.ts) folds the stored outcome in once.
- * Nothing else about this file changes then: the snapshotting, the events' scopes and the
- * resolver-version stamp are already in place.
+ * Chunk 13 wired the resolver: ENCOUNTER_RESOLUTION_WIRED is true and DEFAULT_HANDLERS
+ * resolves through the trip loop's seam with the production adapter
+ * (trip/resolverAdapter.ts). The gate stays a server-side flag, NOT `RESOLVER_VERSION`
+ * (QA-02 S9). The handler returns the outcome (job.result.outcome), the two resolution events
+ * and the replay log as an ARTIFACT the worker stores in `encounter_log` in the same
+ * transaction (QA-15 S2) — the log never goes in job.result, only its hash and size do. Coin,
+ * unit and Reputation effects are NOT written here: the trip loop's settle step
+ * (trip/service.ts) folds the stored outcome in once. The PLACEHOLDER handler is kept for
+ * chunk 02's queue tests only.
  */
 import { RESOLVER_VERSION } from "@caravan/resolver";
+import { createHash } from "node:crypto";
 import type pg from "pg";
 import type { ResolutionJobRow } from "../../db/types.js";
 import type { JsonObject, LedgerEventDraft } from "../../ledger/events.js";
@@ -32,7 +31,8 @@ import {
   type EncounterOutcome,
   type EncounterResolver,
 } from "../../trip/outcome.js";
-import type { JobHandler } from "../worker.js";
+import { ContentHashMismatchError, RESOLUTION_CONTENT_HASH } from "../../trip/resolverAdapter.js";
+import type { EncounterLogArtifact, JobHandler } from "../worker.js";
 
 export interface EncounterJobInput extends JsonObject {
   tripId: string;
@@ -41,9 +41,13 @@ export interface EncounterJobInput extends JsonObject {
   defenderCaravanId: string;
   partyOwnerAccountId: string;
   formation: FormationSnapshot;
+  /** QA-15 N3: the survivors the formation was committed against (trip loop jobs only), top-level. */
+  survivors?: JsonObject;
   party: StandingPartySnapshot;
   /** Version the enqueuer expects to resolve with; the handler stamps the real one too. */
   resolverVersion: number;
+  /** QA-15 S3: sha256 of the content + tunables the resolution will read (RESOLUTION_CONTENT_HASH at enqueue). */
+  contentHash: string;
 }
 
 export interface EnqueueEncounterInput {
@@ -53,6 +57,8 @@ export interface EnqueueEncounterInput {
   defenderCaravanId: string;
   partyOwnerAccountId: string;
   formation: JsonObject;
+  /** QA-15 N3: the trip loop's survivors snapshot, stored as its own top-level job-input key. */
+  survivors?: JsonObject;
   /**
    * Chunk 14: the party snapshot taken ONCE when the candidate menu was generated and
    * stored on the chosen candidate (`enqueueChosenEncounter`). Stored into the job input
@@ -81,10 +87,12 @@ export async function enqueueEncounterResolution(
   const id = encounterJobId(input.tripId, input.encounterIndex);
   await lockCaravanForResolution(client, input.defenderCaravanId);
   const formation = snapshotFormation(input.formation);
+  const survivors = input.survivors === undefined ? undefined : (JSON.parse(JSON.stringify(input.survivors)) as JsonObject);
   const existing = await getJob(client, id);
   if (existing) {
-    const stored = (existing.input as EncounterJobInput).formation as Json;
-    if (canonicalJson(stored) !== canonicalJson(formation) || existing.account_id !== input.defenderAccountId || existing.caravan_id !== input.defenderCaravanId) {
+    const stored = existing.input as EncounterJobInput;
+    const sameSurvivors = canonicalJson((stored.survivors ?? null) as Json) === canonicalJson((survivors ?? null) as Json);
+    if (canonicalJson(stored.formation as Json) !== canonicalJson(formation) || !sameSurvivors || existing.account_id !== input.defenderAccountId || existing.caravan_id !== input.defenderCaravanId) {
       throw new JobInputConflictError(id, existing);
     }
     return { job: existing, created: false };
@@ -118,8 +126,10 @@ export async function enqueueEncounterResolution(
     defenderCaravanId: input.defenderCaravanId,
     partyOwnerAccountId: input.partyOwnerAccountId,
     formation,
+    ...(survivors === undefined ? {} : { survivors }),
     party,
     resolverVersion: RESOLVER_VERSION,
+    contentHash: RESOLUTION_CONTENT_HASH,
   };
   const { job, created } = await enqueueJob(client, {
     id,
@@ -184,17 +194,15 @@ export const placeholderEncounterResolutionHandler: JobHandler = (job) => {
 };
 
 /**
- * Whether the production handler runs the real resolver. False until chunk 13 maps a
- * resolver outcome to events; while false, every encounter job parks (QA-02 S9).
+ * Whether the production handler runs the real resolver. Chunk 13 wired it (true); while it
+ * was false every encounter job parked (QA-02 S9).
  */
-export const ENCOUNTER_RESOLUTION_WIRED = false;
+export const ENCOUNTER_RESOLUTION_WIRED: boolean = true;
 
 /**
- * Pure. The production handler. Until chunk 13 wires the resolver in it refuses to resolve
- * anything: the job parks with a clear last_error rather than committing a permanent,
- * replayable "resolution" of nothing (QA-02 S9).
- * TODO(chunk-13): call @caravan/resolver on input.formation + input.party and map its
- * outcome to coin/unit/reputation events here, replacing the placeholder body.
+ * Pure. The production handler: the trip loop's seam with the @caravan/resolver adapter.
+ * If the gate is ever turned off again it refuses to resolve anything (the job parks with a
+ * clear last_error rather than committing a permanent, replayable "resolution" of nothing).
  */
 export const encounterResolutionHandler: JobHandler = (job) => {
   if (!ENCOUNTER_RESOLUTION_WIRED) {
@@ -224,17 +232,40 @@ export function makeEncounterResolutionHandler(resolver: EncounterResolver): Job
   return (job) => {
     const input = job.input as EncounterJobInput;
     let outcome: EncounterOutcome;
+    let encounterLog: EncounterLogArtifact | undefined;
     try {
       const resolverInput = resolverInputFromJob(job.input);
-      outcome = resolveEncounter(resolver, resolverInput);
+      const resolved = resolveEncounter(resolver, resolverInput);
+      outcome = resolved.outcome;
       // Dry-run the carry-forward fold against the survivors the formation was committed
       // with: an outcome that heals, re-arms, rebuilds or names an unknown ref is refused
       // HERE, before anything is recorded (no repair, no resupply — chunk 15).
       applyAttritionOutcome(resolverInput.survivors, attritionOf(outcome));
+      if (resolved.log !== null) {
+        const text = JSON.stringify(resolved.log);
+        const sha = (v: unknown) => createHash("sha256").update(canonicalJson(v as Json)).digest("hex");
+        encounterLog = {
+          jobId: job.id,
+          caravanId: input.defenderCaravanId,
+          defenderAccountId: input.defenderAccountId,
+          partyOwnerAccountId: input.partyOwnerAccountId,
+          resolverVersion: resolved.log.resolverVersion,
+          logFormat: resolved.log.v,
+          text,
+          sha256: createHash("sha256").update(text).digest("hex"),
+          formationSha256: sha(input.formation),
+          survivorsSha256: sha(input.survivors ?? null),
+          partySha256: sha(input.party),
+          contentHash: input.contentHash,
+        };
+      }
     } catch (err) {
+      // QA-15 S3: a content mismatch is retryable — a worker on the stamped content can take it.
+      if (err instanceof ContentHashMismatchError) throw err;
       throw new NonRetryableJobError(`encounter ${job.id}: ${err instanceof Error ? err.message : String(err)}`);
     }
     const outcomeJson = outcome as unknown as JsonObject;
+    const summary = { kind: outcome.kind, depth: outcome.depth, endTick: outcome.endTick, loot: outcome.loot };
     const events: LedgerEventDraft[] = [
       {
         type: "encounter_resolved",
@@ -246,6 +277,9 @@ export function makeEncounterResolutionHandler(resolver: EncounterResolver): Job
           tripId: input.tripId,
           encounterIndex: input.encounterIndex,
           partyOwnerAccountId: input.partyOwnerAccountId,
+          partyId: input.party.partyId,
+          partyHash: input.party.hash,
+          partySavedAt: input.party.savedAt,
           formation: input.formation,
           party: input.party,
           outcome: outcomeJson,
@@ -264,11 +298,13 @@ export function makeEncounterResolutionHandler(resolver: EncounterResolver): Job
           partyId: input.party.partyId,
           partyHash: input.party.hash,
           partySavedAt: input.party.savedAt,
-          outcome: { kind: outcome.kind, depth: outcome.depth },
+          outcome: summary,
         },
       },
     ];
-    return { events, result: { outcome: outcomeJson, resolverVersion: RESOLVER_VERSION, resolver: resolver.name } };
+    // QA-15 S2: the log lives in encounter_log; the result names it (hash + size), never holds it.
+    const replay: JsonObject | null = encounterLog ? { store: "encounter_log", jobId: job.id, logFormat: encounterLog.logFormat, sha256: encounterLog.sha256, rawBytes: Buffer.byteLength(encounterLog.text) } : null;
+    return { events, result: { outcome: outcomeJson, resolverVersion: RESOLVER_VERSION, resolver: resolver.name, replay }, ...(encounterLog ? { encounterLog } : {}) };
   };
 }
 

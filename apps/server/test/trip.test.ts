@@ -5,7 +5,8 @@
  * trip-double.ts, settle-exactly-once (attrition, progression, unbanked Coin), bank / push /
  * overrun / stalemate, NO repair between encounters, the bank-or-push stakes preview, and
  * idempotency under retries and races (double bank, bank racing push, two starts, settles
- * racing). The production handler stays gated (ENCOUNTER_RESOLUTION_WIRED = false).
+ * racing). Production resolves with the real resolver since chunk 13 (ENCOUNTER_RESOLUTION_WIRED);
+ * the same loop under it is exercised in trip-resolver.test.ts.
  */
 import { RING_ANCHORS, RING_SEGMENTS, entryBand, type Formation, type PartyConfig } from "@caravan/circle";
 import { FIXED_ONE, TUNABLES } from "@caravan/content";
@@ -243,7 +244,7 @@ describe("the trip cap (pure): 3 stored, one back every 20 minutes, computed fro
 });
 
 describe("the EncounterOutcome seam (pure)", () => {
-  const ok = { kind: "caravan_held", depth: 512, units: [{ ref: "u", hp: 3 }], spentTraps: ["t0"], fences: [{ ref: "f0", hp: 0 }] };
+  const ok = { kind: "caravan_held", depth: 512, endTick: 600, loot: 141, units: [{ ref: "u", hp: 3 }], spentTraps: ["t0"], fences: [{ ref: "f0", hp: 0 }] };
   it("has exactly chunk 04's three outcome kinds", () => {
     expect([...ENCOUNTER_OUTCOME_KINDS]).toEqual([...PROGRESSION_KINDS]);
   });
@@ -258,7 +259,12 @@ describe("the EncounterOutcome seam (pure)", () => {
       { ...ok, depth: FIXED_ONE + 1 },
       { ...ok, kind: "caravan_overrun", depth: 100 },
       { ...ok, extra: 1 },
-      { kind: ok.kind, depth: ok.depth, units: ok.units, spentTraps: ok.spentTraps },
+      { kind: ok.kind, depth: ok.depth, endTick: ok.endTick, loot: ok.loot, units: ok.units, spentTraps: ok.spentTraps },
+      { ...ok, endTick: -1 },
+      { ...ok, endTick: 1.5 },
+      { ...ok, loot: -1 },
+      { ...ok, loot: 0.5 },
+      { ...ok, kind: "stalemate", loot: 1 },
       { ...ok, units: [{ ref: "u", hp: 1.5 }] },
       { ...ok, units: [{ ref: "u", hp: 1, heal: 2 }] },
       { ...ok, spentTraps: [""] },
@@ -671,24 +677,31 @@ describe("settling is exactly once under retries and races", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
-describe("the production handler stays gated until chunk 13", () => {
-  it.skipIf(ENCOUNTER_RESOLUTION_WIRED)("a trip-loop job under DEFAULT_HANDLERS parks; the trip shows resolution_unavailable and nothing is folded", async () => {
+describe("the production handler is wired (chunk 13)", () => {
+  it("a trip-loop job carries formation, survivors (top level, QA-15 N3) and the content stamp (S3), and DEFAULT_HANDLERS resolves and settles it", async () => {
+    expect(ENCOUNTER_RESOLUTION_WIRED).toBe(true);
     const d = await makeDefender();
     await pack(d);
     await start(d);
     await searchAndChoose(d, 1);
     const jobId = await arrangeAndCommit(d, 1);
-    // The job input carries everything a pure resolver needs: formation + survivors + the scouted party.
     const job = await getJob(pool, jobId);
-    expect(Object.keys((job!.input as { formation: object }).formation).sort()).toEqual(["fences", "posts", "survivors", "traps", "v"]);
+    const input = job!.input as Record<string, unknown>;
+    expect(Object.keys(input.formation as object).sort()).toEqual(["fences", "posts", "traps", "v"]);
+    expect(Object.keys(input).sort()).toEqual(["contentHash", "defenderAccountId", "defenderCaravanId", "encounterIndex", "formation", "party", "partyOwnerAccountId", "resolverVersion", "survivors", "tripId"]);
+    expect(input.survivors).toEqual(before1(await survivors(d)));
     await worker(DEFAULT_HANDLERS);
-    expect((await getJob(pool, jobId))!.status).toBe("parked");
-    expect((await getJob(pool, jobId))!.last_error).toMatch(/chunk 13/);
+    expect((await getJob(pool, jobId))!.status).toBe("completed");
     const s = await status(d);
-    expect(s.trip).toMatchObject({ phase: "resolution_unavailable", encountersResolved: 0 });
-    expect(await pool.query("SELECT 1 FROM trip_encounter WHERE trip_id = $1", [s.trip!.id]).then((r) => r.rowCount)).toBe(0);
+    expect(s.trip!.encountersResolved).toBe(1);
+    expect(await pool.query("SELECT 1 FROM encounter_log WHERE job_id = $1", [jobId]).then((r) => r.rowCount)).toBe(1);
   });
 });
+
+/** The survivors as the manifest shows them before encounter 1 (canonical JSON view). */
+function before1(m: ManifestJson): unknown {
+  return JSON.parse(JSON.stringify(m));
+}
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
 describe("authored (system-owned) opponents: the party side resolves nothing", () => {

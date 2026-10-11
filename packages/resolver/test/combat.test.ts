@@ -289,7 +289,7 @@ describe("SIMULTANEOUS_DAMAGE and death resolution", () => {
     expect(state.units[0]!.alive).toBe(false);
   });
 
-  it("end to end: the attacker kills the hold post, the log carries every hit, the summary carries diedTick, and the loop keeps running (endOfTick is still a seam)", () => {
+  it("end to end: the attacker kills the hold post, the log carries every hit, the summary carries diedTick, and the fight ends the tick the raider reaches the core (chunk 13)", () => {
     const out = resolve(input(battlefield({ posts: [holdPost()] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 }, hp: 5000 })]), SHORT_TUNABLES));
     const died = events(out, "unit_died");
     expect(died).toEqual([{ t: out.units[1]!.diedTick, k: "unit_died", u: 1 }]);
@@ -300,11 +300,12 @@ describe("SIMULTANEOUS_DAMAGE and death resolution", () => {
     expect(hits[hits.length - 1]!.hp).toBe(0);
     expect(hits[hits.length - 1]!.t).toBe(out.units[1]!.diedTick);
     expect(events(out, "hit").filter((h) => h.t > out.units[1]!.diedTick)).toHaveLength(0);
-    expect(out.ticks).toBe(600);
-    expect(out.end).toBe("tick_cap");
-    // The attacker retargets to the core the tick after and reaches it.
+    // The attacker retargets to the core the tick after and reaches it: an overrun, that tick.
     expect(events(out, "target").map((e) => e.target?.kind)).toEqual(["unit", "core"]);
     expect(out.units[0]!.reachedCoreTick).toBeGreaterThan(out.units[1]!.diedTick);
+    expect(out.end).toBe("core_overrun");
+    expect(out.outcome).toMatchObject({ kind: "caravan_overrun", endTick: out.units[0]!.reachedCoreTick, depth: 1024, deepestUnit: 0 });
+    expect(out.ticks).toBe(out.units[0]!.reachedCoreTick + 1);
   });
 });
 

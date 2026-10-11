@@ -61,7 +61,7 @@ import { applyEncounterOutcome, progressionCausationId } from "../progression/ou
 import { setCaravanState } from "../repo/caravans.js";
 import { AppError, badRequest, conflict } from "../services/errors.js";
 import { consumeTripCap, readTripCap, type TripCapView } from "./cap.js";
-import { JOB_SURVIVORS_KEY, assertTripEncounterOutcome, attritionOf, caravanSurvived, resolverInputFromJob, type EncounterOutcome, type EncounterOutcomeKind } from "./outcome.js";
+import { assertTripEncounterOutcome, attritionOf, caravanSurvived, resolverInputFromJob, type EncounterOutcome, type EncounterOutcomeKind } from "./outcome.js";
 import { decideTripEncounter, findTripEncounter, insertTripEncounter, listTripEncounters, unbankedCoinOf, type TripEncounterRow } from "./repo.js";
 
 const notFound = (code: string, message: string) => new AppError(404, code, message);
@@ -160,7 +160,8 @@ export async function commitEncounter(
   if (!row?.committed_at || !row.survivors_snapshot) throw new Error(`encounter ${encounterIndex}: formation not committed with a survivors snapshot`);
   const formation = JSON.parse(serializeFormation(formationFromJson(row.formation))) as JsonObject;
   const survivors = JSON.parse(serializeManifest(manifestFromJson(row.survivors_snapshot))) as JsonObject;
-  const { job, created } = await enqueueChosenEncounter(client, caravan, encounterIndex, { ...formation, [JOB_SURVIVORS_KEY]: survivors });
+  // QA-15 N3: the survivors snapshot is its own top-level job-input key, not smuggled inside the formation.
+  const { job, created } = await enqueueChosenEncounter(client, caravan, encounterIndex, formation, survivors);
   return { job, created };
 }
 

@@ -45,7 +45,7 @@
     "cosmeticsAlreadyOwned": [],
     "events": [
       {
-        "seq": 7,
+        "seq": 21000,
         "type": "coin_purchased",
         "payload": {
           "tier": 1,

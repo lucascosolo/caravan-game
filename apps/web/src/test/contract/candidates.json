@@ -90,7 +90,7 @@
                 "ability": {
                   "cooldown": 12000,
                   "archetype": "structure_breaker",
-                  "description": "A full-weight swing at a fence segment for 4.5× a normal hit — never more than half a segment in one blow.",
+                  "description": "A full-weight swing at a fence segment for 4.5× a normal hit; with its normal hit it takes at most half a segment's max HP per tick. First use after 3 s.",
                   "displayName": "Pick Swing",
                   "fenceDamageMult": 4608
                 },
@@ -103,6 +103,20 @@
                 "attackRange": 1024,
                 "displayName": "Well Digger",
                 "ratingInUse": "offense",
+                "abilityDisplay": {
+                  "charges": null,
+                  "archetype": "structure_breaker",
+                  "dashCells": null,
+                  "reachCells": null,
+                  "buffPercent": null,
+                  "buffSeconds": null,
+                  "healCeiling": null,
+                  "healPercent": null,
+                  "cooldownSeconds": "12",
+                  "firstUseSeconds": "3",
+                  "damageMultiplier": "4.5",
+                  "fenceHitCapPercent": "50"
+                },
                 "attackCooldown": 1400,
                 "damagePerHitMult": 1024
               },
@@ -124,7 +138,7 @@
                   "cooldown": 9000,
                   "distance": 3584,
                   "archetype": "dash",
-                  "description": "Surges 3.5 cells along its path.",
+                  "description": "Surges 3.5 cells along its path. First use after 9 s.",
                   "displayName": "Spur On"
                 },
                 "defense": 55,
@@ -136,6 +150,20 @@
                 "attackRange": 1024,
                 "displayName": "Dust Rider",
                 "ratingInUse": "offense",
+                "abilityDisplay": {
+                  "charges": null,
+                  "archetype": "dash",
+                  "dashCells": "3.5",
+                  "reachCells": null,
+                  "buffPercent": null,
+                  "buffSeconds": null,
+                  "healCeiling": null,
+                  "healPercent": null,
+                  "cooldownSeconds": "9",
+                  "firstUseSeconds": "9",
+                  "damageMultiplier": null,
+                  "fenceHitCapPercent": null
+                },
                 "attackCooldown": 800,
                 "damagePerHitMult": 1024
               }
@@ -248,7 +276,7 @@
                 "ability": {
                   "cooldown": 12000,
                   "archetype": "structure_breaker",
-                  "description": "A full-weight swing at a fence segment for 4.5× a normal hit — never more than half a segment in one blow.",
+                  "description": "A full-weight swing at a fence segment for 4.5× a normal hit; with its normal hit it takes at most half a segment's max HP per tick. First use after 3 s.",
                   "displayName": "Pick Swing",
                   "fenceDamageMult": 4608
                 },
@@ -261,6 +289,20 @@
                 "attackRange": 1024,
                 "displayName": "Well Digger",
                 "ratingInUse": "offense",
+                "abilityDisplay": {
+                  "charges": null,
+                  "archetype": "structure_breaker",
+                  "dashCells": null,
+                  "reachCells": null,
+                  "buffPercent": null,
+                  "buffSeconds": null,
+                  "healCeiling": null,
+                  "healPercent": null,
+                  "cooldownSeconds": "12",
+                  "firstUseSeconds": "3",
+                  "damageMultiplier": "4.5",
+                  "fenceHitCapPercent": "50"
+                },
                 "attackCooldown": 1400,
                 "damagePerHitMult": 1024
               },
@@ -282,7 +324,7 @@
                   "cooldown": 9000,
                   "distance": 3584,
                   "archetype": "dash",
-                  "description": "Surges 3.5 cells along its path.",
+                  "description": "Surges 3.5 cells along its path. First use after 9 s.",
                   "displayName": "Spur On"
                 },
                 "defense": 55,
@@ -294,6 +336,20 @@
                 "attackRange": 1024,
                 "displayName": "Dust Rider",
                 "ratingInUse": "offense",
+                "abilityDisplay": {
+                  "charges": null,
+                  "archetype": "dash",
+                  "dashCells": "3.5",
+                  "reachCells": null,
+                  "buffPercent": null,
+                  "buffSeconds": null,
+                  "healCeiling": null,
+                  "healPercent": null,
+                  "cooldownSeconds": "9",
+                  "firstUseSeconds": "9",
+                  "damageMultiplier": null,
+                  "fenceHitCapPercent": null
+                },
                 "attackCooldown": 800,
                 "damagePerHitMult": 1024
               }
@@ -406,7 +462,7 @@
                 "ability": {
                   "cooldown": 12000,
                   "archetype": "structure_breaker",
-                  "description": "A full-weight swing at a fence segment for 4.5× a normal hit — never more than half a segment in one blow.",
+                  "description": "A full-weight swing at a fence segment for 4.5× a normal hit; with its normal hit it takes at most half a segment's max HP per tick. First use after 3 s.",
                   "displayName": "Pick Swing",
                   "fenceDamageMult": 4608
                 },
@@ -419,6 +475,20 @@
                 "attackRange": 1024,
                 "displayName": "Well Digger",
                 "ratingInUse": "offense",
+                "abilityDisplay": {
+                  "charges": null,
+                  "archetype": "structure_breaker",
+                  "dashCells": null,
+                  "reachCells": null,
+                  "buffPercent": null,
+                  "buffSeconds": null,
+                  "healCeiling": null,
+                  "healPercent": null,
+                  "cooldownSeconds": "12",
+                  "firstUseSeconds": "3",
+                  "damageMultiplier": "4.5",
+                  "fenceHitCapPercent": "50"
+                },
                 "attackCooldown": 1400,
                 "damagePerHitMult": 1024
               },
@@ -440,7 +510,7 @@
                   "cooldown": 9000,
                   "distance": 3584,
                   "archetype": "dash",
-                  "description": "Surges 3.5 cells along its path.",
+                  "description": "Surges 3.5 cells along its path. First use after 9 s.",
                   "displayName": "Spur On"
                 },
                 "defense": 55,
@@ -452,6 +522,20 @@
                 "attackRange": 1024,
                 "displayName": "Dust Rider",
                 "ratingInUse": "offense",
+                "abilityDisplay": {
+                  "charges": null,
+                  "archetype": "dash",
+                  "dashCells": "3.5",
+                  "reachCells": null,
+                  "buffPercent": null,
+                  "buffSeconds": null,
+                  "healCeiling": null,
+                  "healPercent": null,
+                  "cooldownSeconds": "9",
+                  "firstUseSeconds": "9",
+                  "damageMultiplier": null,
+                  "fenceHitCapPercent": null
+                },
                 "attackCooldown": 800,
                 "damagePerHitMult": 1024
               }

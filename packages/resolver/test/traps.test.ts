@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { cellCenter, initialState, normalizeInput, resolve, segmentDistSq, sweepCrosses, trapTriggerPhase, type Fixed, type FixedPoint, type LogEvent, type ResolveOutput } from "../src/index.js";
-import { DEFAULT_TUNABLES, ROOT, SHORT_TUNABLES, SLOW, battlefield, input, ms, party, post, quiet, trap, unit } from "./fixtures.js";
+import { runToCap, DEFAULT_TUNABLES, ROOT, SHORT_TUNABLES, SLOW, battlefield, input, ms, party, post, quiet, trap, unit } from "./fixtures.js";
 
 const events = <K extends LogEvent["k"]>(out: ResolveOutput, k: K) => out.log.filter((e): e is Extract<LogEvent, { k: K }> => e.k === k);
 const keyframes = (out: ResolveOutput) => events(out, "keyframe");
@@ -48,7 +48,7 @@ describe("TRAP_TRIGGER_TEST", () => {
     expect(keyframes(out)[52]!.units[0]!.y).toBe(512 + 76 * 53);
     expect(keyframes(out)[52]!.traps).toEqual([{ i: 0, spent: true }]);
     expect(keyframes(out)[51]!.traps).toEqual([{ i: 0, spent: false }]);
-    expect(out.traps[0]).toEqual({ i: 0, ref: "t", spent: true, spentTick: 52 });
+    expect(out.traps[0]).toMatchObject({ i: 0, ref: "t", spent: true, spentTick: 52 });
     expect(out.units[0]!.hp).toBe(421);
     expect(events(out, "unit_died")).toHaveLength(0);
     // An advantaged trap: powder vs beast → 250 × 1.25 = 312.
@@ -125,7 +125,8 @@ describe("SIEGE_TRAP_NULLIFY", () => {
 
 describe("TRAP_EFFECTS", () => {
   it("root: 0 movement for exactly msToTicks(duration) ticks after the trigger, with `speed` 0 / restore events and `hold` edges", () => {
-    const out = resolve(input(battlefield({ traps: [trap("t", { x: 15, y: 5 }, { effect: ROOT })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), PER_TICK_KEYFRAMES));
+    // runToCap: the third `hold` edge is the arrival at the core centre, past the core edge that ends a real fight.
+    const out = runToCap(input(battlefield({ traps: [trap("t", { x: 15, y: 5 }, { effect: ROOT })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), PER_TICK_KEYFRAMES));
     expect(events(out, "trap_fired")[0]).toMatchObject({ t: 52, effect: "root" });
     expect(events(out, "speed")).toEqual([
       { t: 52, k: "speed", u: 0, speed: 0 },
@@ -197,7 +198,8 @@ describe("posted units and traps", () => {
   it("end to end: a guard chasing back and forth over a trap cell leaves it unspent, while the attacker it chases stops short of it", () => {
     // Guard at (15,9) with an 8-cell aggro and a 4-cell leash; the attacker holds at the core centre
     // (6 cells away) — out of the guard's reach at full leash, so it oscillates across the trap at (15,12).
-    const out = resolve(input(battlefield({ traps: [trap("t", { x: 15, y: 12 })], posts: [post("p", { x: 15, y: 9 }, { aggroRadius: 8192 as Fixed })] }), party([unit({ ref: "a", edge: "south", cell: { x: 15, y: 31 } })]), SHORT_TUNABLES));
+    // runToCap: the oscillation happens while the raider holds on the core (an overrun ends a real fight).
+    const out = runToCap(input(battlefield({ traps: [trap("t", { x: 15, y: 12 })], posts: [post("p", { x: 15, y: 9 }, { aggroRadius: 8192 as Fixed })] }), party([unit({ ref: "a", edge: "south", cell: { x: 15, y: 31 } })]), SHORT_TUNABLES));
     expect(events(out, "aggro").length).toBeGreaterThan(1);
     const ks = keyframes(out);
     expect(ks.some((k) => k.units[1]!.y > cellCenter({ x: 15, y: 12 }).y)).toBe(true);

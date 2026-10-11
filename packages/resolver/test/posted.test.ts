@@ -26,7 +26,7 @@ import {
   type ResolveOutput,
   type SimState,
 } from "../src/index.js";
-import { DEFAULT_TUNABLES, QUIET_SHORT_TUNABLES, SHORT_TUNABLES, battlefield, clone, input, ms, party, post, reachSq, ringExcept, unit } from "./fixtures.js";
+import { runToCap, DEFAULT_TUNABLES, QUIET_SHORT_TUNABLES, SHORT_TUNABLES, battlefield, clone, input, ms, party, post, reachSq, ringExcept, unit } from "./fixtures.js";
 
 const events = <K extends LogEvent["k"]>(out: { readonly log: readonly LogEvent[] }, k: K) => out.log.filter((e): e is Extract<LogEvent, { k: K }> => e.k === k);
 const keyframes = (out: ResolveOutput) => events(out, "keyframe");
@@ -179,8 +179,9 @@ describe("guard: leash and hysteresis", () => {
   it("oscillation at the leash boundary is deterministic and bounded: a guard chasing a target it can never reach alternates aggro / leash disengage, never passing the leash by more than one step, and re-acquires only inside the hysteresis radius", () => {
     // Guard at (15,9), aggro 8 cells, leash 4; the attacker holds at the core centre 6 cells away (never in reach).
     const inp = input(battlefield({ posts: [post("p", { x: 15, y: 9 }, { aggroRadius: 8192 as Fixed })] }), party([unit({ ref: "a", edge: "south", cell: { x: 15, y: 31 } })]), { ...SHORT_TUNABLES, keyframeIntervalMs: ms(50) });
-    const out = resolve(inp);
-    expect(JSON.stringify(resolve(clone(inp)))).toBe(JSON.stringify(out));
+    // runToCap (mechanic isolation): the raider holds on the core, which would end the fight.
+    const out = runToCap(inp);
+    expect(JSON.stringify(runToCap(clone(inp)))).toBe(JSON.stringify(out));
     const postY = cellCenter({ x: 15, y: 9 }).y;
     const aggro = events(out, "aggro");
     const dis = events(out, "disengage");
@@ -208,7 +209,8 @@ describe("guard: leash and hysteresis", () => {
 describe("guard: pursuit and the fight", () => {
   it("end to end: a guard notices a passing attacker, chases it within its leash, drops it, returns, and goes idle — every transition logged", () => {
     // The attacker (core stance) walks straight down x = 15 past a guard at (12,8), 3 cells off its line.
-    const out = resolve(input(battlefield({ posts: [guardAt({ x: 12, y: 8 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, hp: 5000 })]), QUIET_SHORT_TUNABLES));
+    // runToCap: the walk home happens after the raider reaches the core (which ends a real fight).
+    const out = runToCap(input(battlefield({ posts: [guardAt({ x: 12, y: 8 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, hp: 5000 })]), QUIET_SHORT_TUNABLES));
     const kinds = out.log.filter((e) => (e.k === "aggro" || e.k === "disengage" || e.k === "returned") && e.u === 1).map((e) => e.k);
     expect(kinds).toEqual(["aggro", "disengage", "returned"]);
     // Following the attacker keeps it inside aggro reach, so it is the leash that ends the chase.
@@ -227,7 +229,9 @@ describe("guard: pursuit and the fight", () => {
   });
 
   it("a guard that kills its target disengages (`dead`) and returns; a dead guard is skipped and no longer pursues", () => {
-    const out = resolve(input(battlefield({ posts: [guardAt()] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 }, hp: 40 })]), SHORT_TUNABLES));
+    // runToCap: the guard's walk home comes after the wipe that ends a real fight (resolve: caravan_held).
+    expect(resolve(input(battlefield({ posts: [guardAt()] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 }, hp: 40 })]), SHORT_TUNABLES)).outcome.kind).toBe("caravan_held");
+    const out = runToCap(input(battlefield({ posts: [guardAt()] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 }, hp: 40 })]), SHORT_TUNABLES));
     expect(events(out, "unit_died")).toEqual([{ t: events(out, "unit_died")[0]!.t, k: "unit_died", u: 0 }]);
     expect(events(out, "disengage")).toEqual([{ t: out.units[0]!.diedTick + 1, k: "disengage", u: 1, why: "dead" }]);
     expect(events(out, "returned")).toHaveLength(1);
@@ -345,7 +349,8 @@ describe("reserve", () => {
 
   it("end to end: released the tick the first attacker's cell enters row 12 through the gap at segment 3", () => {
     // The reserve post at (17,17) is 2.83 cells from the core centre: inside its aggro reach once released.
-    const out = resolve(input(battlefield({ fences: ringExcept([3]), posts: [post("p", { x: 17, y: 17 }, { stance: "reserve" })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, hp: 5000 })]), { ...SHORT_TUNABLES, keyframeIntervalMs: ms(50) }));
+    // runToCap: the released post's hits land after the raider stands on the core.
+    const out = runToCap(input(battlefield({ fences: ringExcept([3]), posts: [post("p", { x: 17, y: 17 }, { stance: "reserve" })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, hp: 5000 })]), { ...SHORT_TUNABLES, keyframeIntervalMs: ms(50) }));
     const released = events(out, "released")[0]!;
     expect(released).toMatchObject({ u: 1, v: 0 });
     const ks = keyframes(out);

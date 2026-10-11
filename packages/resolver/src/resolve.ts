@@ -2,9 +2,9 @@
  * `resolve(input) → output`: the pure entry point (chunk 10).
  *
  * One synchronous pass: validate, normalize, build tick-zero state, run ticks in
- * TICK_PHASE_ORDER until the tick cap (TICK_CAP = battleLengthCapSeconds × tickRate; the
- * MEANING of reaching it is chunk 13's) or until an end condition (chunk 13's hook) fires,
- * then return the final state and the log. Nothing is written anywhere; nothing is read
+ * TICK_PHASE_ORDER until an end condition fires (chunk 13, outcome.ts END_CONDITIONS: an
+ * attacker reached the core, the party is wiped, or TICK_CAP = battleLengthCapSeconds ×
+ * tickRate ticks ran — a stalemate), then return the outcome, the final state and the log. Nothing is written anywhere; nothing is read
  * from anywhere but `input`. Calling it twice with the same input returns structurally
  * identical outputs — a test byte-compares the serialization across 100 runs and across
  * processes.
@@ -13,19 +13,22 @@ import { RESOLVER_VERSION } from "./version.js";
 import { endOfTick } from "./hooks.js";
 import { assertResolveInput, normalizeInput, type ResolveInput } from "./input.js";
 import type { LogEvent } from "./log.js";
+import { fightDepth, outcomeKindOf, type EndReason, type ResolveOutcome } from "./outcome.js";
 import { initialState } from "./state.js";
 import { keyframe, runTick } from "./tick.js";
 
-/** Why the loop stopped. Chunk 10 knows only the cap; chunk 13 adds wipe / overrun. */
-export type EndReason = "tick_cap" | "party_wiped" | "core_overrun";
+export type { EndReason, ResolveOutcome } from "./outcome.js";
 
 export interface UnitSummary {
   readonly id: number;
   readonly side: "attacker" | "defender";
   readonly ref: string;
   readonly typeId: string;
+  readonly mergeLevel: number;
   readonly x: number;
   readonly y: number;
+  /** HP it brought into the fight (chunk 13: the replay's tick-zero HP). */
+  readonly startHp: number;
   readonly hp: number;
   readonly maxHp: number;
   readonly alive: boolean;
@@ -39,6 +42,9 @@ export interface FenceSummary {
   readonly f: number;
   readonly ref: string;
   readonly segment: number;
+  readonly tierId: string;
+  readonly category: string;
+  readonly startHp: number;
   readonly hp: number;
   readonly maxHp: number;
   readonly intact: boolean;
@@ -48,6 +54,10 @@ export interface FenceSummary {
 export interface TrapSummary {
   readonly i: number;
   readonly ref: string;
+  readonly typeId: string;
+  /** Where it lies (fixed-point centre of its cell). */
+  readonly x: number;
+  readonly y: number;
   readonly spent: boolean;
   /** The tick it fired or was nullified on, or −1. */
   readonly spentTick: number;
@@ -57,9 +67,13 @@ export interface ResolveOutput {
   readonly resolverVersion: number;
   readonly tickRate: number;
   readonly tickCap: number;
+  /** Keyframe cadence in ticks (LOG_KEYFRAME_INTERVAL converted). */
+  readonly keyframeInterval: number;
   /** Ticks simulated (= tickCap unless an end condition fired earlier). */
   readonly ticks: number;
   readonly end: EndReason;
+  /** Chunk 13: which end condition, on which tick, and how deep the party got. */
+  readonly outcome: ResolveOutcome;
   readonly units: readonly UnitSummary[];
   readonly fences: readonly FenceSummary[];
   readonly traps: readonly TrapSummary[];
@@ -70,6 +84,7 @@ export function resolve(rawInput: unknown): ResolveOutput {
   assertResolveInput(rawInput);
   const input: ResolveInput = normalizeInput(rawInput);
   const state = initialState(input);
+  const fenceStartHp = state.fences.map((f) => f.hp);
   const log: LogEvent[] = [];
   for (const u of state.units) log.push({ t: 0, k: "spawn", u: u.id, x: u.x, y: u.y });
 
@@ -87,28 +102,33 @@ export function resolve(rawInput: unknown): ResolveOutput {
     }
     state.tick++;
   }
+  const { depth, deepestUnit } = fightDepth(state, end);
 
   return {
     resolverVersion: RESOLVER_VERSION,
     tickRate: state.tickRate,
     tickCap: state.tickCap,
+    keyframeInterval: state.keyframeInterval,
     ticks,
     end,
+    outcome: { kind: outcomeKindOf(end), end, endTick: ticks - 1, depth, deepestUnit },
     units: state.units.map((u) => ({
       id: u.id,
       side: u.side,
       ref: u.ref,
       typeId: u.typeId,
+      mergeLevel: u.mergeLevel,
       x: u.x,
       y: u.y,
+      startHp: u.startHp,
       hp: u.hp,
       maxHp: u.maxHp,
       alive: u.alive,
       reachedCoreTick: u.reachedCoreTick,
       diedTick: u.diedTick,
     })),
-    fences: state.fences.map((f) => ({ f: f.index, ref: f.ref, segment: f.segment, hp: f.hp, maxHp: f.maxHp, intact: f.intact, brokenTick: f.brokenTick })),
-    traps: state.traps.map((t) => ({ i: t.index, ref: t.ref, spent: t.spent, spentTick: t.spentTick })),
+    fences: state.fences.map((f) => ({ f: f.index, ref: f.ref, segment: f.segment, tierId: f.tierId, category: f.category, startHp: fenceStartHp[f.index]!, hp: f.hp, maxHp: f.maxHp, intact: f.intact, brokenTick: f.brokenTick })),
+    traps: state.traps.map((t) => ({ i: t.index, ref: t.ref, typeId: t.typeId, x: t.pos.x, y: t.pos.y, spent: t.spent, spentTick: t.spentTick })),
     log,
   };
 }

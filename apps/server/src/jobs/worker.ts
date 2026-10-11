@@ -44,10 +44,30 @@ import {
   type LeaseFence,
 } from "./queue.js";
 import { JOB_VISIBILITY_TIMEOUT_MS } from "./tunables.js";
+import { storeEncounterLog } from "../replay/store.js";
 
 export interface HandlerOutput {
   events: LedgerEventDraft[];
   result: JsonObject;
+  /** Chunk 13 (QA-15 S2): the replay log, stored in encounter_log in the completion transaction. */
+  encounterLog?: EncounterLogArtifact;
+}
+
+/** A resolved encounter's tick log as the handler hands it over: JSON text plus the hashes the row records. */
+export interface EncounterLogArtifact {
+  jobId: string;
+  caravanId: string;
+  defenderAccountId: string;
+  partyOwnerAccountId: string;
+  resolverVersion: number;
+  logFormat: number;
+  /** The ReplayLog serialized (JSON.stringify of the resolver package's encodeReplay output). */
+  text: string;
+  sha256: string;
+  formationSha256: string;
+  survivorsSha256: string;
+  partySha256: string;
+  contentHash: string;
 }
 
 export type JobHandler = (job: { id: string; kind: string; accountId: string; caravanId: string; input: JsonObject }) => HandlerOutput;
@@ -131,6 +151,8 @@ export async function runOnce(pool: pg.Pool, opts: WorkerOptions): Promise<RunOu
       await lockAccountsForAppend(client, output.events.map((d) => d.accountId));
       const drafts = await clampCoinCreditDrafts(client, output.events);
       const rows = await appendEvents(client, job.id, drafts);
+      // Chunk 13: the replay, stored with the completion (same transaction), then the retention prune.
+      if (output.encounterLog) await storeEncounterLog(client, output.encounterLog);
       if (opts.afterAppend) await opts.afterAppend(job, client);
       const completed = await markJobCompleted(client, job.id, output.result, fence);
       await client.query("COMMIT");

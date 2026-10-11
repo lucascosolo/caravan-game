@@ -26,8 +26,14 @@ import {
   type Party,
   type PartyUnit,
   type ResolveInput,
+  type ResolveOutput,
   type ResolverTunables,
+  type LogEvent,
   type Stance,
+  assertResolveInput,
+  initialState,
+  normalizeInput,
+  runTick,
 } from "../src/index.js";
 import { CHATTER_GUARD_INPUT, RAND93_INPUT, SHIELD_BASELINE_INPUT, SHIELD_HOLD_INPUT } from "./qa11-fixtures.js";
 
@@ -278,6 +284,37 @@ export function input(field: Battlefield, p: Party, tunables: ResolverTunables =
   return { battlefield: field, party: p, tunables };
 }
 
+/**
+ * Chunk 13 — MECHANIC ISOLATION for the chunk 10–12 tests (like `quiet`): runs the tick loop
+ * to TICK_CAP with the end conditions SWITCHED OFF, so a test pinning a movement, leash or
+ * trap rule can watch what happens after a raider would have ended the fight (reaching the
+ * core, the last raider dying). Same tick loop, same log, same summaries as `resolve`, minus
+ * `endOfTick`; `outcome` is reported as a stalemate at the cap. Test-only: production has no
+ * way to switch end conditions off (resolve.ts always checks them), and the golden corpus is
+ * run through `resolve` itself.
+ */
+export function runToCap(raw: ResolveInput): ResolveOutput {
+  assertResolveInput(raw);
+  const state = initialState(normalizeInput(raw));
+  const startHp = state.fences.map((f) => f.hp);
+  const log: LogEvent[] = [];
+  for (const u of state.units) log.push({ t: 0, k: "spawn", u: u.id, x: u.x, y: u.y });
+  for (; state.tick < state.tickCap; state.tick++) runTick(state, log);
+  return {
+    resolverVersion: 0,
+    tickRate: state.tickRate,
+    tickCap: state.tickCap,
+    keyframeInterval: state.keyframeInterval,
+    ticks: state.tickCap,
+    end: "tick_cap",
+    outcome: { kind: "stalemate", end: "tick_cap", endTick: state.tickCap - 1, depth: 0, deepestUnit: -1 },
+    units: state.units.map((u) => ({ id: u.id, side: u.side, ref: u.ref, typeId: u.typeId, mergeLevel: u.mergeLevel, x: u.x, y: u.y, startHp: u.startHp, hp: u.hp, maxHp: u.maxHp, alive: u.alive, reachedCoreTick: u.reachedCoreTick, diedTick: u.diedTick })),
+    fences: state.fences.map((f) => ({ f: f.index, ref: f.ref, segment: f.segment, tierId: f.tierId, category: f.category, startHp: startHp[f.index]!, hp: f.hp, maxHp: f.maxHp, intact: f.intact, brokenTick: f.brokenTick })),
+    traps: state.traps.map((t) => ({ i: t.index, ref: t.ref, typeId: t.typeId, x: t.pos.x, y: t.pos.y, spent: t.spent, spentTick: t.spentTick })),
+    log,
+  };
+}
+
 /** A plain JSON round trip so a fixture is data, not shared object identity. */
 export function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
@@ -446,5 +483,106 @@ export function scenarios(): { name: string; input: ResolveInput }[] {
     { name: "full-length-mixed", input: input(battlefield({ fences: ringExcept([0, 1, 2, 3, 4, 5, 6, 7]), traps: [trap("t1", { x: 11, y: 10 })], posts: [post("p1", { x: 15, y: 12 }), post("p2", { x: 18, y: 16 })] }), party([north("a", "core", 2), north("b", "nearest", 29), south("c", "traps", 15), unit({ ref: "d", stance: "core", edge: "east", cell: { x: 31, y: 3 } })])) },
     { name: "corner-clip-rand4", input: cornerClipScenario() },
     { name: "sealed-ring-1e6-hp", input: input(battlefield({ fences: ringExcept([], 1_000_000) }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, offense: 1 })]), SHORT_TUNABLES) },
+    // ── chunk 13: every chunk 10–12 boundary as a whole fight, the end-condition edges, the budget worst case ──
+    ...boundaryScenarios(),
   ];
+}
+
+/**
+ * Chunk 13 — the rest of the golden corpus. Every boundary rule chunks 10–12 pinned in a
+ * transient test is here as a WHOLE FIGHT resolved by `resolve` (end conditions on), so its
+ * log is a checked-in golden, plus the end-condition edges chunk 13 adds (an arrival or a wipe
+ * on the cap tick, an arrival and a wipe on the same tick, a wipe that also kills the last
+ * post, a stalemate with both sides alive and fighting) and the full-load worst case for the
+ * log budget. Literals only; nothing depends on a PRNG.
+ */
+export function boundaryScenarios(): { name: string; input: ResolveInput }[] {
+  const timber = (ref = "s") => ({ ref, typeId: "siege.battering_wagon", counters: { kind: "fence", category: "timber" } }) as const;
+  const stone = (ref = "s") => ({ ref, typeId: "siege.blasting_crate", counters: { kind: "fence", category: "stone" } }) as const;
+  const planks = (ref = "s") => ({ ref, typeId: "siege.bridging_planks", counters: { kind: "trap", category: "groundwork" } }) as const;
+  const powderSiege = (ref = "s") => ({ ref, typeId: "siege.dousing_wagon", counters: { kind: "trap", category: "powder" } }) as const;
+  const holdAt = (ref: string, cell: Cell, over: Partial<BattlefieldPost> = {}) => post(ref, cell, { stance: "hold", ...over });
+  const BIG = 1_000_000;
+  const stanceFight = (stance: "guard" | "hold" | "reserve") => input(battlefield({ fences: ringExcept([3]), posts: [post("p", { x: 13, y: 12 }, { stance })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, hp: 5000 })]), SHORT_TUNABLES);
+  return [
+    // ── chunk 10: movement, breaching, stances, tie-breaks ──
+    { name: "c10-gap-detour-cheaper", input: input(battlefield({ fences: ringExcept([6], 1000) }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES) },
+    { name: "c10-breach-vs-detour-boundary", input: input(battlefield({ fences: ringExcept([4], 95) }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES) },
+    { name: "c10-two-units-one-segment-same-tick", input: input(battlefield({ fences: ringExcept([], 100) }), party([unit({ ref: "a", cell: { x: 15, y: 0 } }), unit({ ref: "b", cell: { x: 15, y: 0 } })]), QUIET_SHORT_TUNABLES) },
+    { name: "c10-identical-units-overlap", input: input(battlefield({ fences: ringExcept([3]) }), party([unit({ ref: "a", cell: { x: 15, y: 0 } }), unit({ ref: "b", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES) },
+    { name: "c10-nearest-tie-lowest-id", input: input(battlefield({ posts: [post("p1", { x: 13, y: 6 }), post("p2", { x: 17, y: 6 })] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 } }), unit({ ref: "b", stance: "nearest", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES) },
+    { name: "c10-traps-stance-tie-and-chain", input: input(battlefield({ traps: [trap("t1", { x: 13, y: 5 }, { damage: 10 }), trap("t2", { x: 17, y: 5 }, { damage: 10 }), trap("t3", { x: 15, y: 9 }, { damage: 10 })] }), party([unit({ ref: "a", stance: "traps", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES) },
+    { name: "c10-traps-stance-falls-back-to-post", input: input(battlefield({ posts: [post("p", { x: 15, y: 8 }, { stance: "hold", hp: 300, maxHp: 300 })] }), party([unit({ ref: "a", stance: "traps", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES) },
+    { name: "c10-retarget-when-post-dies", input: input(battlefield({ posts: [holdAt("p1", { x: 15, y: 6 }, { hp: 60, maxHp: 1100 }), holdAt("p2", { x: 20, y: 9 }, { hp: 60, maxHp: 1100 })] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 }, hp: 3000 })]), SHORT_TUNABLES) },
+    { name: "c10-fast-mover-no-tunnelling", input: input(battlefield({ traps: [trap("t", { x: 15, y: 5 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, moveSpeed: 65536 })]), SHORT_TUNABLES) },
+    { name: "c10-sealed-ring-dashers", input: input(battlefield({ fences: ringExcept([], 300) }), party([unit({ ref: "a", cell: { x: 15, y: 0 } }), unit({ ref: "b", edge: "west", cell: { x: 0, y: 15 } }), unit({ ref: "c", edge: "south", cell: { x: 20, y: 31 } })]), { ...SHORT_TUNABLES, abilityFirstUseDelayMult: fx(0) }) },
+    // ── chunk 11: damage, traps, posted stances, siege ──
+    { name: "c11-hold-reach-in", input: input(battlefield({ posts: [holdAt("p", { x: 14, y: 8 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, hp: 5000 })]), SHORT_TUNABLES) },
+    { name: "c11-hold-reach-out", input: input(battlefield({ posts: [holdAt("p", { x: 13, y: 8 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, hp: 5000 })]), SHORT_TUNABLES) },
+    { name: "c11-mutual-kill-wipes-both-sides", input: input(battlefield({ posts: [holdAt("p", { x: 15, y: 8 }, { hp: 57, maxHp: 1100 })] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 }, hp: 40 })]), SHORT_TUNABLES) },
+    { name: "c11-trap-tie-two-units", input: input(battlefield({ traps: [trap("t", { x: 15, y: 5 })] }), party([unit({ ref: "b", cell: { x: 15, y: 0 } }), unit({ ref: "a", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES) },
+    { name: "c11-one-unit-two-traps-one-tick", input: input(battlefield({ traps: [trap("t2", { x: 15, y: 6 }), trap("t1", { x: 15, y: 5 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, moveSpeed: 65536 })]), SHORT_TUNABLES) },
+    { name: "c11-trap-kills-last-raider", input: input(battlefield({ traps: [trap("t", { x: 15, y: 5 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, hp: 100 })]), SHORT_TUNABLES) },
+    { name: "c11-root-trap", input: input(battlefield({ traps: [trap("t", { x: 15, y: 5 }, { effect: ROOT })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES) },
+    { name: "c11-slow-trap", input: input(battlefield({ traps: [trap("t", { x: 15, y: 5 }, { effect: SLOW })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES) },
+    { name: "c11-effect-refresh-not-stack", input: input(battlefield({ traps: [trap("t1", { x: 15, y: 5 }, { effect: ROOT, damage: 1 }), trap("t2", { x: 15, y: 7 }, { effect: ROOT, damage: 1 }), trap("t3", { x: 15, y: 9 }, { effect: SLOW, damage: 1 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, moveSpeed: 4096 })]), SHORT_TUNABLES) },
+    { name: "c11-root-at-40-ticks-per-second", input: input(battlefield({ traps: [trap("t", { x: 15, y: 5 }, { effect: ROOT })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), { ...DEFAULT_TUNABLES, battleLengthCapSeconds: 10, tickRate: 40 }) },
+    { name: "c11-guard-aggro-beyond-leash", input: input(battlefield({ posts: [post("q", { x: 15, y: 8 }, { aggroRadius: fx(6144) })] }), party([unit({ ref: "a", attackRange: 0, cell: { x: 15, y: 0 }, hp: 5000 })]), SHORT_TUNABLES) },
+    { name: "c11-two-guards-one-target", input: input(battlefield({ posts: [post("p1", { x: 14, y: 8 }), post("p2", { x: 16, y: 8 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, hp: 3000 })]), SHORT_TUNABLES) },
+    { name: "c11-guard-no-route-sealed-stalemate", input: input(battlefield({ fences: ringExcept([], BIG), posts: [post("p", { x: 15, y: 12 }, { aggroRadius: fx(8192), attackRange: fx(4096) })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, hp: 100_000 })]), SHORT_TUNABLES) },
+    { name: "c11-guard-kills-raider-held", input: input(battlefield({ posts: [post("p", { x: 15, y: 8 })] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 }, hp: 40 })]), SHORT_TUNABLES) },
+    { name: "c11-reserve-released-inside-ring", input: input(battlefield({ fences: ringExcept([3]), posts: [post("p", { x: 17, y: 17 }, { stance: "reserve" })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, hp: 5000 })]), SHORT_TUNABLES) },
+    { name: "c11-stance-guard", input: stanceFight("guard") },
+    { name: "c11-stance-hold", input: stanceFight("hold") },
+    { name: "c11-stance-reserve", input: stanceFight("reserve") },
+    { name: "c11-siege-matched-timber", input: input(battlefield({ fences: ringExcept([], 300) }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })], [timber()]), QUIET_SHORT_TUNABLES) },
+    { name: "c11-siege-mismatched-fence", input: input(battlefield({ fences: ringExcept([], 300) }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })], [stone()]), QUIET_SHORT_TUNABLES) },
+    { name: "c11-siege-matched-trap", input: input(battlefield({ traps: [trap("t", { x: 15, y: 5 }, { effect: ROOT })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })], [planks()]), SHORT_TUNABLES) },
+    { name: "c11-siege-mismatched-trap", input: input(battlefield({ traps: [trap("t", { x: 15, y: 5 }, { effect: ROOT })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })], [powderSiege()]), SHORT_TUNABLES) },
+    { name: "c11-affinity-favourable-wins", input: input(battlefield({ posts: [holdAt("p", { x: 15, y: 8 }, { defense: 100, hp: 1000, maxHp: 1000, affinity: "grit", attackCooldown: ms(1000) })] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 }, affinity: "beast", offense: 90, hp: 900 })]), quiet({ ...SHORT_TUNABLES, battleLengthCapSeconds: 120 })) },
+    { name: "c11-affinity-unfavourable-loses", input: input(battlefield({ posts: [holdAt("p", { x: 15, y: 8 }, { defense: 100, hp: 1000, maxHp: 1000, affinity: "grit", attackCooldown: ms(1000) })] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 }, affinity: "powder", offense: 100, hp: 1000 })]), quiet({ ...SHORT_TUNABLES, battleLengthCapSeconds: 120 })) },
+    { name: "c11-breacher-answers-ranged-post", input: input(battlefield({ fences: ringExcept([], 100), posts: [holdAt("p", { x: 15, y: 12 }, { hp: 13, maxHp: 40, attackRange: fx(4096) })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, offense: 40, attackRange: 4096 })]), QUIET_SHORT_TUNABLES) },
+    // ── chunk 12: the six archetypes at their boundaries ──
+    { name: "c12-burst-into-a-cluster", input: input(battlefield({ posts: [holdAt("p1", { x: 14, y: 8 }), holdAt("p2", { x: 16, y: 8 }), holdAt("p3", { x: 15, y: 9 })] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 }, hp: 6000, ability: BURST })]), { ...SHORT_TUNABLES, abilityFirstUseDelayMult: fx(256) }) },
+    { name: "c12-post-burst-on-a-pack", input: input(battlefield({ posts: [holdAt("p", { x: 15, y: 8 }, { ability: BURST, hp: 6000, maxHp: 6000 })] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 14, y: 0 }, hp: 3000 }), unit({ ref: "b", stance: "nearest", cell: { x: 15, y: 0 }, hp: 3000 }), unit({ ref: "c", stance: "nearest", cell: { x: 16, y: 0 }, hp: 3000 })]), { ...SHORT_TUNABLES, abilityFirstUseDelayMult: fx(256) }) },
+    { name: "c12-heavy-strike-both-sides", input: input(battlefield({ posts: [holdAt("p", { x: 15, y: 8 }, { ability: HEAVY, hp: 4000, maxHp: 4000 })] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 }, hp: 6000, ability: HEAVY })]), { ...SHORT_TUNABLES, abilityFirstUseDelayMult: fx(256) }) },
+    { name: "c12-heal-ceiling-carried-damage", input: input(battlefield({ posts: [holdAt("h", { x: 15, y: 9 }, { ability: HEAL }), holdAt("w", { x: 15, y: 8 }, { hp: 800, maxHp: 1100 })] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 }, hp: 4000, ability: HEAL })]), { ...SHORT_TUNABLES, abilityFirstUseDelayMult: fx(256) }) },
+    { name: "c12-buff-refresh-not-stack", input: input(battlefield({ posts: [holdAt("p", { x: 15, y: 8 }, { hp: 5000, maxHp: 5000, ability: { ...BUFF, cooldown: ms(2000) } as Ability })] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 }, hp: 5000, ability: { ...BUFF, cooldown: ms(2000) } as Ability })]), { ...SHORT_TUNABLES, abilityFirstUseDelayMult: fx(0) }) },
+    { name: "c12-guard-dashes-within-leash", input: input(battlefield({ posts: [post("g", { x: 15, y: 8 }, { ability: DASH, aggroRadius: fx(6144), leashDistance: fx(4096), hp: BIG, maxHp: BIG })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, hp: BIG, attackRange: 4096, moveSpeed: 1024 })]), { ...SHORT_TUNABLES, abilityFirstUseDelayMult: fx(0) }) },
+    { name: "c12-breaker-room-after-normal-hit", input: input(battlefield({ fences: ringExcept([], 1000).map((x) => ({ ...x, category: "stone" as const })) }), party([unit({ ref: "a", ability: BREAKER, offense: 120 })], [stone()]), { ...SHORT_TUNABLES, structureBreakerFirstUseMult: fx(0) }) },
+    { name: "c12-huge-buff-capped-on-fences", input: input(battlefield({ fences: ringExcept([], 300) }), party([unit({ ref: "a", ability: { ...BUFF, damageBonus: fx(63 * 1024), cooldown: ms(1000) } as Ability, offense: 120, mergeLevel: 5 })]), { ...SHORT_TUNABLES, abilityFirstUseDelayMult: fx(0) }) },
+    // ── chunk 13: end-condition edges ──
+    // An open-field raider whose arrival lands exactly on the cap tick (tick 179 of a 9 s cap): an overrun, not a stalemate.
+    { name: "c13-overrun-on-the-cap-tick", input: input(battlefield(), party([unit({ ref: "a", moveSpeed: 1540 })]), { ...DEFAULT_TUNABLES, battleLengthCapSeconds: 9 }) },
+    // The last raider dies to a trap on the cap tick (tick 59 of a 3 s cap): held, not a stalemate.
+    { name: "c13-wipe-on-the-cap-tick", input: input(battlefield({ traps: [trap("t", { x: 15, y: 5 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, hp: 100, moveSpeed: 1340 })]), { ...DEFAULT_TUNABLES, battleLengthCapSeconds: 3 }) },
+    // One raider reaches the core on tick 180 while the other — the last one alive — dies to a trap on tick 180: the overrun wins.
+    { name: "c13-overrun-and-wipe-same-tick", input: input(battlefield({ traps: [trap("t", { x: 20, y: 3 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 } }), unit({ ref: "b", cell: { x: 20, y: 0 }, hp: 100, moveSpeed: 100 })]), SHORT_TUNABLES) },
+    // Both sides alive and swinging when the cap comes: a stalemate (the raiders withdraw).
+    { name: "c13-stalemate-both-sides-fighting", input: input(battlefield({ posts: [holdAt("p", { x: 15, y: 8 }, { hp: BIG, maxHp: BIG })] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 }, hp: BIG })]), SHORT_TUNABLES) },
+    // A guard whose aggro reaches a raider that stands trading blows with a far hold post: it chases to its
+    // leash (the clamped step logged as `amount`), walks home, re-acquires, for all 30 s — a stalemate.
+    { name: "c13-stalemate-guard-leash-oscillation", input: input(battlefield({ posts: [holdAt("h", { x: 15, y: 4 }, { hp: BIG, maxHp: BIG }), post("g", { x: 15, y: 12 }, { aggroRadius: fx(10240), leashDistance: fx(4096), hp: BIG, maxHp: BIG })] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 }, hp: BIG, attackRange: 1024 })]), SHORT_TUNABLES) },
+    // Raiders chipping a sealed 1 000 000-HP ring all fight: deep (at the ring) but never in — a stalemate with depth > 0.
+    { name: "c13-stalemate-deep-but-not-in", input: input(battlefield({ fences: ringExcept([], BIG) }), party([unit({ ref: "a", cell: { x: 15, y: 0 } }), unit({ ref: "b", edge: "east", cell: { x: 31, y: 15 }, stance: "nearest" })]), SHORT_TUNABLES) },
+    // The log-budget worst case: the full-load roster, unkillable, fighting at full intensity for the whole 180 s.
+    { name: "c13-full-load-full-length", input: fullLoadFullLength() },
+  ];
+}
+
+/**
+ * The full-load roster (16 raiders, 8 posts, 28 segments, 6 traps, 2 siege) with every raider
+ * and post made unkillable (1 000 000 HP) and every raider on the `nearest` stance: they
+ * break in and then trade blows with the posts for every one of the 3600 ticks — the most
+ * events a full-load fight can log, the worst case for the replay's size (chunk 13
+ * LOG_SIZE_BUDGET), measured in budget.test.ts. A stalemate.
+ */
+export function fullLoadFullLength(): ResolveInput {
+  const base = fullLoadScenario();
+  const BIG = 1_000_000;
+  return {
+    ...base,
+    battlefield: { ...base.battlefield, posts: base.battlefield.posts.map((p) => ({ ...p, hp: BIG, maxHp: BIG })) },
+    party: { ...base.party, units: base.party.units.map((u) => ({ ...u, stance: "nearest" as const, hp: BIG, maxHp: BIG })) },
+  };
 }

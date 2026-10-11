@@ -103,3 +103,13 @@ export function clamp(v: number, lo: number, hi: number): number {
 
 /** A sentinel "larger than any cost" that stays a safe integer under addition. */
 export const COST_INFINITE = 0x3fffffff;
+
+/**
+ * MOVEMENT_LEG (tick.ts), one axis of a leg offset: sign(d) × floor(|d| × progress / len). Floor division on
+ * non-negative operands (fixed.ts rounding mode), applied to the magnitude so the result
+ * rounds toward the anchor: |offset| < |d| whenever progress < len.
+ */
+export function legOffset(d: number, progress: number, len: number): number {
+  const mag = Math.floor((Math.abs(d) * progress) / len);
+  return d < 0 ? -mag : mag;
+}
