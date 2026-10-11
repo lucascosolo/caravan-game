@@ -26,9 +26,11 @@ export interface ModalProps {
   readonly actions: ReactNode;
   /** Fallback focus target on close, used when the opener is no longer in the document (QA-17 N4). */
   readonly restoreFocusTo?: () => HTMLElement | null;
+  /** "full" (chunk 22, the replay player): the whole viewport on a phone, a wide column on desktop. */
+  readonly size?: "full";
 }
 
-export function Modal({ title, busy, onCancel, testId, children, actions, restoreFocusTo }: ModalProps): JSX.Element {
+export function Modal({ title, busy, onCancel, testId, children, actions, restoreFocusTo, size }: ModalProps): JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const bodyId = useId();
@@ -88,8 +90,8 @@ export function Modal({ title, busy, onCancel, testId, children, actions, restor
   }, []);
 
   return createPortal(
-    <div className="dialog-backdrop" data-testid={testId} onClick={() => !latest.current.busy && latest.current.onCancel()}>
-      <div ref={ref} className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={bodyId} tabIndex={-1} onClick={(e) => e.stopPropagation()}>
+    <div className={size === "full" ? "dialog-backdrop dialog-backdrop--full" : "dialog-backdrop"} data-testid={testId} onClick={() => !latest.current.busy && latest.current.onCancel()}>
+      <div ref={ref} className={size === "full" ? "dialog dialog--full" : "dialog"} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={bodyId} tabIndex={-1} onClick={(e) => e.stopPropagation()}>
         <h2 id={titleId} style={{ marginTop: 0 }}>
           {title}
         </h2>

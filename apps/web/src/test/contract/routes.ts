@@ -32,6 +32,7 @@ import {
   storeShape,
   unequipResultShape,
 } from "../../api/shapes.ts";
+import { replayShape } from "../../api/replayShapes.ts";
 import { bankResultShape, encounterCommitShape, pushResultShape, stakesPreviewShape, tripCapRefusalShape, tripStartShape, tripStatusShape } from "../../api/tripShapes.ts";
 
 export const CONTRACT_GUARDS: Readonly<Record<string, Guard<unknown> | null>> = {
@@ -79,6 +80,10 @@ export const CONTRACT_GUARDS: Readonly<Record<string, Guard<unknown> | null>> = 
   "cosmetics-owned": cosmeticsShape,
   "cosmetics-equip": equipResultShape,
   "cosmetics-unequip": unequipResultShape,
+  // Chunk 22's replay player: a real-resolver fight for both participants, and a double-resolved one (no log).
+  replay: replayShape,
+  "replay-owner": replayShape,
+  "replay-no-log": replayShape,
 };
 
 /** Null when `body` passes the route's guard (or the route has none); else the guard's reason. */

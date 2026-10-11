@@ -116,6 +116,35 @@ export interface DragGhost {
   readonly radii?: { readonly aggroRadius: number; readonly leashDistance: number; readonly attackRange: number; readonly stance: PostEntity["stance"] };
 }
 
+/**
+ * A unit in a battle REPLAY (chunk 22): wherever the stored log's interpolation puts it after
+ * the tick being shown (`readReplay(log).frame(t)`, lerped between ticks by the player for
+ * smoothness). Either side; the attacker carries the same dashed ring as a scouted attacker,
+ * so the two sides differ by shape, not colour alone. No stance, no radii: the log does not
+ * carry them and the replay never guesses. Dead units are simply not in the list.
+ */
+export interface ReplayUnitEntity {
+  readonly id: string;
+  readonly pos: WorldPoint;
+  readonly typeId: string;
+  readonly level: number;
+  readonly side: "attacker" | "defender";
+  /** 0..1, from the log's HP (rows copied, never derived). */
+  readonly hpFraction: number;
+}
+
+/**
+ * A short-lived marker over something a log row just reported (chunk 22): a trap springing,
+ * a unit falling, a fence breaking, an ability firing, the core reached. Told apart by SHAPE
+ * (ring, cross, square, star, diamond) as well as colour. `age` 0 → just happened, 1 → fading out.
+ */
+export interface ReplayMarkEntity {
+  readonly id: string;
+  readonly pos: WorldPoint;
+  readonly kind: "trap" | "death" | "fence" | "ability" | "core";
+  readonly age: number;
+}
+
 export interface ThreatOverlay {
   /** Edges this party enters from (SHOW_THREAT_OVERLAY). */
   readonly entryEdges: readonly EntryEdgeName[];
@@ -144,6 +173,9 @@ export interface IsoSceneState {
   readonly mine?: MineState | null;
   /** The merge board's cells; outlined only while a unit is being dragged. */
   readonly boardCells?: readonly { readonly x: number; readonly y: number }[];
+  // ── chunk 22 (battle replay): all optional so the circle and the town are unchanged ──
+  readonly replayUnits?: readonly ReplayUnitEntity[];
+  readonly marks?: readonly ReplayMarkEntity[];
 }
 
 export const EMPTY_SCENE: IsoSceneState = {

@@ -109,6 +109,7 @@ function fakeApi(over: Partial<Api> = {}): Api {
     cosmetics: notCalled,
     equipCosmetic: notCalled,
     unequipCosmetic: notCalled,
+    replay: notCalled,
     ...over,
   };
 }

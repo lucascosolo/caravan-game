@@ -65,10 +65,10 @@ describe("trip chain on the Trail tab", () => {
     for (const u of r.unitsDamaged) expect(damaged).toHaveTextContent(`Dust Rider · Level ${u.mergeLevel} · HP ${u.hpBefore} → ${u.hpAfter} of ${u.maxHp}`);
     expect(within(results).getByTestId("result-traps")).toHaveTextContent("Spike Pit");
     expect(within(results).getByTestId("result-fences")).toHaveTextContent("Brush Pile #1");
-    // The replay hand-off is present, disabled and says why (chunk 22 is not built).
+    // The replay hand-off (chunk 22) is live: it opens the player over the results.
     const watch = within(results).getByTestId("watch-fight");
-    expect(watch).toBeDisabled();
-    expect(watch).toHaveTextContent("Watch the fight (replay coming)");
+    expect(watch).toBeEnabled();
+    expect(watch).toHaveTextContent("Watch the fight");
     // No raw refs or job ids in what the player reads.
     expect(results.textContent).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}|encounter:/);
   });

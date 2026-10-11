@@ -20,6 +20,7 @@
  * calendar, their SHAPE (which the client's guards check) does not.
  */
 import { entryBand, type PartyConfig } from "@caravan/circle";
+import { readReplay } from "@caravan/resolver";
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
@@ -30,7 +31,9 @@ import { buildApp } from "../src/app.js";
 import { withTransaction } from "../src/db/pool.js";
 import { appendCoinCredits } from "../src/economy/coin.js";
 import { appendEvents } from "../src/ledger/ledger.js";
+import { DEFAULT_HANDLERS } from "../src/jobs/handlers/encounterResolution.js";
 import { drain } from "../src/jobs/worker.js";
+import { NO_LOG_REASON } from "../src/routes/replay.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
 import { TRIP_CAP_REGEN_MS, TRIPS_PER_HOUR_CAP } from "../src/trip/cap.js";
 import { appRolePool, testPool, truncateAll } from "./helpers.js";
@@ -80,17 +83,25 @@ function blankIds(v: unknown): unknown {
   return v;
 }
 
+/**
+ * Chunk 22: a replay body's `log` and `labels` are positional — `units[i].u === i`, rows refer
+ * to units, fences and traps by index, and the checksum covers the rows — so they keep the
+ * server's order (and stay readable by `readReplay` after the renaming below).
+ */
+const KEEP_ORDER_KEYS = new Set(["log", "labels"]);
+
 /** Arrays of objects carrying random ids are re-ordered by their content with the ids blanked, so the order is stable. */
-function orderArrays(v: unknown): unknown {
+function orderArrays(v: unknown, key = ""): unknown {
+  if (KEEP_ORDER_KEYS.has(key)) return v;
   if (Array.isArray(v)) {
-    const items = v.map(orderArrays);
+    const items = v.map((x) => orderArrays(x));
     if (items.every((x) => x && typeof x === "object" && !Array.isArray(x))) {
       const hasRandomId = items.some((x) => Object.values(x as object).some((y) => typeof y === "string" && UUID.test(y)));
       if (hasRandomId) return [...items].sort((a, b) => (JSON.stringify(blankIds(a)) < JSON.stringify(blankIds(b)) ? -1 : JSON.stringify(blankIds(a)) > JSON.stringify(blankIds(b)) ? 1 : 0));
     }
     return items;
   }
-  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, orderArrays(x)]));
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, orderArrays(x, k)]));
   return v;
 }
 
@@ -294,7 +305,8 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     await resolve({}, { kind: "caravan_held", unitDamage: 150 });
     await record("trip-preview-2", "GET /me/caravans/:id/trip/preview", await call(p, "GET", `${tripUrl}/preview`), 200);
     await record("trip-bank", "POST /me/caravans/:id/trip/bank", await call(p, "POST", `${tripUrl}/bank`, { tripId: started.tripId, encounterIndex: 2 }), 200);
-    await record("trip-status-banked", "GET /me/caravans/:id/trip", await call(p, "GET", tripUrl), 200);
+    const banked = (await record("trip-status-banked", "GET /me/caravans/:id/trip", await call(p, "GET", tripUrl), 200)) as { trip: { encounters: { result: { jobId: string } | null }[] } };
+    const doubleJobId = banked.trip.encounters[0]!.result!.jobId;
 
     // A second trip that is overrun at its first encounter (a fifth party: two are recent opponents now).
     const e = await register("contract_owner_e");
@@ -333,6 +345,37 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     const granted = bought.cosmeticsGranted[0]!;
     const equipped = (await record("cosmetics-equip", "POST /me/cosmetics/equip", await call(p, "POST", "/me/cosmetics/equip", { cosmeticId: granted }), 200)) as { slot: string };
     await record("cosmetics-unequip", "POST /me/cosmetics/unequip", await call(p, "POST", "/me/cosmetics/unequip", { slot: equipped.slot }), 200);
+
+    // Chunk 22: the replay route, recorded after the storefront for the same reason. A fight
+    // the test double resolved has no log: 200, renderable false, no log, said why.
+    const noLog = (await record("replay-no-log", "GET /me/encounters/:jobId/replay (double, no log)", await call(p, "GET", `/me/encounters/${encodeURIComponent(doubleJobId)}/replay`), 200)) as Record<string, unknown>;
+    expect(noLog).toMatchObject({ viewer: "caravan", renderable: false, reason: NO_LOG_REASON, log: null, stored: null });
+    // A fight the REAL resolver fought (a fresh caravan, its first encounter): what the replay
+    // player plays, for the caravan's player and for the party's owner.
+    const byName = new Map<string, Player>([...owners.map((o, i) => [`contract_owner_${"abc"[i]}`, o] as const), ["contract_owner_d", d], ["contract_owner_e", e]]);
+    const v = await register("contract_viewer");
+    const diggers = await giveUnits(v, ["desert.well_digger", "desert.well_digger"]);
+    expect((await call(v, "POST", `/caravans/${v.caravanId}/manifest`, { units: diggers, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 20 } })).statusCode).toBe(201);
+    const vTrip = `/me/caravans/${v.caravanId}/trip`;
+    expect((await call(v, "POST", `${vTrip}/start`)).statusCode).toBe(201);
+    const sv = (await call(v, "POST", `/me/caravans/${v.caravanId}/encounters/1/search`)).json() as { menu: { candidates: { candidateId: string; owner: { displayName: string } }[] } };
+    const cv = [...sv.menu.candidates].sort((a, b) => (a.owner.displayName < b.owner.displayName ? -1 : 1))[0]!;
+    const fought = byName.get(cv.owner.displayName)!;
+    expect(fought, cv.owner.displayName).toBeDefined();
+    expect((await call(v, "POST", `/me/caravans/${v.caravanId}/encounters/1/choose`, { candidateId: cv.candidateId })).statusCode).toBe(200);
+    const vPosts = [...diggers].sort().map((ref, i) => ({ ref, cell: { x: 13 + i * 5, y: 13 }, stance: i === 0 ? "hold" : "guard" }));
+    const vFormation = { v: 2, fences: [0, 1, 2, 3, 4, 5].map((segment) => ({ ref: `f${segment}`, segment })), traps: [{ ref: "t0", cell: { x: 14, y: 12 } }], posts: vPosts };
+    expect((await call(v, "PUT", `/caravans/${v.caravanId}/encounters/1/formation`, vFormation)).statusCode).toBe(200);
+    const commit = (await call(v, "POST", `${vTrip}/encounters/1/commit`)).json() as { jobId: string };
+    const replayUrl = `/me/encounters/${encodeURIComponent(commit.jobId)}/replay`;
+    expect((await call(v, "GET", replayUrl)).statusCode).toBe(409);
+    expect(await drain(appRole, { workerId: "contract-real", handlers: DEFAULT_HANDLERS, retryBackoffMs: () => 0 })).toHaveLength(1);
+    const mine = (await record("replay", "GET /me/encounters/:jobId/replay", await call(v, "GET", replayUrl), 200)) as { viewer: string; renderable: boolean; log: unknown };
+    const theirs = (await record("replay-owner", "GET /me/encounters/:jobId/replay (party owner)", await call(fought, "GET", replayUrl), 200)) as { viewer: string; log: unknown };
+    expect(mine).toMatchObject({ viewer: "caravan", renderable: true });
+    expect(theirs.viewer).toBe("party_owner");
+    // The recorded (renamed) log is still a valid replay: the web suite plays it.
+    expect(() => readReplay((normalise(mine) as { log: unknown }).log)).not.toThrow();
 
     // Write the fixtures (only when they changed, so a rerun leaves the tree clean).
     mkdirSync(OUT, { recursive: true });
