@@ -1,0 +1,353 @@
+{
+  "route": "GET /me/cosmetics",
+  "status": 200,
+  "body": {
+    "kinds": [
+      "unit_skin",
+      "wagon_skin",
+      "fence_style",
+      "town_decoration",
+      "party_banner"
+    ],
+    "owned": [],
+    "equipped": {},
+    "catalog": [
+      {
+        "id": "banner.crossed_pickaxes",
+        "kind": "party_banner",
+        "displayName": "Crossed Pickaxes",
+        "description": "Two picks on black.",
+        "appliesTo": null,
+        "reviewNote": "Drawn in the banner slot beside the party card, never over a unit. Does not cover type, stance or ability. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "party_banner",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 42,
+          "tier": 2
+        }
+      },
+      {
+        "id": "banner.lone_star",
+        "kind": "party_banner",
+        "displayName": "Lone Star",
+        "description": "A single white star on blue.",
+        "appliesTo": null,
+        "reviewNote": "Drawn in the banner slot beside the party card, never over a unit. Does not cover type, stance or ability. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "party_banner",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 39,
+          "tier": 3
+        }
+      },
+      {
+        "id": "banner.longhorn_skull",
+        "kind": "party_banner",
+        "displayName": "Longhorn Skull",
+        "description": "A bleached skull on red.",
+        "appliesTo": null,
+        "reviewNote": "Drawn in the banner slot beside the party card, never over a unit. Does not cover type, stance or ability. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "party_banner",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 43,
+          "tier": 3
+        }
+      },
+      {
+        "id": "banner.rattlesnake_coil",
+        "kind": "party_banner",
+        "displayName": "Rattlesnake Coil",
+        "description": "A coiled snake on sand.",
+        "appliesTo": null,
+        "reviewNote": "Drawn in the banner slot beside the party card, never over a unit. Does not cover type, stance or ability. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "party_banner",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 41,
+          "tier": 3
+        }
+      },
+      {
+        "id": "fence_style.fresh_cut_pine",
+        "kind": "fence_style",
+        "displayName": "Fresh-Cut Pine",
+        "description": "Pale, newly split wood.",
+        "appliesTo": null,
+        "reviewNote": "Texture only; segment length, height and the gap rendering are the tier's. Tier remains readable by shape. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "fence_style",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 40,
+          "tier": 3
+        }
+      },
+      {
+        "id": "fence_style.tarred_black",
+        "kind": "fence_style",
+        "displayName": "Tarred Black",
+        "description": "Pitch-painted rails.",
+        "appliesTo": null,
+        "reviewNote": "Texture only; segment length, height and the gap rendering are the tier's. Tier remains readable by shape. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "fence_style",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 42,
+          "tier": 1
+        }
+      },
+      {
+        "id": "fence_style.weathered_grey",
+        "kind": "fence_style",
+        "displayName": "Weathered Grey",
+        "description": "Sun-greyed timber.",
+        "appliesTo": null,
+        "reviewNote": "Texture only; segment length, height and the gap rendering are the tier's. Tier remains readable by shape. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "fence_style",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 39,
+          "tier": 1
+        }
+      },
+      {
+        "id": "fence_style.whitewashed",
+        "kind": "fence_style",
+        "displayName": "Whitewashed",
+        "description": "Lime-washed rails.",
+        "appliesTo": null,
+        "reviewNote": "Texture only; segment length, height and the gap rendering are the tier's. Tier remains readable by shape. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "fence_style",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 44,
+          "tier": 1
+        }
+      },
+      {
+        "id": "skin.badlands.bounty_hunter.tin_star",
+        "kind": "unit_skin",
+        "displayName": "Tin-Star Bounty Hunter",
+        "description": "A dented tin star on the lapel.",
+        "appliesTo": "badlands.bounty_hunter",
+        "reviewNote": "Palette and trim only; silhouette, footprint and the ability glyph are the base type's. Identifiable at scouting zoom. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "unit_skin:badlands.bounty_hunter",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 45,
+          "tier": 3
+        }
+      },
+      {
+        "id": "skin.badlands.gunslinger.black_duster",
+        "kind": "unit_skin",
+        "displayName": "Black-Duster Gunslinger",
+        "description": "Long black coat, silver buckle.",
+        "appliesTo": "badlands.gunslinger",
+        "reviewNote": "Palette and trim only; silhouette, footprint and the ability glyph are the base type's. Identifiable at scouting zoom. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "unit_skin:badlands.gunslinger",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 40,
+          "tier": 2
+        }
+      },
+      {
+        "id": "skin.desert.dust_rider.sunbleached",
+        "kind": "unit_skin",
+        "displayName": "Sunbleached Dust Rider",
+        "description": "Faded duster and a straw hat.",
+        "appliesTo": "desert.dust_rider",
+        "reviewNote": "Palette and trim only; silhouette, footprint and the ability glyph are the base type's. Identifiable at scouting zoom. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "unit_skin:desert.dust_rider",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 39,
+          "tier": 2
+        }
+      },
+      {
+        "id": "skin.desert.well_digger.copper",
+        "kind": "unit_skin",
+        "displayName": "Copper-Pan Well Digger",
+        "description": "A polished copper pan on the pack.",
+        "appliesTo": "desert.well_digger",
+        "reviewNote": "Palette and trim only; silhouette, footprint and the ability glyph are the base type's. Identifiable at scouting zoom. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "unit_skin:desert.well_digger",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 46,
+          "tier": 2
+        }
+      },
+      {
+        "id": "skin.high_plains.homesteader.calico",
+        "kind": "unit_skin",
+        "displayName": "Calico Homesteader",
+        "description": "Patched calico shirt.",
+        "appliesTo": "high_plains.homesteader",
+        "reviewNote": "Palette and trim only; silhouette, footprint and the ability glyph are the base type's. Identifiable at scouting zoom. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "unit_skin:high_plains.homesteader",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 39,
+          "tier": 3
+        }
+      },
+      {
+        "id": "skin.high_plains.prairie_wolf.silver",
+        "kind": "unit_skin",
+        "displayName": "Silver Prairie Wolf",
+        "description": "Silver-grey winter coat.",
+        "appliesTo": "high_plains.prairie_wolf",
+        "reviewNote": "Palette and trim only; silhouette, footprint and the ability glyph are the base type's. Identifiable at scouting zoom. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "unit_skin:high_plains.prairie_wolf",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 40,
+          "tier": 3
+        }
+      },
+      {
+        "id": "skin.mountain.grizzly.cinnamon",
+        "kind": "unit_skin",
+        "displayName": "Cinnamon Grizzly",
+        "description": "Reddish-brown pelt.",
+        "appliesTo": "mountain.grizzly",
+        "reviewNote": "Palette and trim only; silhouette, footprint and the ability glyph are the base type's. Identifiable at scouting zoom. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "unit_skin:mountain.grizzly",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 47,
+          "tier": 3
+        }
+      },
+      {
+        "id": "skin.mountain.trapper.beaver_hat",
+        "kind": "unit_skin",
+        "displayName": "Beaver-Hat Trapper",
+        "description": "A tall beaver-felt hat.",
+        "appliesTo": "mountain.trapper",
+        "reviewNote": "Palette and trim only; silhouette, footprint and the ability glyph are the base type's. Identifiable at scouting zoom. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "unit_skin:mountain.trapper",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 40,
+          "tier": 2
+        }
+      },
+      {
+        "id": "town.bunting",
+        "kind": "town_decoration",
+        "displayName": "Festival Bunting",
+        "description": "Strings of flags across the street.",
+        "appliesTo": null,
+        "reviewNote": "Town-only scenery; never drawn on the trail or the battlefield. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "town_decoration",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 41,
+          "tier": 3
+        }
+      },
+      {
+        "id": "town.hitching_post",
+        "kind": "town_decoration",
+        "displayName": "Hitching Post",
+        "description": "A rail with a couple of horses.",
+        "appliesTo": null,
+        "reviewNote": "Town-only scenery; never drawn on the trail or the battlefield. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "town_decoration",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 50,
+          "tier": 2
+        }
+      },
+      {
+        "id": "town.water_tower",
+        "kind": "town_decoration",
+        "displayName": "Water Tower",
+        "description": "A wooden tower by the mine.",
+        "appliesTo": null,
+        "reviewNote": "Town-only scenery; never drawn on the trail or the battlefield. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "town_decoration",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 39,
+          "tier": 2
+        }
+      },
+      {
+        "id": "town.windmill",
+        "kind": "town_decoration",
+        "displayName": "Windmill",
+        "description": "A turning steel windmill.",
+        "appliesTo": null,
+        "reviewNote": "Town-only scenery; never drawn on the trail or the battlefield. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "town_decoration",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 42,
+          "tier": 3
+        }
+      },
+      {
+        "id": "wagon.circus_stripe",
+        "kind": "wagon_skin",
+        "displayName": "Circus Stripe",
+        "description": "Red and gold striped canopy.",
+        "appliesTo": null,
+        "reviewNote": "Paint and canopy only; the wagon core's footprint and HP bar are unchanged. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "wagon_skin",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 39,
+          "tier": 3
+        }
+      },
+      {
+        "id": "wagon.conestoga_white",
+        "kind": "wagon_skin",
+        "displayName": "Whitetop Conestoga",
+        "description": "Bleached canvas over a blue bed.",
+        "appliesTo": null,
+        "reviewNote": "Paint and canopy only; the wagon core's footprint and HP bar are unchanged. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "wagon_skin",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 40,
+          "tier": 1
+        }
+      },
+      {
+        "id": "wagon.patched_canvas",
+        "kind": "wagon_skin",
+        "displayName": "Patched Canvas",
+        "description": "A well-travelled, much-mended top.",
+        "appliesTo": null,
+        "reviewNote": "Paint and canopy only; the wagon core's footprint and HP bar are unchanged. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "wagon_skin",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 41,
+          "tier": 2
+        }
+      },
+      {
+        "id": "wagon.red_prairie_schooner",
+        "kind": "wagon_skin",
+        "displayName": "Red Prairie Schooner",
+        "description": "Barn-red bed and brass fittings.",
+        "appliesTo": null,
+        "reviewNote": "Paint and canopy only; the wagon core's footprint and HP bar are unchanged. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "wagon_skin",
+        "owned": false,
+        "nextOffer": {
+          "weekIndex": 41,
+          "tier": 1
+        }
+      }
+    ]
+  }
+}

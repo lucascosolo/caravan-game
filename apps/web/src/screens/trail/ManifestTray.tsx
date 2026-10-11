@@ -2,18 +2,23 @@
  * The manifest tray (chunk 08): what survives of what was packed, as the constraint it
  * is. Units at their REAL current HP (dead ones listed, marked, not draggable), traps
  * (spent ones listed, marked, not draggable; "fires once" said plainly), fence material
- * (remaining / on the ring / destroyed / packed). Every draggable chip is also a 44px
- * button: tap selects it, then a tap on the ground places it — no drag required.
+ * (remaining / on the ring / destroyed / packed; destroyed segments under their own
+ * heading). Every draggable chip is also a 44px button: tap selects it, then a tap on the
+ * ground (or the placement picker) places it — no drag required.
  *
- * Drag starts here with a pointer event and is reported up; the screen converts pointer
- * positions to cells through the canvas and owns the drop.
+ * A chip's accessible name is its content (QA N2): no aria-label that could fall behind
+ * what is drawn. Chips scroll the page on a vertical swipe (`touch-action: pan-y`, QA B4);
+ * the drag rules are trayGesture.ts's. A chip the server's last answer named is flagged.
+ *
+ * Memoised (QA S2): during a drag the screen re-renders every frame; the tray only when
+ * the arrangement, the selection or the flags change.
  */
 import { getFenceTier, getTrapType } from "@caravan/content";
 import type { Formation, Manifest } from "@caravan/circle";
-import type { PointerEvent } from "react";
+import { memo, type PointerEvent } from "react";
 import { STRINGS } from "../../strings.ts";
 import { AffinityIcon } from "../webs/AffinityIcon.tsx";
-import { fenceBudget, nextFenceRef, unplacedFences } from "./placement.ts";
+import { fenceBudget, nextFenceRef, segmentNumber, unplacedFences } from "./placement.ts";
 import { defenderCard } from "./stats.ts";
 import { StatPair } from "./ScoutPanel.tsx";
 
@@ -24,6 +29,8 @@ export interface ManifestTrayProps {
   readonly formation: Formation;
   readonly selectedRef: string | null;
   readonly locked: boolean;
+  /** Refs the server's last issue list named (QA S8). */
+  readonly flagged: ReadonlySet<string>;
   readonly onPick: (ref: string) => void;
   readonly onDragStart: (ref: string, e: PointerEvent<HTMLButtonElement>) => void;
 }
@@ -34,6 +41,7 @@ function Chip({
   sub,
   disabled,
   selected,
+  flagged,
   locked,
   testId,
   onPick,
@@ -45,6 +53,7 @@ function Chip({
   sub: string;
   disabled: boolean;
   selected: boolean;
+  flagged: boolean;
   locked: boolean;
   testId: string;
   onPick: (ref: string) => void;
@@ -53,15 +62,15 @@ function Chip({
 }): JSX.Element {
   const inert = disabled || locked;
   return (
-    <li className={`chip${disabled ? " chip--gone" : ""}${selected ? " chip--selected" : ""}`} data-testid={testId}>
+    <li className={`chip${disabled ? " chip--gone" : ""}${selected ? " chip--selected" : ""}${flagged ? " chip--issue" : ""}`} data-testid={testId} data-ref={itemRef}>
       <button
         type="button"
         className="chip__btn"
         aria-pressed={selected}
         aria-disabled={inert}
-        aria-label={`${label}, ${sub}`}
         onClick={() => !inert && onPick(itemRef)}
         onPointerDown={(e) => !inert && onDragStart(itemRef, e)}
+        onContextMenu={(e) => e.preventDefault()}
       >
         <span className="chip__name">{label}</span>
         <span className="chip__sub">{sub}</span>
@@ -71,19 +80,21 @@ function Chip({
   );
 }
 
-export function ManifestTray({ manifest, formation, selectedRef, locked, onPick, onDragStart }: ManifestTrayProps): JSX.Element {
+export const ManifestTray = memo(function ManifestTray({ manifest, formation, selectedRef, locked, flagged, onPick, onDragStart }: ManifestTrayProps): JSX.Element {
   const budget = fenceBudget(manifest, formation);
   const next = nextFenceRef(manifest, formation);
   const unplaced = unplacedFences(manifest, formation);
   const damaged = unplaced.filter((f) => f.hp < f.maxHp);
   const destroyed = manifest.fences.filter((f) => f.hp <= 0);
-  const tierName = (tierId: string) => getFenceTier(tierId)?.displayName ?? tierId;
+  const tierName = (tierId: string) => getFenceTier(tierId)?.displayName ?? T.unknownThing;
   const nextFence = next ? manifest.fences.find((f) => f.ref === next) : undefined;
+  const common = { locked, onPick, onDragStart };
   return (
     <section className="tray" aria-labelledby="tray-heading" data-testid="manifest-tray">
       <h2 id="tray-heading">{T.trayHeading}</h2>
       <p className="hint">{T.trayIntro}</p>
       <p className="hint">{T.trayDragHint}</p>
+      <p className="hint">{T.trayLongPress}</p>
 
       <h3 className="h3">{T.trayUnits}</h3>
       <ul className="chips">
@@ -95,15 +106,14 @@ export function ManifestTray({ manifest, formation, selectedRef, locked, onPick,
           return (
             <Chip
               key={u.ref}
+              {...common}
               itemRef={u.ref}
-              label={card?.displayName ?? u.typeId}
+              label={card?.displayName ?? T.unknownThing}
               sub={sub}
               disabled={dead}
               selected={selectedRef === u.ref}
-              locked={locked}
+              flagged={flagged.has(u.ref)}
               testId={`tray-unit-${u.ref}`}
-              onPick={onPick}
-              onDragStart={onDragStart}
             >
               {card && (
                 <span className="chip__extra">
@@ -127,15 +137,14 @@ export function ManifestTray({ manifest, formation, selectedRef, locked, onPick,
             return (
               <Chip
                 key={t.ref}
+                {...common}
                 itemRef={t.ref}
-                label={getTrapType(t.typeId)?.displayName ?? t.typeId}
+                label={getTrapType(t.typeId)?.displayName ?? T.unknownThing}
                 sub={sub}
                 disabled={t.spent}
                 selected={selectedRef === t.ref}
-                locked={locked}
+                flagged={flagged.has(t.ref)}
                 testId={`tray-trap-${t.ref}`}
-                onPick={onPick}
-                onDragStart={onDragStart}
               />
             );
           })}
@@ -147,15 +156,14 @@ export function ManifestTray({ manifest, formation, selectedRef, locked, onPick,
       {nextFence && (
         <ul className="chips">
           <Chip
+            {...common}
             itemRef={nextFence.ref}
             label={`${T.fenceNext}: ${tierName(nextFence.tierId)}`}
-            sub={T.fenceSegment(nextFence.ref, nextFence.hp, nextFence.maxHp)}
+            sub={T.fenceSegment(segmentNumber(manifest, nextFence.ref), nextFence.hp, nextFence.maxHp)}
             disabled={false}
             selected={selectedRef === nextFence.ref}
-            locked={locked}
+            flagged={flagged.has(nextFence.ref)}
             testId="tray-fence-next"
-            onPick={onPick}
-            onDragStart={onDragStart}
           />
         </ul>
       )}
@@ -166,38 +174,41 @@ export function ManifestTray({ manifest, formation, selectedRef, locked, onPick,
             {damaged.map((f) => (
               <Chip
                 key={f.ref}
+                {...common}
                 itemRef={f.ref}
                 label={tierName(f.tierId)}
-                sub={T.fenceSegment(f.ref, f.hp, f.maxHp)}
+                sub={T.fenceSegment(segmentNumber(manifest, f.ref), f.hp, f.maxHp)}
                 disabled={false}
                 selected={selectedRef === f.ref}
-                locked={locked}
+                flagged={flagged.has(f.ref)}
                 testId={`tray-fence-${f.ref}`}
-                onPick={onPick}
-                onDragStart={onDragStart}
               />
             ))}
           </ul>
         </>
       )}
       {destroyed.length > 0 && (
-        <ul className="chips">
-          {destroyed.map((f) => (
-            <Chip
-              key={f.ref}
-              itemRef={f.ref}
-              label={tierName(f.tierId)}
-              sub={`${T.fenceSegment(f.ref, f.hp, f.maxHp)} — ${T.fenceDestroyed}`}
-              disabled
-              selected={false}
-              locked={locked}
-              testId={`tray-fence-${f.ref}`}
-              onPick={onPick}
-              onDragStart={onDragStart}
-            />
-          ))}
-        </ul>
+        <>
+          <h3 className="h3" data-testid="fence-destroyed-heading">
+            {T.fenceDestroyedHeading}
+          </h3>
+          <ul className="chips">
+            {destroyed.map((f) => (
+              <Chip
+                key={f.ref}
+                {...common}
+                itemRef={f.ref}
+                label={tierName(f.tierId)}
+                sub={`${T.fenceSegment(segmentNumber(manifest, f.ref), f.hp, f.maxHp)} — ${T.fenceDestroyed}`}
+                disabled
+                selected={false}
+                flagged={false}
+                testId={`tray-fence-${f.ref}`}
+              />
+            ))}
+          </ul>
+        </>
       )}
     </section>
   );
-}
+});

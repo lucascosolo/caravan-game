@@ -1,0 +1,358 @@
+{
+  "route": "GET /me/unlocks",
+  "status": 200,
+  "body": {
+    "webs": [
+      {
+        "id": "living.desert",
+        "pool": "living",
+        "scope": "caravan",
+        "regionId": "desert",
+        "accountId": "00000000-0000-4000-8000-000000000001",
+        "caravanId": "00000000-0000-4000-8000-000000000002",
+        "points": {
+          "granted": 0,
+          "spent": 0,
+          "available": 0
+        },
+        "nodes": [
+          {
+            "id": "desert.dust_rider",
+            "tier": 0,
+            "cost": 0,
+            "requires": [],
+            "starting": true,
+            "reached": true,
+            "prerequisitesMet": true,
+            "affordable": false,
+            "missing": []
+          },
+          {
+            "id": "desert.well_digger",
+            "tier": 0,
+            "cost": 0,
+            "requires": [],
+            "starting": true,
+            "reached": true,
+            "prerequisitesMet": true,
+            "affordable": false,
+            "missing": []
+          },
+          {
+            "id": "desert.sand_sharpshooter",
+            "tier": 1,
+            "cost": 1,
+            "requires": [],
+            "starting": false,
+            "reached": false,
+            "prerequisitesMet": true,
+            "affordable": false,
+            "missing": []
+          },
+          {
+            "id": "desert.coyote_pack",
+            "tier": 2,
+            "cost": 4,
+            "requires": [
+              "desert.dust_rider"
+            ],
+            "starting": false,
+            "reached": false,
+            "prerequisitesMet": true,
+            "affordable": false,
+            "missing": []
+          },
+          {
+            "id": "desert.powder_monkey",
+            "tier": 2,
+            "cost": 4,
+            "requires": [
+              "desert.well_digger"
+            ],
+            "starting": false,
+            "reached": false,
+            "prerequisitesMet": true,
+            "affordable": false,
+            "missing": []
+          },
+          {
+            "id": "desert.canteen_carrier",
+            "tier": 3,
+            "cost": 8,
+            "requires": [
+              "desert.sand_sharpshooter"
+            ],
+            "starting": false,
+            "reached": false,
+            "prerequisitesMet": false,
+            "affordable": false,
+            "missing": [
+              "desert.sand_sharpshooter"
+            ]
+          },
+          {
+            "id": "desert.longhorn_bull",
+            "tier": 3,
+            "cost": 8,
+            "requires": [
+              "desert.coyote_pack",
+              "desert.powder_monkey"
+            ],
+            "starting": false,
+            "reached": false,
+            "prerequisitesMet": false,
+            "affordable": false,
+            "missing": [
+              "desert.coyote_pack",
+              "desert.powder_monkey"
+            ]
+          },
+          {
+            "id": "desert.vaquero",
+            "tier": 4,
+            "cost": 14,
+            "requires": [
+              "desert.canteen_carrier"
+            ],
+            "starting": false,
+            "reached": false,
+            "prerequisitesMet": false,
+            "affordable": false,
+            "missing": [
+              "desert.canteen_carrier"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "siege",
+        "pool": "siege",
+        "scope": "account",
+        "regionId": null,
+        "accountId": "00000000-0000-4000-8000-000000000001",
+        "caravanId": null,
+        "points": {
+          "granted": 0,
+          "spent": 0,
+          "available": 0
+        },
+        "nodes": [
+          {
+            "id": "siege.battering_wagon",
+            "tier": 0,
+            "cost": 0,
+            "requires": [],
+            "starting": true,
+            "reached": true,
+            "prerequisitesMet": true,
+            "affordable": false,
+            "missing": []
+          },
+          {
+            "id": "siege.bridging_planks",
+            "tier": 1,
+            "cost": 1,
+            "requires": [],
+            "starting": false,
+            "reached": false,
+            "prerequisitesMet": true,
+            "affordable": false,
+            "missing": []
+          },
+          {
+            "id": "siege.fence_cutters",
+            "tier": 2,
+            "cost": 8,
+            "requires": [
+              "siege.battering_wagon"
+            ],
+            "starting": false,
+            "reached": false,
+            "prerequisitesMet": true,
+            "affordable": false,
+            "missing": []
+          },
+          {
+            "id": "siege.dousing_wagon",
+            "tier": 2,
+            "cost": 8,
+            "requires": [
+              "siege.bridging_planks"
+            ],
+            "starting": false,
+            "reached": false,
+            "prerequisitesMet": false,
+            "affordable": false,
+            "missing": [
+              "siege.bridging_planks"
+            ]
+          },
+          {
+            "id": "siege.blasting_crate",
+            "tier": 4,
+            "cost": 21,
+            "requires": [
+              "siege.fence_cutters"
+            ],
+            "starting": false,
+            "reached": false,
+            "prerequisitesMet": false,
+            "affordable": false,
+            "missing": [
+              "siege.fence_cutters"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "trap",
+        "pool": "trap",
+        "scope": "account",
+        "regionId": null,
+        "accountId": "00000000-0000-4000-8000-000000000001",
+        "caravanId": null,
+        "points": {
+          "granted": 0,
+          "spent": 0,
+          "available": 0
+        },
+        "nodes": [
+          {
+            "id": "trap.spike_pit",
+            "tier": 0,
+            "cost": 0,
+            "requires": [],
+            "starting": true,
+            "reached": true,
+            "prerequisitesMet": true,
+            "affordable": false,
+            "missing": []
+          },
+          {
+            "id": "fence.brush_pile",
+            "tier": 0,
+            "cost": 0,
+            "requires": [],
+            "starting": true,
+            "reached": true,
+            "prerequisitesMet": true,
+            "affordable": false,
+            "missing": []
+          },
+          {
+            "id": "trap.tripwire_snare",
+            "tier": 1,
+            "cost": 1,
+            "requires": [],
+            "starting": false,
+            "reached": false,
+            "prerequisitesMet": true,
+            "affordable": false,
+            "missing": []
+          },
+          {
+            "id": "trap.jaw_trap",
+            "tier": 1,
+            "cost": 1,
+            "requires": [
+              "trap.spike_pit"
+            ],
+            "starting": false,
+            "reached": false,
+            "prerequisitesMet": true,
+            "affordable": false,
+            "missing": []
+          },
+          {
+            "id": "trap.caltrop_scatter",
+            "tier": 2,
+            "cost": 3,
+            "requires": [
+              "trap.tripwire_snare"
+            ],
+            "starting": false,
+            "reached": false,
+            "prerequisitesMet": false,
+            "affordable": false,
+            "missing": [
+              "trap.tripwire_snare"
+            ]
+          },
+          {
+            "id": "fence.split_rail",
+            "tier": 2,
+            "cost": 3,
+            "requires": [
+              "fence.brush_pile"
+            ],
+            "starting": false,
+            "reached": false,
+            "prerequisitesMet": true,
+            "affordable": false,
+            "missing": []
+          },
+          {
+            "id": "trap.powder_keg",
+            "tier": 3,
+            "cost": 7,
+            "requires": [
+              "trap.jaw_trap"
+            ],
+            "starting": false,
+            "reached": false,
+            "prerequisitesMet": false,
+            "affordable": false,
+            "missing": [
+              "trap.jaw_trap"
+            ]
+          },
+          {
+            "id": "trap.tar_pot",
+            "tier": 3,
+            "cost": 7,
+            "requires": [
+              "trap.caltrop_scatter"
+            ],
+            "starting": false,
+            "reached": false,
+            "prerequisitesMet": false,
+            "affordable": false,
+            "missing": [
+              "trap.caltrop_scatter"
+            ]
+          },
+          {
+            "id": "fence.barbed_wire",
+            "tier": 3,
+            "cost": 7,
+            "requires": [
+              "fence.split_rail"
+            ],
+            "starting": false,
+            "reached": false,
+            "prerequisitesMet": false,
+            "affordable": false,
+            "missing": [
+              "fence.split_rail"
+            ]
+          },
+          {
+            "id": "fence.stacked_stone",
+            "tier": 4,
+            "cost": 10,
+            "requires": [
+              "fence.barbed_wire"
+            ],
+            "starting": false,
+            "reached": false,
+            "prerequisitesMet": false,
+            "affordable": false,
+            "missing": [
+              "fence.barbed_wire"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

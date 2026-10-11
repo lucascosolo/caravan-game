@@ -6,8 +6,8 @@
  * Bounds are generous ceilings, not balance: they exist so a corrupt number cannot size a
  * render (a tier builds a row of the graph) or an unbounded list cannot stall the page.
  */
-import { formationFromJson, isEntryEdge, isTargetingStance, manifestFromJson, partyConfigFromJson, type PartyScoutView, type ScoutSiege, type ScoutUnit } from "@caravan/circle";
-import { isAbilityArchetype, isAffinityCategory, type Ability, type Fixed, type Millis, type SiegeCounter } from "@caravan/content";
+import { GRID_HEIGHT, GRID_WIDTH, formationFromJson, isEntryEdge, isTargetingStance, manifestFromJson, partyConfigFromJson, type PartyScoutView, type ScoutSiege, type ScoutUnit } from "@caravan/circle";
+import { getSiegeType, getUnitType, isAbilityArchetype, isAffinityCategory, mergeStatMult, type Ability, type Fixed, type Millis, type SiegeCounter } from "@caravan/content";
 import { ShapeError, array, boolean, integer, literal, nullable, object, optional, string, type Guard } from "./shape.ts";
 import type {
   AcquiredView,
@@ -225,29 +225,50 @@ const siegeCounter: Guard<SiegeCounter> = (v, path) => {
   return v as SiegeCounter;
 };
 
-const scoutUnit: Guard<ScoutUnit> = object({
+/** A scouted start cell: on THIS lattice, never merely "some integer" (chunk 08 QA N4). */
+const scoutCell = object({ x: integer({ min: 0, max: GRID_WIDTH - 1 }), y: integer({ min: 0, max: GRID_HEIGHT - 1 }) });
+
+/** A type id this client's content knows: an unknown one would draw as "?" and hide what it is (QA N4). */
+const knownType = (known: (id: string) => unknown, what: string): Guard<string> => (v, path) => {
+  const id = ID(v, path);
+  if (known(id) === undefined) throw new ShapeError(path, `known ${what} type id`, v);
+  return id;
+};
+
+const scoutUnitFields = object({
   ref: ID,
-  typeId: ID,
+  typeId: knownType(getUnitType, "unit"),
   displayName: NAME,
   affinity: predicate(isAffinityCategory, "affinity category"),
   mergeLevel: integer({ min: 1, max: 5 }),
   slotCost: literal(1),
   stance: predicate(isTargetingStance, "targeting stance"),
   edge: predicate(isEntryEdge, "entry edge"),
-  cell,
+  cell: scoutCell,
   pos: fixedPoint,
   ratingInUse: literal("offense"),
   offense: integer({ min: 0, max: 1_000_000 }),
   defense: integer({ min: 0, max: 1_000_000 }),
   hp: integer({ min: 0, max: 1_000_000 }),
+  damagePerHitMult: optional(fixed({ min: 1, max: 1_000_000 })),
   moveSpeed: fixed({ min: 0 }),
   attackRange: fixed({ min: 0 }),
   attackCooldown: millis({ min: 0 }),
   ability,
 });
 
+/**
+ * `damagePerHitMult` (chunk 08 QA S1) is new in the scout view: a menu stored before it
+ * existed lacks it, and the multiplier is then content's own table at that merge level —
+ * the same number `scoutUnit` writes today, never a client estimate.
+ */
+const scoutUnit: Guard<ScoutUnit> = (v, path) => {
+  const u = scoutUnitFields(v, path);
+  return { ...u, damagePerHitMult: u.damagePerHitMult ?? mergeStatMult(u.mergeLevel) } as ScoutUnit;
+};
+
 const scoutSiege: Guard<ScoutSiege> = object({
-  typeId: ID,
+  typeId: knownType(getSiegeType, "siege"),
   displayName: NAME,
   counters: siegeCounter,
   effect: literal("accelerates", "bypasses"),
@@ -269,15 +290,18 @@ export const scoutViewShape: Guard<PartyScoutView> = object({
 
 const band: Guard<BandView> = object({ index: integer(), low: integer(), high: integer() });
 
+// The client view carries NO owner account id (chunk 14 QA N4): display name and authored only.
 const candidate: Guard<CandidateView> = object({
   candidateId: ID,
   partyId: ID,
-  owner: object({ accountId: ID, displayName: NAME, authored: boolean() }),
-  reputation: object({ rating: integer(), band, gapFromCaravan: integer(), sandbagEarnMultiplier: integer({ min: 0 }) }),
+  owner: object({ displayName: NAME, authored: boolean(), flavor: nullable(string({ maxLength: 1024 })) }),
+  reputation: object({ rating: integer(), band, gapFromCaravan: integer(), gapBeyondBand: integer({ min: 0 }), sandbagEarnMultiplier: integer({ min: 0 }) }),
   scout: scoutViewShape,
 });
 
-const menu: Guard<CandidateMenuView> = object({
+const BP = integer({ min: 0, max: 10_000 });
+
+const menuFields = object({
   tripId: ID,
   encounterIndex: integer({ min: 0, max: MAX_ENCOUNTER }),
   searchSeq: integer({ min: 0 }),
@@ -286,13 +310,23 @@ const menu: Guard<CandidateMenuView> = object({
   escalation: object({ applied: integer(), perEncounter: integer(), nextEncounter: integer() }),
   bandWidthUsed: integer({ min: 0 }),
   widened: boolean(),
-  usedAuthoredFallback: boolean(),
+  // Chunks 14 N5 / 25: whether the menu needed authored parties from OUTSIDE the widest band, and how much of it is authored.
+  authoredOutsideBand: boolean(),
+  authoredShare: object({ authored: COUNT, of: COUNT, shareBp: BP, maxShareBp: BP }),
+  authoredServed: nullable(object({ band: integer(), window: COUNT, served: COUNT, authored: COUNT, weightedDown: boolean() })),
   candidates: array(candidate, { maxLength: 16 }),
   searchedAtMs: integer({ min: 0 }),
   // The reroll is free and gated by time only (GUARDRAILS §2): any other gate is a bad body.
   reroll: object({ gate: literal("time"), cooldownSeconds: integer({ min: 0 }), availableAtMs: integer({ min: 0 }), available: boolean() }),
   chosen: nullable(object({ candidateId: ID, chosenAt: TIMESTAMP })),
 });
+
+/** A menu whose `chosen` names a candidate it does not carry would open a formation against nothing (QA N4). */
+const menu: Guard<CandidateMenuView> = (v, path) => {
+  const m = menuFields(v, path);
+  if (m.chosen && !m.candidates.some((c) => c.candidateId === m.chosen!.candidateId)) throw new ShapeError(`${path}.chosen.candidateId`, "one of the menu's candidate ids", m.chosen.candidateId);
+  return m;
+};
 
 export const menuShape: Guard<CandidateMenuResponse> = object({ menu });
 

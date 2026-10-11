@@ -1,0 +1,9 @@
+{
+  "route": "GET /me/party/feed",
+  "status": 200,
+  "body": {
+    "entries": [],
+    "nextBefore": 0,
+    "hasMore": false
+  }
+}

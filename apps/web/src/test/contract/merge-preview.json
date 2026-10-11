@@ -1,0 +1,71 @@
+{
+  "route": "POST /me/caravans/:id/merge/preview",
+  "status": 200,
+  "body": {
+    "caravanId": "00000000-0000-4000-8000-000000000001",
+    "unitTypeId": "desert.dust_rider",
+    "unitDisplayName": "Dust Rider",
+    "recipe": {
+      "spend": 2,
+      "produce": 1
+    },
+    "fromLevel": 1,
+    "toLevel": 2,
+    "costPerUnit": 250,
+    "totalCost": 250,
+    "balance": 1000,
+    "pendingTrickle": 0,
+    "affordable": true,
+    "consumed": {
+      "instanceIds": [
+        "00000000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000003"
+      ],
+      "inParty": [],
+      "count": 2,
+      "slots": 2,
+      "perUnit": {
+        "hp": 620,
+        "offense": 95,
+        "defense": 55,
+        "damageOutputMult": 1024,
+        "multDen": 1024,
+        "referenceHit": 60
+      },
+      "combined": {
+        "hp": 1240,
+        "offense": 95,
+        "defense": 55,
+        "damageOutputMult": 1024,
+        "multDen": 1024,
+        "referenceHit": 120
+      }
+    },
+    "produced": {
+      "count": 1,
+      "slots": 1,
+      "perUnit": {
+        "hp": 775,
+        "offense": 95,
+        "defense": 55,
+        "damageOutputMult": 1280,
+        "multDen": 1024,
+        "referenceHit": 75
+      },
+      "combined": {
+        "hp": 775,
+        "offense": 95,
+        "defense": 55,
+        "damageOutputMult": 1280,
+        "multDen": 1024,
+        "referenceHit": 75
+      }
+    },
+    "slotsFreed": 1,
+    "ability": {
+      "archetype": "dash",
+      "displayName": "Spur On"
+    },
+    "requiresConfirmInParty": false
+  }
+}

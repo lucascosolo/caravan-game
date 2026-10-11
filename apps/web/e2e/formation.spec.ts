@@ -15,12 +15,16 @@ import { expect, test, type Page } from "@playwright/test";
 const USERNAME = process.env["E2E_FORMATION_USERNAME"] ?? "dev";
 const PASSWORD = process.env["E2E_FORMATION_PASSWORD"] ?? "devpassword";
 
-type IsoDebug = { cellToClient(c: { x: number; y: number }): { x: number; y: number } | null; latticeAlpha(): number };
+type IsoDebug = { cellToClient(c: { x: number; y: number }): { x: number; y: number } | null; latticeAlpha(): number; zoom(): number; pixiAccessibility(): boolean };
 
 async function cellToClient(page: Page, cell: { x: number; y: number }): Promise<{ x: number; y: number }> {
   const p = await page.evaluate((c) => (window as unknown as { __isoDebug?: IsoDebug }).__isoDebug?.cellToClient(c), cell);
   if (!p) throw new Error("iso debug hook missing");
   return p;
+}
+
+function zoom(page: Page): Promise<number | undefined> {
+  return page.evaluate(() => (window as unknown as { __isoDebug?: IsoDebug }).__isoDebug?.zoom());
 }
 
 function latticeAlpha(page: Page): Promise<number | undefined> {
@@ -37,6 +41,8 @@ async function dragTo(page: Page, from: { x: number; y: number }, to: { x: numbe
 }
 
 test("search, scout three candidates, choose, drag a fence and a post, set a stance, commit a gapped formation", async ({ page, request }) => {
+  // The flow is long and the four specs share the machine: a generous budget, not a race.
+  test.setTimeout(120_000);
   await page.goto("/");
   await page.getByLabel("Username").fill(USERNAME);
   await page.getByLabel("Password").fill(PASSWORD);
@@ -53,8 +59,9 @@ test("search, scout three candidates, choose, drag a fence and a post, set a sta
     const card = page.getByTestId(`candidate-${i}`);
     await expect(card).toBeVisible();
     await expect(card.getByRole("button", { name: /^Face / })).toBeVisible();
-    // Open the scouting report: units with stance, edge and start cell, both ratings; siege with counters.
-    await card.locator("summary").click();
+    // The scouting report is open by default, above the "Face …" button (QA N1): units with
+    // stance, edge and start cell, both ratings; siege with counters.
+    await expect(card.locator("details")).toHaveAttribute("open", "");
     const scout = card.getByTestId(`scout-panel-${i}`);
     await expect(scout).toContainText(/\d+ units?/);
     await expect(scout.locator(".statpair").first()).toBeVisible();
@@ -71,7 +78,7 @@ test("search, scout three candidates, choose, drag a fence and a post, set a sta
   const chosenName = (await page.getByTestId("candidate-0").locator(".card__name").first().textContent())!.trim();
   await page.getByTestId("choose-0").click();
   const screen = page.getByTestId("formation-screen");
-  await expect(screen).toBeVisible();
+  await expect(screen).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("heading", { name: "Encounter 1" })).toBeVisible();
   await expect(page.getByTestId("facing-line")).toContainText(`Facing ${chosenName}.`);
 
@@ -121,6 +128,51 @@ test("search, scout three candidates, choose, drag a fence and a post, set a sta
   // Lattice hidden again after the drags.
   await expect.poll(() => latticeAlpha(page)).toBe(0);
 
+  // ── touch (chunk 08 QA B3 / B4), wheel (S12), tap-to-place lattice (D5), no PixiJS a11y overlay (N3) ──
+  const cdp = await page.context().newCDPSession(page);
+  type TP = { x: number; y: number; id: number };
+  const touch = (type: "touchStart" | "touchMove" | "touchEnd", pts: TP[]) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: pts.map((p) => ({ x: p.x, y: p.y, id: p.id })) });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  // B3: a pinch whose first finger lands ON the posted rider zooms and moves nothing.
+  const zoom0 = (await zoom(page))!;
+  const onPost = await cellToClient(page, { x: 13, y: 13 });
+  const b0 = { x: onPost.x + 50, y: onPost.y + 30 };
+  await touch("touchStart", [{ ...onPost, id: 1 }]);
+  await touch("touchMove", [{ x: onPost.x - 12, y: onPost.y - 4, id: 1 }]);
+  await touch("touchStart", [{ x: onPost.x - 12, y: onPost.y - 4, id: 1 }, { ...b0, id: 2 }]);
+  for (let i = 1; i <= 8; i++) await touch("touchMove", [{ x: onPost.x - 12 - i * 5, y: onPost.y - 4 - i * 3, id: 1 }, { x: b0.x + i * 5, y: b0.y + i * 3, id: 2 }]);
+  await touch("touchEnd", [{ x: b0.x + 40, y: b0.y + 24, id: 2 }]);
+  await touch("touchEnd", []);
+  await expect(riderChips.nth(0)).toContainText("Posted at (13, 13)");
+  expect(await zoom(page)).not.toBe(zoom0);
+  await expect.poll(() => latticeAlpha(page)).toBe(0);
+  // B4: a vertical swipe over the tray scrolls; it never drags the fence chip onto the map.
+  const swipeChip = page.getByTestId("tray-fence-next").getByRole("button");
+  await swipeChip.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  const sb = (await swipeChip.boundingBox())!;
+  const s0 = { x: sb.x + sb.width / 2, y: sb.y + sb.height / 2, id: 3 };
+  await touch("touchStart", [s0]);
+  for (let i = 1; i <= 12; i++) await touch("touchMove", [{ x: s0.x, y: s0.y - i * 25, id: 3 }]);
+  await touch("touchEnd", []);
+  await expect(page.getByTestId("budget-meter")).toContainText("1 of 20 segments placed");
+  // S12: the wheel zooms the map and leaves the page where it was.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const canvasBox = (await page.getByTestId("iso-canvas").boundingBox())!;
+  await page.mouse.move(canvasBox.x + canvasBox.width / 2, canvasBox.y + canvasBox.height / 2);
+  const zoomBefore = await zoom(page);
+  for (let i = 0; i < 5; i++) await page.mouse.wheel(0, -120);
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  expect(await zoom(page)).not.toBe(zoomBefore);
+  // D5: selecting a tray item for tap-to-place shows the lattice; deselecting hides it.
+  const fenceAgain = page.getByTestId("tray-fence-next").getByRole("button");
+  await fenceAgain.click();
+  await expect.poll(() => latticeAlpha(page)).toBeGreaterThan(0);
+  await fenceAgain.click();
+  await expect.poll(() => latticeAlpha(page)).toBe(0);
+  // N3: Tab never wakes PixiJS's own accessibility overlay (the DOM lists are the text alternative).
+  await page.keyboard.press("Tab");
+  expect(await page.evaluate(() => (window as unknown as { __isoDebug?: IsoDebug }).__isoDebug?.pixiAccessibility())).toBe(false);
+
   // Save the draft: the server accepts a formation with 27 gaps.
   await page.getByTestId("save-draft").click();
   await expect(page.getByText("Draft saved.")).toBeVisible();
@@ -132,7 +184,7 @@ test("search, scout three candidates, choose, drag a fence and a post, set a sta
   await expect(dialog).toContainText("1 fence segment on ring positions #0");
   await expect(dialog).toContainText("27 ring positions left open");
   await expect(dialog).toContainText("2 units posted");
-  await expect(dialog).toContainText("hold");
+  await expect(dialog).toContainText("Hold");
   await page.getByTestId("commit-confirm").click();
   await expect(page.getByTestId("committed-notice")).toBeVisible();
   await expect(screen).toHaveAttribute("data-committed", "true");

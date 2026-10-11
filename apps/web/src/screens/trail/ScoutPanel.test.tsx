@@ -1,6 +1,7 @@
-import { getFenceTier, getTrapType, getUnitType } from "@caravan/content";
+import { getFenceTier, getTrapType, getUnitType, mergeStatMult } from "@caravan/content";
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { fixedToText } from "../webs/catalogue.ts";
 import { ScoutPanel } from "./ScoutPanel.tsx";
 import { FIXTURE_PARTIES, fixtureScoutFor } from "./scoutFixture.ts";
 
@@ -24,9 +25,24 @@ describe("ScoutPanel — nothing about the party is hidden", () => {
       expect(card.getByText("Cooldown")).toBeInTheDocument();
       expect(card.getByText("Range (cells)")).toBeInTheDocument();
       expect(card.getByText("Attack every")).toBeInTheDocument();
-      expect(card.getByText("Speed (cells/s)")).toBeInTheDocument();
+      expect(card.getByText("Speed")).toBeInTheDocument();
+      expect(card.getByText(/cells\/s$/)).toBeInTheDocument();
+      // QA S1: the merge-scaled damage per hit, from the server's view (merge scales output, never the rating).
+      expect(card.getByText("Damage per hit")).toBeInTheDocument();
+      expect(card.getByText(`×${fixedToText(mergeStatMult(u.mergeLevel))} (merge level ${u.mergeLevel})`)).toBeInTheDocument();
+      expect(u.damagePerHitMult).toBe(mergeStatMult(u.mergeLevel));
     }
     expect(screen.getByText(`${scout.unitSlots.used} of ${scout.unitSlots.cap} unit slots`, { exact: false })).toBeInTheDocument();
+  });
+
+  it("a merged attacker's per-hit multiplier is above an unmerged one's (S1), and a tapped attacker's card is marked (S14)", () => {
+    const scout = fixtureScoutFor(2);
+    const merged = scout.units.find((u) => u.mergeLevel > 1)!;
+    const plain = scout.units.find((u) => u.mergeLevel === 1)!;
+    expect(merged.damagePerHitMult).toBeGreaterThan(plain.damagePerHitMult);
+    render(<ScoutPanel scout={scout} selectedRef={merged.ref} />);
+    expect(screen.getByTestId(`scout-unit-${merged.ref}`)).toHaveAttribute("data-selected", "true");
+    expect(screen.getByTestId(`scout-unit-${plain.ref}`)).toHaveAttribute("data-selected", "false");
   });
 
   it("shows a healer's finite charges", () => {

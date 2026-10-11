@@ -7,8 +7,8 @@
  * `emphasis` says which the caller is drawing bigger — defense for a posted unit, offense
  * for an attacker.
  */
-import { FIXED_POINT_SCALE, getUnitType, type Ability, type AffinityCategory } from "@caravan/content";
-import type { ManifestUnit } from "@caravan/circle";
+import { FENCE_TIERS, FIXED_POINT_SCALE, LIVING_UNIT_TYPES, TRAP_TYPES, getFenceTier, getTrapType, getUnitType, mergeStatMult, type Ability, type AffinityCategory } from "@caravan/content";
+import type { Manifest, ManifestUnit } from "@caravan/circle";
 import { fixedToText, millisToText } from "../webs/catalogue.ts";
 import { STRINGS } from "../../strings.ts";
 import type { ScoutedUnit } from "./scoutTypes.ts";
@@ -49,23 +49,23 @@ function abilityOf(a: Ability): UnitCard["ability"] {
   let charges: number | null = null;
   switch (a.archetype) {
     case "burst_radius":
-      lines.push({ label: "Radius", value: cellsText(a.radius) }, { label: S.damage, value: `×${fixedToText(a.damageMult)} one hit` });
+      lines.push({ label: T.abilityRadius, value: cellsText(a.radius) }, { label: S.damage, value: T.abilityOneHit(fixedToText(a.damageMult)) });
       break;
     case "heavy_strike":
-      lines.push({ label: S.damage, value: `×${fixedToText(a.damageMult)} one hit` });
+      lines.push({ label: S.damage, value: T.abilityOneHit(fixedToText(a.damageMult)) });
       break;
     case "heal_radius":
-      lines.push({ label: "Radius", value: cellsText(a.radius) }, { label: "Heals", value: `${fixedToText(a.healFraction * 100)}% of max HP` }, { label: S.charges, value: T.abilityCharges(a.charges) });
+      lines.push({ label: T.abilityRadius, value: cellsText(a.radius) }, { label: T.abilityHeals, value: T.abilityHealsValue(fixedToText(a.healFraction * 100)) }, { label: S.charges, value: T.abilityCharges(a.charges) });
       charges = a.charges;
       break;
     case "self_buff":
-      lines.push({ label: "Bonus damage", value: `+${fixedToText(a.damageBonus)}` }, { label: "Duration", value: millisToText(a.duration) });
+      lines.push({ label: T.abilityBonus, value: T.abilityBonusValue(fixedToText(a.damageBonus)) }, { label: T.abilityDuration, value: millisToText(a.duration) });
       break;
     case "dash":
-      lines.push({ label: "Distance", value: cellsText(a.distance) });
+      lines.push({ label: T.abilityDistance, value: cellsText(a.distance) });
       break;
     case "structure_breaker":
-      lines.push({ label: "Fence damage", value: `×${fixedToText(a.fenceDamageMult)} one hit` });
+      lines.push({ label: T.abilityFenceDamage, value: T.abilityOneHit(fixedToText(a.fenceDamageMult)) });
       break;
   }
   return { name: a.displayName, description: a.description, lines, charges };
@@ -90,7 +90,9 @@ export function defenderCard(u: ManifestUnit): UnitCard | null {
     defense: t.defense,
     emphasis: "defense",
     lines: [
-      { label: S.moveSpeed, value: fixedToText(t.moveSpeed) },
+      // Merge scales each hit's OUTPUT (the resolver's DAMAGE_ROUNDING_ORDER step 3), never the rating (QA S1).
+      { label: T.damagePerHit, value: T.damagePerHitValue(fixedToText(mergeStatMult(u.mergeLevel)), u.mergeLevel) },
+      { label: T.speed, value: T.speedValue(fixedToText(t.moveSpeed)) },
       { label: S.attackRange, value: cellsText(t.attackRange) },
       { label: S.attackCooldown, value: millisToText(t.attackCooldown) },
       { label: T.aggro, value: cellsText(t.aggroRadius) },
@@ -121,7 +123,9 @@ export function attackerCard(u: ScoutedUnit): UnitCard {
     defense: u.defense,
     emphasis: "offense",
     lines: [
-      { label: S.moveSpeed, value: fixedToText(u.moveSpeed) },
+      // The server's scout view carries the multiplier at this merge level (QA S1).
+      { label: T.damagePerHit, value: T.damagePerHitValue(fixedToText(u.damagePerHitMult), u.mergeLevel) },
+      { label: T.speed, value: T.speedValue(fixedToText(u.moveSpeed)) },
       { label: S.attackRange, value: cellsText(u.attackRange) },
       { label: S.attackCooldown, value: millisToText(u.attackCooldown) },
     ],
@@ -130,4 +134,28 @@ export function attackerCard(u: ScoutedUnit): UnitCard {
     leashDistance: 0,
     attackRange: u.attackRange / FIXED_POINT_SCALE,
   };
+}
+
+/**
+ * Every id a server issue may name on this screen → the name the player sees (chunk 08
+ * QA S8 / S15): manifest refs (a unit by its type and HP, a trap by its type, a segment by
+ * its number) and content type ids. Fed to shell/issues.ts `humanizeIssue`.
+ */
+export function manifestNames(m: Manifest): ReadonlyMap<string, string> {
+  const names = new Map<string, string>();
+  for (const t of LIVING_UNIT_TYPES) names.set(t.id, t.displayName);
+  for (const t of TRAP_TYPES) names.set(t.id, t.displayName);
+  for (const t of FENCE_TIERS) names.set(t.id, t.displayName);
+  const sameType = (typeId: string) => m.units.filter((u) => u.typeId === typeId).length;
+  m.units.forEach((u) => {
+    const name = getUnitType(u.typeId)?.displayName ?? T.unknownThing;
+    names.set(u.ref, sameType(u.typeId) > 1 ? T.unitNamed(name, m.units.filter((x) => x.typeId === u.typeId).indexOf(u) + 1) : name);
+  });
+  m.traps.forEach((t) => {
+    const name = getTrapType(t.typeId)?.displayName ?? T.unknownThing;
+    const same = m.traps.filter((x) => x.typeId === t.typeId);
+    names.set(t.ref, same.length > 1 ? T.unitNamed(name, same.indexOf(t) + 1) : name);
+  });
+  m.fences.forEach((f, i) => names.set(f.ref, T.segmentNamed(i + 1, getFenceTier(f.tierId)?.displayName ?? T.unknownThing)));
+  return names;
 }

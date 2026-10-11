@@ -1,0 +1,318 @@
+{
+  "route": "GET /caravans/:id/manifest",
+  "status": 200,
+  "body": {
+    "manifest": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "caravanId": "00000000-0000-4000-8000-000000000002",
+      "encountersResolved": 0,
+      "createdAt": "2026-10-11T12:00:00.000Z",
+      "closedAt": null,
+      "packed": {
+        "v": 1,
+        "units": [
+          {
+            "ref": "00000000-0000-4000-8000-000000000003",
+            "typeId": "desert.dust_rider",
+            "mergeLevel": 1,
+            "maxHp": 620,
+            "hp": 620
+          },
+          {
+            "ref": "00000000-0000-4000-8000-000000000004",
+            "typeId": "desert.dust_rider",
+            "mergeLevel": 1,
+            "maxHp": 620,
+            "hp": 620
+          }
+        ],
+        "traps": [
+          {
+            "ref": "t0",
+            "typeId": "trap.spike_pit",
+            "spent": false
+          }
+        ],
+        "fences": [
+          {
+            "ref": "f0",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f1",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f2",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f3",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f4",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f5",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f6",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f7",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f8",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f9",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f10",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f11",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f12",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f13",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f14",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f15",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f16",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f17",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f18",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f19",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          }
+        ]
+      },
+      "survivors": {
+        "v": 1,
+        "units": [
+          {
+            "ref": "00000000-0000-4000-8000-000000000003",
+            "typeId": "desert.dust_rider",
+            "mergeLevel": 1,
+            "maxHp": 620,
+            "hp": 620
+          },
+          {
+            "ref": "00000000-0000-4000-8000-000000000004",
+            "typeId": "desert.dust_rider",
+            "mergeLevel": 1,
+            "maxHp": 620,
+            "hp": 620
+          }
+        ],
+        "traps": [
+          {
+            "ref": "t0",
+            "typeId": "trap.spike_pit",
+            "spent": false
+          }
+        ],
+        "fences": [
+          {
+            "ref": "f0",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f1",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f2",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f3",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f4",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f5",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f6",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f7",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f8",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f9",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f10",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f11",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f12",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f13",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f14",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f15",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f16",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f17",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f18",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          },
+          {
+            "ref": "f19",
+            "tierId": "fence.brush_pile",
+            "maxHp": 300,
+            "hp": 300
+          }
+        ]
+      },
+      "summary": {
+        "unitsAlive": 2,
+        "unitsDead": 0,
+        "trapsUnspent": 1,
+        "trapsSpent": 0,
+        "fencesIntact": 20,
+        "fencesDestroyed": 0
+      },
+      "formations": []
+    }
+  }
+}

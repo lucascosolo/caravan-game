@@ -1,0 +1,726 @@
+{
+  "route": "POST /me/caravans/:id/encounters/:n/choose",
+  "status": 200,
+  "body": {
+    "menu": {
+      "tripId": "00000000-0000-4000-8000-000000000001",
+      "encounterIndex": 1,
+      "searchSeq": 1,
+      "seed": 2794057361,
+      "caravan": {
+        "rating": 1000,
+        "ratingPool": "living",
+        "band": {
+          "index": 3,
+          "low": 1000,
+          "high": 1299
+        }
+      },
+      "centre": 1000,
+      "escalation": {
+        "applied": 0,
+        "perEncounter": 15,
+        "nextEncounter": 15
+      },
+      "bandWidthUsed": 150,
+      "widened": false,
+      "authoredOutsideBand": false,
+      "authoredShare": {
+        "authored": 0,
+        "of": 3,
+        "shareBp": 0,
+        "maxShareBp": 3000
+      },
+      "authoredServed": {
+        "band": 3,
+        "served": 0,
+        "window": 40,
+        "authored": 0,
+        "weightedDown": false
+      },
+      "passes": [
+        {
+          "width": 150,
+          "live": 3,
+          "authoredInBand": 0,
+          "authoredAllowed": 0
+        }
+      ],
+      "excludedPartyIds": [],
+      "candidates": [
+        {
+          "scout": {
+            "v": 1,
+            "edges": [
+              "north",
+              "east"
+            ],
+            "siege": [
+              {
+                "effect": "accelerates",
+                "typeId": "siege.battering_wagon",
+                "counters": {
+                  "kind": "fence",
+                  "category": "timber"
+                },
+                "displayName": "Battering Wagon",
+                "nullifiesTrap": false,
+                "targetTypeIds": [
+                  "fence.brush_pile",
+                  "fence.split_rail"
+                ],
+                "fenceDamageMult": 4096
+              }
+            ],
+            "units": [
+              {
+                "hp": 1100,
+                "pos": {
+                  "x": 31232,
+                  "y": 2560
+                },
+                "ref": "00000000-0000-4000-8000-000000000002",
+                "cell": {
+                  "x": 30,
+                  "y": 2
+                },
+                "edge": "east",
+                "stance": "traps",
+                "typeId": "desert.well_digger",
+                "ability": {
+                  "cooldown": 12000,
+                  "archetype": "structure_breaker",
+                  "description": "A full-weight swing at a fence segment for 4.5× a normal hit.",
+                  "displayName": "Pick Swing",
+                  "fenceDamageMult": 4608
+                },
+                "defense": 100,
+                "offense": 50,
+                "affinity": "grit",
+                "slotCost": 1,
+                "moveSpeed": 1024,
+                "mergeLevel": 1,
+                "attackRange": 1024,
+                "displayName": "Well Digger",
+                "ratingInUse": "offense",
+                "attackCooldown": 1400,
+                "damagePerHitMult": 1024
+              },
+              {
+                "hp": 620,
+                "pos": {
+                  "x": 3584,
+                  "y": 512
+                },
+                "ref": "00000000-0000-4000-8000-000000000003",
+                "cell": {
+                  "x": 3,
+                  "y": 0
+                },
+                "edge": "north",
+                "stance": "nearest",
+                "typeId": "desert.dust_rider",
+                "ability": {
+                  "cooldown": 9000,
+                  "distance": 3584,
+                  "archetype": "dash",
+                  "description": "Surges 3.5 cells along its path.",
+                  "displayName": "Spur On"
+                },
+                "defense": 55,
+                "offense": 95,
+                "affinity": "beast",
+                "slotCost": 1,
+                "moveSpeed": 2662,
+                "mergeLevel": 1,
+                "attackRange": 1024,
+                "displayName": "Dust Rider",
+                "ratingInUse": "offense",
+                "attackCooldown": 800,
+                "damagePerHitMult": 1024
+              }
+            ],
+            "unitSlots": {
+              "cap": 8,
+              "used": 2
+            },
+            "siegeSlots": {
+              "cap": 3,
+              "used": 1
+            }
+          },
+          "partyId": "00000000-0000-4000-8000-000000000004",
+          "snapshot": {
+            "hash": "a000000000000000000000000000000000000000000000000000000000000001",
+            "slot": 0,
+            "partyId": "00000000-0000-4000-8000-000000000004",
+            "savedAt": "2026-10-11T12:00:00.000Z",
+            "composition": {
+              "v": 1,
+              "siege": [
+                {
+                  "typeId": "siege.battering_wagon"
+                }
+              ],
+              "units": [
+                {
+                  "ref": "00000000-0000-4000-8000-000000000003",
+                  "cell": {
+                    "x": 3,
+                    "y": 0
+                  },
+                  "edge": "north",
+                  "stance": "nearest",
+                  "typeId": "desert.dust_rider",
+                  "mergeLevel": 1
+                },
+                {
+                  "ref": "00000000-0000-4000-8000-000000000002",
+                  "cell": {
+                    "x": 30,
+                    "y": 2
+                  },
+                  "edge": "east",
+                  "stance": "traps",
+                  "typeId": "desert.well_digger",
+                  "mergeLevel": 1
+                }
+              ]
+            },
+            "ownerAccountId": "00000000-0000-4000-8000-000000000005"
+          },
+          "reputation": {
+            "band": {
+              "low": 1000,
+              "high": 1299,
+              "index": 3
+            },
+            "rating": 1000,
+            "gapBeyondBand": 0,
+            "gapFromCaravan": 0,
+            "sandbagEarnMultiplier": 1024
+          },
+          "candidateId": "a0000000000000000000000000000002",
+          "owner": {
+            "displayName": "contract_owner_a",
+            "authored": false
+          }
+        },
+        {
+          "scout": {
+            "v": 1,
+            "edges": [
+              "north",
+              "east"
+            ],
+            "siege": [
+              {
+                "effect": "accelerates",
+                "typeId": "siege.battering_wagon",
+                "counters": {
+                  "kind": "fence",
+                  "category": "timber"
+                },
+                "displayName": "Battering Wagon",
+                "nullifiesTrap": false,
+                "targetTypeIds": [
+                  "fence.brush_pile",
+                  "fence.split_rail"
+                ],
+                "fenceDamageMult": 4096
+              }
+            ],
+            "units": [
+              {
+                "hp": 1100,
+                "pos": {
+                  "x": 31232,
+                  "y": 2560
+                },
+                "ref": "00000000-0000-4000-8000-000000000006",
+                "cell": {
+                  "x": 30,
+                  "y": 2
+                },
+                "edge": "east",
+                "stance": "traps",
+                "typeId": "desert.well_digger",
+                "ability": {
+                  "cooldown": 12000,
+                  "archetype": "structure_breaker",
+                  "description": "A full-weight swing at a fence segment for 4.5× a normal hit.",
+                  "displayName": "Pick Swing",
+                  "fenceDamageMult": 4608
+                },
+                "defense": 100,
+                "offense": 50,
+                "affinity": "grit",
+                "slotCost": 1,
+                "moveSpeed": 1024,
+                "mergeLevel": 1,
+                "attackRange": 1024,
+                "displayName": "Well Digger",
+                "ratingInUse": "offense",
+                "attackCooldown": 1400,
+                "damagePerHitMult": 1024
+              },
+              {
+                "hp": 620,
+                "pos": {
+                  "x": 3584,
+                  "y": 512
+                },
+                "ref": "00000000-0000-4000-8000-000000000007",
+                "cell": {
+                  "x": 3,
+                  "y": 0
+                },
+                "edge": "north",
+                "stance": "nearest",
+                "typeId": "desert.dust_rider",
+                "ability": {
+                  "cooldown": 9000,
+                  "distance": 3584,
+                  "archetype": "dash",
+                  "description": "Surges 3.5 cells along its path.",
+                  "displayName": "Spur On"
+                },
+                "defense": 55,
+                "offense": 95,
+                "affinity": "beast",
+                "slotCost": 1,
+                "moveSpeed": 2662,
+                "mergeLevel": 1,
+                "attackRange": 1024,
+                "displayName": "Dust Rider",
+                "ratingInUse": "offense",
+                "attackCooldown": 800,
+                "damagePerHitMult": 1024
+              }
+            ],
+            "unitSlots": {
+              "cap": 8,
+              "used": 2
+            },
+            "siegeSlots": {
+              "cap": 3,
+              "used": 1
+            }
+          },
+          "partyId": "00000000-0000-4000-8000-000000000008",
+          "snapshot": {
+            "hash": "a000000000000000000000000000000000000000000000000000000000000003",
+            "slot": 0,
+            "partyId": "00000000-0000-4000-8000-000000000008",
+            "savedAt": "2026-10-11T12:00:01.000Z",
+            "composition": {
+              "v": 1,
+              "siege": [
+                {
+                  "typeId": "siege.battering_wagon"
+                }
+              ],
+              "units": [
+                {
+                  "ref": "00000000-0000-4000-8000-000000000007",
+                  "cell": {
+                    "x": 3,
+                    "y": 0
+                  },
+                  "edge": "north",
+                  "stance": "nearest",
+                  "typeId": "desert.dust_rider",
+                  "mergeLevel": 1
+                },
+                {
+                  "ref": "00000000-0000-4000-8000-000000000006",
+                  "cell": {
+                    "x": 30,
+                    "y": 2
+                  },
+                  "edge": "east",
+                  "stance": "traps",
+                  "typeId": "desert.well_digger",
+                  "mergeLevel": 1
+                }
+              ]
+            },
+            "ownerAccountId": "00000000-0000-4000-8000-000000000009"
+          },
+          "reputation": {
+            "band": {
+              "low": 1000,
+              "high": 1299,
+              "index": 3
+            },
+            "rating": 1000,
+            "gapBeyondBand": 0,
+            "gapFromCaravan": 0,
+            "sandbagEarnMultiplier": 1024
+          },
+          "candidateId": "a0000000000000000000000000000004",
+          "owner": {
+            "displayName": "contract_owner_b",
+            "authored": false
+          }
+        },
+        {
+          "scout": {
+            "v": 1,
+            "edges": [
+              "north",
+              "east"
+            ],
+            "siege": [
+              {
+                "effect": "accelerates",
+                "typeId": "siege.battering_wagon",
+                "counters": {
+                  "kind": "fence",
+                  "category": "timber"
+                },
+                "displayName": "Battering Wagon",
+                "nullifiesTrap": false,
+                "targetTypeIds": [
+                  "fence.brush_pile",
+                  "fence.split_rail"
+                ],
+                "fenceDamageMult": 4096
+              }
+            ],
+            "units": [
+              {
+                "hp": 1100,
+                "pos": {
+                  "x": 31232,
+                  "y": 2560
+                },
+                "ref": "00000000-0000-4000-8000-000000000010",
+                "cell": {
+                  "x": 30,
+                  "y": 2
+                },
+                "edge": "east",
+                "stance": "traps",
+                "typeId": "desert.well_digger",
+                "ability": {
+                  "cooldown": 12000,
+                  "archetype": "structure_breaker",
+                  "description": "A full-weight swing at a fence segment for 4.5× a normal hit.",
+                  "displayName": "Pick Swing",
+                  "fenceDamageMult": 4608
+                },
+                "defense": 100,
+                "offense": 50,
+                "affinity": "grit",
+                "slotCost": 1,
+                "moveSpeed": 1024,
+                "mergeLevel": 1,
+                "attackRange": 1024,
+                "displayName": "Well Digger",
+                "ratingInUse": "offense",
+                "attackCooldown": 1400,
+                "damagePerHitMult": 1024
+              },
+              {
+                "hp": 620,
+                "pos": {
+                  "x": 3584,
+                  "y": 512
+                },
+                "ref": "00000000-0000-4000-8000-000000000011",
+                "cell": {
+                  "x": 3,
+                  "y": 0
+                },
+                "edge": "north",
+                "stance": "nearest",
+                "typeId": "desert.dust_rider",
+                "ability": {
+                  "cooldown": 9000,
+                  "distance": 3584,
+                  "archetype": "dash",
+                  "description": "Surges 3.5 cells along its path.",
+                  "displayName": "Spur On"
+                },
+                "defense": 55,
+                "offense": 95,
+                "affinity": "beast",
+                "slotCost": 1,
+                "moveSpeed": 2662,
+                "mergeLevel": 1,
+                "attackRange": 1024,
+                "displayName": "Dust Rider",
+                "ratingInUse": "offense",
+                "attackCooldown": 800,
+                "damagePerHitMult": 1024
+              }
+            ],
+            "unitSlots": {
+              "cap": 8,
+              "used": 2
+            },
+            "siegeSlots": {
+              "cap": 3,
+              "used": 1
+            }
+          },
+          "partyId": "00000000-0000-4000-8000-000000000012",
+          "snapshot": {
+            "hash": "a000000000000000000000000000000000000000000000000000000000000005",
+            "slot": 0,
+            "partyId": "00000000-0000-4000-8000-000000000012",
+            "savedAt": "2026-10-11T12:00:02.000Z",
+            "composition": {
+              "v": 1,
+              "siege": [
+                {
+                  "typeId": "siege.battering_wagon"
+                }
+              ],
+              "units": [
+                {
+                  "ref": "00000000-0000-4000-8000-000000000011",
+                  "cell": {
+                    "x": 3,
+                    "y": 0
+                  },
+                  "edge": "north",
+                  "stance": "nearest",
+                  "typeId": "desert.dust_rider",
+                  "mergeLevel": 1
+                },
+                {
+                  "ref": "00000000-0000-4000-8000-000000000010",
+                  "cell": {
+                    "x": 30,
+                    "y": 2
+                  },
+                  "edge": "east",
+                  "stance": "traps",
+                  "typeId": "desert.well_digger",
+                  "mergeLevel": 1
+                }
+              ]
+            },
+            "ownerAccountId": "00000000-0000-4000-8000-000000000013"
+          },
+          "reputation": {
+            "band": {
+              "low": 1000,
+              "high": 1299,
+              "index": 3
+            },
+            "rating": 1000,
+            "gapBeyondBand": 0,
+            "gapFromCaravan": 0,
+            "sandbagEarnMultiplier": 1024
+          },
+          "candidateId": "a0000000000000000000000000000006",
+          "owner": {
+            "displayName": "contract_owner_c",
+            "authored": false
+          }
+        }
+      ],
+      "searchedAtMs": 1790000000000,
+      "reroll": {
+        "gate": "time",
+        "cooldownSeconds": 180,
+        "availableAtMs": 1790000060000,
+        "available": false
+      },
+      "chosen": {
+        "candidateId": "a0000000000000000000000000000002",
+        "chosenAt": "2026-10-11T12:00:03.000Z"
+      },
+      "rules": {
+        "candidatesPerSearch": 3,
+        "band": {
+          "width": 150,
+          "widenStep": 100,
+          "max": 600,
+          "widths": [
+            150,
+            250,
+            350,
+            450,
+            550,
+            600
+          ],
+          "span": 300
+        },
+        "reroll": {
+          "gate": "time",
+          "cooldownSeconds": 180
+        },
+        "selfExcluded": true,
+        "recentOpponentsExcluded": 5,
+        "escalation": {
+          "perEncounter": 15,
+          "basisPointsOfSpan": 500
+        },
+        "emptyPool": "widen_then_authored",
+        "seed": "fnv1a32(caravanId:tripId:encounterIndex:searchSeq)"
+      }
+    },
+    "chosen": {
+      "scout": {
+        "v": 1,
+        "edges": [
+          "north",
+          "east"
+        ],
+        "siege": [
+          {
+            "effect": "accelerates",
+            "typeId": "siege.battering_wagon",
+            "counters": {
+              "kind": "fence",
+              "category": "timber"
+            },
+            "displayName": "Battering Wagon",
+            "nullifiesTrap": false,
+            "targetTypeIds": [
+              "fence.brush_pile",
+              "fence.split_rail"
+            ],
+            "fenceDamageMult": 4096
+          }
+        ],
+        "units": [
+          {
+            "hp": 1100,
+            "pos": {
+              "x": 31232,
+              "y": 2560
+            },
+            "ref": "00000000-0000-4000-8000-000000000002",
+            "cell": {
+              "x": 30,
+              "y": 2
+            },
+            "edge": "east",
+            "stance": "traps",
+            "typeId": "desert.well_digger",
+            "ability": {
+              "cooldown": 12000,
+              "archetype": "structure_breaker",
+              "description": "A full-weight swing at a fence segment for 4.5× a normal hit.",
+              "displayName": "Pick Swing",
+              "fenceDamageMult": 4608
+            },
+            "defense": 100,
+            "offense": 50,
+            "affinity": "grit",
+            "slotCost": 1,
+            "moveSpeed": 1024,
+            "mergeLevel": 1,
+            "attackRange": 1024,
+            "displayName": "Well Digger",
+            "ratingInUse": "offense",
+            "attackCooldown": 1400,
+            "damagePerHitMult": 1024
+          },
+          {
+            "hp": 620,
+            "pos": {
+              "x": 3584,
+              "y": 512
+            },
+            "ref": "00000000-0000-4000-8000-000000000003",
+            "cell": {
+              "x": 3,
+              "y": 0
+            },
+            "edge": "north",
+            "stance": "nearest",
+            "typeId": "desert.dust_rider",
+            "ability": {
+              "cooldown": 9000,
+              "distance": 3584,
+              "archetype": "dash",
+              "description": "Surges 3.5 cells along its path.",
+              "displayName": "Spur On"
+            },
+            "defense": 55,
+            "offense": 95,
+            "affinity": "beast",
+            "slotCost": 1,
+            "moveSpeed": 2662,
+            "mergeLevel": 1,
+            "attackRange": 1024,
+            "displayName": "Dust Rider",
+            "ratingInUse": "offense",
+            "attackCooldown": 800,
+            "damagePerHitMult": 1024
+          }
+        ],
+        "unitSlots": {
+          "cap": 8,
+          "used": 2
+        },
+        "siegeSlots": {
+          "cap": 3,
+          "used": 1
+        }
+      },
+      "partyId": "00000000-0000-4000-8000-000000000004",
+      "snapshot": {
+        "hash": "a000000000000000000000000000000000000000000000000000000000000001",
+        "slot": 0,
+        "partyId": "00000000-0000-4000-8000-000000000004",
+        "savedAt": "2026-10-11T12:00:00.000Z",
+        "composition": {
+          "v": 1,
+          "siege": [
+            {
+              "typeId": "siege.battering_wagon"
+            }
+          ],
+          "units": [
+            {
+              "ref": "00000000-0000-4000-8000-000000000003",
+              "cell": {
+                "x": 3,
+                "y": 0
+              },
+              "edge": "north",
+              "stance": "nearest",
+              "typeId": "desert.dust_rider",
+              "mergeLevel": 1
+            },
+            {
+              "ref": "00000000-0000-4000-8000-000000000002",
+              "cell": {
+                "x": 30,
+                "y": 2
+              },
+              "edge": "east",
+              "stance": "traps",
+              "typeId": "desert.well_digger",
+              "mergeLevel": 1
+            }
+          ]
+        },
+        "ownerAccountId": "00000000-0000-4000-8000-000000000005"
+      },
+      "reputation": {
+        "band": {
+          "low": 1000,
+          "high": 1299,
+          "index": 3
+        },
+        "rating": 1000,
+        "gapBeyondBand": 0,
+        "gapFromCaravan": 0,
+        "sandbagEarnMultiplier": 1024
+      },
+      "candidateId": "a0000000000000000000000000000002",
+      "owner": {
+        "displayName": "contract_owner_a",
+        "authored": false
+      }
+    }
+  }
+}

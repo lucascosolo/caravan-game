@@ -78,6 +78,17 @@ export function depthKey(p: WorldPoint, layer = 0): number {
   return (p.x + p.y) * 8 + layer;
 }
 
+/**
+ * The on-screen ellipse of a WORLD circle of `radius` cells (chunk 08 QA B2). Under the 2:1
+ * projection a world circle of radius r maps to an axis-aligned ellipse with semi-axes
+ * r·√2·TILE_W/2 and r·√2·TILE_H/2 — the world axes run along the diamond's diagonals, so
+ * a cell's own diagonal (√2) is what spans one screen half-width. Drawing r·TILE_W/2 would
+ * draw the circle at 1/√2 of its true size.
+ */
+export function radiusEllipse(radius: number): { readonly rx: number; readonly ry: number } {
+  return { rx: radius * Math.SQRT2 * (TILE_W / 2), ry: radius * Math.SQRT2 * (TILE_H / 2) };
+}
+
 /** The four screen corners of a cell's diamond, clockwise from the top. */
 export function cellDiamond(cell: CellLike): readonly ScreenPoint[] {
   return [
@@ -126,6 +137,32 @@ export function fitCamera(viewportW: number, viewportH: number, width: number, h
   const zoom = clampZoom(Math.min((viewportW - margin * 2) / bw, (viewportH - margin * 2) / bh));
   const cx = (b.minX + b.maxX) / 2;
   const cy = (b.minY + b.maxY) / 2;
+  return { zoom, offsetX: viewportW / 2 - cx * zoom, offsetY: viewportH / 2 - cy * zoom };
+}
+
+/** A rectangle of cells, inclusive of both corners. */
+export interface CellRect {
+  readonly x0: number;
+  readonly y0: number;
+  readonly x1: number;
+  readonly y1: number;
+}
+
+/**
+ * A camera that frames `rect` (chunk 08 QA S10: selecting a tray item zooms to the ring so
+ * the targets are big enough to tap). Never zooms OUT: if the current camera is already
+ * closer than the fit, it only re-centres on the rect.
+ */
+export function focusCamera(cam: Camera, viewportW: number, viewportH: number, rect: CellRect, margin = 12): Camera {
+  const corners = [project({ x: rect.x0, y: rect.y0 }), project({ x: rect.x1 + 1, y: rect.y0 }), project({ x: rect.x1 + 1, y: rect.y1 + 1 }), project({ x: rect.x0, y: rect.y1 + 1 })];
+  const minX = Math.min(...corners.map((c) => c.x));
+  const maxX = Math.max(...corners.map((c) => c.x));
+  const minY = Math.min(...corners.map((c) => c.y));
+  const maxY = Math.max(...corners.map((c) => c.y));
+  const fit = clampZoom(Math.min((viewportW - margin * 2) / (maxX - minX), (viewportH - margin * 2) / (maxY - minY)));
+  const zoom = Math.max(cam.zoom, fit);
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
   return { zoom, offsetX: viewportW / 2 - cx * zoom, offsetY: viewportH / 2 - cy * zoom };
 }
 

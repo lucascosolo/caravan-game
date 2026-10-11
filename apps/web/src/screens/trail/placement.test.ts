@@ -2,8 +2,13 @@ import { EMPTY_FORMATION, RING_ANCHORS, RING_SEGMENTS, CORE_CELLS, ringSegment, 
 import { TUNABLES } from "@caravan/content";
 import { describe, expect, it } from "vitest";
 import { packedManifest, survivorsManifest } from "../../test/circleFixtures.ts";
+import { resolverTunables, toBattlefield, type Formation } from "@caravan/circle";
+import { FIXED_POINT_SCALE } from "@caravan/content";
 import {
   canDropAt,
+  dropRefusal,
+  pickerOptions,
+  postReach,
   dropAt,
   edgeReports,
   fenceBudget,
@@ -120,7 +125,64 @@ describe("placement model", () => {
     const f = placePost(placeTrap(placeFence(placeFence(EMPTY_FORMATION, "f3", 4), "f2", 1), "t1", inner), "u-rider", inner2, "hold");
     const items = itemize(m, f);
     expect(items.map((i) => `${i.kind}:${i.ref}`)).toEqual(["fence:f2", "fence:f3", "trap:t1", "post:u-rider"]);
-    expect(items[3]!.detail).toContain("hold");
-    expect(items[0]!.where).toContain("north");
+    expect(items[3]!.detail).toContain("Hold");
+    expect(items[0]!.where).toContain("North");
+    // QA S15: player wording only — no raw refs, no lowercase enum ids.
+    for (const i of items) expect(`${i.where} ${i.detail}`).not.toMatch(/\b(f\d+|t\d+|u-[a-z]+|north|hold|guard)\b/);
+  });
+
+  it("S9/N6: refusals are circle's own rules and codes; MIN_POST_DISTANCE binds posts only", () => {
+    const m = packedManifest();
+    expect(dropRefusal(m, EMPTY_FORMATION, "u-rider", CORE_CELLS[0]!)?.code).toBe("cell_reserved");
+    expect(dropRefusal(m, EMPTY_FORMATION, "u-rider", RING_ANCHORS[0]!)?.code).toBe("cell_reserved");
+    expect(dropRefusal(m, EMPTY_FORMATION, "f2", inner)?.code).toBe("bad_segment");
+    expect(dropRefusal(m, placeFence(EMPTY_FORMATION, "f3", 5), "f2", ringSegment(5).cell)?.code).toBe("duplicate_segment");
+    expect(dropRefusal(m, placeTrap(EMPTY_FORMATION, "t1", inner), "u-rider", inner)?.code).toBe("cell_occupied");
+    expect(dropRefusal(m, EMPTY_FORMATION, "u-rider", { x: 40, y: 3 })?.code).toBe("bad_cell");
+    expect(dropRefusal(m, EMPTY_FORMATION, "u-rider", inner)).toBeNull();
+    // Messages are the player's wording, never a raw ref.
+    expect(dropRefusal(m, EMPTY_FORMATION, "u-rider", CORE_CELLS[0]!)?.message).not.toMatch(/u-rider/);
+    // A trap beside a post is never refused for distance; a second post as close is refused iff MIN_POST_DISTANCE says so.
+    const withPost = placePost(EMPTY_FORMATION, "u-rider", inner);
+    const adjacent = { x: inner.x + 1, y: inner.y };
+    expect(dropRefusal(m, withPost, "t1", adjacent)).toBeNull();
+    const minCells = TUNABLES.MIN_POST_DISTANCE / FIXED_POINT_SCALE;
+    expect(dropRefusal(m, withPost, "u-canteen", adjacent)?.code ?? null).toBe(1 < minCells ? "post_too_close" : null);
+  });
+
+  it("B2/N11: post reach is the resolver's — the battlefield's radii plus UNIT_RADIUS — and reserve counts by attack reach", () => {
+    const m = packedManifest();
+    const bf = toBattlefield(m, { v: 2, fences: [], traps: [], posts: [{ ref: "u-rider", cell: inner, stance: "guard" }] }).posts[0]!;
+    const R = resolverTunables().unitRadius;
+    expect(postReach(m, "u-rider")).toEqual({ aggroReach: (bf.aggroRadius + R) / FIXED_POINT_SCALE, leash: bf.leashDistance / FIXED_POINT_SCALE, attackReach: (bf.attackRange + R) / FIXED_POINT_SCALE });
+    expect(postReach(m, "t1")).toBeNull();
+    // A post whose aggro reach touches the west ring but whose attack reach does not: guard counts, hold and reserve do not.
+    const r = postReach(m, "u-rider")!;
+    const west = RING_SEGMENTS.filter((s) => s.edge === "west");
+    const westX = west[0]!.cell.x;
+    const midY = west[Math.floor(west.length / 2)]!.cell.y;
+    const dist = Math.floor(r.attackReach) + 1;
+    expect(dist).toBeLessThanOrEqual(r.aggroReach);
+    const at = { x: westX + dist, y: midY };
+    const reportsFor = (stance: "guard" | "hold" | "reserve") => {
+      const f: Formation = setStance(placePost(EMPTY_FORMATION, "u-rider", at, stance), "u-rider", stance);
+      return edgeReports(m, f, null).find((x) => x.edge === "west")!.postsWatching;
+    };
+    expect(reportsFor("guard")).toBe(1);
+    expect(reportsFor("hold")).toBe(0);
+    expect(reportsFor("reserve")).toBe(0);
+  });
+
+  it("D3: the placement picker lists the 28 ring positions for a fence (taken ones refused) and only legal cells for a post", () => {
+    const m = packedManifest();
+    const f = placeFence(EMPTY_FORMATION, "f3", 5);
+    const fence = [...pickerOptions(m, f, "f2").values()].flat();
+    expect(fence).toHaveLength(RING_SEGMENTS.length);
+    expect(fence.find((o) => o.segment === 5)!.refusal?.code).toBe("duplicate_segment");
+    expect(fence.filter((o) => o.refusal === null)).toHaveLength(RING_SEGMENTS.length - 1);
+    const post = [...pickerOptions(m, f, "u-rider").values()].flat();
+    expect(post.length).toBeGreaterThan(100);
+    for (const o of post) expect(isPlaceableCell(o.cell)).toBe(true);
+    expect(post.every((o) => o.refusal === null)).toBe(true);
   });
 });

@@ -20,7 +20,8 @@ import type { CandidateMenuView, CandidateView, FormationView, ManifestView } fr
 import { useSession } from "../../auth/session.tsx";
 import { STRINGS } from "../../strings.ts";
 import { CandidatesScreen } from "./CandidatesScreen.tsx";
-import { ErrorBox, FormationScreen } from "./FormationScreen.tsx";
+import { ErrorBox } from "../../shell/ErrorBox.tsx";
+import { FormationScreen } from "./FormationScreen.tsx";
 import { encounterFromCandidate, type ScoutedEncounter } from "./scoutTypes.ts";
 
 const T = STRINGS.trail;
@@ -168,11 +169,7 @@ export function TrailScreen(): JSX.Element {
       return (
         <section>
           {title}
-          <p className="hint">{T.loadFailed}</p>
-          <ErrorBox error={state.error} />
-          <button type="button" className="btn" onClick={() => void load()}>
-            {STRINGS.app.retry}
-          </button>
+          <ErrorBox error={state.error} heading={T.loadFailed} onRetry={() => void load()} />
         </section>
       );
     case "unsearched":

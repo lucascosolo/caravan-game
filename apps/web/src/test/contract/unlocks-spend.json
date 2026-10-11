@@ -1,0 +1,134 @@
+{
+  "route": "POST /me/unlocks/spend",
+  "status": 201,
+  "body": {
+    "created": true,
+    "webId": "living.desert",
+    "pool": "living",
+    "scope": "caravan",
+    "accountId": "00000000-0000-4000-8000-000000000001",
+    "caravanId": "00000000-0000-4000-8000-000000000002",
+    "node": {
+      "id": "desert.sand_sharpshooter",
+      "tier": 1,
+      "cost": 1,
+      "requires": [],
+      "starting": false,
+      "reached": true,
+      "prerequisitesMet": true,
+      "affordable": false,
+      "missing": []
+    },
+    "points": {
+      "granted": 1,
+      "spent": 1,
+      "available": 0
+    },
+    "nodes": [
+      {
+        "id": "desert.dust_rider",
+        "tier": 0,
+        "cost": 0,
+        "requires": [],
+        "starting": true,
+        "reached": true,
+        "prerequisitesMet": true,
+        "affordable": false,
+        "missing": []
+      },
+      {
+        "id": "desert.well_digger",
+        "tier": 0,
+        "cost": 0,
+        "requires": [],
+        "starting": true,
+        "reached": true,
+        "prerequisitesMet": true,
+        "affordable": false,
+        "missing": []
+      },
+      {
+        "id": "desert.sand_sharpshooter",
+        "tier": 1,
+        "cost": 1,
+        "requires": [],
+        "starting": false,
+        "reached": true,
+        "prerequisitesMet": true,
+        "affordable": false,
+        "missing": []
+      },
+      {
+        "id": "desert.coyote_pack",
+        "tier": 2,
+        "cost": 4,
+        "requires": [
+          "desert.dust_rider"
+        ],
+        "starting": false,
+        "reached": false,
+        "prerequisitesMet": true,
+        "affordable": false,
+        "missing": []
+      },
+      {
+        "id": "desert.powder_monkey",
+        "tier": 2,
+        "cost": 4,
+        "requires": [
+          "desert.well_digger"
+        ],
+        "starting": false,
+        "reached": false,
+        "prerequisitesMet": true,
+        "affordable": false,
+        "missing": []
+      },
+      {
+        "id": "desert.canteen_carrier",
+        "tier": 3,
+        "cost": 8,
+        "requires": [
+          "desert.sand_sharpshooter"
+        ],
+        "starting": false,
+        "reached": false,
+        "prerequisitesMet": true,
+        "affordable": false,
+        "missing": []
+      },
+      {
+        "id": "desert.longhorn_bull",
+        "tier": 3,
+        "cost": 8,
+        "requires": [
+          "desert.coyote_pack",
+          "desert.powder_monkey"
+        ],
+        "starting": false,
+        "reached": false,
+        "prerequisitesMet": false,
+        "affordable": false,
+        "missing": [
+          "desert.coyote_pack",
+          "desert.powder_monkey"
+        ]
+      },
+      {
+        "id": "desert.vaquero",
+        "tier": 4,
+        "cost": 14,
+        "requires": [
+          "desert.canteen_carrier"
+        ],
+        "starting": false,
+        "reached": false,
+        "prerequisitesMet": false,
+        "affordable": false,
+        "missing": [
+          "desert.canteen_carrier"
+        ]
+      }
+    ]
+  }
+}

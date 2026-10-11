@@ -85,8 +85,8 @@ export function fixtureCandidate(encounterIndex: number, candidateId = `${"c".re
   return {
     candidateId,
     partyId: `party-${encounterIndex}`,
-    owner: { accountId: "00000000-0000-4000-8000-000000000000", displayName: `Fixture outfit ${encounterIndex}`, authored: true },
-    reputation: { rating: 1000 + encounterIndex * 10, band: { index: 1, low: 1000, high: 1099 }, gapFromCaravan: -encounterIndex * 10, sandbagEarnMultiplier: 1024 },
+    owner: { displayName: `Fixture outfit ${encounterIndex}`, authored: true, flavor: `Fixture flavour ${encounterIndex}` },
+    reputation: { rating: 1000 + encounterIndex * 10, band: { index: 1, low: 1000, high: 1099 }, gapFromCaravan: -encounterIndex * 10, gapBeyondBand: 0, sandbagEarnMultiplier: 1024 },
     scout: fixtureScoutFor(encounterIndex),
   };
 }

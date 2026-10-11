@@ -187,8 +187,10 @@ export interface BandView {
 export interface CandidateView {
   readonly candidateId: string;
   readonly partyId: string;
-  readonly owner: { readonly accountId: string; readonly displayName: string; readonly authored: boolean };
-  readonly reputation: { readonly rating: number; readonly band: BandView; readonly gapFromCaravan: number; readonly sandbagEarnMultiplier: number };
+  /** No account id: the client never sees who owns a party beyond its display name (chunk 14 QA N4). */
+  readonly owner: { readonly displayName: string; readonly authored: boolean; readonly flavor: string | null };
+  /** `gapBeyondBand` is the part of the gap the earn floor is computed from (chunk 14 QA S3). */
+  readonly reputation: { readonly rating: number; readonly band: BandView; readonly gapFromCaravan: number; readonly gapBeyondBand: number; readonly sandbagEarnMultiplier: number };
   readonly scout: PartyScoutView;
 }
 
@@ -202,7 +204,12 @@ export interface CandidateMenuView {
   readonly escalation: { readonly applied: number; readonly perEncounter: number; readonly nextEncounter: number };
   readonly bandWidthUsed: number;
   readonly widened: boolean;
-  readonly usedAuthoredFallback: boolean;
+  /** The menu needed authored parties from OUTSIDE the widest band (EMPTY_POOL_BEHAVIOR's last step). */
+  readonly authoredOutsideBand: boolean;
+  /** How much of this menu is authored, against the cap the draw applies (PHASE-2 §25). */
+  readonly authoredShare: { readonly authored: number; readonly of: number; readonly shareBp: number; readonly maxShareBp: number };
+  /** The band's authored served share at search time (chunk 25); null on menus stored before it existed. */
+  readonly authoredServed: { readonly band: number; readonly window: number; readonly served: number; readonly authored: number; readonly weightedDown: boolean } | null;
   readonly candidates: readonly CandidateView[];
   readonly searchedAtMs: number;
   /** The reroll is free and gated by time only; `availableAtMs` is when the next search opens. */
