@@ -1,0 +1,14 @@
+DROP TABLE IF EXISTS cosmetic_equip;
+DROP TRIGGER IF EXISTS cosmetic_ownership_guard_truncate ON cosmetic_ownership;
+DROP TRIGGER IF EXISTS cosmetic_ownership_guard_delete ON cosmetic_ownership;
+DROP TRIGGER IF EXISTS cosmetic_ownership_guard_update ON cosmetic_ownership;
+DROP TABLE IF EXISTS cosmetic_ownership;
+DROP FUNCTION IF EXISTS cosmetic_ownership_guard_delete();
+DROP FUNCTION IF EXISTS cosmetic_ownership_guard_update();
+DROP TRIGGER IF EXISTS pack_purchase_guard_truncate ON pack_purchase;
+DROP TRIGGER IF EXISTS pack_purchase_guard_delete ON pack_purchase;
+DROP TRIGGER IF EXISTS pack_purchase_guard_update ON pack_purchase;
+DROP TABLE IF EXISTS pack_purchase;
+DROP FUNCTION IF EXISTS pack_purchase_guard_delete();
+DROP FUNCTION IF EXISTS pack_purchase_guard_update();
+DROP FUNCTION IF EXISTS pack_contents_ok(jsonb);

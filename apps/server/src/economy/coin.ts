@@ -27,7 +27,7 @@ import { TUNABLES, scaleInt } from "@caravan/content";
 import type pg from "pg";
 import type { Queryable } from "../db/pool.js";
 import { coinDebitDraft } from "../ledger/coin.js";
-import type { CoinPayload, LedgerEventDraft, LedgerEventRow } from "../ledger/events.js";
+import type { CoinCreditEventType, CoinPayload, JsonObject, LedgerEventDraft, LedgerEventRow } from "../ledger/events.js";
 import { appendEvents, lockAccountForAppend } from "../ledger/ledger.js";
 import { conflict } from "../services/errors.js";
 import { TRICKLE_REASON, accrueTrickleTx, type TrickleAccrual } from "./trickle.js";
@@ -140,7 +140,14 @@ export async function readCoinBalance(db: Queryable, accountId: string): Promise
 export interface CoinCreditSpec {
   amount: number;
   reason: string;
-  extra?: Record<string, string | number>;
+  /** Extra payload fields (plain JSON, integers only). */
+  extra?: JsonObject;
+  /**
+   * The credit event type, default `coin_earned`. Every member of COIN_CREDIT_TYPES folds
+   * into the balance the same way and is clamped the same way; the type only names the
+   * source (earned / transferred / the store's). The clamp cannot tell them apart.
+   */
+  type?: CoinCreditEventType;
 }
 
 export interface CoinCreditResult {
@@ -154,7 +161,7 @@ export interface CoinCreditResult {
 }
 
 /**
- * Append several `coin_earned` events under one causation id, clamped to the cap as a
+ * Append several credit events (`coin_earned` unless a spec says otherwise) under one causation id, clamped to the cap as a
  * BATCH: the room is read once under the account lock and consumed by each credit in
  * order, so a batch can never overshoot the cap even though each event is clamped
  * individually. (ledger/coin.ts's `coinCreditDraft` clamps one draft against the live
@@ -193,7 +200,7 @@ export async function appendCoinCredits(
       payload.overflowDiscarded = c.amount - amount;
       discarded += c.amount - amount;
     }
-    drafts.push({ type: "coin_earned", accountId: input.accountId, payload });
+    drafts.push({ type: c.type ?? "coin_earned", accountId: input.accountId, payload });
   }
   const rows = drafts.length ? await appendEvents(client, input.causationId, drafts) : [];
   return { rows, credited, discarded, balanceAfter: row.coin_balance + credited, cap: row.coin_storage_cap };

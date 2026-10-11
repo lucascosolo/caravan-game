@@ -45,7 +45,7 @@ describe("migrations", () => {
     expect(ran.length).toBe(all.length);
     expect(await appliedMigrationIds(pool)).toEqual(all.map((m) => m.id));
     expect(await tableNames()).toEqual([
-      "account", "caravan", "encounter_candidates", "home_town", "ledger_event", "ledger_snapshot", "pool_progress", "refugee_menu", "region",
+      "account", "caravan", "cosmetic_equip", "cosmetic_ownership", "encounter_candidates", "home_town", "ledger_event", "ledger_snapshot", "pack_purchase", "pool_progress", "refugee_menu", "region",
       "resolution_job", "schema_migrations", "session", "standing_party", "trip", "unit_instance",
       "wagon_formation", "wagon_manifest",
     ]);
@@ -67,11 +67,13 @@ describe("migrations", () => {
     expect(REGIONS.length).toBe(TUNABLES.REGION_COUNT);
   });
 
-  it("does not model a persistent defensive layout or a billing table", async () => {
+  it("does not model a persistent defensive layout, and the only purchase-shaped table is chunk 20's sandboxed pack record", async () => {
     const names = await tableNames();
-    for (const forbidden of ["base", "layout", "defense", "purchase", "billing", "entitlement"]) {
+    for (const forbidden of ["base", "layout", "defense", "billing", "entitlement"]) {
       expect(names.some((n) => n.includes(forbidden)), `table matching '${forbidden}'`).toBe(false);
     }
+    // Chunk 20 (store-guards.test.ts proves nothing battle-side references it).
+    expect(names.filter((n) => n.includes("purchase"))).toEqual(["pack_purchase"]);
     // A formation may exist only per ENCOUNTER of a trip-locked manifest (chunk 07), never as
     // a standing layout: every formation-shaped table is keyed by encounter, not by owner.
     for (const table of names.filter((n) => n.includes("formation"))) {

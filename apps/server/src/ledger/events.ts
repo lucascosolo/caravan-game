@@ -79,6 +79,9 @@ export const COIN_CREDIT_TYPES: ReadonlySet<LedgerEventType> = new Set<LedgerEve
 ]);
 export const COIN_DEBIT_TYPES: ReadonlySet<LedgerEventType> = new Set<LedgerEventType>(["coin_spent"]);
 
+/** The event types a credit writer may emit (the members of COIN_CREDIT_TYPES, as a type). */
+export type CoinCreditEventType = Extract<LedgerEventType, "coin_earned" | "coin_purchased" | "coin_transferred_to_party_owner">;
+
 // ---------------------------------------------------------------------------------------
 // Payload shapes. Every value must be plain JSON; every number an integer.
 // ---------------------------------------------------------------------------------------

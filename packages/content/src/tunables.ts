@@ -493,6 +493,81 @@ export const TUNABLES = {
   COIN_OVERFLOW_BEHAVIOR: "discard_with_warning",
 
   // ────────────────────────────────────────────────────────────────────────────────────
+  // Chunk 20 — monetization packs (GUARDRAILS §2). Nothing in this block reaches a stat, a
+  // resolution rule, a cap, an unlock, a slot count or a trip-cap use: a pack holds COIN
+  // (pace) and COSMETICS (purely visual), and the schema's CHECK on pack contents mirrors
+  // PACK_CONTENT_KINDS so nothing else can be put in one. The resolver cannot import this
+  // registry at all (scripts/resolver-boundary-check.mjs), so none of these numbers is even
+  // visible from inside a resolution.
+  //
+  // ── THE P2W-RELEVANT NUMBER IS WEEKLY_PAY_CEILING (60,000), NOT ANY SINGLE TIER ──
+  // All three tiers stack in the same week, each once. Anyone sizing the pay-to-accelerate
+  // ceiling against free play must use the combined sum. The assumed ratio is recorded
+  // below so a balancer can re-check it when either side moves.
+  // ────────────────────────────────────────────────────────────────────────────────────
+
+  /** Fixed by design (chunk 20). Three tiers, in whole US cents: $5 / $10 / $25. Index = tier − 1. Never a float. */
+  PACK_TIER_PRICES_CENTS: [500, 1_000, 2_500],
+  /**
+   * TUNABLE (chunk 20), but FIXED WEEK TO WEEK and player to player: the Coin in each tier.
+   * Index = tier − 1. Mild upward value scaling by tier is intended (1,200 / 1,400 / 1,600
+   * Coin per dollar); the amounts never vary by week, by player, or by anything else — a
+   * test asserts every week of a long horizon returns these exact numbers.
+   */
+  PACK_COIN_BY_TIER: [6_000, 14_000, 40_000],
+  /**
+   * TUNABLE (chunk 20) — THE pay-to-win guardrail number. The most Coin money can add to an
+   * account in one week: all three tiers combined (6,000 + 14,000 + 40,000). Validated on
+   * load to equal the sum of PACK_COIN_BY_TIER; change the tiers and this moves with them.
+   * Note it exceeds COIN_STORAGE_CAP (50,000): a player who buys everything at once cannot
+   * hold it all, which is why the store shows the overflow forecast before purchase.
+   */
+  WEEKLY_PAY_CEILING: 60_000,
+  /**
+   * ASSUMPTION TO VALIDATE IN PLAYTESTING (chunk 20). A normal active week's free Coin earn,
+   * derived from chunk 16's defaults and its QA note (roadmap/qa/16-punchlist.md): ~6,275
+   * Coin/h of active play at the trip cap, for ~5 h/week ≈ 31,000, plus the 200/h trickle
+   * over ~45 idle hours ≈ 9,000 → ~40,000. Re-derive when COIN_PER_ENCOUNTER_BASE,
+   * COIN_PER_BANKED_TRIP, the trip cap or the trickle move.
+   */
+  FREE_WEEKLY_EARN_ESTIMATE: 40_000,
+  /**
+   * TUNABLE (chunk 20). The target bound on WEEKLY_PAY_CEILING / FREE_WEEKLY_EARN_ESTIMATE in
+   * basis points: paying should not exceed ~1.5× an active free player's week. At the
+   * defaults the ratio is exactly 1.5× (60,000 / 40,000); validated on load as
+   * WEEKLY_PAY_CEILING × 10,000 ≤ FREE_WEEKLY_EARN_ESTIMATE × this.
+   */
+  PAID_TO_FREE_RATIO_MAX_BP: 15_000,
+  /** TUNABLE (chunk 20). Rotation period of the COSMETICS in packs, 7 days. Coin amounts do not rotate. */
+  PACK_ROTATION_PERIOD_MS: 7 * 24 * 60 * 60_000,
+  /**
+   * Fixed by design (chunk 20). The instant week 0 of the rotation began: 2026-01-05T00:00:00Z
+   * (a Monday). Week index = floor((now − epoch) / PACK_ROTATION_PERIOD_MS). Identical for
+   * every player; the only thing the wall clock decides is WHICH week it is, never what a
+   * week contains. Changing this re-numbers every stored purchase's week; do not.
+   */
+  PACK_ROTATION_EPOCH_MS: 1_767_571_200_000,
+  /** TUNABLE (chunk 20 / PHASE-2 §28). How many weeks ahead the store previews the rotation. */
+  PACK_ROTATION_PREVIEW_WEEKS: 1,
+  /** TUNABLE (chunk 20). Cosmetics per tier each week (index = tier − 1). Six distinct per week; the catalog must hold at least that many. */
+  PACK_COSMETICS_BY_TIER: [1, 2, 3],
+  /**
+   * Fixed by design for MVP (chunk 20). The purchase backend records the grant and charges
+   * NOTHING. Real payment integration is PHASE-2 §34; the server refuses to start a purchase
+   * under any other backend name, so a real one has to be wired in deliberately.
+   */
+  PURCHASE_BACKEND: "sandbox_stub",
+  /** Fixed by design (chunk 20). Each tier once per week; tiers stack across each other, never within. A unique index enforces it. */
+  PURCHASE_LIMIT_PER_TIER_PER_WEEK: 1,
+  /**
+   * Fixed by design (chunk 20, GUARDRAILS §2/§3). THE ONLY things a pack may contain. Not
+   * unlock points, not unit access, not trip-cap uses, not slot count, not fence material,
+   * not repairs, not resupply, not matchmaking rerolls. Mirrored by a CHECK constraint on
+   * pack_purchase.contents (migration 010) and asserted by a content test.
+   */
+  PACK_CONTENT_KINDS: ["coin", "cosmetic"],
+
+  // ────────────────────────────────────────────────────────────────────────────────────
   // Chunk 18 — unit acquisition: refugee drip and mercenary recruit (GUARDRAILS §3).
   // Both paths grant LEVEL-1 instances of types the caravan has ALREADY reached in its
   // living web; nothing here can widen that pool. Coin buys pace and certainty only.
