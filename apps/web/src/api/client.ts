@@ -40,6 +40,12 @@ import {
   refugeeViewShape,
   spendResultShape,
   unlocksShape,
+  cosmeticsShape,
+  equipResultShape,
+  purchaseResultShape,
+  purchasesShape,
+  storeShape,
+  unequipResultShape,
 } from "./shapes.ts";
 import type {
   AuthResponse,
@@ -69,6 +75,13 @@ import type {
   SpendRequest,
   SpendResult,
   UnlocksResponse,
+  CosmeticsView,
+  EquipResult,
+  PurchaseRequest,
+  PurchaseResult,
+  PurchasesList,
+  StoreView,
+  UnequipResult,
 } from "./types.ts";
 
 export const API_BASE: string = import.meta.env.VITE_API_BASE ?? "/api";
@@ -148,6 +161,16 @@ export interface Api {
   party(): Promise<PartyResponse>;
   saveParty(config: PartyConfigBody): Promise<PartyResponse>;
   partyFeed(before?: number): Promise<PartyFeedPage>;
+  // Store & cosmetics (chunk 20 routes). SANDBOX: no real money moves. The purchase sends
+  // back the previewed week and `contentsHash`; a 409 `offer_changed` means what would be
+  // granted is no longer what was shown. A repeat of a tier in the same week answers 200
+  // `{ replayed: true }` with the stored purchase, so resending the same body is safe.
+  store(): Promise<StoreView>;
+  purchasePack(req: PurchaseRequest): Promise<PurchaseResult>;
+  storePurchases(): Promise<PurchasesList>;
+  cosmetics(): Promise<CosmeticsView>;
+  equipCosmetic(cosmeticId: string): Promise<EquipResult>;
+  unequipCosmetic(slot: string): Promise<UnequipResult>;
 }
 
 function isErrorBody(value: unknown): value is ApiErrorBody {
@@ -235,5 +258,11 @@ export function createApi(opts: ApiOptions): Api {
     party: () => request("GET", "/me/party", partyShape),
     saveParty: (config) => request("PUT", "/me/party", partyShape, config),
     partyFeed: (before) => request("GET", before === undefined ? "/me/party/feed" : `/me/party/feed?before=${Math.trunc(before)}`, partyFeedShape),
+    store: () => request("GET", "/me/store", storeShape),
+    purchasePack: (req) => request("POST", "/me/store/purchase", purchaseResultShape, { tier: req.tier, weekIndex: req.weekIndex, contentsHash: req.contentsHash }),
+    storePurchases: () => request("GET", "/me/store/purchases", purchasesShape),
+    cosmetics: () => request("GET", "/me/cosmetics", cosmeticsShape),
+    equipCosmetic: (cosmeticId) => request("POST", "/me/cosmetics/equip", equipResultShape, { cosmeticId }),
+    unequipCosmetic: (slot) => request("POST", "/me/cosmetics/unequip", unequipResultShape, { slot }),
   };
 }

@@ -737,3 +737,72 @@ h2 {
   border: 2px solid var(--line);
   border-radius: var(--radius);
 }
+
+/* ---------- chunk 20: packs and cosmetics ---------- */
+/* The sandbox banner is loud on purpose: a word, an icon-free heavy border and a stripe, never colour alone. */
+.sandbox-banner {
+  border: 3px dashed var(--accent);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+  margin: 0.75rem 0;
+  background: repeating-linear-gradient(135deg, var(--bg-raised), var(--bg-raised) 0.75rem, var(--bg-sunken) 0.75rem, var(--bg-sunken) 1.5rem);
+}
+.sandbox-banner strong {
+  display: block;
+  font-size: 1.125rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.sandbox-banner--inline strong {
+  font-size: 1rem;
+  text-transform: none;
+}
+.row--spread {
+  justify-content: space-between;
+}
+.pack-contents li {
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.pack-contents li:last-child {
+  border-bottom: 0;
+}
+.forecast {
+  border-left: 0.375rem solid var(--ok);
+  padding: 0.375rem 0.625rem;
+  margin: 0.375rem 0 0.625rem;
+  background: var(--bg-sunken);
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+}
+.forecast--warn {
+  border-left-color: var(--warn);
+}
+.card--bought {
+  border-left-color: var(--ok);
+}
+.card--preview {
+  border-style: dashed;
+}
+.badge {
+  display: inline-block;
+  font-size: 0.8125rem;
+  padding: 0.125rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.cosmetic-slot {
+  margin: 0.5rem 0;
+}
+.disclosure {
+  margin: 1rem 0;
+}
+.disclosure > summary {
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-weight: 600;
+}

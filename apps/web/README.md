@@ -133,6 +133,8 @@ and writes each body to `src/test/contract/<name>.json` (ids, hashes and timesta
 so a rerun is byte-identical unless the server's answer changed); `src/test/contract/
 contract.test.ts` runs every file through the guard `src/test/contract/routes.ts` maps it
 to. **A new route the client reads gets a recorded call in the server test and an entry in
-`routes.ts`**; an entry of `null` (no guard yet: store, cosmetics) is skipped and listed, so
-the chunk that adds the guard turns it on. Both halves run in `pnpm test`; the server half
+`routes.ts`**; an entry of `null` (no guard yet) is skipped and listed, so the chunk that adds
+the guard turns it on — none is left since chunk 20's Packs and Cosmetics screens guarded the
+store and cosmetics routes (the store and cosmetics files' contents follow the real week's
+rotation, so they change weekly; their shape does not). Both halves run in `pnpm test`; the server half
 also runs the guards in-process, so drift fails CI whichever package's tests run first.

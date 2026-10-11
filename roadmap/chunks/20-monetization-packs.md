@@ -184,8 +184,8 @@ processing). What must be real is the guardrail enforcement, not the billing.
   plus the event's `cosmetics` field reproduce ownership from the log.
 - A cosmetic that rotates back is not granted twice; the response lists it under
   `cosmeticsAlreadyOwned`.
-- No web screen in this chunk: the storefront is the JSON contract above; chunk 17/23 UI work
-  renders it.
+- ~~No web screen in this chunk: the storefront is the JSON contract above; chunk 17/23 UI work
+  renders it.~~ The web screens landed afterwards: see **Web screens** at the end of this file.
 
 **Tests** (`apps/server/test/store.test.ts` 15, `store-guards.test.ts` 9,
 `qa20-store-regressions.test.ts` 12, `packages/content/test/packs-and-cosmetics.test.ts` 17, `packages/circle/test/no-cosmetic-field.test.ts` 4):
@@ -206,3 +206,56 @@ tables; `coin_purchased` written only by `store/purchase.ts`; no payment SDK in 
 package. The circle test pins at the TYPE level (`@ts-expect-error`, checked by `tsc`) and at
 RUNTIME (closed-key parsers and `assertResolveInput`) that Formation, PostPlacement,
 Manifest, PackInput, PartyConfig, Battlefield and ResolveInput cannot carry a cosmetic field.
+
+## Web screens (2026-10-11)
+
+The client side of this chunk (`apps/web`), against the routes above, unchanged server-side.
+
+- **Packs** (`src/screens/store/PacksScreen.tsx`, route `#/packs`, reached from the Town's
+  "Packs" entry, which replaced the "Coming soon" placeholder; a lazy chunk like the other
+  screens; the Town tab stays current). Shows, all from `GET /me/store`: a loud
+  **"SANDBOX: no real money moves"** banner (plus the server's own `backend.message`); the
+  combined weekly ceiling in plain words ("all 3 packs combined, not any single one", the
+  storage cap below it, the ratio to the free-week estimate from `paidToFreeRatioBp`); this
+  week's three tiers with price, exact Coin and every cosmetic (name, kind, what it is drawn
+  on — `src/screens/store/PackParts.tsx` renders `contents`, the exact grant, in order); the
+  per-tier overflow forecast and the combined forecast for every unpurchased tier, each a
+  word ("Fits" / "Over the cap") plus numbers plus the server's sentence; purchase state per
+  tier ("Bought this week", no button); next week's rotation as a preview with no button.
+- **Purchase flow.** Buy re-reads the store (and the owned list, to mark a rotated-back
+  cosmetic "not granted twice"), then opens a real `shell/Modal` quoting exactly what will be
+  granted and the overflow; confirm sends `{tier, weekIndex, contentsHash}` from that
+  re-read. 201 → "Bought Pack N (sandbox, $0): X Coin stored[, Y discarded at the cap]",
+  the granted cosmetics, and a button to the Cosmetics screen. 200 `{replayed: true}` →
+  "Already yours … Nothing was charged again and nothing moved." 409 `offer_changed` /
+  `offer_not_current` → nothing bought; the store is re-read and the SAME dialog shows the new
+  contents with the server's reason; buying again needs a fresh confirm (and sends the new
+  hash). Status 0 → `SpendError`'s "could not confirm"; "Try again" resends the identical
+  body (the server's (account, week, tier) idempotency turns a landed purchase into the
+  replay); Cancel re-reads.
+- **Cosmetics** (`src/screens/store/CosmeticsScreen.tsx`, route `#/cosmetics`): a notice that
+  cosmetics are purely visual and never change a unit; owned cosmetics grouped by kind, then
+  slot, with "Equipped: X" / "Nothing equipped: the default look"; Equip / Unequip per
+  cosmetic and slot; every write re-reads `GET /me/cosmetics`; a refusal (`not_owned`,
+  `unknown_cosmetic`, `invalid_slot`) is the server's message with ids replaced by names
+  (`shell/issues.ts`) and its `<status> <code>`. The catalog (with each cosmetic's next offer
+  week) sits in a disclosure below.
+- **Guards** (`src/api/shapes.ts`): `storeShape`, `purchaseResultShape`, `purchasesShape`,
+  `cosmeticsShape`, `equipResultShape`, `unequipResultShape`. Beyond types they refuse an
+  offer whose headline `coin` or `cosmetics` disagrees with `contents`, a content kind other
+  than coin | cosmetic or other than exactly one coin entry, a storefront or purchase not
+  claiming `sandbox: true` / `realCharges: false`, and an unknown cosmetic kind
+  (`src/api/storeShapes.test.ts`). `Api` gained `store`, `purchasePack`, `storePurchases`,
+  `cosmetics`, `equipCosmetic`, `unequipCosmetic`.
+- **Contract.** `apps/server/test/contract.test.ts` now also records `store-purchase` (201),
+  `store-purchase-replay` (200), `store-purchases`, `cosmetics-owned`, `cosmetics-equip`,
+  `cosmetics-unequip`; `routes.ts` maps all eight store/cosmetics files to guards, and the
+  web contract test now asserts nothing is skipped.
+- **Tests.** `PacksScreen.test.tsx` 12 (every tier's contents before purchase; per-tier and
+  combined forecast; bought state; confirm quote and request body; rotated-back cosmetic;
+  `offer_changed` → new contents before retry; replay → already yours; re-read shows bought;
+  lost answer → same-body retry; cancel after a lost answer re-reads; load failure + Retry;
+  ratio formatting), `CosmeticsScreen.test.tsx` 5, `storeShapes.test.ts` 6; e2e
+  `e2e/store.spec.ts` (fresh account: Town → Packs → preview tier 1 → buy → the server's
+  purchase list / economy / ownership agree → equip → the server's equip map; 360×640 and
+  44 px checked on the screen, the dialog and the Cosmetics screen).

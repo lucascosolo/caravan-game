@@ -2305,3 +2305,34 @@ the fixtures came out byte-identical); circle 99, content 76, resolver 170; root
 `typecheck`, `lint`, `test:boundary` clean; the production bundle carries no `__isoDebug`.
 Flaky under the shared machine's load, untouched here: `qa02-round2.test.ts` (2 job-queue
 tests, 1 of 4 solo runs) and the resolver's 100 ms budget test (passed once the load dropped).
+
+### 2026-10-11 — Chunk 20 web screens (Packs + Cosmetics, sandboxed): client side `built`
+
+Maker, worktree branch off `roadmap/phase-2-spec` @ 65ba73e. Chunk 20 stays `done` in INDEX
+(its server half was QA'd); this adds the client the chunk file said it lacked. Details in
+`roadmap/chunks/20-monetization-packs.md` § Web screens.
+
+- **Screens.** `apps/web/src/screens/store/PacksScreen.tsx` (`#/packs`, from the Town's "Packs"
+  entry — the "Coming soon" card is gone) and `CosmeticsScreen.tsx` (`#/cosmetics`, also a new
+  Town entry), both lazy chunks; shared pieces in `PackParts.tsx`. Sandbox banner, combined
+  ceiling in words, per-tier and combined overflow forecast, purchase state, next week's
+  preview; cosmetics "purely visual" notice, equip / unequip per slot, refusals verbatim with
+  names for ids.
+- **Purchase decisions honoured.** `{tier, weekIndex, contentsHash}` from a re-read made when
+  the confirm opens; 409 `offer_changed` / `offer_not_current` → re-read and show the NEW
+  contents in the same dialog before any retry; 200 replay → "already yours"; status 0 →
+  `SpendError` + same-body "Try again".
+- **Guards.** Six in `src/api/shapes.ts`; they also refuse an offer whose headline Coin /
+  cosmetics disagree with `contents`, any content kind but coin | cosmetic, more or fewer than
+  one coin entry, and a body not claiming the sandbox / no real charges.
+- **Outside `apps/web`.** `apps/server/test/contract.test.ts` records six more bodies (purchase
+  201, replay 200, purchases, cosmetics after a purchase, equip, unequip), LAST, so the trail
+  fixtures' sequence-drawn ids and seeds are unchanged; its header now says the store files
+  follow the real week's rotation.
+
+**Test output.** `pnpm --filter @caravan/web typecheck` clean; `pnpm --filter @caravan/web test`
+22 files / 217 passed, 0 skipped (contract: "skipped: none"), run three times; `build` ok
+(`PacksScreen` 8.5 kB, `CosmeticsScreen` 4.2 kB lazy chunks); `pnpm e2e` (E2E_PORT 4001,
+E2E_WEB_PORT 4301, dev DB `caravan_dev_c20w`) 5 passed (smoke ×2, formation, town, store),
+twice; server `test/contract.test.ts` 2 passed, twice, fixtures byte-identical on the rerun;
+root `pnpm typecheck` clean. The full server suite was not re-run (no server source changed).

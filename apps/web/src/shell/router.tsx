@@ -10,7 +10,8 @@
  */
 import { useEffect, useState } from "react";
 
-export const ROUTES = ["town", "trail", "party", "webs", "login"] as const;
+/** `packs` and `cosmetics` (chunk 20) are the Town's own sub-screens: the Town tab stays current on them. */
+export const ROUTES = ["town", "trail", "party", "webs", "packs", "cosmetics", "login"] as const;
 export type Route = (typeof ROUTES)[number];
 export const DEFAULT_ROUTE: Route = "town";
 

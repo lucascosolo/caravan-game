@@ -9,6 +9,9 @@ import { STRINGS } from "./strings.ts";
 const TownScreen = lazy(() => import("./screens/town/TownScreen.tsx").then((m) => ({ default: m.TownScreen })));
 const PartyScreen = lazy(() => import("./screens/party/PartyScreen.tsx").then((m) => ({ default: m.PartyScreen })));
 const TrailScreen = lazy(() => import("./screens/trail/TrailScreen.tsx").then((m) => ({ default: m.TrailScreen })));
+// Chunk 20: the storefront and the cosmetics screen are lazy chunks too (kept out of the login chunk).
+const PacksScreen = lazy(() => import("./screens/store/PacksScreen.tsx").then((m) => ({ default: m.PacksScreen })));
+const CosmeticsScreen = lazy(() => import("./screens/store/CosmeticsScreen.tsx").then((m) => ({ default: m.CosmeticsScreen })));
 import { AppShell } from "./shell/AppShell.tsx";
 import { ErrorBoundary } from "./shell/ErrorBoundary.tsx";
 import { navigate, useRoute } from "./shell/router.tsx";
@@ -41,13 +44,19 @@ function Routed(): JSX.Element {
     case "party":
       screen = <PartyScreen />;
       break;
+    case "packs":
+      screen = <PacksScreen />;
+      break;
+    case "cosmetics":
+      screen = <CosmeticsScreen />;
+      break;
     case "town":
     case "login":
     default:
       screen = <TownScreen />;
   }
   return (
-    <AppShell route={route === "login" ? "town" : route} username={session.account.username} onSignOut={() => void signOut()}>
+    <AppShell route={route === "login" || route === "packs" || route === "cosmetics" ? "town" : route} username={session.account.username} onSignOut={() => void signOut()}>
       <Suspense
         fallback={
           <p className="hint" role="status">
