@@ -213,3 +213,12 @@ N10. Data minimisation: the party owner's body carries the caravan's `tripId` (i
 `jobId`), the caravan's unit instance refs (`labels.units[].ref`, `outcome.units[].ref`) and
 `stored` hashes. None of these is an account id. Consider omitting refs and `stored` for
 `viewer: "party_owner"`.
+
+## Orchestrator decisions (2026-10-11)
+
+- **D1: draw siege pieces and post stances, sourced by the server.** The replay body gains siege and stance labels taken from the job's formation and party snapshots, which are already stored with the job. This needs no change to the resolver or the log format. Until the labels exist, the feed must not mention siege the player cannot see.
+- **D2: any encounter within retention.** The caravan's player can open any of their caravan's fights still kept by the replay retention rule, not only the current trip's. Add a "Recent fights" list, newest first, served by a small server read (for example `GET /me/encounters`, capped at the retention count). The party owner reaches theirs through the Party feed, and through the inbox once chunk 29 lands.
+- **D3: itemize from the ledger.** The caravan's summary lists Coin moved, de-merges and destroyed units, and the Reputation and ladder change. The server serves these per encounter from the ledger events caused by that job, so the client shows only what the ledger recorded and computes nothing itself.
+- **D4: default to 2×.** The default speed is 2×, with 1×, 2× and 4× offered. "Skip to end" stays. A stalemate must never force a long watch.
+- **S1–S9 and every nit are in scope.** For S1, the end card waits until the final tick has been seen; hold the last frame about a second before showing it, and let the player dismiss it to look at the stage. For S2, frame the camera on the action: the ring and the area the raiders cross, not the whole field. Vertical swipes on the canvas must scroll the dialog. For S9, compare against the server's recorded outcome, not the log's own copy. Add at least one test that fails if the canvas stops updating.
+- **Sequencing:** the fixer starts after the chunk 13 fix round merges, because both touch the replay route and the replay body.
