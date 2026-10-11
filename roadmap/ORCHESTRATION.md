@@ -165,3 +165,52 @@ src/db/migrate.ts roles` is documented instead (one-line follow-up for whoever n
 that file). `caravans.test.ts` was adjusted to undo its direct second-caravan insert by
 transaction rollback, since a caravan can no longer be deleted directly. Chunk 01 stays
 `built` in INDEX.md until items 4–8 close.
+### 2026-10-11 — Chunk 21 (build, CI, deploy pipeline): `not started` → `built`
+
+**Built**, in parallel with the chunk 01 fixes and chunks 02/03.
+
+- `.github/workflows/ci.yml`: on every push and PR — pnpm install (frozen lockfile),
+  `typecheck`, `lint` (resolver rules + self-test), `test:boundary`, `test` against a
+  `postgres:16` service container, `determinism`, `build`, migrate the test DB, smoke-run
+  the built server (`GET /health`), upload `apps/server/dist` as an artifact. `pnpm ci`
+  runs the same sequence locally. `.nvmrc` (22) and `.editorconfig` added.
+- `scripts/resolver-boundary-check.mjs` (`pnpm test:boundary`): zero-dependency check that
+  `packages/resolver` has no dependencies (devDependencies limited to an explicit tooling
+  allowlist), its tsconfig keeps `rootDir`/`include` on `src` with `types: []` and no
+  `paths`, every specifier in src is relative and resolves inside src, nothing names
+  apps/content/billing-shaped modules, no `/// <reference>`, no `import.meta`.
+- `scripts/determinism.mjs` (`pnpm determinism`): runs `@caravan/resolver`'s `determinism`
+  script when it exists (reports PENDING until chunk 13); then, with a base ref (PR base or
+  push `before` sha), fails if anything under `packages/resolver/golden/` changed without a
+  `RESOLVER_VERSION` change or a `[resolver-bump]` commit tag. Verified in a scratch clone:
+  unbumped change fails, tag or version bump passes, null-sha and no-base cases skip.
+- `scripts/build.mjs` (`pnpm build`): esbuild bundles `apps/server/src/{index,db/migrate,seed}.ts`
+  to `apps/server/dist/` at the same depth as src (so `migrate.js` still finds
+  `apps/server/migrations`), inlining workspace packages and leaving npm deps external.
+  `pnpm start` runs it; `scripts/smoke-server.mjs` (`pnpm smoke`) proves it answers.
+  One root devDependency added: `esbuild@0.28.2` (the version tsx already pins).
+- Resolver lint hardened (`packages/resolver/eslint.config.js`), closing QA-01 items 4–8:
+  relative imports through apps/packages/content/server/billing segments; `Number()`,
+  unary `+`, `JSON`, `parseInt`, `Infinity`, `NaN`, `DataView`/`getFloat*`, `Float*Array`;
+  aliasing/destructuring/computed/optional access on `Math`/`Number`; string-keyed computed
+  access anywhere; `eval`, `Function`, `Reflect`, `Proxy`, `WeakRef`, `.constructor`;
+  `globalThis`/`self`/`global`, `import.meta`, ambient `declare`, `import()` types; async/
+  await/Promise; `with`, `debugger`; `sort()` without a comparator. `(a / b) | 0` no longer
+  exempt. `Map`/`Set`/`WeakMap`/`WeakSet` banned outright (dead for-of rule removed). Rules
+  now cover `src/**/*.{ts,mts,cts,js,mjs,cjs}`. Self-test derives expectations from the
+  fixture (every line from 3 on must error; 66 lines), plus `with.ts`, `violations.mjs`,
+  and a glob probe per extension.
+
+**Not done, by design:** staging/production deploy and the migration rehearsal against a
+production snapshot — no hosting target exists yet. The workflow header says where the
+deploy job goes.
+
+**Observed while verifying:** `pnpm test` currently fails in `packages/content` (chunk 03's
+validator rejecting its own data) and in `apps/server/test/jobs.test.ts` (chunk 02); both
+are in-flight work in the shared tree, not CI issues. The chunk 01 suite plus
+`qa01-guards.test.ts` (97 tests) pass. Root `.gitignore` ignores `*.log`; chunk 13 must
+not name golden files `.log` (noted in `scripts/determinism.mjs`).
+
+**Next:** hand to adversarial QA (smuggle a float via a dependency; read an env var from
+inside the resolver).
+

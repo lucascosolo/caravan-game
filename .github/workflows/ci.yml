@@ -1,0 +1,101 @@
+# Caravan Vaults CI (chunk 21). Runs on every push and pull request.
+#
+# The job mirrors `pnpm ci` in the root package.json step for step, so anything that
+# passes here passes locally with the same commands (see AGENTS.md "Build / test / run").
+# A staging deploy step is deliberately absent: no hosting target is chosen yet. When one
+# is, add a second job that needs `ci` and runs on pushes to main only.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  TEST_DATABASE_URL: postgres://caravan:caravan@localhost:5432/caravan_test
+  # The determinism gate diffs the golden corpus against this on pushes (PRs use GITHUB_BASE_REF).
+  DETERMINISM_BASE_SHA: ${{ github.event.before }}
+
+jobs:
+  ci:
+    name: typecheck, lint, boundary, tests, determinism, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: caravan
+          POSTGRES_PASSWORD: caravan
+          POSTGRES_DB: caravan_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U caravan -d caravan_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          # Full history so the determinism gate can compute a merge-base for golden-log diffs.
+          fetch-depth: 0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        # Version comes from the root package.json "packageManager" field.
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint (resolver isolation rules + self-test)
+        run: pnpm lint
+
+      - name: Resolver dependency boundary
+        run: pnpm test:boundary
+
+      - name: Server tests (Postgres service)
+        run: pnpm test
+
+      - name: Determinism harness (chunk 13; pending until it lands)
+        run: pnpm determinism
+
+      - name: Build runnable server output
+        run: pnpm build
+
+      - name: Migrate the test database for the smoke run
+        run: pnpm db:migrate
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+
+      - name: Smoke-run the built server
+        run: pnpm smoke
+        env:
+          SMOKE_DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+
+      - name: Upload build output
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-dist-${{ github.sha }}
+          path: apps/server/dist
+          retention-days: 7
+          if-no-files-found: error

@@ -6,11 +6,11 @@ No blockers. Items 4–8 (resolver lint rules) are assigned to the chunk 21 Make
 1. [closed] `TRUNCATE pool_progress` bypasses the row-level permanence/delete guards (001_core_schema.up.sql:156-175). Add a BEFORE TRUNCATE statement trigger that raises; switch test/helpers.ts:11 from `TRUNCATE account CASCADE` to `DELETE FROM account`; add a test that truncate is refused.
 2. [closed] Deleting a caravan is unguarded and erases its living ladder/unlock points (001:66-93). Add `caravan_guard_delete` refusing deletion while the owning account exists, mirroring `pool_progress_guard_delete`, plus a test.
 3. [closed] The runtime DB role is a superuser that owns every table, so `ALTER TABLE ... DISABLE TRIGGER` undoes every guard. Run migrations as the owner role and the server as a separate non-superuser role with DML-only grants (no ALTER/TRUNCATE/TRIGGER). Document in .env.example and AGENTS.md; add a test (as the app role) that disabling a trigger is refused.
-4. (→21) Relative import `../../content/...` escapes the resolver package and passes lint (eslint.config.js:50-55).
-5. (→21) Float/alias evasions pass lint: `Number("0.5")`, `+"0.5"`, `JSON.parse`, `const m = Math; m.random()`, `Math["ran"+"dom"]`, `eval`, `Function`, `DataView.getFloat32`, `Infinity`, `NaN`, `WeakRef`.
-6. (→21) `(a / b) | 0` is accepted as truncation but wraps to int32; drop the `| 0` exemption, keep Math.trunc/Math.floor only; remove allowed.ts:6.
-7. (→21) The Map/Set iteration rule is dead code (eslint.config.js:80). Ban `Map`/`Set` globals in the resolver outright (use sorted arrays / id-keyed objects) and say so in the comment.
-8. (→21) Isolation rules apply to `src/**/*.ts` only; widen to `src/**/*.{ts,mts,cts,js,mjs}`.
+4. [closed →21] Relative import `../../content/...` escapes the resolver package and passes lint (eslint.config.js:50-55).
+5. [closed →21] Float/alias evasions pass lint: `Number("0.5")`, `+"0.5"`, `JSON.parse`, `const m = Math; m.random()`, `Math["ran"+"dom"]`, `eval`, `Function`, `DataView.getFloat32`, `Infinity`, `NaN`, `WeakRef`.
+6. [closed →21] `(a / b) | 0` is accepted as truncation but wraps to int32; drop the `| 0` exemption, keep Math.trunc/Math.floor only; remove allowed.ts:6.
+7. [closed →21] The Map/Set iteration rule is dead code (eslint.config.js:80). Ban `Map`/`Set` globals in the resolver outright (use sorted arrays / id-keyed objects) and say so in the comment.
+8. [closed →21] Isolation rules apply to `src/**/*.ts` only; widen to `src/**/*.{ts,mts,cts,js,mjs}`.
 
 ## Nits
 9. [closed] routes/auth.ts:27-43 + services/onboarding.ts:34 — no upper bound on password (≤128) or caravanName (1–40, trimmed, non-empty).

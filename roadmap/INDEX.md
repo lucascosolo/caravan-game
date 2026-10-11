@@ -102,6 +102,8 @@ after the ladders cap. [PHASE-2.md](PHASE-2.md) specs all of that, in three grou
 | B. Replayability systems | 39–45 | Each needs a short PROJECT.md amendment first. |
 | C. The deferred list | 46–49 | Multi-caravan, prestige, recycling, campaign (research-gated). After A is `done`. |
 
+Status notes: **21** (build, CI, deploy pipeline) — `built` 2026-10-11; QA pending. Deploy step deferred until a hosting target is chosen.
+
 Status for these chunks is tracked in PHASE-2.md until a chunk is assigned, at which
 point it gets its own `chunks/NN-*.md` brief and a row in the table above.
 

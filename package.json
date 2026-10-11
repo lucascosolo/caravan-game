@@ -15,9 +15,16 @@
     "db:rollback": "pnpm --filter @caravan/server db:rollback",
     "db:reset": "pnpm --filter @caravan/server db:reset",
     "db:seed": "pnpm --filter @caravan/server db:seed",
-    "db:status": "pnpm --filter @caravan/server db:status"
+    "db:status": "pnpm --filter @caravan/server db:status",
+    "test:boundary": "node scripts/resolver-boundary-check.mjs",
+    "determinism": "node scripts/determinism.mjs",
+    "build": "node scripts/build.mjs",
+    "start": "node apps/server/dist/index.js",
+    "smoke": "node scripts/smoke-server.mjs",
+    "ci": "pnpm typecheck && pnpm lint && pnpm test:boundary && pnpm test && pnpm determinism && pnpm build"
   },
   "devDependencies": {
+    "esbuild": "0.28.2",
     "typescript": "^5.9.3"
   }
 }

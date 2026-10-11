@@ -46,6 +46,8 @@ Everything below serves one of those four conditions or is a shipping requiremen
 
 ## 21. Build, CI, and deploy pipeline — **S**, start immediately, parallel with 01
 
+**Status: built** (2026-10-11). CI workflow, resolver boundary test, determinism gate (harness pending chunk 13), hardened resolver lint, `pnpm build`. Staging deploy deferred: no hosting target chosen. See ORCHESTRATION.md.
+
 **Goal.** Make the guardrails mechanically enforced from the first commit, and make
 every merge deployable.
 

@@ -130,9 +130,26 @@ pnpm db:seed                 # idempotent dev account: dev / devpassword, region
 
 pnpm dev                     # Fastify on http://127.0.0.1:3000 (PORT/HOST override), tsx watch
 
-# resolver determinism harness — TBD (chunk 13; this one matters most)
+pnpm determinism              # chunk 13 harness gate: runs the resolver `determinism` script if present (pending until 13), then refuses golden-log changes without a RESOLVER_VERSION bump
+pnpm test:boundary           # resolver dependency-boundary check (zero deps, imports stay inside packages/resolver/src)
+pnpm build                   # esbuild → apps/server/dist (index.js, db/migrate.js, seed.js); workspace packages inlined, npm deps external
+pnpm start                   # run the built server: node apps/server/dist/index.js
+pnpm smoke                   # start the built server against SMOKE_DATABASE_URL, assert GET /health, stop
+pnpm ci                      # the CI job, step for step: typecheck, lint, test:boundary, test, determinism, build
 ```
 
 Migrations are plain SQL pairs in `apps/server/migrations/NNN_name.{up,down}.sql`, run by
 `apps/server/src/db/migrate.ts`. Server routes so far: `POST /auth/register`,
 `POST /auth/login`, `POST /auth/logout`, `GET /me`, `GET /health` (bearer token auth).
+
+### CI (chunk 21)
+
+`.github/workflows/ci.yml` runs on every push and pull request: install with a frozen
+lockfile, `typecheck`, `lint` (resolver isolation rules plus their self-test),
+`test:boundary`, `test` against a Postgres 16 service container, `determinism`, `build`,
+then migrates the test database and smoke-runs the built server. `pnpm ci` is the same
+sequence locally. The resolver lint rules live in `packages/resolver/eslint.config.js`;
+`packages/resolver/lint-fixtures/` must stay in sync with them (every line of
+`violations.ts` from line 3 on must error; `allowed.ts` must be clean), which
+`scripts/lint-selftest.mjs` enforces. There is no deploy step yet: no hosting target is
+chosen. When one is, add a job that `needs: ci` and runs on pushes to `main` only.
