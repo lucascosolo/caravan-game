@@ -618,7 +618,8 @@ describe("chunk 32: ingest limits", () => {
 describe("chunk 32: analytics never feed back into play", () => {
   it("nothing outside src/analytics and its routes file reads the analytics module or tables", () => {
     const src = path.resolve(HERE, "../src");
-    const allowed = new Set([path.join("routes", "telemetry.ts"), "admin.ts", "app.ts"]);
+    // Chunk 30 QA D4: the account export reads the player's OWN analytics rows (src/analytics/export.ts) — data out to the player, never into play.
+    const allowed = new Set([path.join("routes", "telemetry.ts"), "admin.ts", "app.ts", path.join("account", "service.ts")]);
     const hits: string[] = [];
     const walk = (dir: string): void => {
       for (const f of readdirSync(dir)) {

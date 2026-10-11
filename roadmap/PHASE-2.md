@@ -686,11 +686,15 @@ link, no Sign in with Apple / Google until chunk 34). Migration **020** (`020_ac
   the rewrite of the old one (whole-row jsonb compare). Otherwise the original body runs unchanged; even
   the owner role cannot edit outside an erasure, and inside one only the exact rewrite passes. The app
   role still has no UPDATE/DELETE on `encounter_log`.
-- **Proof of the caller (QA ask).** `account_erase` takes the caller's RAW bearer token and checks a live
-  session of that account with `token_hash = sha256(token)`. The database stores only hashes, so nothing
-  the app role can read builds the argument: a compromised server process can erase only an account whose
-  live token it is handed in a request, not an arbitrary id. Tested: the stored hash, another account's
-  token, NULL and an expired token are refused (42501).
+- **What the caller proof does and does not do (corrected in the QA-30 fix round, S1).** `account_erase`
+  takes the caller's RAW bearer token and checks a live session of that account with `token_hash =
+  sha256(token)`. The server role ISSUES sessions, so no database check can stop a fully compromised
+  server from minting a session and erasing with it; the earlier claim that it could was wrong. What the
+  check does guarantee: a BUG that passes the wrong account id is refused, because that call carries no
+  live token of that account. Since 024 sessions come from one audited path, `session_issue()` (SECURITY
+  DEFINER, hashes inside the database); the app role has no INSERT or UPDATE on `session` (UPDATE of
+  `last_used_at` only), and no DELETE on `account` / `caravan` (S3), so `account_erase` is the only way an
+  account leaves.
 - **Decision — the account's own ledger rows are deleted**, by the cascade the append-only guard already
   allows (the owner is gone). Exception: its *non-projecting* record of a shared fight (`encounter_resolved`
   / `party_served_as_encounter` / `stop_resolved` under the kept job's causation) moves to the tombstone,
@@ -725,6 +729,41 @@ link, no Sign in with Apple / Google until chunk 34). Migration **020** (`020_ac
   reload now stays signed in, so those two re-sign-ins were removed. The export's store rows are read
   through `src/store/export.ts` (store-guards: only src/store reads the store's tables). The identity
   guard keeps `account.id` immutable only (tests backdate `created_at`).
+
+**QA fix round** (2026-10-11, roadmap/qa/30-punchlist.md; migration **024** `024_account_lifecycle_hardening`,
+provisional number):
+- **S2 temp-table shadowing (project-wide).** `db/roles.sql` revokes TEMPORARY on the database from PUBLIC and
+  `caravan_app`. 024 pins `search_path = pg_catalog, public, pg_temp` on EVERY function in schema public by a
+  catalog loop (guards, SECURITY DEFINER writers of 002/016/020/022, helpers), and the two invoker functions
+  the guards call read `public.account_erasure_active`. Deviation from "schema-qualify every table each
+  reads": with the path pinned and pg_temp last, an unqualified name resolves to `public` before any temp
+  object, which is exactly what qualification would buy (the PostgreSQL-documented fix for definers);
+  rewriting the bodies of ~50 functions across six migrations would add risk and merge conflicts for no
+  further protection. The test enumerates `pg_proc` and fails on any function, present or future, without
+  that exact setting, and a behavioural test shadows `account_erasure_active` and `session` (as the owner,
+  who can still create temp tables) against the guards, `account_erasure_permits` and `account_erase`.
+- **S4 multi-tab / failed resume.** `DEVICE_SESSIONS_MAX` 3 → 10, evicting least recently USED
+  (`session.last_used_at`, refreshed at most once a minute; a session used in the last 5 minutes is kept
+  first). The client counts parallel 401s on one token once and re-resumes at most 3 times per rolling
+  minute; a resume that fails with anything but 401 shows a retry card, never the start screen.
+  `/auth/guest`, `/auth/register` and `/auth/login` answer 409 `guest_on_device` when the request carries
+  a live guest's device cookie; the client asks ("continue the guest caravan" / "delete it and …"), and
+  `replaceGuest: true` ERASES the old guest (reason `guest_replaced`) once the new sign-in succeeded.
+- **D1** a non-blocking "Save your progress" card for guests in town and on the end-of-trip summary.
+- **D2** "Leave and delete this guest account" erases through `account_erase` (reason `guest_left`), the
+  copy says so; `account_erase_expired_guests(limit)` erases guests with no live device or session for
+  180 days (reason `guest_expired`; hand-off: chunk 36's scheduled sweep should call it).
+- **D3** `TRUST_PROXY` (off; a hop count or proxy addresses/CIDRs; "true" refused); the limits moved to
+  `TUNABLES.ACCOUNT_RATE_LIMITS` (100 guest starts and 100 registrations per address per hour, 200 logins per
+  address and 10 per username per 15 min, plus 20 per device); limits are per process (AGENTS.md).
+- **D4** the export covers every account-owned table (analytics id and client events, manifests,
+  formations, refugee menus, trip cap and uses, inbox marks, its own trip menus, replay summaries), redacts
+  by an allowlist of the account's own ids (any other UUID, even inside a job id, becomes "other_player"),
+  and is refused above `EXPORT_MAX_BYTES` (20 MB, 413 `export_too_large`).
+- **D5** the all-tables scan also gunzips every stored replay; the e2e runs guest → linked → deleted; the
+  deleted notice is shown; client tests for failed resume, parallel 401s and five tabs.
+- Nits: N1 (the dashboard no longer counts the tombstone as authored), N2 (menus narrowed by a GIN index;
+  the ledger scan stays — see the punch list), N3, N4, N5, N7 closed; N6, N8, N9 recorded as accepted / hand-offs.
 
 ## 31. Integrity and anti-abuse — **M**, after 14, 19
 
