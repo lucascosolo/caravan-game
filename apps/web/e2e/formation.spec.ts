@@ -4,7 +4,7 @@
  * tab: searches for parties → scouts the three candidates (every one in full) → sees the
  * free, time-gated reroll countdown → chooses one → places a fence and a post BY DRAG on
  * the real PixiJS canvas → sets a stance → commits a deliberately gapped circle → the
- * server agrees. Also checks the lattice is invisible when nothing is being dragged, and
+ * server agrees, and (chunk 23) the Trail moves on to the resolved encounter. Also checks the lattice is invisible when nothing is being dragged, and
  * that nothing on the screen offers a Coin reroll.
  *
  * Portrait phone viewport (playwright.config.ts). Pointer gestures are driven through
@@ -186,8 +186,9 @@ test("search, scout three candidates, choose, drag a fence and a post, set a sta
   await expect(dialog).toContainText("2 units posted");
   await expect(dialog).toContainText("Hold");
   await page.getByTestId("commit-confirm").click();
-  await expect(page.getByTestId("committed-notice")).toBeVisible();
-  await expect(screen).toHaveAttribute("data-committed", "true");
+  // Chunk 23: the commit goes through the trip loop (frozen + queued); the Trail moves on to the
+  // fight, which the e2e server resolves with chunk 15's test double (CARAVAN_TEST_RESOLVER).
+  await expect(page.getByTestId("resolving-screen").or(page.getByTestId("encounter-results"))).toBeVisible({ timeout: 15_000 });
 
   // The server agrees: the chosen candidate stands and the committed formation has those contents.
   const login = await request.post("/api/auth/login", { data: { username: USERNAME, password: PASSWORD } });
@@ -208,13 +209,12 @@ test("search, scout three candidates, choose, drag a fence and a post, set a sta
   expect(stored.formation.formation.fences).toHaveLength(1);
   expect(stored.formation.formation.posts.map((p) => p.stance).sort()).toEqual(["guard", "hold"]);
 
-  // Reloading the tab shows the committed, locked state against the same party.
+  // Reloading the tab lands on the resolved encounter, not on an editable circle.
   await page.reload();
   await page.getByLabel("Username").fill(USERNAME);
   await page.getByLabel("Password").fill(PASSWORD);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "Trail" }).click();
-  await expect(page.getByTestId("committed-notice")).toBeVisible();
-  await expect(page.getByTestId("facing-line")).toContainText(`Facing ${chosenName}.`);
+  await expect(page.getByTestId("encounter-results")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("commit-open")).toHaveCount(0);
 });

@@ -134,7 +134,7 @@ pnpm dev:web                 # Vite dev server on http://127.0.0.1:5173; /api/* 
 
 pnpm --filter @caravan/web typecheck | test | build   # tsc; vitest + testing-library (jsdom); vite build → apps/web/dist
 pnpm --filter @caravan/web e2e                        # Playwright smoke vs a running server (needs CARAVAN_API_URL + a seeded DB)
-pnpm e2e                     # the same, self-contained: seeds E2E_DATABASE_URL (dev + a run-unique formation account, packed and put on the trail), starts the BUILT server on :3917, runs the e2e, stops it (run `pnpm build` first)
+pnpm e2e                     # the same, self-contained: seeds E2E_DATABASE_URL (dev, a run-unique formation account packed and ridden out, a run-unique trip account in town), starts the BUILT server on :3917 with CARAVAN_TEST_RESOLVER=double, runs the e2e, stops it (run `pnpm build` first)
 
 pnpm determinism             # resolver determinism harness (chunk 10 started it; chunk 13 adds goldens): every fixture scenario 100× byte-identical in-process, then 3 separate Node processes compared by sha256; refuses golden-log changes without a RESOLVER_VERSION bump
 pnpm --filter @caravan/resolver test   # the resolver alone: 190 tests in 13 files, no DB, no network, ~40 s on 4 cores (the 100× determinism harness is most of it)
@@ -151,7 +151,9 @@ Migrations are plain SQL pairs in `apps/server/migrations/NNN_name.{up,down}.sql
 the ledger, progression, circle, economy and unlock routes of chunks 02–07 and 16
 (`GET /unlocks/webs`, `GET /me/unlocks`, `POST /me/unlocks/spend`), the party routes of
 chunk 09 and the matchmaking routes of chunk 14 (`POST /me/caravans/:id/encounters/:n/search`,
-`GET …/candidates`, `POST …/choose`). `pnpm db:seed` also creates the authored cold-start
+`GET …/candidates`, `POST …/choose`) and the trip loop of chunk 15 (`GET /me/caravans/:id/trip`,
+`POST …/trip/start`, `POST …/trip/encounters/:n/commit`, `GET …/trip/preview`, `POST …/trip/push`
+and `…/trip/bank` with `{tripId, encounterIndex}`). `pnpm db:seed` also creates the authored cold-start
 parties (`src/matchmaking/authored.ts`, chunk 25: 12 per Reputation band, bands 0–7, owned
 by `sys_outfit_*` system accounts that cannot log in or hold Coin), so a fresh database
 serves three scoutable candidates at every band from the first search. Migrations 011 and 009
@@ -160,6 +162,18 @@ refuse to roll back while system accounts exist, and a multi-step `db:rollback N
 a `db:reset` (or a rollback past 011) of a seeded database, run
 `DELETE FROM account WHERE is_system` as the owner role, then `pnpm db:reset && pnpm db:seed`
 (the test suite empties `account` itself before its reset).
+
+**`CARAVAN_TEST_RESOLVER=double` (dev / test only, chunk 23).** Until chunk 13 wires the real
+resolver, production encounter jobs park (`ENCOUNTER_RESOLUTION_WIRED = false`), so no trip can
+get past its first commit on a running server. Setting `CARAVAN_TEST_RESOLVER=double` installs
+chunk 15's deterministic test double (`apps/server/test/trip-double.ts`, via
+`src/dev/testResolver.ts`) as the resolver and runs the job worker in-process shortly after each
+`POST …/trip/encounters/:n/commit`: every encounter is held, each posted unit loses 150 HP, at
+encounter 1 the first laid trap fires and every placed fence segment breaks. The server REFUSES
+TO START with the flag set and `NODE_ENV=production`, and any value other than `double` is
+refused. `pnpm e2e` sets it (with `NODE_ENV=test`); `pnpm smoke` and CI's smoke run do not.
+Chunk 13 replaces the double with the real resolver and this flag is then only for predictable
+e2e outcomes. Example: `CARAVAN_TEST_RESOLVER=double pnpm dev`.
 
 **Web client** (`apps/web`, chunk 06 scaffold): Vite + React 18 + TypeScript strict. A
 typed `fetch` wrapper (`src/api/client.ts`) carries the bearer token from in-memory session

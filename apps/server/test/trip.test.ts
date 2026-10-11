@@ -367,7 +367,9 @@ describe("the encounter chain: attrition carries forward, nothing is repaired, b
     const balance0 = (await pool.query("SELECT coin_balance FROM account WHERE id = $1", [d.accountId])).rows[0].coin_balance;
     const s = await encounter(d, 1, { kind: "caravan_held", unitDamage: 5, spendTraps: 1, fenceDamage: 3 });
     expect(s.trip).toMatchObject({ phase: "decide", decisionFor: 1, encountersResolved: 1, unbankedCoin: coinForEncounter(1) });
-    expect(s.trip!.encounters).toEqual([{ index: 1, outcome: "caravan_held", depth: 512, deaths: [], coinAccrued: coinForEncounter(1), decision: null }]);
+    // Chunk 23 added `result` (the fight's own delta, for the client); the chunk 15 fields are unchanged.
+    expect(s.trip!.encounters).toEqual([expect.objectContaining({ index: 1, outcome: "caravan_held", depth: 512, deaths: [], coinAccrued: coinForEncounter(1), decision: null })]);
+    expect(Object.keys(s.trip!.encounters[0]!).sort()).toEqual(["coinAccrued", "deaths", "decision", "depth", "index", "outcome", "result"]);
     const m = await survivors(d);
     for (const u of m.units) expect(u.hp).toBe(before.units.find((b) => b.ref === u.ref)!.hp - 5);
     expect(m.traps.map((t) => t.spent)).toEqual([true, false, false]);

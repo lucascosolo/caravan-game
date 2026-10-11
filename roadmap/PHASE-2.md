@@ -100,6 +100,11 @@ for 100 replays. Confirm no code path in the player calls into `packages/resolve
 
 ## 23. Trip client flow — **M**, after 15, 17, 19
 
+**Status: built** (2026-10-11) — replay link pending chunk 22 ("Watch the fight" is present,
+disabled, "replay coming"). Fights resolve through chunk 15's seam (test double until chunk 13;
+`CARAVAN_TEST_RESOLVER=double` for e2e). Losses on overrun shown as the server records them
+(`lossesApplied`, chunk 19). See ORCHESTRATION.md.
+
 **Goal.** The screens that wrap the primary gameplay screen: outfitting, candidate
 selection, the bank-or-push prompt, and the trip summary. Chunk 15 is the server loop,
 chunk 08 is the per-encounter arrangement, chunk 17's open question 1 proposes an

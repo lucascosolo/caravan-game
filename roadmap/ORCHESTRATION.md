@@ -2451,3 +2451,68 @@ touched). The full-load budget test can exceed 100 ms under the parallel suite o
 (seen once at 111 ms; 60–78 ms alone).
 
 **Next:** QA re-audit of chunk 12 against the punch list; relay the scout-view fields above.
+
+### 2026-10-11 — Chunk 23 (trip client flow): `not started` → `built` (replay link pending 22)
+
+**Built** in worktree `agent-aeafe1a5ee15d3190` off `roadmap/phase-2-spec` @ `08ad586` (chunk 15
+merged), then merged `roadmap/phase-2-spec` @ `e1355b7` (chunk 20 web screens, chunk 12 QA fixes,
+chunk 15 QA punch list recorded). The Trail tab now drives a whole trip over chunk 15's routes.
+
+- **Outfit → "Pack and ride out"**: one confirm packs (`POST /caravans/:id/manifest`) then starts
+  (`POST /me/caravans/:id/trip/start`); the dialog quotes the trip cap from the status read. A
+  refused start leaves the caravan packed: `RideOutPanel` ("Packed, waiting to ride out", now only
+  shown when truly packed and not out) with the server's reason — `trip_cap_exhausted` counted
+  down from `retryAfterSeconds`, `trip_open` → "To the trail", `not_packed`; a lost answer keeps
+  the dialog and a retry that finds the trip open says it went through. Town shows the cap line
+  (uses available, next regen from `nextRegenAtMs − nowMs`, monotonic from receipt) in every
+  state and takes the caravan's state from the trip status.
+- **Trail chain** (`TrailScreen` state machine on `GET …/trip`): search → candidates → arrange
+  (chunk 08) → commit via `POST …/trip/encounters/:n/commit` (FormationScreen `onCommitted`) →
+  `ResolvingScreen` (polls 1/2/4/8/15 s; a failed check stops with Retry) → `EncounterResult`
+  (outcome, depth %, Coin accrued, killed / damaged / unhurt, traps spent / still armed, fences
+  broken / damaged; disabled "Watch the fight (replay coming)") → `BankOrPushScreen` → push → the
+  next search, or bank → `TripSummary` → town. `resolution_unavailable` is said plainly.
+  A circle committed through chunk 07's raw route but never queued gets "Send it to the fight".
+- **Bank-or-push**: every field of the preview itemized (unbanked total + per encounter; bank =
+  encounter Coin + delivery, overflow forecast credit/discard against room now; each unit alive
+  or dead-since-n, HP, damage carried, level on death; if overrun: Coin lost, lost outright,
+  de-merged; traps armed/spent; fences intact (damaged ones with HP)/destroyed; next encounter
+  reward, bank total if survived, escalation, arrives fresh; last opponent gap + earn %). Both
+  choices behind real modals that re-read the preview first; decisions carry `{tripId,
+  encounterIndex}` and a lost answer retries the same body (replay said).
+- **Server (additive)**: `GET …/trip` gains `nowMs`, `trip.encounters[].result` (the fight's own
+  delta from the job: input survivors vs recorded outcome; `src/trip/views.ts`) and `trip.ending`
+  (from `trip_banked` / `trip_overrun`, owner account id stripped). `CARAVAN_TEST_RESOLVER=double`
+  (`src/dev/testResolver.ts`): installs chunk 15's double and drains the queue in-process 400 ms
+  after a trip commit; refused at startup with `NODE_ENV=production`; documented in AGENTS.md.
+  `scripts/e2e.mjs` runs the server with it (NODE_ENV=test), rides the formation account out via
+  the real start route (no SQL trip insert), and seeds a run-unique trip account.
+- **Contract**: `contract.test.ts` now starts the trip by route and records 12 trip bodies
+  (status packed / resolving / decide / banked / overrun, start, start-refused 409 body, commit,
+  preview ×2, push, bank) resolved by the double; guards in `api/tripShapes.ts`, all tolerant of
+  additive fields. Re-recording also refreshed party/menu fixtures with chunk 12's
+  `abilityDisplay` and the store-purchase balance (the bank now precedes the purchase).
+- **Coordinator item (chunk 12 QA S5)**: the scout-unit guard takes `abilityDisplay` (filled from
+  content's `abilityDisplay` for menus stored before it); scout cards and the posted-unit card
+  print cooldown, first use, reach, damage ×, heal % with the start-of-fight HP ceiling, charges,
+  buff % for s, dash cells, fence-hit cap.
+- Cross-chunk edits: `CandidatesScreen` re-exports the countdown (moved to `shell/countdown.ts`);
+  `town.spec.ts` (outfit now rides out; the packed-merge refusal is `caravan_on_trip` or
+  `unit_packed`, B1 stays pinned in `economy.test.ts`); `formation.spec.ts` (after commit the
+  Trail moves to the resolved encounter); `trip.test.ts` one encounter-view assertion.
+
+**Decisions for QA.** Results/summary data come from the server (no client deltas). The depth %
+is the only client arithmetic (fixed-point → percent). Bank and push both confirm. The
+outfit's confirm is one step (pack then start); a refused start is the packed state, not an
+error. The double's plan is fixed (no env knobs). Chunk 15 QA D3 (`resolver_unavailable` start
+refusal while unwired) is not in this branch; when it lands the e2e still works because the
+test resolver is installed — the fixer should make that refusal skip when an inline resolver is
+installed. Chunk 19's `bankNow.unitsDeMerged` (15 QA S7) is not rendered yet: the summary shows
+`deMergePending` as a count; add the itemized line when the field lands.
+
+**Test output** (see the commit's report): web 23 files / 248 tests; server 32 files / 562 tests
+(TEST_DATABASE_URL …/caravan_test_c23); root typecheck, lint, test:boundary clean; `pnpm build`
+clean; `pnpm e2e` (caravan_dev_c23, E2E_PORT 4003, E2E_WEB_PORT 4303) 6/6 twice.
+
+**Next:** adversarial QA — guardrail 4 (any stake the prompt does not itemize?), guardrail 2
+(anything purchasable reachable from the flow?), the lost-answer paths, and the 360×640 layout.

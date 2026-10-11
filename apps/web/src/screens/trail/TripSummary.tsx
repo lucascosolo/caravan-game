@@ -1,0 +1,86 @@
+/**
+ * The trip summary (chunk 23), shown when a trip ends — banked or overrun — and on the Trail
+ * tab afterwards until the caravan is packed again. Everything comes from the trip status
+ * (`trip.ending`, as the `trip_banked` / `trip_overrun` ledger event recorded it, and each
+ * encounter's `result`); a just-made bank adds the balance its answer carried. It feeds the
+ * replay (chunk 22) through each encounter's "Watch the fight" (disabled until 22 lands).
+ */
+import type { BankResult, TripView } from "../../api/tripTypes.ts";
+import { navigate } from "../../shell/router.tsx";
+import { STRINGS } from "../../strings.ts";
+import { EncounterResult } from "./EncounterResult.tsx";
+import { unitLabel } from "./tripNames.ts";
+
+const T = STRINGS.trip;
+
+export interface TripSummaryProps {
+  readonly trip: TripView;
+  /** The answer of a bank made just now (for the balance after); null otherwise. */
+  readonly bank?: BankResult | null;
+  /** True when this is the last trip, shown later on the Trail tab. */
+  readonly past?: boolean;
+}
+
+export function TripSummary({ trip, bank = null, past = false }: TripSummaryProps): JSX.Element {
+  const e = trip.ending;
+  return (
+    <section data-testid="trip-summary" data-end={trip.endReason ?? "open"}>
+      <h1 id="trip-summary-heading" tabIndex={-1}>
+        {past ? T.lastTrip : T.summaryTitle}
+      </h1>
+      {e?.kind === "banked" && (
+        <div className="notice" data-testid="summary-banked">
+          <p>
+            <strong>{T.summaryBanked(e.encountersSurvived)}</strong>
+          </p>
+          <p>{T.summaryDelivered(e.unbankedCoin, e.deliveryBonus, e.requested)}</p>
+          <p data-testid="summary-credited">{T.summaryCredited(e.credited, e.discarded)}</p>
+          {bank && bank.balanceAfter !== null && <p data-testid="summary-balance">{T.summaryBalance(bank.balanceAfter)}</p>}
+          <p>{T.summaryRefit(e.restored.unitsHealed.length, e.restored.trapsRestocked, e.restored.fenceSegmentsRebuilt)}</p>
+          {e.restored.deMergePending.length > 0 && <p className="hint">{T.summaryDemergePending} {e.restored.deMergePending.length}</p>}
+        </div>
+      )}
+      {e?.kind === "overrun" && (
+        <div className="error" data-testid="summary-overrun">
+          <p>
+            <strong>{T.summaryOverrun(e.encounterIndex)}</strong>
+          </p>
+          <p data-testid="summary-coin-lost">{T.summaryCoinLost(e.coinLost)}</p>
+          <p>{T.summaryLost}</p>
+          <ul className="plain" data-testid="summary-lost">
+            {e.unitsLostOutright.length === 0 ? <li className="hint">{T.none}</li> : e.unitsLostOutright.map((u) => <li key={u.ref}>{unitLabel(u)}</li>)}
+          </ul>
+          <p>{T.summaryDemerged}</p>
+          <ul className="plain" data-testid="summary-demerged">
+            {e.unitsDeMerged.length === 0 ? (
+              <li className="hint">{T.none}</li>
+            ) : (
+              e.unitsDeMerged.map((u) => (
+                <li key={u.ref}>
+                  {unitLabel(u)} · {T.unitDemerge(u.mergeLevel, u.mergeLevelAfter)}
+                </li>
+              ))
+            )}
+          </ul>
+          <p className="hint">{e.lossesApplied ? T.summaryLossesApplied : T.summaryLossesPending}</p>
+        </div>
+      )}
+      <p className="hint">{T.summaryRestoreNote}</p>
+
+      <h2>{T.summaryEncounters}</h2>
+      <ul className="cards">
+        {trip.encounters.map((enc) => (
+          <li key={enc.index}>
+            <EncounterResult encounter={enc} headingLevel={3} />
+          </li>
+        ))}
+      </ul>
+
+      <div className="actions">
+        <button type="button" className="btn btn--primary btn--block" onClick={() => navigate("town")} data-testid="summary-to-town">
+          {T.toTown}
+        </button>
+      </div>
+    </section>
+  );
+}

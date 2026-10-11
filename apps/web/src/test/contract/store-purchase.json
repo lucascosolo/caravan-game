@@ -35,7 +35,7 @@
       "requested": 6000,
       "credited": 6000,
       "discarded": 0,
-      "balanceAfter": 7000,
+      "balanceAfter": 8400,
       "cap": 50000
     },
     "trickle": {
@@ -44,7 +44,7 @@
       "materialized": false,
       "accruedFromMs": 1790000000000,
       "accruedThroughMs": 1790000000000,
-      "balanceBeforeCredit": 1000
+      "balanceBeforeCredit": 2400
     },
     "cosmeticsGranted": [
       "fence_style.weathered_grey"
@@ -52,7 +52,7 @@
     "cosmeticsAlreadyOwned": [],
     "events": [
       {
-        "seq": 7,
+        "seq": 20994,
         "type": "coin_purchased",
         "payload": {
           "tier": 1,

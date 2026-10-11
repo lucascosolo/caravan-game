@@ -6,6 +6,10 @@
 // seeds the dev account (idempotent), starts the built server on E2E_PORT (default 3917),
 // waits for GET /health, runs `pnpm --filter @caravan/web e2e` with the preview proxy
 // pointed at that port, then stops the server. Exit code is Playwright's.
+//
+// Chunk 23: the server runs with CARAVAN_TEST_RESOLVER=double (and NODE_ENV=test — the flag is
+// refused in production) so a committed encounter resolves in-process with chunk 15's
+// deterministic test double, and the trip e2e can ride a whole trip. Chunk 13 replaces the double.
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -29,7 +33,7 @@ if (!databaseUrl) {
 }
 const port = Number(process.env.E2E_PORT ?? 3917);
 const host = "127.0.0.1";
-const env = { ...process.env, DATABASE_URL: databaseUrl, PORT: String(port), HOST: host, NODE_ENV: "production" };
+const env = { ...process.env, DATABASE_URL: databaseUrl, PORT: String(port), HOST: host, NODE_ENV: "test", CARAVAN_TEST_RESOLVER: "double" };
 
 function run(cmd, args, opts = {}) {
   return new Promise((resolve) => {
@@ -49,6 +53,11 @@ const formationUser = process.env.E2E_FORMATION_USERNAME ?? `e2e_formation_${Dat
 const formationPassword = process.env.E2E_FORMATION_PASSWORD ?? "e2epassword";
 const seed2 = await run(process.execPath, [seedEntry], { env: { ...env, SEED_USERNAME: formationUser, SEED_PASSWORD: formationPassword } });
 if (seed2 !== 0) process.exit(seed2);
+// 1c. Chunk 23: a run-unique account in town for the full-trip e2e (outfit → ride out → … → bank).
+const tripUser = process.env.E2E_TRIP_USERNAME ?? `e2e_trip_${Date.now().toString(36)}`;
+const tripPassword = process.env.E2E_TRIP_PASSWORD ?? "e2epassword";
+const seed3 = await run(process.execPath, [seedEntry], { env: { ...env, SEED_USERNAME: tripUser, SEED_PASSWORD: tripPassword } });
+if (seed3 !== 0) process.exit(seed3);
 
 // 2. Start the built server and wait for /health.
 const server = spawn(process.execPath, [serverEntry], { cwd: repoRoot, env, stdio: ["ignore", "inherit", "inherit"] });
@@ -73,15 +82,17 @@ if (!healthy) {
   process.exit(1);
 }
 
-// 2b. Chunk 08 + 14: put the formation account on the trail. Packing is a town action
-// (chunk 17's screen; chunk 07's route exists), and the trip row is chunk 15's to open —
-// chunk 14's `createTrip` service is the seam its own tests use, so this mirrors its SQL
-// (one open trip per caravan, bound to the open manifest). The spec then starts at
-// "search for parties".
+// 2b. Chunk 08 + 14 + 15: put the formation account on the trail through the real routes:
+// pack (chunk 07) and ride out (chunk 15's POST …/trip/start, one trip-cap use). The spec
+// then starts at "search for parties".
 async function openTrip() {
   const api = `http://${host}:${port}`;
   const post = (path, body, token) =>
-    fetch(`${api}${path}`, { method: "POST", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) });
+    fetch(`${api}${path}`, {
+      method: "POST",
+      headers: { ...(body !== undefined ? { "Content-Type": "application/json" } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
   const login = await post("/auth/login", { username: formationUser, password: formationPassword });
   if (!login.ok) throw new Error(`e2e: login for ${formationUser} failed: ${login.status}`);
   const { token } = await login.json();
@@ -90,17 +101,8 @@ async function openTrip() {
   const riders = caravan.units.filter((u) => u.unit_type_id === "desert.dust_rider").map((u) => u.id);
   const pack = await post(`/caravans/${caravan.id}/manifest`, { units: riders.slice(0, 2), traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 20 } }, token);
   if (pack.status !== 201) throw new Error(`e2e: pack failed: ${pack.status} ${await pack.text()}`);
-  const { manifest } = await pack.json();
-  const { createRequire } = await import("node:module");
-  const require = createRequire(path.join(repoRoot, "apps", "server", "package.json"));
-  const { Client } = require("pg");
-  const client = new Client({ connectionString: databaseUrl });
-  await client.connect();
-  try {
-    await client.query("INSERT INTO trip (caravan_id, manifest_id) VALUES ($1, $2)", [caravan.id, manifest.id]);
-  } finally {
-    await client.end();
-  }
+  const start = await post(`/me/caravans/${caravan.id}/trip/start`, undefined, token);
+  if (start.status !== 201) throw new Error(`e2e: ride out failed: ${start.status} ${await start.text()}`);
   console.log(`e2e: ${formationUser} packed and on the trail (caravan ${caravan.id}).`);
 }
 try {
@@ -122,7 +124,7 @@ try {
   });
   if (built !== 0) throw new Error("e2e: the e2e client build failed");
   code = await run("pnpm", ["--filter", "@caravan/web", "e2e"], {
-    env: { ...process.env, CARAVAN_API_URL: `http://${host}:${port}`, E2E_FORMATION_USERNAME: formationUser, E2E_FORMATION_PASSWORD: formationPassword, E2E_WEB_DIST: "dist-e2e" },
+    env: { ...process.env, CARAVAN_API_URL: `http://${host}:${port}`, E2E_FORMATION_USERNAME: formationUser, E2E_FORMATION_PASSWORD: formationPassword, E2E_TRIP_USERNAME: tripUser, E2E_TRIP_PASSWORD: tripPassword, E2E_WEB_DIST: "dist-e2e" },
   });
 } finally {
   server.kill("SIGTERM");

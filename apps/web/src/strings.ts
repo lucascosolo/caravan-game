@@ -217,6 +217,16 @@ export const STRINGS = {
     abilityDistance: "Distance",
     abilityFenceDamage: "Fence damage",
     abilityOneHit: (mult: string): string => `×${mult} one hit`,
+    // chunk 12 QA S5: the display-ready ability numbers
+    abilitySeconds: (s: string): string => `${s} s`,
+    abilityFirstUse: "First use",
+    abilityFirstUseValue: (s: string): string => `after ${s} s`,
+    abilityReach: "Reach",
+    abilityHealsCapped: (pct: string): string => `${pct}% of max HP, never above the HP the unit started the fight with`,
+    abilityBuffValue: (pct: string, s: string): string => `+${pct}% for ${s} s`,
+    abilityBuffPct: (pct: string): string => `+${pct}%`,
+    abilityFenceCap: "Fence-hit cap",
+    abilityFenceCapValue: (pct: string): string => `${pct}% of a segment's max HP per hit`,
     attackerSelected: (name: string): string => `${name} — scouting card below.`,
     // tray
     trayHeading: "What you have",

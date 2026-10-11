@@ -9,13 +9,14 @@
  * button is present, disabled and labelled "replay coming", so the flow's shape is final
  * and chunk 22 only wires it (`result.jobId` is the key).
  */
+import { FIXED_ONE } from "@caravan/content";
 import { useId } from "react";
 import type { TripEncounterView } from "../../api/tripTypes.ts";
 import { STRINGS } from "../../strings.ts";
 import { fenceLabel, trapTypeName, unitLabel } from "./tripNames.ts";
 
 const T = STRINGS.trip;
-const DEPTH_ONE = 1024;
+const DEPTH_ONE = FIXED_ONE;
 
 function Group({ heading, items, testId }: { heading: string; items: readonly string[]; testId: string }): JSX.Element {
   return (

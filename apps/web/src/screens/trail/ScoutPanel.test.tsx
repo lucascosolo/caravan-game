@@ -52,6 +52,25 @@ describe("ScoutPanel — nothing about the party is hidden", () => {
     expect(within(screen.getByTestId(`scout-unit-${healer.ref}`)).getByText(/charges per fight — finite, not regenerating/)).toBeInTheDocument();
   });
 
+  it("shows the ability's display-ready numbers from the scout view (chunk 12 QA S5): first use, reach, heal ceiling, buff, fence-hit cap", () => {
+    for (const seed of [1, 2, 3]) {
+      const scout = fixtureScoutFor(seed);
+      const { unmount } = render(<ScoutPanel scout={scout} />);
+      for (const u of scout.units) {
+        const d = u.abilityDisplay!;
+        const card = screen.getByTestId(`scout-unit-${u.ref}`);
+        expect(card).toHaveTextContent(`First useafter ${d.firstUseSeconds} s`);
+        expect(card).toHaveTextContent(`${d.cooldownSeconds} s`);
+        if (d.reachCells !== null) expect(card).toHaveTextContent(`Reach${d.reachCells} cells`);
+        if (d.healPercent !== null) expect(card).toHaveTextContent(`${d.healPercent}% of max HP, never above the HP the unit started the fight with`);
+        if (d.buffPercent !== null) expect(card).toHaveTextContent(`+${d.buffPercent}% for ${d.buffSeconds} s`);
+        if (d.fenceHitCapPercent !== null) expect(card).toHaveTextContent(`Fence-hit cap${d.fenceHitCapPercent}% of a segment's max HP per hit`);
+        if (d.dashCells !== null) expect(card).toHaveTextContent(`${d.dashCells} cells`);
+      }
+      unmount();
+    }
+  });
+
   it("shows every siege piece with what it counters, how (accelerates/bypasses, multiplier) and the exact types affected, plus the per-edge approach", () => {
     const scout = fixtureScoutFor(3);
     render(<ScoutPanel scout={scout} />);
