@@ -1,9 +1,9 @@
 import { TUNABLES } from "@caravan/content";
-import { packManifest, type AccessCheck, type Formation, type Manifest, FORMATION_VERSION, RING_SEGMENTS, type Cell } from "../src/index.js";
+import { DEFAULT_DEFENSIVE_STANCE, packManifest, type AccessCheck, type Formation, type Manifest, FORMATION_VERSION, RING_ANCHORS, RING_SEGMENTS, type Cell } from "../src/index.js";
 
 export const ALLOW_ALL: AccessCheck = () => true;
 
-/** A full loadout at every cap: 8 desert units, 6 traps, 24 brush-pile segments. */
+/** A full loadout at every cap: 8 desert units, 6 traps, FENCE_MATERIAL_BUDGET brush-pile segments. */
 export function fullPack(): Manifest {
   const res = packManifest(
     {
@@ -29,7 +29,7 @@ export function fullPack(): Manifest {
 /** Cells just inside the ring, on the north-west quadrant, for posts and traps. */
 export function innerCells(): Cell[] {
   const out: Cell[] = [];
-  const c = RING_SEGMENTS[0]!.cell; // north-west corner of the ring
+  const c = RING_ANCHORS[0]!; // the north-west wagon anchor
   for (let y = c.y + 1; y < c.y + 4; y++) for (let x = c.x + 1; x < c.x + 8; x++) out.push({ x, y });
   return out;
 }
@@ -44,6 +44,6 @@ export function arrange(m: Manifest, firstSegment = 0): Formation {
   let next = 0;
   const fences = m.fences.filter((f) => f.hp > 0).map((f, i) => ({ ref: f.ref, segment: (firstSegment + i) % RING_SEGMENTS.length }));
   const traps = m.traps.filter((t) => !t.spent).map((t) => ({ ref: t.ref, cell: cells[next++]! }));
-  const posts = m.units.filter((u) => u.hp > 0).map((u) => ({ ref: u.ref, cell: cells[next++]! }));
+  const posts = m.units.filter((u) => u.hp > 0).map((u) => ({ ref: u.ref, cell: cells[next++]!, stance: DEFAULT_DEFENSIVE_STANCE }));
   return { v: FORMATION_VERSION, fences, traps, posts };
 }

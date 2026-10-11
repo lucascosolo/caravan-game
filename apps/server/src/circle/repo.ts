@@ -19,6 +19,8 @@ export interface WagonFormationRow {
   encounter_index: number;
   formation: Record<string, unknown>;
   formation_hash: string;
+  /** QA S7: the manifest's survivors as they stood at commit; null while a draft. */
+  survivors_snapshot: Record<string, unknown> | null;
   updated_at: Date;
   committed_at: Date | null;
 }
@@ -100,10 +102,12 @@ export async function upsertDraftFormation(
   return res.rows[0]!;
 }
 
-export async function commitFormationRow(db: Queryable, manifestId: string, encounterIndex: number): Promise<WagonFormationRow> {
+/** Commit: freezes the row and stores the survivors snapshot it was committed against (QA S7). */
+export async function commitFormationRow(db: Queryable, manifestId: string, encounterIndex: number, survivorsJson: string): Promise<WagonFormationRow> {
   const res = await db.query<WagonFormationRow>(
-    `UPDATE wagon_formation SET committed_at = now() WHERE manifest_id = $1 AND encounter_index = $2 AND committed_at IS NULL RETURNING *`,
-    [manifestId, encounterIndex],
+    `UPDATE wagon_formation SET committed_at = now(), survivors_snapshot = $3::jsonb
+     WHERE manifest_id = $1 AND encounter_index = $2 AND committed_at IS NULL RETURNING *`,
+    [manifestId, encounterIndex, survivorsJson],
   );
   const row = res.rows[0];
   if (!row) throw new Error(`wagon_formation ${manifestId}/${encounterIndex} not found or already committed`);

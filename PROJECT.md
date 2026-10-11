@@ -10,6 +10,7 @@
 > correction with the roles swapped; the deterministic resolver, the trip chain,
 > bank-or-push, scouting, the unlock webs, merging, and the economy are unchanged in
 > substance. Anything not listed above was not affected.
+> *Chunk 07 QA (D1):* the stance §9 gives each posted unit is a **defensive stance** — `guard` (aggro/leash pursuit, the default), `hold` (fights only within attack range of its post, never leaves it) or `reserve` (ignores everything until an attacker is inside the ring, then guards) — distinct from the attacking party's three targeting stances in §10; every living unit is still posted, `reserve` being the "kept in the back" choice of §13.
 
 ## 1. Concept & Core Hooks
 

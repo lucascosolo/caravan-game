@@ -894,3 +894,61 @@ clean. The probe file itself was not re-run (it imports from the shared checkout
 assert the old lenient behaviour on purpose); its cases live in the regression file.
 
 **Next:** QA re-audit of chunk 02 round 2 (status stays `built` until QA signs off).
+### 2026-10-11 — chunk 07 QA round 1 closed
+
+Maker closed D1, D2, S1–S8 and N1–N7 from `roadmap/qa/07-punchlist.md` (details per item
+there). Migration 004 edited in place (nothing deployed). Regression files:
+`apps/server/test/qa07-regressions.test.ts` (14 tests, every server probe reproduction)
+and the chunk's own `packages/circle/test/*` (48 → 64 tests). Status stays `built` until
+QA re-audits.
+
+**Shape / behaviour changes other chunks should know about:**
+
+- **Formation is `v: 2`; a post is `{ref, cell, stance}`** with `stance ∈ {guard, hold,
+  reserve}` (D1). A client may omit `stance` (→ `guard`); the stored canonical form always
+  carries it. Semantics are in `formation.ts`'s header, PROJECT.md's revision note and the
+  chunk 11 file. Chunk 08 must offer the three stances per post; chunk 11 implements them.
+- **Ring geometry changed (D2):** `TUNABLES.PERIMETER_SEGMENTS` 32 → **28**,
+  `FENCE_MATERIAL_BUDGET` 24 → **20**, new `RING_ANCHOR_CELLS` = 4 and `PATH_CONNECTIVITY`
+  = 4. The four corners of the radius-4 square are permanent wagon anchors
+  (`RING_ANCHORS`, clockwise from NW), not fence positions; segment 0 is the cell just east
+  of the NW anchor; 7 segments per side. `isCoreReachableFrom` always treats anchors as
+  blocked and is 4-connected (`neighbours4`). Chunk 08 draws the anchors as parked wagons.
+- **`Battlefield` is version 2** and gained `pathConnectivity: 4`, `anchors: Cell[]` (four
+  permanently blocked cells with no HP) and `posts[].stance`. `assertBattlefield` now also
+  closes the nested `ability`/`effect` shapes per archetype/kind, checks every enum field
+  against the content enums, `pos` within the field and hp within `0..maxHp` (S1).
+  **For the chunk 10 Maker moving the lattice/`Battlefield` into the resolver:** the
+  geometry diff is confined to `packages/circle/src/lattice.ts` (anchor block, ring walk
+  skipping corners, `PATH_CONNECTIVITY`/`neighbours4`, coherence assertions) and
+  `resolverInput.ts` (three new fields, the S1 checks); every constant still reads from
+  `TUNABLES`, so the move carries over by re-pointing imports. The resolver's pathfinder
+  must block `anchors` exactly as it blocks an intact fence segment and step 4-connected.
+- **`applyOutcome` (service) refuses refs that were not in the fight** (S2): a trap not
+  laid cannot be spent, a fence not placed cannot be chipped, a unit not posted cannot
+  change. Chunk 13's handler must only report what the resolver actually touched.
+- **`wagon_formation.survivors_snapshot`** (S7): set at commit, equal to the manifest's
+  survivors at that moment (DB-enforced), frozen with the row. `battlefieldForEncounter`
+  builds from it, so a replay input for encounter N is byte-identical however many
+  encounters resolved since. `commitFormationRow` takes the snapshot JSON as a 4th arg.
+- `POST /caravans/:id/manifest` returns 400 `manifest_empty` for a loadout with no living
+  unit (S3) and 400 `bad_body` for arrays/unknown keys; caravan ids must be real UUIDs
+  (404 otherwise, S4); encounter index must match `^[1-9]\d{0,5}$` (N2).
+- Oversized formation bodies are refused before validation with a one-line
+  `malformed_formation` (S8); issue lists are capped at `MAX_ISSUES` = 50.
+- New issue codes: `manifest_empty`, `bad_version`, `oversized`, `bad_stance`.
+- `applyEncounterOutcome` validates the outcome's shape first (`assertEncounterOutcome`,
+  N4); `packManifest` asserts the unit/trap/fence ref namespaces are disjoint (N3).
+- Chunk 15 must set `caravan.state = 'on_trip'` in the same transaction as `lockManifest`,
+  before locking (N7; chunk 16's S1 is the merge-side guard). Note appended to its file.
+
+**Verification** (worktree `agent-a8146002f49bf74f4`, base `1c8930c` on
+`roadmap/phase-2-spec`): `pnpm --filter @caravan/circle test` → 7 files, 64 passing;
+`pnpm --filter @caravan/content test` → 44 passing; `cd apps/server &&
+TEST_DATABASE_URL=...caravan_test_f07 npx vitest run` → 17 files, 238 passing. Root
+`pnpm typecheck`, `pnpm lint`, `pnpm test:boundary` clean. The QA probe scripts
+themselves were not re-run (they import the main tree's paths and the pre-D1 `v: 1`
+shape); their reproductions live in the regression files.
+
+**Next:** QA re-audit of chunk 07; the orchestrator merges this with chunk 10's
+lattice/`Battlefield` move.

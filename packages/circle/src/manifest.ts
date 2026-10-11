@@ -166,6 +166,19 @@ export function packManifest(input: PackInput, isUnlocked: AccessCheck): Validat
     }
   }
 
+  // QA S3: a caravan with no living unit has nothing at stake and nothing to post; the
+  // bounded-stakes rules would be vacuous. At least one living unit must be packed.
+  if (input.units.length === 0) issues.push(issue("manifest_empty", "a manifest must pack at least one living unit"));
+
+  // QA N3: refs share one namespace across units, traps and fences (a formation names any
+  // of them by ref alone). Unit refs are caller-supplied instance ids, trap/fence refs are
+  // generated (`t<n>` / `f<n>`); assert the three sets are disjoint rather than trust it.
+  const allRefs = new Set<string>();
+  for (const ref of [...units.map((u) => u.ref), ...traps.map((t) => t.ref), ...fences.map((f) => f.ref)]) {
+    if (allRefs.has(ref)) issues.push(issue("duplicate_ref", `ref '${ref}' is used by more than one packed entry`, ref));
+    allRefs.add(ref);
+  }
+
   if (issues.length > 0) return { ok: false, issues };
   return { ok: true, value: freezeManifest({ v: MANIFEST_VERSION, units, traps, fences }) };
 }

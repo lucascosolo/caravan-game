@@ -18,6 +18,8 @@ import {
   // Aliased (chunk 04 QA N3): the server also exports progression's `applyEncounterOutcome`
   // (ratings and ladders); this one is the manifest attrition fold from @caravan/circle.
   applyEncounterOutcome as applyAttritionOutcome,
+  assertEncounterOutcome,
+  AttritionError,
   formationFromJson,
   formationGaps,
   manifestFromJson,
@@ -159,7 +161,11 @@ export async function lockManifest(client: pg.PoolClient, caravan: CaravanRow, r
     units.push({ instanceId: row.id, typeId: row.unit_type_id, mergeLevel: row.merge_level });
   }
   const packed = packManifest({ units, traps: req.traps, fence: req.fence }, await accessCheckFor(client, ownerOf(caravan)));
-  if (!packed.ok) throw invalid("invalid_manifest", "the loadout cannot be packed", packed.issues);
+  if (!packed.ok) {
+    // QA S3: an empty loadout gets its own error code; the issue list is still attached.
+    const empty = packed.issues.some((i) => i.code === "manifest_empty");
+    throw invalid(empty ? "manifest_empty" : "invalid_manifest", empty ? "a manifest must pack at least one living unit" : "the loadout cannot be packed", packed.issues);
+  }
   return insertManifest(client, { caravanId: caravan.id, packedJson: serializeManifest(packed.value) });
 }
 
@@ -214,7 +220,9 @@ export async function getFormation(db: pg.Pool | pg.PoolClient, caravan: Caravan
 
 /**
  * Commit: re-validate the draft against the current survivors (they cannot have changed
- * without an outcome, but the check is cheap and the boundary is here), then freeze.
+ * without an outcome, but the check is cheap and the boundary is here), then freeze it
+ * together with a snapshot of those survivors (QA S7), so the encounter's resolver input
+ * can be rebuilt byte-for-byte after later outcomes have moved the manifest on.
  * Idempotent: committing an already-committed formation returns it unchanged.
  */
 export async function commitFormation(client: pg.PoolClient, caravan: CaravanRow, encounterIndex: number): Promise<FormationView> {
@@ -229,15 +237,25 @@ export async function commitFormation(client: pg.PoolClient, caravan: CaravanRow
   if (!res.ok) throw invalid("invalid_formation", "the formation is not legal", res.issues);
   const canonical = serializeFormation(res.value);
   if (formationHash(canonical) !== draft.formation_hash) throw new Error("stored formation does not match its hash");
-  return formationView(await commitFormationRow(client, manifest.id, encounterIndex));
+  return formationView(await commitFormationRow(client, manifest.id, encounterIndex, serializeManifest(survivors)));
 }
 
-/** The resolver's view of a committed encounter. */
+/**
+ * The resolver's view of a committed encounter: the committed formation joined with the
+ * survivors AS THEY STOOD AT COMMIT (the row's snapshot, QA S7) — never the manifest's
+ * current survivors, which later outcomes move on. A committed row without a snapshot
+ * cannot exist under migration 004's CHECK; the fallback below is defensive and refuses
+ * to serve an already-resolved encounter from live state, where the HP would be wrong.
+ */
 export async function battlefieldForEncounter(db: pg.Pool | pg.PoolClient, manifestId: string, encounterIndex: number): Promise<Battlefield> {
   const manifest = await findManifestById(db, manifestId);
   if (!manifest) throw notFound("no_manifest", "manifest not found");
   const row = await findFormation(db, manifestId, encounterIndex);
   if (!row?.committed_at) throw conflict("not_committed", "only a committed formation can be resolved");
+  if (row.survivors_snapshot) return toBattlefield(manifestFromJson(row.survivors_snapshot), formationFromJson(row.formation));
+  if (encounterIndex <= manifest.encounters_resolved) {
+    throw conflict("no_snapshot", `encounter ${encounterIndex} has resolved and its formation carries no survivors snapshot; its input cannot be rebuilt from live state`);
+  }
   return toBattlefield(manifestFromRow(manifest).survivors, formationFromJson(row.formation));
 }
 
@@ -245,6 +263,11 @@ export async function battlefieldForEncounter(db: pg.Pool | pg.PoolClient, manif
  * Fold a resolved encounter into the manifest. NOT exposed as a route: the only legitimate
  * source of an outcome is the resolution job (chunks 13/15), never a client. Requires the
  * encounter's formation to be committed and to be the next unresolved one.
+ *
+ * QA S2: an outcome may only touch what was IN THE FIGHT. A trap held back cannot have
+ * fired, a fence segment left in the wagon cannot have been chipped, a unit without a post
+ * (which can only be a dead one) cannot have changed. Any such ref is refused as a bug in
+ * the resolution path, before the monotone fold runs.
  */
 export async function applyOutcome(
   client: pg.PoolClient,
@@ -252,11 +275,24 @@ export async function applyOutcome(
   encounterIndex: number,
   outcome: EncounterOutcome,
 ): Promise<WagonManifestRow> {
+  assertEncounterOutcome(outcome);
   const manifest = await findManifestById(client, manifestId, true);
   if (!manifest) throw notFound("no_manifest", "manifest not found");
   requireNextEncounter(manifest, encounterIndex);
   const row = await findFormation(client, manifestId, encounterIndex);
   if (!row?.committed_at) throw conflict("not_committed", "an outcome can only be applied to a committed formation");
+  const formation = formationFromJson(row.formation);
+  const placed = {
+    units: new Set(formation.posts.map((p) => p.ref)),
+    traps: new Set(formation.traps.map((t) => t.ref)),
+    fences: new Set(formation.fences.map((f) => f.ref)),
+  };
+  const unplaced = [
+    ...outcome.units.filter((u) => !placed.units.has(u.ref)).map((u) => `unit '${u.ref}' was not posted`),
+    ...outcome.spentTraps.filter((ref) => !placed.traps.has(ref)).map((ref) => `trap '${ref}' was not laid`),
+    ...outcome.fences.filter((f) => !placed.fences.has(f.ref)).map((f) => `fence '${f.ref}' was not placed`),
+  ];
+  if (unplaced.length > 0) throw new AttritionError(`outcome for encounter ${encounterIndex} names things that were not in the fight: ${unplaced.join("; ")}`);
   const next = applyAttritionOutcome(manifestFromRow(manifest).survivors, outcome);
   return updateSurvivors(client, { manifestId, survivorsJson: serializeManifest(next), encountersResolved: encounterIndex });
 }

@@ -12,7 +12,7 @@
  * Parsing is STRICT: unknown keys are rejected at every level. That is what keeps
  * elevation, terrain, scenery or any other smuggled field out of a stored formation.
  */
-import { normalizeFormation, type Formation, FORMATION_VERSION } from "./formation.js";
+import { DEFAULT_DEFENSIVE_STANCE, DEFENSIVE_STANCES, FORMATION_VERSION, isDefensiveStance, normalizeFormation, oversizedIssue, type DefensiveStance, type Formation } from "./formation.js";
 import { isCell, isRingSegmentIndex, type Cell } from "./lattice.js";
 import { assertManifest, freezeManifest, type Manifest, MANIFEST_VERSION } from "./manifest.js";
 
@@ -42,14 +42,20 @@ export class ParseError extends Error {
 
 // ── strict decoding helpers ──────────────────────────────────────────────────────────
 
-function expectObject(v: unknown, where: string, allowedKeys: readonly string[]): Record<string, unknown> {
+/** Exactly the required keys, plus any of the optional ones; anything else is refused by name. */
+function expectObject(v: unknown, where: string, requiredKeys: readonly string[], optionalKeys: readonly string[] = []): Record<string, unknown> {
   if (v === null || typeof v !== "object" || Array.isArray(v)) throw new ParseError(`${where} must be an object`);
   const obj = v as Record<string, unknown>;
   for (const k of Object.keys(obj)) {
-    if (!allowedKeys.includes(k)) throw new ParseError(`${where} has unknown key '${k}'`);
+    if (!requiredKeys.includes(k) && !optionalKeys.includes(k)) throw new ParseError(`${where} has unknown key '${k}'`);
   }
-  for (const k of allowedKeys) if (!(k in obj)) throw new ParseError(`${where} is missing '${k}'`);
+  for (const k of requiredKeys) if (!(k in obj)) throw new ParseError(`${where} is missing '${k}'`);
   return obj;
+}
+function expectStance(v: unknown, where: string): DefensiveStance {
+  if (v === undefined) return DEFAULT_DEFENSIVE_STANCE;
+  if (!isDefensiveStance(v)) throw new ParseError(`${where} must be one of ${DEFENSIVE_STANCES.join(", ")}`);
+  return v;
 }
 function expectArray(v: unknown, where: string): unknown[] {
   if (!Array.isArray(v)) throw new ParseError(`${where} must be an array`);
@@ -82,7 +88,7 @@ export function serializeFormation(f: Formation): string {
     v: n.v,
     fences: n.fences.map((p) => ({ ref: p.ref, segment: p.segment })),
     traps: n.traps.map((p) => ({ ref: p.ref, cell: { x: p.cell.x, y: p.cell.y } })),
-    posts: n.posts.map((p) => ({ ref: p.ref, cell: { x: p.cell.x, y: p.cell.y } })),
+    posts: n.posts.map((p) => ({ ref: p.ref, cell: { x: p.cell.x, y: p.cell.y }, stance: p.stance })),
   });
 }
 
@@ -97,22 +103,34 @@ export function parseFormation(text: string): Formation {
   return formationFromJson(raw);
 }
 
+/**
+ * Strict structural parse of untrusted input. A post's `stance` may be omitted and defaults
+ * to `guard` (QA D1); the canonical form always carries it. QA S8: list sizes are checked
+ * against the caps BEFORE any entry is looked at, so an oversized body costs nothing.
+ */
 export function formationFromJson(raw: unknown): Formation {
   const o = expectObject(raw, "formation", ["v", "fences", "traps", "posts"]);
   if (o["v"] !== FORMATION_VERSION) throw new ParseError(`unsupported formation version ${String(o["v"])}`);
-  const fences = expectArray(o["fences"], "formation.fences").map((p, i) => {
+  const lists = { fences: expectArray(o["fences"], "formation.fences"), traps: expectArray(o["traps"], "formation.traps"), posts: expectArray(o["posts"], "formation.posts") };
+  const oversized = oversizedIssue(lists);
+  if (oversized) throw new ParseError(oversized.message);
+  const fences = lists.fences.map((p, i) => {
     const e = expectObject(p, `formation.fences[${i}]`, ["ref", "segment"]);
     const segment = expectInt(e["segment"], `formation.fences[${i}].segment`);
     if (!isRingSegmentIndex(segment)) throw new ParseError(`formation.fences[${i}].segment is not a ring position`);
     return { ref: expectString(e["ref"], `formation.fences[${i}].ref`), segment };
   });
-  const traps = expectArray(o["traps"], "formation.traps").map((p, i) => {
+  const traps = lists.traps.map((p, i) => {
     const e = expectObject(p, `formation.traps[${i}]`, ["ref", "cell"]);
     return { ref: expectString(e["ref"], `formation.traps[${i}].ref`), cell: expectCell(e["cell"], `formation.traps[${i}].cell`) };
   });
-  const posts = expectArray(o["posts"], "formation.posts").map((p, i) => {
-    const e = expectObject(p, `formation.posts[${i}]`, ["ref", "cell"]);
-    return { ref: expectString(e["ref"], `formation.posts[${i}].ref`), cell: expectCell(e["cell"], `formation.posts[${i}].cell`) };
+  const posts = lists.posts.map((p, i) => {
+    const e = expectObject(p, `formation.posts[${i}]`, ["ref", "cell"], ["stance"]);
+    return {
+      ref: expectString(e["ref"], `formation.posts[${i}].ref`),
+      cell: expectCell(e["cell"], `formation.posts[${i}].cell`),
+      stance: expectStance(e["stance"], `formation.posts[${i}].stance`),
+    };
   });
   return normalizeFormation({ v: FORMATION_VERSION, fences, traps, posts });
 }

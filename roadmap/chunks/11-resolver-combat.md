@@ -133,3 +133,28 @@ still no I/O.
 - **DPS sanity:** check a few units' `formula_result / attack_cooldown`. A unit with a
   huge hit and a long cooldown and one with a small hit and a short cooldown should be
   comparably threatening, or the cooldown stat isn't being tuned as a real lever.
+
+## Note from chunk 07 QA (D1) — posted units carry a defensive stance
+
+Each `Battlefield` post arrives with `stance: "guard" | "hold" | "reserve"` (chunk 07,
+`DEFENSIVE_STANCES`). This chunk implements the behaviour; the semantics were fixed in
+chunk 07 so the model and the resolver agree:
+
+- `guard` — the aggro/leash pursuit described above, unchanged. The default.
+- `hold` — fights only attackers within its attack range measured from its **post**; it
+  never leaves the post (leash 0). No pursuit, no disengage-and-return — it simply does
+  not move.
+- `reserve` — ignores every attacker until one is **inside the ring**: any lattice cell
+  with Chebyshev distance < `PERIMETER_RING_RADIUS` from the core centre (i.e. strictly
+  inside the square the fence and the four wagon anchors sit on). From that tick on it
+  behaves exactly as `guard`. It does not revert to ignoring once triggered.
+
+Stance never changes mid-fight. Target selection (`ATTACK_TARGET_SELECTION`) is the same
+for all three; the stance drives **movement and acquisition**, not what gets hit. Add the
+tie-break and boundary tests for `hold` (target at exactly attack range) and `reserve`
+(attacker on a ring cell vs. one cell inside) to the explicit edge-case list above.
+
+Also from chunk 07 QA (D2): pathing is 4-connected (`TUNABLES.PATH_CONNECTIVITY` = 4, no
+corner cutting) and the four ring corners are permanent blocked cells (`Battlefield.anchors`)
+with no HP — they are never attacked, never breached, and never a target for
+`structure_breaker` or siege.

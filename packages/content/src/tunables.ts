@@ -289,19 +289,35 @@ export const TUNABLES = {
   GRID_HEIGHT: 32,
   /**
    * TUNABLE (chunk 07). Chebyshev radius of the fence ring around the core centre, in cells.
-   * The ring is the square of cells at exactly this radius, so it has 8 × radius segments;
-   * PERIMETER_SEGMENTS below must equal that and a test asserts it.
+   * The ring is the square of cells at exactly this radius: 8 × radius cells, of which the
+   * RING_ANCHOR_CELLS corners are fixed wagon anchors and the rest are fence positions, so
+   * PERIMETER_SEGMENTS below must equal 8 × radius − RING_ANCHOR_CELLS and a test asserts it.
    */
   PERIMETER_RING_RADIUS: 4,
-  /** TUNABLE (chunk 07). Segments forming the ring, each independently placed or left as a gap. */
-  PERIMETER_SEGMENTS: 32,
+  /**
+   * Fixed by design (chunk 07 QA D2): the ring's four corner cells are permanent, impassable
+   * wagon anchors — shown as parked wagons, never buyable fence, never a gap. The Battlefield
+   * input carries them as blocked cells. A square ring has exactly four corners.
+   */
+  RING_ANCHOR_CELLS: 4,
+  /** TUNABLE (chunk 07). Fence positions on the ring (8 × radius − RING_ANCHOR_CELLS), each independently placed or left as a gap. */
+  PERIMETER_SEGMENTS: 28,
   /**
    * TUNABLE (chunk 07). Fence segments a caravan can pack for a trip. THE most important
    * balance lever in chunk 07: it is deliberately BELOW PERIMETER_SEGMENTS so a full ring is
-   * unaffordable and choosing where the gap goes is a real decision. A test asserts
-   * FENCE_MATERIAL_BUDGET < PERIMETER_SEGMENTS; raising it to the ring size deletes the game.
+   * unaffordable and choosing where the gap goes is a real decision (20 of 28 still forces 8
+   * gaps). A test asserts FENCE_MATERIAL_BUDGET < PERIMETER_SEGMENTS; raising it to the ring
+   * size deletes the game.
    */
-  FENCE_MATERIAL_BUDGET: 24,
+  FENCE_MATERIAL_BUDGET: 20,
+  /**
+   * Fixed by design (chunk 07 QA D2, decided for chunk 10): lattice pathing is 4-connected —
+   * orthogonal steps only, no diagonal moves and therefore no corner cutting between two
+   * diagonally-touching blocked cells. The circle's reachability check and the resolver's
+   * pathfinder must both read this; a full ring of fence plus the four anchors seals the core
+   * only because diagonals are not steps.
+   */
+  PATH_CONNECTIVITY: 4,
   /** Fixed by design in MVP (chunk 07): the caravan core is a CORE_SIZE × CORE_SIZE block at the lattice centre, not player-placed. */
   CORE_SIZE: 3,
   /** TUNABLE (chunk 07). Minimum Euclidean distance between two unit posts, in cells. 1.0 = distinct cells. */
