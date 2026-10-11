@@ -1,6 +1,6 @@
 # Chunk 09 — Standing raid party
 
-**Depends on:** 03, 05, 07. **Status:** built (server model, routes, feed, tests — 2026-10-11; the builder UI's visual parts are chunk 17's town screen and are listed below as deferred).
+**Depends on:** 03, 05, 07. **Status:** QA'd (server model, routes, feed, tests — 2026-10-11; QA round 1 punch list closed the same day except B1, which is chunk 14's; the builder UI's visual parts are chunk 17's town screen and are listed below as deferred).
 Read `/roadmap/GUARDRAILS.md` in full first, including §0 on which way round the game runs.
 
 ## Goal
@@ -159,7 +159,7 @@ the real `snapshotStandingParty` in `jobs/snapshots.ts`; tunables block in
   (`party_saved:<partyId>:<n>`, payload: partyId, slot, saveSeq, hash, counts, edges, config).
   A no-op save appends nothing. No cooldown exists (`PARTY_EDIT_COOLDOWN_MS` 0, asserted).
 - **Feed** = the owner's `party_served_as_encounter` events joined with the same-causation
-  `coin_earned` / `coin_transferred_to_defender` / siege `reputation_changed` /
+  `coin_earned` / `coin_transferred_to_party_owner` / siege `reputation_changed` /
   `ladder_progress_gained`, plus the defender caravan's name/region/username. Newest first,
   `before` cursor. Replays are chunk 13's (`jobId` is carried).
 - **Snapshot shape** (`job.input.party`): `{ownerAccountId, partyId, slot, savedAt, hash,
@@ -168,3 +168,90 @@ the real `snapshotStandingParty` in `jobs/snapshots.ts`; tunables block in
   lattice, touch targets, the visual builder. The data for every UI bullet is in `GET
   /me/party` (`scout` preview, both ratings with `ratingInUse`, `slotCost`, `siegeCatalog`
   with `targetTypeIds`, `roster[].packedOnTrip/aliveOnTrip`, `rules`).
+
+## QA round 1 (2026-10-11) — punch list closed (`roadmap/qa/09-punchlist.md`)
+
+**B1 — the snapshot-at-selection contract (owned by chunk 14; nothing in this chunk
+changed).** Today the only party snapshot is taken at formation commit
+(`enqueueEncounterResolution` → `snapshotStandingParty`), so the party a defender scouted
+is not guaranteed to be the party served if the owner edits in between. The contract
+chunk 14 implements:
+
+1. **Snapshot once, at candidate selection.** When matchmaking offers a candidate it calls
+   `snapshotStandingParty(db, ownerAccountId)` inside its own transaction (the row is read
+   FOR SHARE, N5) and **stores the returned `StandingPartySnapshot`** with the candidate.
+2. **Scout from the stored snapshot, never the live row:** `scoutParty(partyFromJson(
+   snapshot.composition))`. The owner's preview and the defender's scout remain the one
+   function; only the input differs (live resolution vs. the stored copy).
+3. **`enqueueEncounterResolution` accepts the pre-taken `partySnapshot`** and never
+   re-resolves. The job input is byte-identical to what was scouted; `partyId`, `hash`
+   and `savedAt` in it name the version (N3; chunk 13 copies them into
+   `party_served_as_encounter`).
+4. **Invalid parties are dropped at candidate generation:** `StandingPartyInvalidError`
+   means "not a candidate", never "serve it anyway" and never an error to the defender.
+   An owner whose party is invalid simply is not served until they edit it.
+5. A party edited after selection is served as selected; the owner's feed entry names the
+   version via `hash`/`savedAt`. This is the same immutability rule chunk 02 gives the
+   formation.
+
+**Decisions recorded.**
+- **D1 — access is the union over the account's caravans.** Acceptable for v1 (one caravan
+  per account makes it exact). Tighten to `access(instance.caravanId)` per unit when
+  multi-caravan lands (PHASE-2 §46 carries the same note).
+- **D2 — usernames are public handles.** The feed shows the defender's username and
+  caravan name (`defender.username`, `defender.caravanName`). No change.
+- **S3 — a roster change that removes an instance the party names.** The party is never
+  trimmed and the change is never blocked (build notes above); the owner is told, twice:
+  - **Ask:** chunk 16's merge preview reports `consumed.inParty` (the consumed ids the
+    party names) and `requiresConfirmInParty`; the commit refuses with **409
+    `unit_in_party`** (body lists `inParty`) unless the request carries the literal
+    `confirmInParty: true`.
+  - **Record:** every instance-removing path appends an account-scoped
+    **`standing_party_invalidated`** event (new enum value, migration 002 edited in
+    place) under its own causation id, after its DELETE, with `{partyId, slot, saveSeq,
+    hash, reason: "merge" | "trip_loss", removedRefs, valid, issues}` — the full issue
+    list the party resolves to now. Merge does this today
+    (`standingPartyInvalidationDraft` in `party/service.ts`); chunk 19's
+    `unit_lost_on_wipe` must call the same helper (note in its chunk file).
+  - Both reads happen under the account append lock (see S2), so the answer cannot change
+    between the question and the commit.
+
+**Fixed.**
+- **S1 — reflection amplifier.** `MAX_ID_LENGTH` 64: the strict parser refuses any ref or
+  siege id longer than that (`malformed_party`, named by position, value never echoed).
+  `resolveParty` messages name entries by position (`party unit #3 …`); the id rides in
+  `subject`, truncated to 64 (`issueSubject`). `assertParty` likewise.
+- **S2 — save/merge serialization.** `saveParty` takes `lockAccountForAppend` **before**
+  reading the party row and the roster; a merge holds the same lock around its DELETE, so
+  a save can no longer validate against a roster a merge is removing from. Test: six
+  racing save+merge rounds; either the save lands first and the merge records the
+  invalidation, or the merge lands first and the save is refused — never a stored invalid
+  party without its event.
+- **S4 — abuse limit + `save_seq` column.** `PUT /me/party` is limited per account to
+  `PARTY_SAVE_RATE_LIMIT_PER_MINUTE` (30, `apps/server/src/jobs/tunables.ts` — a server
+  infra knob, not a balance constant and not a gameplay cooldown: `PARTY_EDIT_COOLDOWN_MS`
+  stays 0, editing stays free and instant, nothing purchasable touches it) via a sliding
+  window in `src/util/rateLimit.ts`; the 31st request in a minute is **429
+  `rate_limited`** with `retry-after`. `standing_party.save_seq` is a counter column
+  (migration 008 in place; the trigger makes it advance by exactly 1 with the composition
+  and refuses any other movement); it replaces `count(*)` over the ledger as the save
+  event's causation counter.
+- **X1 — defense scaling removed.** `packages/circle/src/resolverInput.ts` handed the
+  resolver `defense` scaled by `mergeStatMult`; chunk 03 B1 says ratings never scale (only
+  HP and post-formula damage output). It is now the unscaled type rating; a test pins
+  offense/defense equal to the type values at every merge level 1–5 while HP scales. (The
+  `BattlefieldPost.defense` doc comment in `packages/resolver/src/battlefield.ts` still
+  says "scaled by merge level" — that package is chunk 10's; flagged for its fixer.)
+- **X2 — `coin_transferred_to_defender` → `coin_transferred_to_party_owner`** in migration
+  002 (in place), `ledger/events.ts`, `ledger/coin.ts`, `party/feed.ts` and the ledger
+  test. A test pins the code list equal to the database enum.
+- **N1** party parse errors are `malformed party: …` (`ParseError` carries a `kind`).
+  **N2** `rules.stances` is `TARGETING_STANCES`. **N3** the snapshot already carried
+  `partyId` + `hash`; chunk 13's file now requires them in `party_served_as_encounter`.
+  **N4** `standing_party_account_idx` dropped from migration 008 (the `(account_id, slot)`
+  unique index covers it). **N5** `findStandingParty` takes a lock mode; the snapshot path
+  reads FOR SHARE, the edit path FOR UPDATE.
+
+**Out of this chunk's hands:** the stale `coin_transferred_to_defender` mentions in
+`chunks/02-ledger-and-job-queue.md` and historical ORCHESTRATION entries are left as
+written (not this fixer's files; the enum rename is the source of truth).

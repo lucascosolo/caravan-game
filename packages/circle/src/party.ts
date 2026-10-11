@@ -75,6 +75,19 @@ export const MAX_APPROACH_EDGES: number = TUNABLES.MAX_APPROACH_EDGES;
 /** Always 0: editing is free and instant. Exported so the server can publish it, never gate on it. */
 export const PARTY_EDIT_COOLDOWN_MS: number = TUNABLES.PARTY_EDIT_COOLDOWN_MS;
 
+/**
+ * Chunk 09 QA S1: the longest id (instance ref or content type id) a party may name. The
+ * strict parser refuses anything longer; issue subjects are truncated to it; messages
+ * never echo a raw id at all, so a hostile body cannot amplify itself through the
+ * response. Real ids are uuids (36) or content ids (< 40).
+ */
+export const MAX_ID_LENGTH = 64;
+
+/** An issue subject: the id, cut to MAX_ID_LENGTH. */
+export function issueSubject(id: string): string {
+  return id.length > MAX_ID_LENGTH ? id.slice(0, MAX_ID_LENGTH) : id;
+}
+
 // ── the config: the owner's choices ───────────────────────────────────────────────────
 
 export interface PartyUnitConfig {
@@ -195,47 +208,50 @@ export function resolveParty(config: PartyConfig, roster: readonly RosterUnit[],
   const byInstance = new Map(roster.map((u) => [u.instanceId, u]));
   const seen = new Set<string>();
   const units: PartyUnit[] = [];
-  for (const u of config.units) {
+  for (const [i, u] of config.units.entries()) {
     if (typeof u.ref !== "string" || u.ref.length === 0) {
-      issues.push(issue("unknown_ref", "a party unit must name a roster instance"));
+      issues.push(issue("unknown_ref", `party unit #${i} must name a roster instance`));
       continue;
     }
+    // QA S1: messages name the entry by position, never by echoing the submitted id; the
+    // (truncated) id rides in `subject` for the builder to match on.
+    const subject = issueSubject(u.ref);
     if (seen.has(u.ref)) {
-      issues.push(issue("duplicate_ref", `unit instance '${u.ref}' is in the party twice`, u.ref));
+      issues.push(issue("duplicate_ref", `party unit #${i} is in the party twice`, subject));
       continue;
     }
     seen.add(u.ref);
     const live = byInstance.get(u.ref);
     if (!live) {
-      issues.push(issue("unknown_ref", `unit instance '${u.ref}' is not in your roster (it may have been lost on a trip or consumed by a merge)`, u.ref));
+      issues.push(issue("unknown_ref", `party unit #${i} is not in your roster (it may have been lost on a trip or consumed by a merge)`, subject));
       continue;
     }
     const type = getUnitType(live.typeId);
     if (!type) {
-      issues.push(issue("unknown_type", `unknown living-unit type '${live.typeId}'`, live.typeId));
+      issues.push(issue("unknown_type", `party unit #${i} has an unknown living-unit type`, issueSubject(live.typeId)));
       continue;
     }
     if (!isUnlocked(live.typeId)) {
-      issues.push(issue("type_locked", `living-unit type '${live.typeId}' is not unlocked`, live.typeId));
+      issues.push(issue("type_locked", `party unit #${i}'s living-unit type is not unlocked`, issueSubject(live.typeId)));
       continue;
     }
     if (!Number.isInteger(live.mergeLevel) || live.mergeLevel < TUNABLES.MERGE_LEVEL_MIN || live.mergeLevel > TUNABLES.MERGE_LEVEL_MAX) {
-      issues.push(issue("bad_merge_level", `merge level ${String(live.mergeLevel)} is outside ${TUNABLES.MERGE_LEVEL_MIN}..${TUNABLES.MERGE_LEVEL_MAX}`, u.ref));
+      issues.push(issue("bad_merge_level", `party unit #${i}'s merge level ${String(live.mergeLevel)} is outside ${TUNABLES.MERGE_LEVEL_MIN}..${TUNABLES.MERGE_LEVEL_MAX}`, subject));
       continue;
     }
     let bad = false;
     if (!isTargetingStance(u.stance)) {
-      issues.push(issue("bad_stance", `stance must be one of ${TARGETING_STANCES.join(", ")}`, u.ref));
+      issues.push(issue("bad_stance", `party unit #${i}: stance must be one of ${TARGETING_STANCES.join(", ")}`, subject));
       bad = true;
     }
     if (!isEntryEdge(u.edge)) {
-      issues.push(issue("bad_edge", `approach edge must be one of ${ENTRY_EDGES.join(", ")}`, u.ref));
+      issues.push(issue("bad_edge", `party unit #${i}: approach edge must be one of ${ENTRY_EDGES.join(", ")}`, subject));
       bad = true;
     } else if (!isCell(u.cell)) {
-      issues.push(issue("bad_cell", `starting cell must be a lattice cell`, u.ref));
+      issues.push(issue("bad_cell", `party unit #${i}: starting cell must be a lattice cell`, subject));
       bad = true;
     } else if (!isEntryCell(u.cell, u.edge)) {
-      issues.push(issue("cell_off_band", `starting cell (${u.cell.x}, ${u.cell.y}) is not in the ${u.edge} entry band`, u.ref));
+      issues.push(issue("cell_off_band", `party unit #${i}: starting cell (${u.cell.x}, ${u.cell.y}) is not in the ${u.edge} entry band`, subject));
       bad = true;
     }
     if (bad) continue;
@@ -244,18 +260,19 @@ export function resolveParty(config: PartyConfig, roster: readonly RosterUnit[],
 
   const seenSiege = new Set<string>();
   const siege: PartySiege[] = [];
-  for (const typeId of config.siege) {
+  for (const [i, typeId] of config.siege.entries()) {
+    const subject = issueSubject(String(typeId));
     if (!getSiegeType(typeId)) {
-      issues.push(issue("unknown_type", `unknown siege type '${String(typeId)}'`, String(typeId)));
+      issues.push(issue("unknown_type", `party siege #${i} is an unknown siege type`, subject));
       continue;
     }
     if (seenSiege.has(typeId)) {
-      issues.push(issue("duplicate_siege", `siege '${typeId}' is in the party twice; a counter applies once`, typeId));
+      issues.push(issue("duplicate_siege", `party siege #${i} is in the party twice; a counter applies once`, subject));
       continue;
     }
     seenSiege.add(typeId);
     if (!isUnlocked(typeId)) {
-      issues.push(issue("type_locked", `siege type '${typeId}' is not unlocked`, typeId));
+      issues.push(issue("type_locked", `party siege #${i} is not unlocked`, subject));
       continue;
     }
     siege.push({ typeId });
@@ -287,9 +304,10 @@ export function assertParty(p: Party): void {
   const refs = new Set<string>();
   for (const u of p.units) {
     if (typeof u.ref !== "string" || u.ref.length === 0) fail("empty ref");
+    if (u.ref.length > MAX_ID_LENGTH) fail(`ref longer than ${MAX_ID_LENGTH}`);
     if (refs.has(u.ref)) fail(`duplicate ref ${u.ref}`);
     refs.add(u.ref);
-    if (!getUnitType(u.typeId)) fail(`unknown unit type ${u.typeId}`);
+    if (!getUnitType(u.typeId)) fail(`unknown unit type ${issueSubject(u.typeId)}`);
     if (!Number.isInteger(u.mergeLevel) || u.mergeLevel < TUNABLES.MERGE_LEVEL_MIN || u.mergeLevel > TUNABLES.MERGE_LEVEL_MAX) fail(`merge level ${String(u.mergeLevel)}`);
     if (!isTargetingStance(u.stance)) fail(`stance ${String(u.stance)}`);
     if (!isEntryEdge(u.edge)) fail(`edge ${String(u.edge)}`);
@@ -297,7 +315,7 @@ export function assertParty(p: Party): void {
   }
   const types = new Set<string>();
   for (const s of p.siege) {
-    if (!getSiegeType(s.typeId)) fail(`unknown siege type ${s.typeId}`);
+    if (!getSiegeType(s.typeId)) fail(`unknown siege type ${issueSubject(s.typeId)}`);
     if (types.has(s.typeId)) fail(`duplicate siege ${s.typeId}`);
     types.add(s.typeId);
   }

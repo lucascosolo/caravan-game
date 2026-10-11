@@ -15,17 +15,20 @@ import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fas
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { applyOutcome } from "../src/circle/service.js";
 import { withTransaction } from "../src/db/pool.js";
+import { appendCoinCredits } from "../src/economy/coin.js";
 import { enqueueEncounterResolution } from "../src/jobs/handlers/encounterResolution.js";
 import { getJob } from "../src/jobs/queue.js";
 import { StandingPartyInvalidError, snapshotStandingParty } from "../src/jobs/snapshots.js";
+import { PARTY_SAVE_RATE_LIMIT_PER_MINUTE } from "../src/jobs/tunables.js";
 import { drain, type HandlerRegistry } from "../src/jobs/worker.js";
-import { canonicalJson, type Json } from "../src/ledger/events.js";
+import { LEDGER_EVENT_TYPES, canonicalJson, type Json } from "../src/ledger/events.js";
 import { listEventsForAccount } from "../src/ledger/ledger.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
+import { partySaveLimiter } from "../src/routes/party.js";
 import { appRolePool, expectDbError, testPool, truncateAll, unique } from "./helpers.js";
 
 const pool = testPool();
@@ -97,6 +100,9 @@ beforeAll(async () => {
   appRole = appRolePool();
   app = await buildApp({ db: appRole });
 });
+// The abuse limit on PUT /me/party (QA S4) is per sliding minute; this file issues far more
+// than that per player, so it is reset between cases. The S4 case below exercises it.
+beforeEach(() => partySaveLimiter.reset());
 afterAll(async () => {
   await app.close();
   await appRole.end();
@@ -243,7 +249,9 @@ describe("PUT /me/party — composition, stances, edges, positions", () => {
     const [theirs] = await giveUnits(other, 1);
     const res = await call(p, "PUT", "/me/party", fullParty([...p.units.slice(0, 7), theirs!]));
     expect(res.statusCode).toBe(400);
-    expect(res.json().issues).toEqual([{ code: "unknown_ref", message: `unit instance '${theirs}' is not in your roster (it may have been lost on a trip or consumed by a merge)`, subject: theirs }]);
+    // QA S1: the message names the entry by its (canonical) position only; the id rides in `subject`.
+    const position = [...p.units.slice(0, 7), theirs!].sort().indexOf(theirs!);
+    expect(res.json().issues).toEqual([{ code: "unknown_ref", message: `party unit #${position} is not in your roster (it may have been lost on a trip or consumed by a merge)`, subject: theirs }]);
   });
 
   it("the access gate: a locked living type the caravan owns and a locked siege type are refused by hand-crafted request", async () => {
@@ -255,7 +263,7 @@ describe("PUT /me/party — composition, stances, edges, positions", () => {
       ["type_locked", "siege.fence_cutters"],
     ]);
     const unknown = await call(p, "PUT", "/me/party", fullParty(p.units.slice(0, 7), ["siege.catapult"]));
-    expect(unknown.json().issues).toEqual([{ code: "unknown_type", message: "unknown siege type 'siege.catapult'", subject: "siege.catapult" }]);
+    expect(unknown.json().issues).toEqual([{ code: "unknown_type", message: "party siege #0 is an unknown siege type", subject: "siege.catapult" }]);
     p.units = p.units.filter((u) => u !== vaquero);
   });
 
@@ -526,7 +534,8 @@ describe("a unit both in the party and packed on a trip", () => {
     expect(view.valid).toBe(false);
     expect(view.party).toBeNull();
     expect(view.scout).toBeNull();
-    expect(view.issues).toEqual([{ code: "unknown_ref", message: `unit instance '${shared}' is not in your roster (it may have been lost on a trip or consumed by a merge)`, subject: shared }]);
+    const position = (view.config.units as { ref: string }[]).findIndex((u) => u.ref === shared);
+    expect(view.issues).toEqual([{ code: "unknown_ref", message: `party unit #${position} is not in your roster (it may have been lost on a trip or consumed by a merge)`, subject: shared }]);
     expect(view.config.units.length).toBe(4); // the choices are kept, not trimmed
     const put = await call(p, "PUT", "/me/party", fullParty(p.units));
     expect(put.statusCode).toBe(400);
@@ -574,7 +583,7 @@ describe("database guards and the schema", () => {
     // A no-op update leaves the version stamp alone; a composition change moves it.
     await appRole.query("UPDATE standing_party SET slot = slot WHERE id = $1", [row.id]);
     expect((await pool.query<{ updated_at: Date }>("SELECT updated_at FROM standing_party WHERE id = $1", [row.id])).rows[0]!.updated_at.getTime()).toBe(row.updated_at.getTime());
-    await appRole.query(`UPDATE standing_party SET composition = '{"siege":["siege.battering_wagon"],"units":[],"v":1}' WHERE id = $1`, [row.id]);
+    await appRole.query(`UPDATE standing_party SET composition = '{"siege":["siege.battering_wagon"],"units":[],"v":1}', save_seq = save_seq + 1 WHERE id = $1`, [row.id]);
     expect((await pool.query<{ updated_at: Date }>("SELECT updated_at FROM standing_party WHERE id = $1", [row.id])).rows[0]!.updated_at.getTime()).toBeGreaterThan(row.updated_at.getTime());
     // Account-level (GUARDRAILS §5): no caravan column, and the event is account-scoped.
     const cols = await pool.query<{ column_name: string }>("SELECT column_name FROM information_schema.columns WHERE table_name = 'standing_party'");
@@ -603,5 +612,192 @@ describe("structural: no code on the party or snapshot path can write the roster
     };
     walk(srcDir);
     expect(writers).toEqual(["party/repo.ts"]);
+  });
+});
+
+// ── chunk 09 QA punch list (roadmap/qa/09-punchlist.md) ─────────────────────────────────
+
+/** Coin for a merge: credited through the only credit path, under its own cause. */
+async function giveCoin(accountId: string, amount: number): Promise<void> {
+  await withTransaction(pool, (c) => appendCoinCredits(c, { causationId: `test:${unique("coin")}`, accountId, credits: [{ amount, reason: "test_setup" }] }));
+}
+
+describe("QA S3: a merge that consumes a unit the standing party names", () => {
+  let p: Player;
+  let inParty: string[];
+  let spare: string[];
+  beforeAll(async () => {
+    p = await registerPlayer();
+    inParty = await giveUnits(p, 2, "desert.dust_rider");
+    spare = await giveUnits(p, 2, "desert.dust_rider");
+    await giveCoin(p.accountId, 5000);
+    expect((await call(p, "PUT", "/me/party", fullParty(inParty))).statusCode).toBe(200);
+  });
+
+  it("the preview reports which consumed instances ride in the party; the commit is refused with 409 unit_in_party until confirmed; nothing moves", async () => {
+    const pv = await call(p, "POST", `/me/caravans/${p.caravanId}/merge/preview`, { instanceIds: inParty });
+    expect(pv.statusCode).toBe(200);
+    expect(pv.json().consumed.inParty).toEqual([...inParty].sort());
+    expect(pv.json().requiresConfirmInParty).toBe(true);
+    const rosterBefore = await rosterBytes(p.caravanId);
+    const eventsBefore = (await listEventsForAccount(pool, p.accountId)).length;
+    for (const body of [{ instanceIds: inParty }, { instanceIds: inParty, confirmInParty: "true" }, { instanceIds: inParty, confirmInParty: 1 }]) {
+      const res = await call(p, "POST", `/me/caravans/${p.caravanId}/merge`, body);
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toMatchObject({ error: "unit_in_party", inParty: [...inParty].sort() });
+    }
+    expect(await rosterBytes(p.caravanId)).toBe(rosterBefore);
+    expect((await listEventsForAccount(pool, p.accountId)).length).toBe(eventsBefore);
+    expect((await call(p, "GET", "/me/party")).json().party.valid).toBe(true);
+  });
+
+  it("a merge of units the party does not name needs no confirmation and appends no invalidation event", async () => {
+    const pv = await call(p, "POST", `/me/caravans/${p.caravanId}/merge/preview`, { instanceIds: spare });
+    expect(pv.json().consumed.inParty).toEqual([]);
+    expect(pv.json().requiresConfirmInParty).toBe(false);
+    const res = await call(p, "POST", `/me/caravans/${p.caravanId}/merge`, { instanceIds: spare });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().events.map((e: { type: string }) => e.type)).toEqual(["coin_spent", "unit_merged"]);
+    expect((await call(p, "GET", "/me/party")).json().party.valid).toBe(true);
+  });
+
+  it("confirmed: the merge goes ahead, an account-scoped standing_party_invalidated event lands under the merge's own causation with the issue list, and the party reads invalid until edited", async () => {
+    const view = (await call(p, "GET", "/me/party")).json().party;
+    const res = await call(p, "POST", `/me/caravans/${p.caravanId}/merge`, { instanceIds: inParty, confirmInParty: true });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().events.map((e: { type: string }) => e.type)).toEqual(["coin_spent", "unit_merged", "standing_party_invalidated"]);
+    const events = await listEventsForAccount(pool, p.accountId, { limit: 500 });
+    const inv = events.filter((e) => e.event_type === "standing_party_invalidated");
+    expect(inv).toHaveLength(1);
+    const merged = events.find((e) => e.event_type === "unit_merged" && JSON.stringify(e.payload["consumedInstanceIds"]) === JSON.stringify([...inParty].sort()))!;
+    expect(merged).toBeDefined();
+    expect(inv[0]!.causation_id).toBe(merged.causation_id);
+    expect(inv[0]!.caravan_id).toBeNull(); // account-scoped: the party is account-level (GUARDRAILS §5)
+    expect(inv[0]!.payload).toMatchObject({ partyId: view.id, slot: 0, hash: view.hash, reason: "merge", removedRefs: [...inParty].sort(), valid: false });
+    const issues = inv[0]!.payload["issues"] as { code: string; subject: string }[];
+    expect(issues.map((i) => i.code)).toEqual(["unknown_ref", "unknown_ref"]);
+    expect(issues.map((i) => i.subject).sort()).toEqual([...inParty].sort());
+    const after = (await call(p, "GET", "/me/party")).json().party;
+    expect(after).toMatchObject({ valid: false, party: null, hash: view.hash }); // the choices are untouched; only the roster moved
+    expect(after.issues).toEqual(issues);
+    // Editing fixes it, as before.
+    const produced: string = res.json().producedInstanceIds[0];
+    expect((await call(p, "PUT", "/me/party", fullParty([produced]))).statusCode).toBe(200);
+    expect((await call(p, "GET", "/me/party")).json().party.valid).toBe(true);
+  });
+});
+
+describe("QA S2: a save and a merge on the same account serialize on the account append lock", () => {
+  it("over repeated races, a stored party that names a consumed instance always has its invalidation event: no save ever validates against a roster a merge is removing from", async () => {
+    for (let round = 0; round < 6; round++) {
+      const p = await registerPlayer();
+      const [a, b] = await giveUnits(p, 2, "desert.dust_rider");
+      await giveCoin(p.accountId, 1000);
+      const [save, merge] = await Promise.all([
+        call(p, "PUT", "/me/party", fullParty([a!])),
+        call(p, "POST", `/me/caravans/${p.caravanId}/merge`, { instanceIds: [a, b], confirmInParty: true }),
+      ]);
+      expect(merge.statusCode).toBe(200);
+      expect([200, 400]).toContain(save.statusCode);
+      const view = (await call(p, "GET", "/me/party")).json().party;
+      const events = await listEventsForAccount(pool, p.accountId, { limit: 500 });
+      const invalidated = events.filter((e) => e.event_type === "standing_party_invalidated").length;
+      if (save.statusCode === 200) {
+        // The save landed first and the merge saw it: the party is invalid AND says so in the ledger.
+        expect(view.valid).toBe(false);
+        expect(invalidated).toBe(1);
+      } else {
+        // The merge landed first: the save was validated against the post-merge roster and refused.
+        expect(save.json()).toMatchObject({ error: "invalid_party" });
+        expect(view.valid).toBe(true);
+        expect(view.config.units).toEqual([]);
+        expect(invalidated).toBe(0);
+      }
+    }
+  });
+});
+
+describe("QA S4: the per-account abuse limit on PUT /me/party, and save_seq as a column", () => {
+  it(`the ${PARTY_SAVE_RATE_LIMIT_PER_MINUTE + 1}th save within a minute is 429 with retry-after; other accounts are unaffected; no gameplay cooldown exists`, async () => {
+    expect(PARTY_SAVE_RATE_LIMIT_PER_MINUTE).toBe(30);
+    expect(TUNABLES.PARTY_EDIT_COOLDOWN_MS).toBe(0);
+    const p = await registerPlayer();
+    const q = await registerPlayer();
+    await giveUnits(p, 2);
+    await giveUnits(q, 2);
+    const a = fullParty(p.units);
+    const b = fullParty(p.units.slice(0, 1), []);
+    for (let i = 0; i < PARTY_SAVE_RATE_LIMIT_PER_MINUTE; i++) expect((await call(p, "PUT", "/me/party", i % 2 ? a : b)).statusCode).toBe(200);
+    const limited = await call(p, "PUT", "/me/party", a);
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json()).toMatchObject({ error: "rate_limited" });
+    expect(Number(limited.headers["retry-after"])).toBeGreaterThan(0);
+    // A refused request wrote nothing: the row and the ledger are where the 30th left them.
+    const row = (await pool.query<{ save_seq: number }>("SELECT save_seq FROM standing_party WHERE account_id = $1", [p.accountId])).rows[0]!;
+    expect(row.save_seq).toBe(PARTY_SAVE_RATE_LIMIT_PER_MINUTE);
+    const saves = (await listEventsForAccount(pool, p.accountId, { limit: 500 })).filter((e) => e.event_type === "standing_party_saved");
+    expect(saves.map((e) => e.payload["saveSeq"])).toEqual(saves.map((_, i) => i + 1));
+    expect(saves.at(-1)!.payload["saveSeq"]).toBe(row.save_seq);
+    expect((await call(q, "PUT", "/me/party", fullParty(q.units))).statusCode).toBe(200);
+    // Idempotent re-saves count as requests too (the limit is on requests, not on changes).
+    expect((await call(p, "PUT", "/me/party", b)).statusCode).toBe(429);
+    partySaveLimiter.reset(p.accountId);
+    expect((await call(p, "PUT", "/me/party", b)).statusCode).toBe(200); // the 30th stored `a`; `b` is a real change
+    expect((await pool.query<{ save_seq: number }>("SELECT save_seq FROM standing_party WHERE account_id = $1", [p.accountId])).rows[0]!.save_seq).toBe(PARTY_SAVE_RATE_LIMIT_PER_MINUTE + 1);
+  });
+
+  it("the trigger pins save_seq to the composition: it must advance by exactly one with a change and may not move otherwise; the redundant account index is gone (N4)", async () => {
+    const p = await registerPlayer();
+    const other = '{"siege":["siege.battering_wagon"],"units":[],"v":1}';
+    expect((await expectDbError(appRole, "UPDATE standing_party SET composition = $2::jsonb WHERE account_id = $1", [p.accountId, other]))?.code).toBe("23514");
+    expect((await expectDbError(appRole, "UPDATE standing_party SET composition = $2::jsonb, save_seq = save_seq + 2 WHERE account_id = $1", [p.accountId, other]))?.code).toBe("23514");
+    expect((await expectDbError(appRole, "UPDATE standing_party SET save_seq = save_seq + 1 WHERE account_id = $1", [p.accountId]))?.code).toBe("23514");
+    expect(await expectDbError(appRole, "UPDATE standing_party SET save_seq = 0 WHERE account_id = $1", [p.accountId])).toBeNull();
+    await appRole.query("UPDATE standing_party SET composition = $2::jsonb, save_seq = save_seq + 1 WHERE account_id = $1", [p.accountId, other]);
+    expect((await pool.query<{ save_seq: number }>("SELECT save_seq FROM standing_party WHERE account_id = $1", [p.accountId])).rows[0]!.save_seq).toBe(1);
+    const idx = await pool.query<{ indexname: string }>("SELECT indexname FROM pg_indexes WHERE tablename = 'standing_party'");
+    expect(idx.rows.map((r) => r.indexname)).not.toContain("standing_party_account_idx");
+    expect(idx.rows.map((r) => r.indexname)).toContain("standing_party_one_per_slot");
+  });
+});
+
+describe("QA X2 / N1 / S1 / N3 / N5: naming, parse prefix, id bound, snapshot identity, row lock", () => {
+  it("X2: the ledger vocabulary names the receiver as the party owner, in code and in the database enum, and the two agree", async () => {
+    expect(LEDGER_EVENT_TYPES).toContain("coin_transferred_to_party_owner");
+    expect(LEDGER_EVENT_TYPES).toContain("standing_party_invalidated");
+    expect(LEDGER_EVENT_TYPES as readonly string[]).not.toContain("coin_transferred_to_defender");
+    const labels = await pool.query<{ l: string }>("SELECT unnest(enum_range(NULL::ledger_event_type))::text AS l");
+    expect(labels.rows.map((r) => r.l).sort()).toEqual([...LEDGER_EVENT_TYPES].sort());
+    // Scope in the DB too: the new event is account-level, so a caravan id on it is refused.
+    const p = await registerPlayer();
+    const err = await expectDbError(appRole, "INSERT INTO ledger_event (event_type, account_id, caravan_id, causation_id, causation_seq, payload) VALUES ('standing_party_invalidated', $1, $2, 'x2:scope', 1, '{}')", [p.accountId, p.caravanId]);
+    expect(err?.code).toBe("23514");
+  });
+
+  it("N1: a party parse error is reported as 'malformed party', never 'malformed snapshot'; S1: an over-long id is refused by name without being echoed", async () => {
+    const p = await registerPlayer();
+    const res = await call(p, "PUT", "/me/party", { v: 1, units: [], siege: [], hp: 1 });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().message.startsWith("malformed party: ")).toBe(true);
+    const long = "q".repeat(5000);
+    const big = await call(p, "PUT", "/me/party", { v: 1, units: [{ ref: long, stance: "nearest", edge: "north", cell: north[0]! }], siege: [] });
+    expect(big.statusCode).toBe(400);
+    expect(big.json().error).toBe("malformed_party");
+    expect(big.json().message).not.toContain("qqqq");
+    expect(big.json().message.length).toBeLessThan(200);
+  });
+
+  it("N3 + N5: the snapshot carries partyId and hash, and the snapshot path reads the party row FOR SHARE", async () => {
+    const p = await registerPlayer();
+    await giveUnits(p, 1);
+    expect((await call(p, "PUT", "/me/party", fullParty(p.units))).statusCode).toBe(200);
+    const view = (await call(p, "GET", "/me/party")).json().party;
+    const snap = await snapshotStandingParty(pool, p.accountId);
+    expect(snap.partyId).toBe(view.id);
+    expect(snap.hash).toBe(view.hash);
+    expect(snap.hash).toMatch(/^[0-9a-f]{64}$/);
+    const src = readFileSync(join(__dirname, "..", "src", "jobs", "snapshots.ts"), "utf8");
+    expect(src).toMatch(/resolveStandingParty\(db, ownerAccountId, \{ lock: "share" \}\)/);
+    expect(readFileSync(join(__dirname, "..", "src", "party", "repo.ts"), "utf8")).toContain("FOR SHARE");
   });
 });

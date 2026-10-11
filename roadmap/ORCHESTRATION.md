@@ -1381,3 +1381,36 @@ lattice, touch targets) is chunk 17's town screen; everything it needs is in `GE
 especially whether any path can reach `unit_instance` or `standing_party` from the
 resolution path, whether the preview and the scout can ever diverge, and whether the
 chunk 02 placeholder handler and chunk 14 need the invalid-party error surfaced.
+
+### 2026-10-11 — Chunk 09 QA round 1 closed: `built` → `QA'd`
+
+Fixer worked in worktree `agent-a6600267a306ed516` off `roadmap/phase-2-spec` @ `017d205`.
+Everything in `roadmap/qa/09-punchlist.md` is `[closed]` except **B1**, which is chunk 14's:
+its snapshot-at-selection contract is written into the chunk 09 file (snapshot once at
+candidate selection, scout from the stored snapshot, `enqueueEncounterResolution` takes
+the pre-taken snapshot, invalid parties are dropped at candidate generation);
+`enqueueEncounterResolution` and the snapshot call site were not touched.
+
+- **S3** (decision): `standing_party_invalidated` enum value (migration 002 in place, account
+  scope) appended under the remover's causation by `standingPartyInvalidationDraft`; merge
+  preview reports `consumed.inParty` + `requiresConfirmInParty`; commit 409 `unit_in_party`
+  unless `confirmInParty: true`. Chunk 19's `unit_lost_on_wipe` must call the same helper
+  (noted in its file).
+- **S1** `MAX_ID_LENGTH` 64 in the strict parser; messages name entries by position, ids
+  only in a truncated `subject`. **S2** `saveParty` takes the account append lock before
+  reading the roster (race test: 6 rounds). **S4** `PARTY_SAVE_RATE_LIMIT_PER_MINUTE` 30
+  (`jobs/tunables.ts`), `util/rateLimit.ts`, 429 `rate_limited`; `standing_party.save_seq`
+  counter column with a trigger-enforced +1 (migration 008 in place).
+- **X1** `resolverInput.ts` no longer scales `defense`; test pins unscaled ratings at
+  every merge level. **X2** `coin_transferred_to_defender` → `coin_transferred_to_party_owner`
+  (migration 002 in place, events/coin/feed/tests; a test pins code enum == DB enum).
+- **N1–N5** done; D1 noted in the chunk file and PHASE-2 §46; D2 recorded; N3 written into
+  chunk 13's file (`party_served_as_encounter` carries `partyId`, `partyHash`, `partySavedAt`).
+- Files outside the fixer's list touched minimally: `db/types.ts` (`save_seq` on the row
+  type), `INDEX.md` status column. Flagged, not changed: the `BattlefieldPost.defense` doc
+  comment in `packages/resolver` still says "scaled by merge level" (chunk 10's file); stale
+  `coin_transferred_to_defender` mentions in `chunks/02-*.md` and older entries above.
+
+**Test command:** `cd apps/server && TEST_DATABASE_URL=postgres://caravan:caravan@localhost:5432/caravan_test_f09 npx vitest run`
+→ see the fixer's report for the run; `apps/server/test/party.test.ts` is 34 tests (was 25),
+`packages/circle` 89 (was 84). `pnpm typecheck`, `pnpm lint`, `pnpm test:boundary` clean.

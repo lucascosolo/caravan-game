@@ -25,7 +25,7 @@
  * Nothing here is account-level: no account id, no Coin, no purchase or entitlement state
  * can reach the resolver through this structure (GUARDRAILS §2).
  */
-import { TUNABLES, getFenceTier, getTrapType, getUnitType, mergeStatMult, scaleInt } from "@caravan/content";
+import { TUNABLES, getFenceTier, getTrapType, getUnitType } from "@caravan/content";
 import {
   BATTLEFIELD_VERSION,
   CORE_CELLS,
@@ -92,7 +92,10 @@ export function toBattlefield(manifest: Manifest, formation: Formation): Battlef
     if (!u) throw new Error(`unit '${p.ref}' is not in the manifest`);
     const type = getUnitType(u.typeId);
     if (!type) throw new Error(`unknown unit type '${u.typeId}'`);
-    const mult = mergeStatMult(u.mergeLevel);
+    // Chunk 03 QA B1 / chunk 09 QA X1: the merge multiplier applies to HP (already in the
+    // manifest's hp/maxHp) and to post-formula damage output (the resolver applies it from
+    // mergeLevel) — NEVER to the ratings that enter the damage formula. `defense` is the
+    // unscaled type rating at every merge level.
     return {
       ref: u.ref,
       typeId: u.typeId,
@@ -103,7 +106,7 @@ export function toBattlefield(manifest: Manifest, formation: Formation): Battlef
       hp: u.hp,
       maxHp: u.maxHp,
       affinity: type.affinity,
-      defense: scaleInt(type.defense, mult),
+      defense: type.defense,
       moveSpeed: type.moveSpeed,
       attackRange: type.attackRange,
       attackCooldown: type.attackCooldown,

@@ -15,9 +15,21 @@
  */
 import type { FastifyInstance } from "fastify";
 import { withTransaction } from "../db/pool.js";
+import { PARTY_SAVE_RATE_LIMIT_PER_MINUTE } from "../jobs/tunables.js";
 import { listPartyFeed } from "../party/feed.js";
 import { PartyValidationError, readParty, saveParty } from "../party/service.js";
+import { AppError } from "../services/errors.js";
+import { SlidingWindowLimiter } from "../util/rateLimit.js";
 import { requireAuth } from "./require-auth.js";
+
+/**
+ * Chunk 09 QA S4: per-account abuse limit on PUT /me/party (PARTY_SAVE_RATE_LIMIT_PER_MINUTE
+ * per sliding minute). Not a gameplay cooldown — editing stays free and instant; this only
+ * stops a script writing a row and a ledger event thirty-plus times a minute. Exported so
+ * tests can reset it between cases; nothing else reads it.
+ */
+export const partySaveLimiter = new SlidingWindowLimiter(PARTY_SAVE_RATE_LIMIT_PER_MINUTE, 60_000);
+let pruneCounter = 0;
 
 const feedQuerySchema = {
   type: "object",
@@ -33,8 +45,15 @@ export async function partyRoutes(app: FastifyInstance): Promise<void> {
     return { party: await readParty(app.db, req.auth!.account.id) };
   });
 
-  app.put("/me/party", { preHandler: requireAuth }, async (req) => {
+  app.put("/me/party", { preHandler: requireAuth }, async (req, reply) => {
     const accountId = req.auth!.account.id;
+    const now = Date.now();
+    if (++pruneCounter % 1000 === 0) partySaveLimiter.prune(now);
+    const verdict = partySaveLimiter.allow(accountId, now);
+    if (!verdict.ok) {
+      void reply.header("retry-after", String(Math.ceil(verdict.retryAfterMs / 1000)));
+      throw new AppError(429, "rate_limited", `at most ${PARTY_SAVE_RATE_LIMIT_PER_MINUTE} party saves per minute; try again shortly`);
+    }
     const party = await withTransaction(app.db, (client) => saveParty(client, accountId, req.body));
     return { party };
   });

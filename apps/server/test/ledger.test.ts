@@ -174,7 +174,7 @@ describe("balances are projections of the log", () => {
     const cap = (await pool.query<{ coin_storage_cap: number; coin_balance: number }>("SELECT coin_storage_cap, coin_balance FROM account WHERE id = $1", [accountId])).rows[0]!;
     const rows = await withTransaction(pool, async (c) => {
       await lockAccountsForAppend(c, [accountId]);
-      const credit = await coinCreditDraft(c, { type: "coin_transferred_to_defender", accountId, amount: cap.coin_storage_cap * 2, reason: "wipe", extra: { fromAccountId: "x" } });
+      const credit = await coinCreditDraft(c, { type: "coin_transferred_to_party_owner", accountId, amount: cap.coin_storage_cap * 2, reason: "wipe", extra: { fromAccountId: "x" } });
       return appendEvents(c, "test:clamp", [credit]);
     });
     const applied = cap.coin_storage_cap - cap.coin_balance;

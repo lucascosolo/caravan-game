@@ -30,6 +30,7 @@ import { withTransaction, type Queryable } from "../db/pool.js";
 import type { CaravanState, UnitInstanceRow } from "../db/types.js";
 import type { JsonObject, LedgerEventDraft, LedgerEventRow } from "../ledger/events.js";
 import { causationExists, listEventsByCausation, lockAccountForAppend } from "../ledger/ledger.js";
+import { partyMembership, standingPartyInvalidationDraft } from "../party/service.js";
 import { AppError, badRequest, conflict } from "../services/errors.js";
 import { readCoinBalance, spendCoin } from "./coin.js";
 import { peekTrickle } from "./trickle.js";
@@ -119,7 +120,14 @@ export interface MergePreview {
   /** Of `balance`, the part the trickle has accrued but not yet written. */
   pendingTrickle: number;
   affordable: boolean;
-  consumed: { instanceIds: string[]; count: number; slots: number; perUnit: UnitStats; combined: UnitStats };
+  /**
+   * Chunk 09 QA S3: which of the consumed instances ride in the standing party. A merge
+   * consumes them, so the party would no longer resolve until edited. The commit refuses
+   * with 409 `unit_in_party` unless the request carries `confirmInParty: true`.
+   */
+  consumed: { instanceIds: string[]; inParty: string[]; count: number; slots: number; perUnit: UnitStats; combined: UnitStats };
+  /** True when `consumed.inParty` is non-empty: the commit needs `confirmInParty: true`. */
+  requiresConfirmInParty: boolean;
   produced: { count: number; slots: number; perUnit: UnitStats; combined: UnitStats };
   slotsFreed: number;
   /** Same ability, larger numbers; never a new one. */
@@ -193,7 +201,7 @@ function validateMergeRows(instanceIds: readonly string[], rows: readonly UnitIn
   return { rows: [...rows], unit, recipe, fromLevel, toLevel, totalCost: mergeCost(toLevel, recipe.produce) };
 }
 
-function buildPreview(caravanId: string, v: ValidatedMerge, balance: number, pendingTrickle: number): MergePreview {
+function buildPreview(caravanId: string, v: ValidatedMerge, balance: number, pendingTrickle: number, inParty: readonly string[]): MergePreview {
   const perBefore = statsAtLevel(v.unit, v.fromLevel);
   const perAfter = statsAtLevel(v.unit, v.toLevel);
   return {
@@ -210,6 +218,7 @@ function buildPreview(caravanId: string, v: ValidatedMerge, balance: number, pen
     affordable: balance >= v.totalCost,
     consumed: {
       instanceIds: v.rows.map((r) => r.id),
+      inParty: [...inParty],
       count: v.recipe.spend,
       slots: v.recipe.spend * TUNABLES.MERGE_SLOT_COST,
       perUnit: perBefore,
@@ -223,6 +232,7 @@ function buildPreview(caravanId: string, v: ValidatedMerge, balance: number, pen
     },
     slotsFreed: (v.recipe.spend - v.recipe.produce) * TUNABLES.MERGE_SLOT_COST,
     ability: { archetype: v.unit.ability.archetype, displayName: v.unit.ability.displayName },
+    requiresConfirmInParty: inParty.length > 0,
   };
 }
 
@@ -261,7 +271,20 @@ export async function previewMerge(
   // Read-only: the pending trickle is computed, not written, so the preview's balance is
   // the balance a commit right now would be checked against (QA S2).
   const trickle = await peekTrickle(db, input.accountId, input.nowMs ?? Date.now());
-  return buildPreview(input.caravanId, v, trickle.balance, trickle.pending);
+  const membership = await partyMembership(db, input.accountId, instanceIds);
+  return buildPreview(input.caravanId, v, trickle.balance, trickle.pending, membership.inParty);
+}
+
+/** 409: the merge would consume a unit the standing party names, and the request did not confirm it. */
+export class UnitInPartyError extends AppError {
+  constructor(public readonly inParty: readonly string[]) {
+    super(
+      409,
+      "unit_in_party",
+      `${inParty.length} of these units ride in your standing party; merging them leaves the party unable to stand until you edit it. Send confirmInParty: true to merge anyway.`,
+    );
+    this.name = "UnitInPartyError";
+  }
 }
 
 /** The `unit_merged` event payload; what a retry gets back (QA S6). */
@@ -309,7 +332,7 @@ function mergeCausationId(caravanId: string, instanceIds: readonly string[]): st
  */
 export async function performMerge(
   pool: pg.Pool,
-  input: { accountId: string; caravanId: string; instanceIds: unknown; nowMs?: number },
+  input: { accountId: string; caravanId: string; instanceIds: unknown; confirmInParty?: unknown; nowMs?: number },
 ): Promise<MergeResult> {
   assertCaravanId(input.caravanId);
   const instanceIds = normalizeInstanceIds(input.instanceIds);
@@ -327,6 +350,11 @@ export async function performMerge(
       [instanceIds, caravanId],
     );
     const v = validateMergeRows(instanceIds, locked.rows);
+    // Chunk 09 QA S3: consuming a unit the standing party names leaves the party unable
+    // to stand until edited. Read under the account append lock, which saveParty also
+    // takes before reading the roster, so the answer cannot change under this merge.
+    const membership = await partyMembership(client, input.accountId, instanceIds);
+    if (membership.inParty.length > 0 && input.confirmInParty !== true) throw new UnitInPartyError(membership.inParty);
     const deleted = await client.query<{ id: string }>(
       "DELETE FROM unit_instance WHERE id = ANY($1::uuid[]) AND caravan_id = $2 RETURNING id",
       [instanceIds, caravanId],
@@ -352,12 +380,15 @@ export async function performMerge(
       coinCost: v.totalCost,
     };
     const unitMerged: LedgerEventDraft = { type: "unit_merged", accountId: input.accountId, caravanId, payload: merged };
+    // QA S3: the party now resolves without the consumed instances; record that under the
+    // merge's own causation id (null when the party named none of them).
+    const invalidated = await standingPartyInvalidationDraft(client, input.accountId, consumedIds, "merge");
     const spend = await spendCoin(client, input.accountId, v.totalCost, "merge", nowMs, {
       causationId,
       extra: { caravanId, unitTypeId: v.unit.id, toLevel: v.toLevel, produced: v.recipe.produce },
-      alongside: [unitMerged],
+      alongside: invalidated ? [unitMerged, invalidated] : [unitMerged],
     });
-    const preview = buildPreview(caravanId, v, spend.balanceBefore, 0);
+    const preview = buildPreview(caravanId, v, spend.balanceBefore, 0, membership.inParty);
     return {
       replayed: false,
       preview,

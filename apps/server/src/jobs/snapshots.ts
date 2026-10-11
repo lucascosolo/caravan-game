@@ -43,8 +43,15 @@ export class StandingPartyInvalidError extends Error {
   }
 }
 
+/**
+ * The party row is read FOR SHARE (chunk 09 QA N5): inside the enqueuing transaction this
+ * holds the row against a concurrent edit until the roster has been read too, so one
+ * snapshot never mixes an old config with the roster a new save was validated against.
+ * The snapshot carries `partyId` and `hash`; chunk 13's `party_served_as_encounter`
+ * payload must carry both (QA N3) so a feed entry names exactly which party version fought.
+ */
 export async function snapshotStandingParty(db: Queryable, ownerAccountId: string): Promise<StandingPartySnapshot> {
-  const r = await resolveStandingParty(db, ownerAccountId);
+  const r = await resolveStandingParty(db, ownerAccountId, { lock: "share" });
   if (!r) throw new Error(`standing party for account ${ownerAccountId} not found`);
   if (!r.result.ok) throw new StandingPartyInvalidError(ownerAccountId, r.result.issues);
   const canonical = serializeParty(r.result.value);

@@ -32,6 +32,7 @@ import {
   ParseError,
   SIEGE_SLOT_CAP,
   MAX_APPROACH_EDGES,
+  TARGETING_STANCES,
   manifestFromJson,
   partyConfigFromJson,
   partyEdges,
@@ -53,13 +54,13 @@ import type pg from "pg";
 import { findOpenManifest } from "../circle/repo.js";
 import type { Queryable } from "../db/pool.js";
 import type { CaravanRow, StandingPartyRow } from "../db/types.js";
-import type { JsonObject } from "../ledger/events.js";
+import type { JsonObject, LedgerEventDraft } from "../ledger/events.js";
 import { appendEvents, lockAccountForAppend } from "../ledger/ledger.js";
 import { listCaravansForAccount } from "../repo/caravans.js";
 import { listUnitInstancesForCaravan } from "../repo/unitInstances.js";
 import { AppError, badRequest } from "../services/errors.js";
 import { accessCheckFor, unlockedTypeIds, type AccessPredicate } from "../unlocks/access.js";
-import { PARTY_SLOT, countPartySaves, findStandingParty, updateStandingPartyComposition } from "./repo.js";
+import { PARTY_SLOT, findStandingParty, updateStandingPartyComposition, type PartyLock } from "./repo.js";
 
 /** A 400 that carries the full issue list, so the builder can show every problem at once. */
 export class PartyValidationError extends AppError {
@@ -180,9 +181,13 @@ export interface ResolvedStandingParty {
   result: Validation<Party>;
 }
 
-/** Read the party row and resolve it against the live roster and web. Read-only. */
-export async function resolveStandingParty(db: Queryable, accountId: string, opts: { forUpdate?: boolean; slot?: number } = {}): Promise<ResolvedStandingParty | null> {
-  const row = await findStandingParty(db, accountId, opts.slot ?? PARTY_SLOT, opts.forUpdate ?? false);
+/**
+ * Read the party row and resolve it against the live roster and web. Read-only. `lock`
+ * is the row lock to take (QA N5): the snapshot path reads FOR SHARE so it cannot
+ * interleave with an edit between reading the config and reading the roster.
+ */
+export async function resolveStandingParty(db: Queryable, accountId: string, opts: { lock?: PartyLock; slot?: number } = {}): Promise<ResolvedStandingParty | null> {
+  const row = await findStandingParty(db, accountId, opts.slot ?? PARTY_SLOT, opts.lock ?? "none");
   if (!row) return null;
   const config = partyConfigFromJson(row.composition); // our own canonical write; a parse failure is a bug
   const { caravans, roster } = await accountRoster(db, accountId);
@@ -234,7 +239,7 @@ async function buildView(db: Queryable, r: ResolvedStandingParty): Promise<Party
     scout: party ? scoutParty(party) : null,
     edges: partyEdges(r.config),
     caps: { units: PARTY_SLOT_CAP, siege: SIEGE_SLOT_CAP, edges: MAX_APPROACH_EDGES, editCooldownMs: PARTY_EDIT_COOLDOWN_MS, partiesPerAccount: TUNABLES.PARTIES_PER_ACCOUNT },
-    rules: { template: true, neverConsumed: true, unitsMayAlsoBePackedOnTrips: true, ratingInUse: "offense", stances: ["nearest", "traps", "core"] },
+    rules: { template: true, neverConsumed: true, unitsMayAlsoBePackedOnTrips: true, ratingInUse: "offense", stances: TARGETING_STANCES },
     roster,
     siegeCatalog: SIEGE_TYPES.map((s) => ({ ...siegeCounterEntry(s), unlocked: r.access(s.id) })),
   };
@@ -247,11 +252,15 @@ export async function readParty(db: Queryable, accountId: string): Promise<Party
 }
 
 /**
- * Save. Inside the caller's transaction: lock the party row, resolve the submitted config
- * against the live roster and web, refuse with every issue if it does not stand, store the
- * canonical form, append one `standing_party_saved`. Free, instant, unlimited — there is
- * no cooldown to check (PARTY_EDIT_COOLDOWN_MS is 0 by design and nothing reads it as a
- * gate). Idempotent: saving the stored composition again changes nothing and appends nothing.
+ * Save. Inside the caller's transaction: take the account append lock FIRST (QA S2 — a
+ * merge or any other roster change on this account holds the same lock, so the roster
+ * this save validates against cannot change under it), lock the party row, resolve the
+ * submitted config against the live roster and web, refuse with every issue if it does
+ * not stand, store the canonical form (the row's `save_seq` advances with it, QA S4),
+ * append one `standing_party_saved`. Free, instant, no cooldown — PARTY_EDIT_COOLDOWN_MS
+ * is 0 by design and nothing reads it as a gate; the per-account request limit on the
+ * route is an abuse limit, not a gameplay cooldown. Idempotent: saving the stored
+ * composition again changes nothing and appends nothing.
  */
 export async function saveParty(client: pg.PoolClient, accountId: string, body: unknown): Promise<PartyView> {
   let config: PartyConfig;
@@ -261,16 +270,16 @@ export async function saveParty(client: pg.PoolClient, accountId: string, body: 
     if (err instanceof ParseError) throw badRequest("malformed_party", err.message);
     throw err;
   }
-  const current = await resolveStandingParty(client, accountId, { forUpdate: true });
+  await lockAccountForAppend(client, accountId);
+  const current = await resolveStandingParty(client, accountId, { lock: "update" });
   if (!current) throw notFound("no_party", "this account has no standing party");
   const result = resolveParty(config, current.roster, current.access);
   if (!result.ok) throw new PartyValidationError("invalid_party", "the party cannot stand as configured", result.issues);
   const canonical = serializePartyConfig(config);
   if (canonical === serializePartyConfig(current.config)) return buildView(client, current);
 
-  await lockAccountForAppend(client, accountId);
-  const saveSeq = (await countPartySaves(client, accountId)) + 1;
   const row = await updateStandingPartyComposition(client, current.row.id, canonical);
+  const saveSeq = row.save_seq;
   const hash = partyHash(canonical);
   await appendEvents(client, `party_saved:${row.id}:${saveSeq}`, [
     {
@@ -289,4 +298,64 @@ export async function saveParty(client: pg.PoolClient, accountId: string, body: 
     },
   ]);
   return buildView(client, { ...current, row, config, result });
+}
+
+// ── QA S3: a roster change that removes an instance the party names ─────────────────────
+//
+// The party is never trimmed and the roster change is never blocked (chunk file, build
+// notes); but the owner must not be surprised by an invalid party. So every path that
+// removes an instance (chunk 16's merge now; chunk 19's trip loss later) does two things
+// through the helpers below: it ASKS first, so an endpoint can refuse until the player
+// confirms (merge: 409 `unit_in_party` unless `confirmInParty: true`), and it RECORDS an
+// account-scoped `standing_party_invalidated` event under its own causation id when it
+// goes ahead, carrying the issue list the party now resolves to. Both read under the
+// caller's account append lock, which saveParty also takes before reading the roster.
+
+export interface PartyMembership {
+  partyId: string | null;
+  /** The subset of the instance ids asked about that the standing party names, sorted. */
+  inParty: string[];
+}
+
+/** Which of `instanceIds` the account's standing party names right now. Read-only. */
+export async function partyMembership(db: Queryable, accountId: string, instanceIds: readonly string[]): Promise<PartyMembership> {
+  const row = await findStandingParty(db, accountId, PARTY_SLOT, "none");
+  if (!row) return { partyId: null, inParty: [] };
+  const refs = new Set(partyConfigFromJson(row.composition).units.map((u) => u.ref));
+  return { partyId: row.id, inParty: [...new Set(instanceIds.filter((id) => refs.has(id)))].sort() };
+}
+
+/**
+ * After `removedRefs` have been removed from the roster (inside the remover's transaction,
+ * after its DELETE): the draft of the `standing_party_invalidated` event to append under
+ * the remover's causation id, or null when the party named none of them. The payload
+ * carries the party's identity (id, slot, saveSeq, hash — the composition itself is NOT
+ * changed), why, which refs went, and the full issue list the party resolves to now.
+ */
+export async function standingPartyInvalidationDraft(
+  db: Queryable,
+  accountId: string,
+  removedRefs: readonly string[],
+  reason: "merge" | "trip_loss",
+): Promise<LedgerEventDraft | null> {
+  const r = await resolveStandingParty(db, accountId, { lock: "share" });
+  if (!r) return null;
+  const named = new Set(r.config.units.map((u) => u.ref));
+  const removed = [...new Set(removedRefs.filter((id) => named.has(id)))].sort();
+  if (removed.length === 0) return null;
+  const issues = r.result.ok ? [] : r.result.issues.map((i) => (i.subject === undefined ? { code: i.code, message: i.message } : { code: i.code, message: i.message, subject: i.subject }));
+  return {
+    type: "standing_party_invalidated",
+    accountId,
+    payload: {
+      partyId: r.row.id,
+      slot: r.row.slot,
+      saveSeq: r.row.save_seq,
+      hash: partyHash(serializePartyConfig(r.config)),
+      reason,
+      removedRefs: removed,
+      valid: r.result.ok,
+      issues,
+    },
+  };
 }

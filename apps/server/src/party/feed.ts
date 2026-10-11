@@ -7,7 +7,7 @@
  * account (chunk 02's handler writes one per resolution, account-scoped, stamped with the
  * resolver version) joined with the other events the same resolution wrote on the owner
  * under the same causation id — `coin_earned` (chunk 16's party_win),
- * `coin_transferred_to_defender` (the unbanked Coin an overrun caravan lost, credited to
+ * `coin_transferred_to_party_owner` (the unbanked Coin an overrun caravan lost, credited to
  * the party's owner — chunk 19), `reputation_changed` and `ladder_progress_gained` for the
  * siege pool (chunk 04's party side). The outcome payload is carried as chunk 13 writes it.
  * Newest first, cursor on seq.
@@ -88,7 +88,7 @@ export async function listPartyFeed(db: Queryable, accountId: string, opts: { be
     let reputationDelta = 0;
     let ladderPointsGained = 0;
     for (const s of sibs) {
-      if (s.event_type === "coin_earned" || s.event_type === "coin_transferred_to_defender") coinEarned += int(s.payload["amount"]) ?? 0;
+      if (s.event_type === "coin_earned" || s.event_type === "coin_transferred_to_party_owner") coinEarned += int(s.payload["amount"]) ?? 0;
       else if (s.event_type === "reputation_changed" && s.payload["pool"] === "siege") reputationDelta += int(s.payload["delta"]) ?? 0;
       else if (s.event_type === "ladder_progress_gained" && s.payload["pool"] === "siege") ladderPointsGained += int(s.payload["pointsDelta"]) ?? 0;
     }
