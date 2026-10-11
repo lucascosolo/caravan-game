@@ -155,10 +155,10 @@ describe("PARTIAL_LOOT_CURVE (pure)", () => {
     expect(partyLoot("caravan_held", 256, 400)).toBe(50); // 400 × 0.125
     let prev = -1;
     for (let d = 0; d <= FIXED_ONE; d++) {
-      const l = partyLoot("caravan_held", d, coinForEncounter(5));
+      const l = partyLoot("caravan_held", d, coinForEncounter(5, 0));
       expect(Number.isSafeInteger(l)).toBe(true);
       expect(l).toBeGreaterThanOrEqual(prev);
-      expect(l).toBeLessThanOrEqual(coinForEncounter(5));
+      expect(l).toBeLessThanOrEqual(coinForEncounter(5, 0));
       prev = l;
     }
     expect(TUNABLES.STALEMATE_LOOT_SHARE).toBe(0);
@@ -197,7 +197,7 @@ async function runTrip(d: Player): Promise<string[]> {
       const label = log.units.find((l) => l.ref === u.ref && l.side === "defender")!;
       expect(last.units[label.u]!.hp, u.ref).toBe(u.hp);
     }
-    expect(outcome.loot).toBe(partyLoot(outcome.kind as never, outcome.depth, coinForEncounter(n)));
+    expect(outcome.loot).toBe(partyLoot(outcome.kind as never, outcome.depth, coinForEncounter(n, 0)));
     expect((job.result as { replay: { sha256: string } }).replay.sha256).toBe(row.log_sha256);
     expect(JSON.stringify(job.result)).not.toContain('"events"'); // the log itself is not in job.result
 

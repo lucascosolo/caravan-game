@@ -50,15 +50,16 @@ import type { Queryable } from "../db/pool.js";
 import { withTransaction } from "../db/pool.js";
 import type { CaravanRow, Pool, ResolutionJobRow } from "../db/types.js";
 import { coinForDelivery, coinForEncounter, creditBankedTrip, overflowForecast } from "../economy/coin.js";
-import { peekTrickle } from "../economy/trickle.js";
+import { accrueTrickleTx, peekTrickle } from "../economy/trickle.js";
 import { encounterJobId, getJob } from "../jobs/queue.js";
 import type { JsonObject, LedgerEventRow } from "../ledger/events.js";
 import { appendEvents, listEventsByCausation, lockAccountForAppend, lockAccountsForAppend, lockCaravanForResolution } from "../ledger/ledger.js";
-import { ESCALATION_PER_ENCOUNTER, escalationFor } from "../matchmaking/band.js";
+import { ESCALATION_PER_ENCOUNTER, bandOf, centreOffsetFor } from "../matchmaking/band.js";
 import { chosenCandidate, enqueueChosenEncounter } from "../matchmaking/service.js";
 import { createTrip, endTrip, findOpenTrip, findTripById, type TripRow } from "../matchmaking/trips.js";
 import { applyEncounterOutcome, progressionCausationId } from "../progression/outcome.js";
 import { setCaravanState } from "../repo/caravans.js";
+import { getCaravanPoolProgress } from "../repo/poolProgress.js";
 import { AppError, badRequest, conflict } from "../services/errors.js";
 import { consumeTripCap, readTripCap, type TripCapView } from "./cap.js";
 import { JOB_SURVIVORS_KEY, assertTripEncounterOutcome, attritionOf, caravanSurvived, resolverInputFromJob, type EncounterOutcome, type EncounterOutcomeKind } from "./outcome.js";
@@ -443,6 +444,9 @@ function refitOf(survivors: Manifest, deMerged: readonly DeMergedUnit[]): BankRe
 }
 
 /**
+ * `nowMs` is the clock the pending trickle is flushed at before the credit (chunk 19 QA N3);
+ * the route passes the wall clock.
+ *
  * Bank: the delivery. Offered only after surviving an encounter (held or stalemate), never
  * mid-encounter. Credits the trip through chunk 16's `creditBankedTrip` EXACTLY ONCE (its
  * causation id is per trip; a retry after commit replays the stored result), ends the trip,
@@ -450,7 +454,7 @@ function refitOf(survivors: Manifest, deMerged: readonly DeMergedUnit[]): BankRe
  * refit: the next manifest is packed at full HP with fresh traps and fences — and puts the
  * caravan back in town, where nothing can attack it.
  */
-export async function bankTrip(client: pg.PoolClient, caravan: CaravanRow, req: DecisionRequest): Promise<BankResult> {
+export async function bankTrip(client: pg.PoolClient, caravan: CaravanRow, req: DecisionRequest, nowMs: number = Date.now()): Promise<BankResult> {
   await lockCaravanForResolution(client, caravan.id);
   await lockAccountForAppend(client, caravan.account_id);
   const { trip, manifest, encounter } = await lockTripForDecision(client, caravan, req);
@@ -468,6 +472,10 @@ export async function bankTrip(client: pg.PoolClient, caravan: CaravanRow, req: 
   // is already on the trail (chunk 15 QA S1).
   const encounterCoin = rows.map((r) => r.coin_accrued);
   if (rows.length !== req.encounterIndex) throw new Error(`trip ${trip.id}: ${rows.length} settled encounters, banking after ${req.encounterIndex}`);
+  // Chunk 19 QA N3: flush the pending trickle first (forced, as spendCoin does), so the credit
+  // is clamped against the same balance the preview's forecast showed (ledger + pending), not
+  // the bare ledger balance — the forecast and the credit cannot disagree by the pending coins.
+  await accrueTrickleTx(client, caravan.account_id, nowMs, { force: true });
   const credit = await creditBankedTrip(client, { accountId: caravan.account_id, causationId: tripCausation.bankCoin(trip.id), tripId: trip.id, encountersSurvived: req.encounterIndex, encounterCoin });
   await decideTripEncounter(client, trip.id, req.encounterIndex, "banked");
   const survivors = manifestFromJson(manifest.survivors);
@@ -707,14 +715,20 @@ export interface StakesPreview {
   nextEncounter: {
     index: number;
     /**
-     * Coin the next encounter is worth if survived (unbanked until a bank), at full earn. The
+     * Coin the next encounter is worth if survived (unbanked until a bank), at full earn, at the
+     * caravan's living display band `band` (chunk 19 QA D2a: COIN_ENCOUNTER_BAND_SCALE_BP per band). The
      * party you choose next shows its own `sandbagEarnMultiplier`; chunk 19's applyEarnFloor
      * applies it (only an authored party from outside your band can pay less).
      */
     reward: number;
+    /** The caravan's living-Reputation display band the reward is scaled by (matchmaking's bandOf). */
+    band: number;
     /** Banking right after surviving it would deliver this (at full earn): unbanked + reward + delivery for one more encounter. */
     bankTotalIfSurvived: number;
-    /** Chunk 14's escalation: the band centre for the next party sits this far above your rating. */
+    /**
+     * Chunk 14's escalation: the band centre for the next party sits this far from your rating
+     * (negative at encounter 1: FIRST_ENCOUNTER_CENTRE_OFFSET, chunk 19 QA D2b).
+     */
     difficulty: { escalationApplied: number; risePerEncounter: number; harderThanThisEncounter: boolean };
     /** The next party arrives at full strength; nothing of yours is repaired or restocked. */
     partyArrivesFresh: true;
@@ -731,18 +745,42 @@ export interface StakesPreview {
  */
 export async function stakesPreview(pool: pg.Pool, caravan: CaravanRow, nowMs: number): Promise<StakesPreview> {
   await settleEncounter(pool, caravan);
-  const trip = await findOpenTrip(pool, caravan.id);
+  // Chunk 19 QA N2: every read below is one consistent snapshot (READ ONLY, REPEATABLE READ),
+  // so the trip, its manifest, its settled rows, the balance and the rating cannot come from
+  // different moments if a settle or a bank lands while the preview is being built.
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    const preview = await stakesPreviewIn(client, caravan, nowMs);
+    await client.query("COMMIT");
+    return preview;
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+async function stakesPreviewIn(db: Queryable, caravan: CaravanRow, nowMs: number): Promise<StakesPreview> {
+  const trip = await findOpenTrip(db, caravan.id);
   if (!trip) throw notFound("no_trip", "this caravan is in town; nothing is at stake");
-  const view = await tripView(pool, trip);
-  const manifest = await findManifestById(pool, trip.manifest_id);
+  const view = await tripView(db, trip);
+  const manifest = await findManifestById(db, trip.manifest_id);
   const survivors = manifestFromJson(manifest!.survivors);
-  const rows = await listTripEncounters(pool, trip.id);
-  const diedAt = new Map<string, number>();
-  for (const r of rows) for (const ref of r.deaths) diedAt.set(ref, r.encounter_index);
+  const rows = await listTripEncounters(db, trip.id);
+  // The same index the losses use (chunk 19 QA N2): first encounter at which each unit died.
+  const diedAt = deathIndex(rows);
   const m = view.encountersResolved;
   const unbanked = unbankedCoinOf(rows);
   const bankTotal = unbanked + coinForDelivery(m);
-  const trickle = await peekTrickle(pool, caravan.account_id, nowMs);
+  const trickle = await peekTrickle(db, caravan.account_id, nowMs);
+  // Chunk 19 QA D2a: the next encounter's Coin scales with the caravan's living display band.
+  // The living rating moves only when this caravan's own encounters settle, so the band the
+  // next search is drawn at (and its accrual reads back from the menu row) is this one.
+  const progress = await getCaravanPoolProgress(db, caravan.id);
+  if (!progress) throw new Error(`caravan ${caravan.id} has no living pool progress`);
+  const band = bandOf(progress.reputation).index;
   const units: StakesUnit[] = survivors.units.map((u) => ({
     ref: u.ref,
     typeId: u.typeId,
@@ -755,8 +793,9 @@ export async function stakesPreview(pool: pg.Pool, caravan: CaravanRow, nowMs: n
     mergeLevelOnDeath: mergeLevelAfterDeath(u.mergeLevel),
   }));
   const ifOverrun = planUnitLosses(survivors, rows, "overrun");
-  const chosen = m >= 1 ? await chosenCandidate(pool, trip.id, m) : null;
+  const chosen = m >= 1 ? await chosenCandidate(db, trip.id, m) : null;
   const next = m + 1;
+  const reward = coinForEncounter(next, band);
   return {
     tripId: trip.id,
     encountersSurvived: m,
@@ -767,7 +806,8 @@ export async function stakesPreview(pool: pg.Pool, caravan: CaravanRow, nowMs: n
       encounterCoin: unbanked,
       deliveryBonus: coinForDelivery(m),
       total: bankTotal,
-      // "Room right now" (chunk 16 QA N6): the trickle keeps filling the store meanwhile.
+      // "Room right now" (chunk 16 QA N6): the trickle keeps filling the store meanwhile. The
+      // bank flushes the trickle before crediting (QA N3), so it clamps against this balance.
       forecast: overflowForecast(trickle.balance, trickle.cap, bankTotal),
       unitsDeMerged: planUnitLosses(survivors, rows, "banked").deMerged,
     },
@@ -789,9 +829,10 @@ export async function stakesPreview(pool: pg.Pool, caravan: CaravanRow, nowMs: n
     },
     nextEncounter: {
       index: next,
-      reward: coinForEncounter(next),
-      bankTotalIfSurvived: unbanked + coinForEncounter(next) + coinForDelivery(next),
-      difficulty: { escalationApplied: escalationFor(next), risePerEncounter: ESCALATION_PER_ENCOUNTER, harderThanThisEncounter: escalationFor(next) > (m >= 1 ? escalationFor(m) : -1) },
+      reward,
+      band,
+      bankTotalIfSurvived: unbanked + reward + coinForDelivery(next),
+      difficulty: { escalationApplied: centreOffsetFor(next), risePerEncounter: ESCALATION_PER_ENCOUNTER, harderThanThisEncounter: centreOffsetFor(next) > (m >= 1 ? centreOffsetFor(m) : Number.MIN_SAFE_INTEGER) },
       partyArrivesFresh: true,
     },
     // The earn multiplier as chunk 14 stored it on the chosen candidate; it already landed on

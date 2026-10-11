@@ -100,7 +100,7 @@ describe("the storefront previews exact contents before purchase (GUARDRAILS §4
     expect(view.upcoming[0]!.offers.map((o) => o.cosmetics.map((c) => c.id))).toEqual(packOffersForWeek(WEEK + 1).map((o) => o.cosmetics.map((c) => c.id)));
     expect(view.upcoming[0]!.offers.map((o) => o.coin)).toEqual([6000, 14_000, 40_000]);
     expect(view.ceiling.weeklyPayCeiling).toBe(60_000);
-    expect(view.ceiling.paidToFreeRatioBp).toBe(15_000);
+    expect(view.ceiling.paidToFreeRatioBp).toBe(10_909); // 60,000 / 55,000 (chunk 19 QA D3: the derived mid week)
     expect(view.ceiling.storageCap).toBe(CAP);
     expect(view.combined).toMatchObject({ tiers: [1, 2, 3], coin: 60_000 });
     expect(view.combined.overflow.wouldDiscard).toBe(10_000); // 60,000 into an empty 50,000 store

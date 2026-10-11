@@ -353,8 +353,8 @@
     ],
     "ceiling": {
       "weeklyPayCeiling": 60000,
-      "freeWeeklyEarnEstimate": 40000,
-      "paidToFreeRatioBp": 15000,
+      "freeWeeklyEarnEstimate": 55000,
+      "paidToFreeRatioBp": 10909,
       "paidToFreeRatioMaxBp": 15000,
       "storageCap": 50000,
       "purchaseLimitPerTierPerWeek": 1,

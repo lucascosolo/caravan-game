@@ -8,6 +8,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { bandOf } from "../src/matchmaking/band.js";
 import { coinForBankedTrip, coinForDelivery, coinForEncounter, coinForEncountersSurvived, encounterCoinSchedule, overflowForecast } from "../src/economy/coin.js";
 import { MERGE_RECIPES, mergeCost, mergeCostTable, recipeForCount, statsAtLevel } from "../src/economy/merge.js";
 import { computeTrickle } from "../src/economy/trickle.js";
@@ -86,33 +87,58 @@ describe("merge cost arithmetic", () => {
 });
 
 describe("earn schedule", () => {
-  it("is an integer table: 400 × 1.35 per encounter, floored; delivery is 125 × encounters survived (chunk 15 QA D1)", () => {
-    expect(encounterCoinSchedule(8)).toEqual([400, 539, 727, 981, 1323, 1785, 2409, 3251]);
-    expect(coinForEncounter(1)).toBe(400);
-    expect(coinForEncounter(4)).toBe(981);
-    expect(coinForEncountersSurvived(0)).toBe(0);
-    expect(coinForEncountersSurvived(3)).toBe(1666);
+  it("is an integer table: 400 × 1.35 per encounter, floored; delivery is 125 × encounters survived (chunk 15 QA D1) — band 0 is the base", () => {
+    expect(encounterCoinSchedule(8, 0)).toEqual([400, 539, 727, 981, 1323, 1785, 2409, 3251]);
+    expect(coinForEncounter(1, 0)).toBe(400);
+    expect(coinForEncounter(4, 0)).toBe(981);
+    expect(coinForEncountersSurvived(0, 0)).toBe(0);
+    expect(coinForEncountersSurvived(3, 0)).toBe(1666);
     expect(TUNABLES.COIN_DELIVERY_PER_ENCOUNTER).toBe(125);
     expect(coinForDelivery(3)).toBe(375);
-    expect(coinForBankedTrip(1)).toBe(525);
-    expect(coinForBankedTrip(3)).toBe(1666 + 375);
-    expect(() => coinForEncounter(0)).toThrow(RangeError);
+    expect(coinForBankedTrip(1, 0)).toBe(525);
+    expect(coinForBankedTrip(3, 0)).toBe(1666 + 375);
+    expect(() => coinForEncounter(0, 0)).toThrow(RangeError);
     expect(TUNABLES.COIN_ENCOUNTER_ESCALATION_MULT).toBe(1382); // 1.35 in 1/1024ths, truncated (≈ 1.3496)
     expect(FIXED_POINT_SCALE).toBe(1024);
   });
 
+  it("chunk 19 QA D2a: encounter Coin scales with the living display band, +COIN_ENCOUNTER_BAND_SCALE_BP per band, floored; the delivery does not", () => {
+    expect(TUNABLES.COIN_ENCOUNTER_BAND_SCALE_BP).toBe(5000);
+    // REPUTATION_START (1000) is display band 3: × 2.5.
+    expect(bandOf(TUNABLES.REPUTATION_START).index).toBe(3);
+    expect(encounterCoinSchedule(5, 3)).toEqual([1000, 1347, 1817, 2452, 3307]);
+    expect(encounterCoinSchedule(3, 1)).toEqual([600, 808, 1090]);
+    for (let band = 0; band <= 12; band++) {
+      const base = encounterCoinSchedule(30, 0);
+      const scaled = encounterCoinSchedule(30, band);
+      scaled.forEach((c, i) => {
+        expect(c).toBe(Math.min(TUNABLES.COIN_STORAGE_CAP, Math.floor((base[i]! * (10_000 + band * 5000)) / 10_000)));
+        expect(Number.isSafeInteger(c)).toBe(true);
+        expect(coinForEncounter(i + 1, band)).toBe(c);
+      });
+      // Higher bands never pay less, at any encounter.
+      if (band > 0) encounterCoinSchedule(30, band - 1).forEach((c, i) => expect(scaled[i]!).toBeGreaterThanOrEqual(c));
+      expect(coinForBankedTrip(2, band) - coinForEncountersSurvived(2, band)).toBe(coinForDelivery(2));
+    }
+    expect(() => coinForEncounter(1, -1)).toThrow(RangeError);
+    expect(() => coinForEncounter(1, 1.5)).toThrow(RangeError);
+  });
+
   it("N4: the schedule clamps at the storage cap and never leaves the safe-integer range", () => {
-    expect(coinForEncounter(200)).toBe(TUNABLES.COIN_STORAGE_CAP);
-    const schedule = encounterCoinSchedule(300);
-    expect(schedule.every((n) => Number.isSafeInteger(n) && n <= TUNABLES.COIN_STORAGE_CAP)).toBe(true);
-    expect(schedule.indexOf(TUNABLES.COIN_STORAGE_CAP)).toBeGreaterThan(0);
-    expect(Number.isSafeInteger(coinForEncountersSurvived(300))).toBe(true);
-    // Below the clamp the table is unchanged.
-    expect(schedule.slice(0, 8)).toEqual(encounterCoinSchedule(8));
+    expect(coinForEncounter(200, 0)).toBe(TUNABLES.COIN_STORAGE_CAP);
+    expect(coinForEncounter(200, 40)).toBe(TUNABLES.COIN_STORAGE_CAP);
+    for (const band of [0, 3, 40]) {
+      const schedule = encounterCoinSchedule(300, band);
+      expect(schedule.every((n) => Number.isSafeInteger(n) && n <= TUNABLES.COIN_STORAGE_CAP)).toBe(true);
+      expect(schedule.indexOf(TUNABLES.COIN_STORAGE_CAP)).toBeGreaterThan(0);
+      expect(Number.isSafeInteger(coinForEncountersSurvived(300, band))).toBe(true);
+      // Below the clamp the table is unchanged.
+      expect(schedule.slice(0, 8)).toEqual(encounterCoinSchedule(8, band));
+    }
   });
 
   it("the passive path pays less than one survived encounter (playing pays better than not playing)", () => {
-    expect(TUNABLES.COIN_PER_PARTY_WIN).toBeLessThan(coinForEncounter(1));
+    expect(TUNABLES.COIN_PER_PARTY_WIN).toBeLessThan(coinForEncounter(1, 0));
   });
 
   it("overflow forecast: what the cap would discard, for the pre-trip warning", () => {

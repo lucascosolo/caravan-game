@@ -55,11 +55,12 @@ import {
   bandWidths,
   candidateSeed,
   currentDrawRules,
+  FIRST_ENCOUNTER_CENTRE_OFFSET,
   escalatedCentre,
   escalationFor,
-  gapBeyondBand,
   replayPool,
   sandbagEarnMultiplier,
+  sandbagGap,
   selectCandidates,
   type AuthoredDrawRules,
   type AuthoredServedShare,
@@ -99,8 +100,10 @@ export interface Candidate {
     /** caravan living − party siege. Positive = the party is weaker than the caravan. */
     gapFromCaravan: number;
     /**
-     * max(0, gapFromCaravan − band_width_used): the part of the gap the player can be held
-     * to (QA S3). Zero for every party served from inside the band the search widened to.
+     * max(0, gapFromCaravan − band_width_used − max(0, caravan − centre)): the part of the
+     * gap the player can be held to (QA S3), measured beyond the band actually searched (chunk
+     * 19 QA D2b: encounter 1's centre sits below the caravan). Zero for every party served
+     * from inside the band the search widened to.
      */
     gapBeyondBand: number;
     /** Fixed-point multiplier on this encounter's Coin earn (sandbagging floor), from gapBeyondBand; chunk 19 applies it. */
@@ -182,7 +185,8 @@ export interface MatchmakingRules {
   reroll: { gate: "time"; cooldownSeconds: number };
   selfExcluded: true;
   recentOpponentsExcluded: number;
-  escalation: { perEncounter: number; basisPointsOfSpan: number };
+  /** `firstEncounterOffset` (chunk 19 QA D2b): encounter 1 is centred this far from the caravan rating; 2+ escalate as before. */
+  escalation: { perEncounter: number; basisPointsOfSpan: number; firstEncounterOffset: number };
   emptyPool: "widen_then_authored";
   seed: string;
 }
@@ -194,7 +198,7 @@ export function matchmakingRules(): MatchmakingRules {
     reroll: { gate: "time", cooldownSeconds: REROLL_COOLDOWN_SECONDS },
     selfExcluded: true,
     recentOpponentsExcluded: RECENT_OPPONENT_EXCLUSION,
-    escalation: { perEncounter: ESCALATION_PER_ENCOUNTER, basisPointsOfSpan: DIFFICULTY_ESCALATION_BP },
+    escalation: { perEncounter: ESCALATION_PER_ENCOUNTER, basisPointsOfSpan: DIFFICULTY_ESCALATION_BP, firstEncounterOffset: FIRST_ENCOUNTER_CENTRE_OFFSET },
     emptyPool: "widen_then_authored",
     seed: "fnv1a32(caravanId:tripId:encounterIndex:searchSeq)",
   };
@@ -338,9 +342,12 @@ export function candidateFromSnapshot(
   caravanRating: number,
   bandWidthUsed: number,
   snapshot: StandingPartySnapshot,
+  centre: number = caravanRating,
 ): Candidate {
   const gap = caravanRating - entry.rating;
-  const beyond = gapBeyondBand(gap, bandWidthUsed);
+  // Chunk 19 QA D2b: measured beyond the band actually searched (centre ± width), so the
+  // first encounter's downward centre offset never floors a party it served.
+  const beyond = sandbagGap(caravanRating, centre, entry.rating, bandWidthUsed);
   return {
     candidateId: candidateIdFor(ids.tripId, ids.encounterIndex, ids.searchSeq, snapshot),
     partyId: entry.partyId,
@@ -489,7 +496,7 @@ export async function searchCandidates(client: pg.PoolClient, caravan: CaravanRo
   const ids = { tripId: trip.id, encounterIndex, searchSeq };
   const candidates = result.picks.map((p) => {
     const who = names.get(p.partyId) ?? { displayName: "", flavor: null };
-    return candidateFromSnapshot(ids, p, who, caravanRating, result.bandWidthUsed, snapshots.get(p.partyId)!);
+    return candidateFromSnapshot(ids, p, who, caravanRating, result.bandWidthUsed, snapshots.get(p.partyId)!, centre);
   });
   const res = await client.query<EncounterCandidatesRow>(
     `INSERT INTO encounter_candidates (trip_id, encounter_index, search_seq, seed, caravan_rating, centre, band_width_used, pool, excluded_party_ids, skipped_party_ids, candidates, searched_at_ms, authored_served, band, draw_rules, authored_weighted_down)

@@ -32,13 +32,16 @@ import { drain, type HandlerRegistry } from "../src/jobs/worker.js";
 import type { LedgerEventRow } from "../src/ledger/events.js";
 import { appendEvents } from "../src/ledger/ledger.js";
 import { seedAuthoredParties } from "../src/matchmaking/authored.js";
+import { bandOf } from "../src/matchmaking/band.js";
 import { chosenCandidate } from "../src/matchmaking/service.js";
 import { findCaravanById } from "../src/repo/caravans.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
 import { hasAccess } from "../src/unlocks/access.js";
-import { settleEncounter, type StakesPreview } from "../src/trip/service.js";
+import { bankTrip, settleEncounter, stakesPreview, type StakesPreview } from "../src/trip/service.js";
+import { redactForeignAccountIds } from "../src/routes/ledger.js";
 import { applyEarnFloor, mergeLevelAfterDeath, planUnitLosses, transferCausationId } from "../src/trip/stakes.js";
 import { appRolePool, testPool, truncateAll, unique } from "./helpers.js";
+import { rebuildMixed, rebuildPlan, weeklyFreeEarn } from "../../../scripts/balance/model.js";
 import { doubleHandlers, type EncounterPlan } from "./trip-double.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -126,6 +129,8 @@ interface Defender extends Player {
 }
 
 const GENERAL_RATING = 1000;
+/** Chunk 19 QA D2a: the display band encounter Coin scales with, for a defender searching at GENERAL_RATING (it holds, so it stays in band 3). */
+const BAND = bandOf(GENERAL_RATING).index;
 
 async function makeDefender(): Promise<Defender> {
   const p = await registerPlayer("desert");
@@ -369,7 +374,7 @@ describe("the inversion through a real overrun: died → de-merged, survived to 
     expect((await roster(d.caravanId)).filter((r) => d.town.includes(r.id))).toEqual(townBefore);
     expect((await roster(d.caravanId)).map((r) => r.id).sort()).toEqual([d.b, ...d.town].sort());
     // Banked Coin: untouched; unbanked Coin: lost.
-    const unbanked = coinForEncounter(1) + coinForEncounter(2);
+    const unbanked = coinForEncounter(1, BAND) + coinForEncounter(2, BAND);
     expect(await balance(d.accountId)).toBe(1_234);
 
     const batch = await byCausation(`trip:${tripId}:overrun`);
@@ -387,13 +392,17 @@ describe("the inversion through a real overrun: died → de-merged, survived to 
     expect(handoff.losses.coin["lost"]).toBe(p.ifOverrun.coinLost);
     expect(p.ifOverrun.coinLost).toBe(unbanked);
 
-    // The recipient: exactly the lost amount, credited once, account-scoped, under transfer:<job>.
+    // The recipient: exactly the lost amount, credited once, account-scoped, under transfer:<job>,
+    // then the party-win credit in the same batch (chunk 19 QA D1).
     const jobId = `encounter:${tripId}:3`;
     const transfer = await byCausation(transferCausationId(jobId));
-    expect(transfer.length).toBe(1);
+    expect(transfer.map((e) => e.event_type)).toEqual(["coin_transferred_to_party_owner", "coin_earned"]);
     expect(transfer[0]).toMatchObject({ event_type: "coin_transferred_to_party_owner", account_id: recipient.accountId, caravan_id: null });
     expect(transfer[0]!.payload).toMatchObject({ amount: unbanked, reason: "caravan_overrun", jobId, tripId, encounterIndex: 3 });
-    expect(await balance(recipient.accountId)).toBe(recipientBefore + unbanked);
+    expect(transfer[1]).toMatchObject({ account_id: recipient.accountId, caravan_id: null });
+    expect(transfer[1]!.payload).toMatchObject({ amount: TUNABLES.COIN_PER_PARTY_WIN, reason: "party_win", jobId, tripId, encounterIndex: 3 });
+    expect(handoff.losses.coin["partyWin"]).toEqual({ amount: TUNABLES.COIN_PER_PARTY_WIN, credited: TUNABLES.COIN_PER_PARTY_WIN, discarded: 0 });
+    expect(await balance(recipient.accountId)).toBe(recipientBefore + unbanked + TUNABLES.COIN_PER_PARTY_WIN);
 
     // Unlock rights and ladder progress: not reduced by any of it; the destroyed types stay re-acquirable.
     expectNotReduced(permBefore, await permanence(d.accountId, d.caravanId));
@@ -423,16 +432,20 @@ describe("the inversion through a real overrun: died → de-merged, survived to 
     expect((await eventsOf(d.accountId, "unit_lost_on_wipe")).map((e) => e.payload["unitInstanceId"]).sort()).toEqual([d.b, d.c].sort());
   });
 
-  it("an overrun with nothing unbanked (first encounter) transfers nothing, still destroys what was alive, and records a zero loss", async () => {
+  it("an overrun with nothing unbanked (first encounter) transfers nothing but still pays the party win, destroys what was alive, and records a zero loss", async () => {
     const { owners } = await makeIsland();
     const d = await makeDefender();
     await pack(d);
     const tripId = await start(d);
     const before = await eventsOf(owners[0]!.accountId);
+    const coinBefore = await balance(owners[0]!.accountId);
     await encounter(d, 1, { kind: "caravan_overrun" }, owners[0]!.accountId);
-    expect((await byCausation(transferCausationId(`encounter:${tripId}:1`))).length).toBe(0);
+    // Chunk 19 QA D1: every overrun by a player-owned party pays COIN_PER_PARTY_WIN, even when the caravan carried nothing.
+    const xfer = await byCausation(transferCausationId(`encounter:${tripId}:1`));
+    expect(xfer.map((e) => [e.event_type, e.payload["reason"], e.payload["amount"]])).toEqual([["coin_earned", "party_win", TUNABLES.COIN_PER_PARTY_WIN]]);
+    expect(await balance(owners[0]!.accountId)).toBe(coinBefore + TUNABLES.COIN_PER_PARTY_WIN);
     const after = await eventsOf(owners[0]!.accountId);
-    expect(after.slice(before.length).map((e) => e.event_type).filter((t) => t.startsWith("coin"))).toEqual([]);
+    expect(after.slice(before.length).map((e) => e.event_type).filter((t) => t.startsWith("coin"))).toEqual(["coin_earned"]);
     const lost = await eventsOf(d.accountId, "coin_lost_on_wipe");
     expect(lost.map((e) => e.payload)).toEqual([expect.objectContaining({ amount: 0, transferred: 0, destroyed: 0, destroyedReason: "none" })]);
     expect((await roster(d.caravanId)).map((r) => r.id).sort()).toEqual([...d.town].sort());
@@ -504,10 +517,12 @@ describe("the Coin transfer is capped by the recipient's headroom", () => {
     await encounter(d, 2, { kind: "caravan_held" });
     await push(d, tripId, 2);
     await encounter(d, 3, { kind: "caravan_overrun" }, r.accountId);
-    const lost = coinForEncounter(1) + coinForEncounter(2); // 900
+    const lost = coinForEncounter(1, BAND) + coinForEncounter(2, BAND); // 1000 + 1347 at band 3
     expect(await balance(r.accountId)).toBe(cap);
-    const [t] = await byCausation(transferCausationId(`encounter:${tripId}:3`));
+    const [t, win] = await byCausation(transferCausationId(`encounter:${tripId}:3`));
     expect(t!.payload).toMatchObject({ amount: 500, overflowDiscarded: lost - 500 });
+    // The party win comes after the transfer in the same clamp: no room is left for it, all recorded (QA D1).
+    expect(win!.payload).toMatchObject({ amount: 0, reason: "party_win", overflowDiscarded: TUNABLES.COIN_PER_PARTY_WIN });
     const [l] = await eventsOf(d.accountId, "coin_lost_on_wipe");
     expect(l!.payload).toMatchObject({ amount: lost, transferred: 500, destroyed: lost - 500, destroyedReason: "recipient_storage_cap" });
   });
@@ -541,9 +556,11 @@ describe("the Coin transfer is capped by the recipient's headroom", () => {
     for (const res of results) if (res.status === "rejected") expect(String(res.reason)).toMatch(/trip_moved|changed while/);
     // A settle that lost the race may have been refused (trip_moved); the read path settles lazily, so read once more.
     for (const c of caravans) await settleEncounter(appRole, c);
-    const lostEach = coinForEncounter(1) + coinForEncounter(2);
+    const lostEach = coinForEncounter(1, BAND) + coinForEncounter(2, BAND);
     const transfers = (await Promise.all(trips.map((t) => byCausation(transferCausationId(`encounter:${t}:3`))))).map((x) => {
-      expect(x.length).toBe(1);
+      expect(x.map((e) => e.event_type)).toEqual(["coin_transferred_to_party_owner", "coin_earned"]);
+      // Both batches ran against a full store by the time the party win was reached: it is discarded, recorded.
+      expect(x[1]!.payload).toMatchObject({ reason: "party_win" });
       return x[0]!.payload as { amount: number; overflowDiscarded?: number };
     });
     expect(transfers.reduce((s, t) => s + t.amount, 0)).toBe(1_000);
@@ -587,7 +604,7 @@ describe("exactly once: a failed commit leaves nothing; the retry applies everyt
     expect(await levelOf(d.b)).toBe(1);
     expect((await eventsOf(d.accountId, "unit_demerged_on_death")).length).toBe(1);
     expect((await eventsOf(d.accountId, "unit_lost_on_wipe")).length).toBe(2);
-    expect((await byCausation(transferCausationId(`encounter:${tripId}:2`))).length).toBe(1);
+    expect((await byCausation(transferCausationId(`encounter:${tripId}:2`))).map((e) => e.event_type)).toEqual(["coin_transferred_to_party_owner", "coin_earned"]);
     expect((await eventsOf(d.accountId, "trip_overrun")).length).toBe(1);
   });
 });
@@ -621,15 +638,26 @@ describe("the attacking party's owner risks nothing", () => {
     expect((await pool.query("SELECT * FROM standing_party WHERE account_id = $1", [o.accountId])).rows).toEqual(partyRowBefore);
     expect((await call(o, "GET", "/me/party")).json()).toEqual(partyViewBefore);
     expectNotReduced(permBefore, await permanence(o.accountId, o.caravanId));
-    expect(await balance(o.accountId)).toBe(coinBefore + coinForEncounter(1));
+    expect(await balance(o.accountId)).toBe(coinBefore + coinForEncounter(1, BAND) + TUNABLES.COIN_PER_PARTY_WIN);
     const ownerTypes = new Set((await eventsOf(o.accountId)).map((e) => e.event_type));
     for (const t of ["unit_demerged_on_death", "unit_lost_on_wipe", "coin_lost_on_wipe", "coin_spent", "standing_party_invalidated", "unit_retired"]) expect(ownerTypes.has(t as never), t).toBe(false);
 
     // The asynchronous payoff: the owner's feed names the overrun, its Coin and the job (the replay key).
     const feed = (await call(o, "GET", "/me/party/feed")).json();
     const entry = feed.entries.find((e: { jobId: string }) => e.jobId === `encounter:${t2}:2`);
-    expect(entry).toMatchObject({ outcomeKind: "caravan_overrun", coinEarned: coinForEncounter(1), tripId: t2, encounterIndex: 2 });
-    expect(feed.entries.find((e: { jobId: string }) => e.jobId === `encounter:${t1}:1`)).toMatchObject({ outcomeKind: "caravan_held", coinEarned: 0 });
+    expect(entry).toMatchObject({
+      outcomeKind: "caravan_overrun",
+      coinEarned: coinForEncounter(1, BAND) + TUNABLES.COIN_PER_PARTY_WIN,
+      coinTransferred: coinForEncounter(1, BAND),
+      partyWinCoin: TUNABLES.COIN_PER_PARTY_WIN,
+      coinDiscardedAtCap: 0,
+      tripId: t2,
+      encounterIndex: 2,
+    });
+    // Chunk 19 QA S1: the feed names the defender by username, never by account id.
+    expect(entry.defender).not.toHaveProperty("accountId");
+    expect(JSON.stringify(feed)).not.toContain(d2.accountId);
+    expect(feed.entries.find((e: { jobId: string }) => e.jobId === `encounter:${t1}:1`)).toMatchObject({ outcomeKind: "caravan_held", coinEarned: 0, partyWinCoin: 0, coinTransferred: 0 });
   });
 });
 
@@ -698,7 +726,7 @@ describe("the earn floor: one apply site, the chosen candidate's multiplier", ()
     const chosen = await chosenCandidate(pool, tripId, 1);
     expect(chosen!.reputation.sandbagEarnMultiplier).toBe(FIXED_ONE);
     const te = await pool.query("SELECT coin_accrued FROM trip_encounter WHERE trip_id = $1", [tripId]);
-    expect(te.rows[0].coin_accrued).toBe(coinForEncounter(1));
+    expect(te.rows[0].coin_accrued).toBe(coinForEncounter(1, bandOf(1_350).index));
   });
 
   it("sandbagEarnMultiplier is read nowhere in src/ outside matchmaking/ but trip/stakes.ts, and applyEarnFloor is applied only there", () => {
@@ -747,13 +775,295 @@ describe("generous acquisition: the real cost to rebuild after a worst-case coll
     expect(mergeCoin + mercCoin).toBe(189_800);
     // Time: refugees are free (one per REFUGEE_REFRESH_INTERVAL_MINUTES) — 67 × 90 min ≈ 100.5 h.
     expect((level1 * TUNABLES.REFUGEE_REFRESH_INTERVAL_MINUTES) / 60).toBe(100.5);
-    // Coin pace: FREE_WEEKLY_EARN_ESTIMATE per week of free play.
-    expect(Math.round((mergeCoin / TUNABLES.FREE_WEEKLY_EARN_ESTIMATE) * 10) / 10).toBe(3.7);
-    expect(Math.round(((mergeCoin + mercCoin) / TUNABLES.FREE_WEEKLY_EARN_ESTIMATE) * 10) / 10).toBe(4.7);
+    // Coin pace: FREE_WEEKLY_EARN_ESTIMATE (the derived MID week, chunk 19 QA D3) per week of free play.
+    expect(Math.round((mergeCoin / TUNABLES.FREE_WEEKLY_EARN_ESTIMATE) * 10) / 10).toBe(2.7);
+    expect(Math.round(((mergeCoin + mercCoin) / TUNABLES.FREE_WEEKLY_EARN_ESTIMATE) * 10) / 10).toBe(3.5);
     // The inventory guard never blocks the rebuild, and no single merge exceeds the storage cap.
     expect(level1).toBeLessThan(TUNABLES.UNIT_INVENTORY_CAP);
     expect(five.produce * TUNABLES.MERGE_COST_BY_TARGET_LEVEL[5]!).toBeLessThan(TUNABLES.COIN_STORAGE_CAP);
+    // The balance model (scripts/balance/model.ts) runs the same math: one source for the §37 pass.
+    expect(rebuildPlan(TUNABLES.DEPLOYMENT_SLOT_CAP, 5)).toMatchObject({ inputsByLevel: perLevel, level1, mergeCoin, mercenaryCoin: mercCoin, totalCoin: 189_800, refugeeHours: 100.5 });
   });
+
+  it("QA N4: 8 level-5 units of 8 DIFFERENT types (no shared merges): 96 L1, 166,800 merge Coin, 224,400 with mercenaries", () => {
+    // One unit of a type at L5: 2 L4 ← 4 L3 (5→3 + 2→1 from 7) ← 7 L2 ← 12 L1, per type.
+    const one = rebuildPlan(1, 5);
+    expect(one.inputsByLevel).toEqual([2, 4, 7, 12]);
+    expect(one.mergeCoin).toBe(7 * 250 + 4 * 900 + 2 * 3_000 + 9_500); // 20,850
+    const mixed = rebuildMixed(Array(TUNABLES.DEPLOYMENT_SLOT_CAP).fill(5));
+    expect(mixed.level1).toBe(96);
+    expect(mixed.mergeCoin).toBe(166_800);
+    expect(mixed.mercenaryCoin).toBe(96 * TUNABLES.MERCENARY_COST_BASE);
+    expect(mixed.totalCoin).toBe(224_400);
+    expect(mixed.refugeeHours).toBe(144);
+    expect(Math.round((mixed.mergeCoin / TUNABLES.FREE_WEEKLY_EARN_ESTIMATE) * 10) / 10).toBe(3.0);
+    expect(Math.round((mixed.totalCoin / TUNABLES.FREE_WEEKLY_EARN_ESTIMATE) * 10) / 10).toBe(4.1);
+  });
+
+  it("QA D3: FREE_WEEKLY_EARN_ESTIMATE is the derived mid week (trickle + 30 trips at p1 0.65), rounded down; the range brackets it; 1.5× holds against it", () => {
+    const low = weeklyFreeEarn(15, 0.6, 0.05);
+    const mid = weeklyFreeEarn(30, 0.65, 0.05);
+    const high = weeklyFreeEarn(42, 0.7, 0.05);
+    expect(mid.trickle).toBe(33_600);
+    expect(Math.floor(mid.total / 1000) * 1000).toBe(TUNABLES.FREE_WEEKLY_EARN_ESTIMATE);
+    expect(low.total).toBeLessThan(mid.total);
+    expect(high.total).toBeGreaterThan(mid.total);
+    expect([Math.round(low.total / 100) * 100, Math.round(mid.total / 100) * 100, Math.round(high.total / 100) * 100]).toEqual([43_700, 55_500, 66_700]);
+    expect(TUNABLES.WEEKLY_PAY_CEILING * 10_000).toBeLessThanOrEqual(TUNABLES.FREE_WEEKLY_EARN_ESTIMATE * TUNABLES.PAID_TO_FREE_RATIO_MAX_BP);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// Chunk 19 QA round 1 (roadmap/qa/19-punchlist.md) — the reviewer's probes, as tests.
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+describe("QA D2b: encounter 1 is matched below the caravan; escalation from 2 on is unchanged; nothing it serves is floored", () => {
+  it("encounter 1's menu is centred at rating − 150 and pays every candidate in full; encounter 2 is centred at rating + 15", async () => {
+    const d = await makeDefender();
+    await pack(d);
+    const tripId = await start(d);
+    const s1 = await call(d, "POST", `/me/caravans/${d.caravanId}/encounters/1/search`);
+    expect(s1.statusCode, s1.body).toBe(201);
+    const m1 = s1.json().menu;
+    expect(m1.caravan.rating).toBe(GENERAL_RATING);
+    expect(m1.centre).toBe(GENERAL_RATING + TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET);
+    expect(m1.escalation.applied).toBe(-150);
+    expect(m1.rules.escalation.firstEncounterOffset).toBe(-150);
+    for (const c of m1.candidates as { reputation: { rating: number; gapBeyondBand: number; sandbagEarnMultiplier: number } }[]) {
+      expect(Math.abs(c.reputation.rating - m1.centre)).toBeLessThanOrEqual(m1.bandWidthUsed);
+      expect(c.reputation.gapBeyondBand).toBe(0);
+      expect(c.reputation.sandbagEarnMultiplier).toBe(FIXED_ONE);
+    }
+    const ch = await call(d, "POST", `/me/caravans/${d.caravanId}/encounters/1/choose`, { candidateId: m1.candidates[0].candidateId });
+    expect(ch.statusCode, ch.body).toBe(200);
+    await arrangeAndCommit(d, 1);
+    await worker(doubleHandlers({ 1: { kind: "caravan_held" } }));
+    expect((await call(d, "GET", `/me/caravans/${d.caravanId}/trip`)).statusCode).toBe(200);
+    expect((await chosenCandidate(pool, tripId, 1))!.reputation.sandbagEarnMultiplier).toBe(FIXED_ONE);
+    const p = await preview(d);
+    expect(p.nextEncounter.difficulty).toMatchObject({ escalationApplied: TUNABLES.DIFFICULTY_ESCALATION_BP * 300 / 10_000, harderThanThisEncounter: true });
+    await push(d, tripId, 1);
+    const rating2 = (await pool.query<{ reputation: number }>("SELECT reputation FROM pool_progress WHERE caravan_id = $1 AND pool = 'living'", [d.caravanId])).rows[0]!.reputation;
+    const s2 = await call(d, "POST", `/me/caravans/${d.caravanId}/encounters/2/search`);
+    expect(s2.statusCode, s2.body).toBe(201);
+    expect(s2.json().menu.centre).toBe(rating2 + 15);
+    expect(s2.json().menu.escalation.applied).toBe(15);
+  });
+});
+
+describe("QA D2a: encounter Coin scales with the caravan's display band, read from the chosen menu row and stored at accrual", () => {
+  it("the band is the one the search was drawn at: moving the rating after choosing changes nothing; the preview's next reward is what the next encounter accrues", async () => {
+    const d = await makeDefender();
+    await pack(d);
+    const tripId = await start(d);
+    await searchAndChoose(d, 1);
+    // The rating jumps three bands AFTER the menu was drawn: the accrual must not see it.
+    await setLiving(d, 2_000);
+    await arrangeAndCommit(d, 1);
+    await worker(doubleHandlers({ 1: { kind: "caravan_held" } }));
+    expect((await call(d, "GET", `/me/caravans/${d.caravanId}/trip`)).statusCode).toBe(200);
+    expect(bandOf(2_000).index).toBeGreaterThan(BAND);
+    const te1 = (await pool.query<{ coin_accrued: number }>("SELECT coin_accrued FROM trip_encounter WHERE trip_id = $1 AND encounter_index = 1", [tripId])).rows[0]!;
+    expect(te1.coin_accrued).toBe(coinForEncounter(1, BAND)); // 1000 at band 3, not 2000's band
+    expect(te1.coin_accrued).toBe(1_000);
+    // The preview reads the CURRENT living band (it is what the next search will be drawn at).
+    const now = (await pool.query<{ reputation: number }>("SELECT reputation FROM pool_progress WHERE caravan_id = $1 AND pool = 'living'", [d.caravanId])).rows[0]!.reputation;
+    expect((await preview(d)).nextEncounter).toMatchObject({ band: bandOf(now).index, reward: coinForEncounter(2, bandOf(now).index) });
+    await setLiving(d, GENERAL_RATING);
+    const p = await preview(d);
+    expect(p.nextEncounter).toMatchObject({ band: BAND, reward: coinForEncounter(2, BAND), bankTotalIfSurvived: 1_000 + coinForEncounter(2, BAND) + 2 * TUNABLES.COIN_DELIVERY_PER_ENCOUNTER });
+    await push(d, tripId, 1);
+    await encounter(d, 2, { kind: "caravan_held" });
+    const te2 = (await pool.query<{ coin_accrued: number }>("SELECT coin_accrued FROM trip_encounter WHERE trip_id = $1 AND encounter_index = 2", [tripId])).rows[0]!;
+    expect(te2.coin_accrued).toBe(p.nextEncounter.reward);
+    // Retuning or re-rating now changes nothing already accrued: the bank credits the stored rows.
+    await setLiving(d, 100);
+    const b = await bank(d, tripId, 2);
+    expect(b.statusCode, b.body).toBe(200);
+    expect(b.json().requested).toBe(1_000 + p.nextEncounter.reward + 2 * TUNABLES.COIN_DELIVERY_PER_ENCOUNTER);
+  });
+});
+
+describe("QA D1 + S1 + S2: a recipient at the cap — the party win is paid (and discarded) beside the transfer; no account id leaves the read models", () => {
+  it("recipient exactly at cap: both credits recorded at 0 with overflowDiscarded; the feed shows coinDiscardedAtCap; /me/ledger carries no foreign account id", async () => {
+    const { owners } = await makeIsland();
+    const o = owners[0]!;
+    await setBalance(o.accountId, TUNABLES.COIN_STORAGE_CAP);
+    const d = await makeDefender();
+    await pack(d);
+    const tripId = await start(d);
+    await encounter(d, 1, { kind: "caravan_held" });
+    await push(d, tripId, 1);
+    await encounter(d, 2, { kind: "caravan_overrun" }, o.accountId);
+    const lost = coinForEncounter(1, BAND);
+    const x = await byCausation(transferCausationId(`encounter:${tripId}:2`));
+    expect(x.map((e) => [e.event_type, e.payload["amount"], e.payload["overflowDiscarded"]])).toEqual([
+      ["coin_transferred_to_party_owner", 0, lost],
+      ["coin_earned", 0, TUNABLES.COIN_PER_PARTY_WIN],
+    ]);
+    expect(await balance(o.accountId)).toBe(TUNABLES.COIN_STORAGE_CAP);
+    const [l] = await eventsOf(d.accountId, "coin_lost_on_wipe");
+    expect(l!.payload).toMatchObject({ amount: lost, transferred: 0, destroyed: lost, destroyedReason: "recipient_storage_cap" });
+
+    // S2: the owner's feed says what the cap swallowed.
+    const feed = await call(o, "GET", "/me/party/feed");
+    expect(feed.statusCode).toBe(200);
+    const entry = feed.json().entries.find((e: { jobId: string }) => e.jobId === `encounter:${tripId}:2`);
+    expect(entry).toMatchObject({ coinEarned: 0, coinTransferred: 0, partyWinCoin: 0, coinDiscardedAtCap: lost + TUNABLES.COIN_PER_PARTY_WIN });
+    // S1: the feed names the defender by username only.
+    expect(Object.keys(entry.defender).sort()).toEqual(["caravanId", "caravanName", "regionId", "username"]);
+    expect(feed.body).not.toContain(d.accountId);
+
+    // S1: the defender's ledger read model drops the party owner's account id everywhere.
+    const led = await call(d, "GET", "/me/ledger?limit=500");
+    expect(led.statusCode).toBe(200);
+    const events = led.json().events as { type: string; accountId: string; payload: Record<string, unknown> }[];
+    const overrun = events.find((e) => e.type === "trip_overrun")!;
+    expect(overrun.payload).not.toHaveProperty("partyOwnerAccountId");
+    expect(overrun.payload).toMatchObject({ tripId, partyOwnerAuthored: false, lossesApplied: true });
+    expect(events.every((e) => e.accountId === d.accountId)).toBe(true); // the reader's own id stays
+    expect(led.body).not.toContain(o.accountId);
+    // …while the ledger row itself (the auditable record) is untouched.
+    expect((await eventsOf(d.accountId, "trip_overrun"))[0]!.payload["partyOwnerAccountId"]).toBe(o.accountId);
+    // The owner's ledger: party_served_as_encounter without the defender's account id.
+    const oled = await call(o, "GET", "/me/ledger?limit=500");
+    const served = (oled.json().events as { type: string; payload: Record<string, unknown> }[]).filter((e) => e.type === "party_served_as_encounter");
+    expect(served.length).toBeGreaterThan(0);
+    for (const e of served) expect(e.payload).not.toHaveProperty("defenderAccountId");
+    expect(oled.body).not.toContain(d.accountId);
+  });
+
+  it("redactForeignAccountIds drops foreign ids at any depth and keeps the reader's own", () => {
+    const own = "11111111-1111-1111-1111-111111111111";
+    const other = "22222222-2222-2222-2222-222222222222";
+    expect(redactForeignAccountIds({ a: 1, partyOwnerAccountId: other, accountId: own, party: { ownerAccountId: other, units: [{ defenderAccountId: other, x: 2 }] } }, own)).toEqual({
+      a: 1,
+      accountId: own,
+      party: { units: [{ x: 2 }] },
+    });
+  });
+});
+
+describe("QA N3: the bank clamps against the balance its forecast showed (the pending trickle is flushed first)", () => {
+  it("with 10 h of trickle pending and the store nearly full, the bank credits exactly the forecast's wouldCredit", async () => {
+    const d = await makeDefender();
+    await setBalance(d.accountId, TUNABLES.COIN_STORAGE_CAP - 3_000);
+    await pack(d);
+    const tripId = await start(d);
+    await encounter(d, 1, { kind: "caravan_held" });
+    const later = Date.now() + 10 * 3_600_000; // + 2,000 coins of trickle, not yet written
+    const row = await caravanRow(d);
+    const p = await stakesPreview(appRole, row, later);
+    // ~2,000 coins pending (a few more if the test ran slowly): the room is ~1,000, below the bank's total.
+    expect(p.bankNow.forecast.balance).toBeGreaterThanOrEqual(TUNABLES.COIN_STORAGE_CAP - 1_000);
+    expect(p.bankNow.forecast.wouldCredit).toBe(TUNABLES.COIN_STORAGE_CAP - p.bankNow.forecast.balance);
+    expect(p.bankNow.forecast.wouldCredit).toBeLessThan(p.bankNow.total); // without the flush the bank would credit the full total
+    expect(p.bankNow.forecast.wouldDiscard).toBe(p.bankNow.total - p.bankNow.forecast.wouldCredit);
+    const res = await withTransaction(appRole, (c) => bankTrip(c, row, { tripId, encounterIndex: 1 }, later));
+    expect(res.credited).toBe(p.bankNow.forecast.wouldCredit);
+    expect(res.discarded).toBe(p.bankNow.forecast.wouldDiscard);
+    expect(await balance(d.accountId)).toBe(TUNABLES.COIN_STORAGE_CAP);
+  });
+
+  it("QA N2: the preview reads one REPEATABLE READ snapshot and indexes deaths with the losses' own deathIndex", () => {
+    const svc = readFileSync(join(SRC, "trip/service.ts"), "utf8");
+    const fn = svc.slice(svc.indexOf("export async function stakesPreview"), svc.indexOf("export { findTripById }"));
+    expect(fn).toMatch(/BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY/);
+    expect(fn).toMatch(/const diedAt = deathIndex\(rows\)/);
+    expect(fn).not.toMatch(/diedAt\.set\(/);
+  });
+});
+
+// The reviewer's randomized probe (scratchpad/qa19/probe.test.ts), scaled to 6 histories.
+async function packUnits(d: Player, units: string[]): Promise<void> {
+  const res = await call(d, "POST", `/caravans/${d.caravanId}/manifest`, { units, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 2 } });
+  expect(res.statusCode, res.body).toBe(201);
+}
+async function encounterAll(d: Player, n: number, plan: (posted: string[]) => EncounterPlan, ownerId?: string): Promise<void> {
+  await searchAndChoose(d, n, ownerId);
+  const m = await survivors(d);
+  const alive = m.units.filter((u) => u.hp > 0).map((u) => u.ref);
+  const f = await call(d, "PUT", `/caravans/${d.caravanId}/encounters/${n}/formation`, arrangement(m));
+  expect(f.statusCode, f.body).toBe(200);
+  const c = await call(d, "POST", `/me/caravans/${d.caravanId}/trip/encounters/${n}/commit`);
+  expect([200, 202], c.body).toContain(c.statusCode);
+  await worker(doubleHandlers({ [n]: plan(alive) }));
+  expect((await call(d, "GET", `/me/caravans/${d.caravanId}/trip`)).statusCode).toBe(200);
+}
+async function ownerSnapshot(o: Player): Promise<string> {
+  const units = await roster(o.caravanId);
+  const party = (await pool.query("SELECT * FROM standing_party WHERE account_id = $1", [o.accountId])).rows;
+  const view = (await call(o, "GET", "/me/party")).body;
+  return JSON.stringify({ units, party, view });
+}
+
+describe("QA probe, randomized: preview == applied, Coin conserved (transfer + destroyed == lost; party win on top), owners untouched", () => {
+  it("6 seeded random trip histories, banked or overrun", async () => {
+    let seed = 19;
+    const rnd = (): number => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed / 0x7fffffff;
+    };
+    for (let t = 0; t < 6; t++) {
+      const { owners } = await makeIsland();
+      const recipient = owners[t % 3]!;
+      const d = await registerPlayer("desert");
+      const units: string[] = [];
+      for (let i = 0, n = 1 + Math.floor(rnd() * 6); i < n; i++) units.push(...(await giveUnits(d, 1, rnd() < 0.5 ? "desert.dust_rider" : "desert.well_digger", 1 + Math.floor(rnd() * 5))));
+      const town = await giveUnits(d, 1, "desert.dust_rider", 3);
+      await setLiving(d, GENERAL_RATING);
+      if (rnd() < 0.4) await setBalance(recipient.accountId, TUNABLES.COIN_STORAGE_CAP - Math.floor(rnd() * 1_500));
+      const ownerBefore = await Promise.all(owners.map(ownerSnapshot));
+      const townBefore = JSON.stringify((await roster(d.caravanId)).filter((r) => town.includes(r.id)));
+      const balBefore = await balance(d.accountId);
+      await packUnits(d, units);
+      const tripId = await start(d);
+      const k = 1 + Math.floor(rnd() * 3);
+      const ends = rnd() < 0.5 ? "bank" : "overrun";
+      let p: StakesPreview | null = null;
+      for (let e = 1; e <= k; e++) {
+        await encounterAll(d, e, (posted) => ({ kind: rnd() < 0.3 ? "stalemate" : "caravan_held", kill: posted.filter(() => rnd() < 0.3), unitDamage: Math.floor(rnd() * 3) }));
+        p = await preview(d);
+        if (e < k || ends === "overrun") await push(d, tripId, e);
+      }
+      if (ends === "bank") {
+        const r = await bank(d, tripId, k);
+        expect(r.statusCode, r.body).toBe(200);
+        const b = r.json();
+        expect(b.restored.deMerged).toEqual(p!.bankNow.unitsDeMerged);
+        expect(b.requested).toBe(p!.bankNow.total);
+        expect(b.credited).toBe(p!.bankNow.forecast.wouldCredit);
+        for (const u of p!.bankNow.unitsDeMerged) expect(await levelOf(u.ref)).toBe(u.toLevel);
+        expect(await balance(d.accountId)).toBe(balBefore + b.credited);
+      } else {
+        const recBefore = await balance(recipient.accountId);
+        let finalKilled: string[] = [];
+        await encounterAll(d, k + 1, (ps) => {
+          finalKilled = ps.filter(() => rnd() < 0.4);
+          return { kind: "caravan_overrun", kill: finalKilled };
+        }, recipient.accountId);
+        const h = (await byCausation(`trip:${tripId}:overrun`))[0]!.payload as unknown as { losses: { destroyed: { ref: string }[]; deMerged: { ref: string; fromLevel: number }[]; coin: { lost: number; transferred: number; destroyed: number; partyWin: { amount: number; credited: number; discarded: number } } } };
+        const expectDestroyed = p!.ifOverrun.unitsLostOutright.filter((u) => !finalKilled.includes(u.ref));
+        expect(h.losses.destroyed.map((u) => u.ref)).toEqual(expectDestroyed.map((u) => u.ref));
+        expect(h.losses.deMerged.map((u) => u.ref).sort()).toEqual([...p!.ifOverrun.unitsDeMergedNotDestroyed.map((u) => u.ref), ...finalKilled].sort());
+        expect(h.losses.coin.lost).toBe(p!.ifOverrun.coinLost);
+        expect(h.losses.coin.transferred + h.losses.coin.destroyed).toBe(h.losses.coin.lost);
+        expect(h.losses.coin.partyWin.amount).toBe(TUNABLES.COIN_PER_PARTY_WIN);
+        expect(h.losses.coin.partyWin.credited + h.losses.coin.partyWin.discarded).toBe(TUNABLES.COIN_PER_PARTY_WIN);
+        expect(await balance(recipient.accountId)).toBe(recBefore + h.losses.coin.transferred + h.losses.coin.partyWin.credited);
+        expect(await balance(recipient.accountId)).toBeLessThanOrEqual(TUNABLES.COIN_STORAGE_CAP);
+        expect(await balance(d.accountId)).toBe(balBefore);
+        for (const u of expectDestroyed) expect(await levelOf(u.ref)).toBeNull();
+        for (const u of h.losses.deMerged) expect(await levelOf(u.ref)).toBe(Math.max(1, u.fromLevel - 1));
+        const dm = new Set(h.losses.deMerged.map((u) => u.ref));
+        expect(h.losses.destroyed.some((u) => dm.has(u.ref))).toBe(false);
+      }
+      expect(JSON.stringify((await roster(d.caravanId)).filter((r) => town.includes(r.id)))).toBe(townBefore);
+      expect(await Promise.all(owners.map(ownerSnapshot))).toEqual(ownerBefore);
+      const dms = (await eventsOf(d.accountId, "unit_demerged_on_death")).map((e) => e.payload["unitInstanceId"]);
+      expect(new Set(dms).size).toBe(dms.length);
+    }
+  }, 300_000);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -782,7 +1092,7 @@ describe("system (authored) owners: Coin lost to them is destroyed, nothing is m
     const m = (await chosenCandidate(pool, tripId, 1))!.reputation.sandbagEarnMultiplier;
     expect(m).toBeLessThan(FIXED_ONE);
     const accrued1 = (await pool.query("SELECT coin_accrued FROM trip_encounter WHERE trip_id = $1 AND encounter_index = 1", [tripId])).rows[0].coin_accrued;
-    expect(accrued1).toBe(applyEarnFloor(coinForEncounter(1), m));
+    expect(accrued1).toBe(applyEarnFloor(coinForEncounter(1, bandOf(FAR).index), m));
     const p = await preview(d);
     expect(p.unbankedCoin.total).toBe(accrued1);
     expect(p.ifOverrun.coinLost).toBe(accrued1);
@@ -820,7 +1130,7 @@ describe("system (authored) owners: Coin lost to them is destroyed, nothing is m
     await worker(doubleHandlers({ 1: { kind: "caravan_held" } }));
     const p = await preview(d);
     const accrued = (await pool.query("SELECT coin_accrued FROM trip_encounter WHERE trip_id = $1", [tripId])).rows[0].coin_accrued as number;
-    expect(accrued).toBeLessThan(coinForEncounter(1));
+    expect(accrued).toBeLessThan(coinForEncounter(1, bandOf(9_000).index));
     const res = await bank(d, tripId, 1);
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json().requested).toBe(p.bankNow.total);

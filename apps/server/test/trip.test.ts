@@ -25,7 +25,10 @@ import { getJob } from "../src/jobs/queue.js";
 import { drain, verifyJobReplay, type HandlerRegistry } from "../src/jobs/worker.js";
 import type { LedgerEventRow } from "../src/ledger/events.js";
 import { seedAuthoredParties } from "../src/matchmaking/authored.js";
-import { ESCALATION_PER_ENCOUNTER, escalationFor } from "../src/matchmaking/band.js";
+import { ESCALATION_PER_ENCOUNTER, bandOf, escalationFor } from "../src/matchmaking/band.js";
+
+/** Chunk 19 QA D2a: every defender here searches at living 1000 (REPUTATION_START) and holds, so its display band stays 3. */
+const BAND = bandOf(1000).index;
 import { findCaravanById } from "../src/repo/caravans.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
 import { TRIP_CAP_REGEN_MS, TRIPS_PER_HOUR_CAP, capAvailable, capConsume, capView } from "../src/trip/cap.js";
@@ -372,9 +375,9 @@ describe("the encounter chain: attrition carries forward, nothing is repaired, b
   it("encounter 1 held: damage, a spent trap and a chipped fence are folded in; Coin accrues as trip state only", async () => {
     const balance0 = (await pool.query("SELECT coin_balance FROM account WHERE id = $1", [d.accountId])).rows[0].coin_balance;
     const s = await encounter(d, 1, { kind: "caravan_held", unitDamage: 5, spendTraps: 1, fenceDamage: 3 });
-    expect(s.trip).toMatchObject({ phase: "decide", decisionFor: 1, encountersResolved: 1, unbankedCoin: coinForEncounter(1) });
+    expect(s.trip).toMatchObject({ phase: "decide", decisionFor: 1, encountersResolved: 1, unbankedCoin: coinForEncounter(1, BAND) });
     // Chunk 23 added `result` (the fight's own delta, for the client); the chunk 15 fields are unchanged.
-    expect(s.trip!.encounters).toEqual([expect.objectContaining({ index: 1, outcome: "caravan_held", depth: 512, deaths: [], coinAccrued: coinForEncounter(1), decision: null })]);
+    expect(s.trip!.encounters).toEqual([expect.objectContaining({ index: 1, outcome: "caravan_held", depth: 512, deaths: [], coinAccrued: coinForEncounter(1, BAND), decision: null })]);
     expect(Object.keys(s.trip!.encounters[0]!).sort()).toEqual(["coinAccrued", "deaths", "decision", "depth", "index", "outcome", "result"]);
     const m = await survivors(d);
     for (const u of m.units) expect(u.hp).toBe(before.units.find((b) => b.ref === u.ref)!.hp - 5);
@@ -411,9 +414,9 @@ describe("the encounter chain: attrition carries forward, nothing is repaired, b
     const p = await preview(d);
     const m = await survivors(d);
     expect(p).toMatchObject({ tripId, encountersSurvived: 1, decisionOpen: true, decisionFor: 1 });
-    expect(p.unbankedCoin).toEqual({ total: coinForEncounter(1), byEncounter: [{ index: 1, coin: coinForEncounter(1) }] });
-    expect(p.bankNow).toMatchObject({ encounterCoin: coinForEncounter(1), deliveryBonus: coinForDelivery(1), total: coinForBankedTrip(1) });
-    expect(p.bankNow.forecast.prospectiveEarn).toBe(coinForBankedTrip(1));
+    expect(p.unbankedCoin).toEqual({ total: coinForEncounter(1, BAND), byEncounter: [{ index: 1, coin: coinForEncounter(1, BAND) }] });
+    expect(p.bankNow).toMatchObject({ encounterCoin: coinForEncounter(1, BAND), deliveryBonus: coinForDelivery(1), total: coinForBankedTrip(1, BAND) });
+    expect(p.bankNow.forecast.prospectiveEarn).toBe(coinForBankedTrip(1, BAND));
     expect(p.units.length).toBe(3);
     for (const u of p.units) {
       const mu = m.units.find((x) => x.ref === u.ref)!;
@@ -422,7 +425,7 @@ describe("the encounter chain: attrition carries forward, nothing is repaired, b
     // Levels come from the manifest: L2 riders drop to 1, the L1 digger stays at 1 (floor).
     expect(p.units.find((u) => u.ref === d.rider)!.mergeLevelOnDeath).toBe(1);
     expect(p.units.find((u) => u.ref === d.digger)!.mergeLevelOnDeath).toBe(1);
-    expect(p.ifOverrun.coinLost).toBe(coinForEncounter(1));
+    expect(p.ifOverrun.coinLost).toBe(coinForEncounter(1, BAND));
     expect(p.ifOverrun.unitsLostOutright.map((u) => u.ref).sort()).toEqual([d.rider, d.digger, d.third].sort());
     expect(p.ifOverrun.unitsDeMergedNotDestroyed).toEqual([]);
     expect(p.traps.remaining.map((t) => t.ref)).toEqual(["t1", "t2"]);
@@ -431,12 +434,13 @@ describe("the encounter chain: attrition carries forward, nothing is repaired, b
     expect(p.fences.destroyed).toEqual([]);
     expect(p.nextEncounter).toEqual({
       index: 2,
-      reward: coinForEncounter(2),
-      bankTotalIfSurvived: coinForBankedTrip(2),
+      reward: coinForEncounter(2, BAND),
+      band: BAND,
+      bankTotalIfSurvived: coinForBankedTrip(2, BAND),
       difficulty: { escalationApplied: escalationFor(2), risePerEncounter: ESCALATION_PER_ENCOUNTER, harderThanThisEncounter: true },
       partyArrivesFresh: true,
     });
-    expect(p.nextEncounter.reward).toBeGreaterThan(coinForEncounter(1));
+    expect(p.nextEncounter.reward).toBeGreaterThan(coinForEncounter(1, BAND));
     expect(p.lastOpponent?.encounterIndex).toBe(1);
     expect(p.lastOpponent?.reputation).toHaveProperty("gapBeyondBand");
     expect(p.lastOpponent?.reputation).toHaveProperty("sandbagEarnMultiplier");
@@ -456,8 +460,8 @@ describe("the encounter chain: attrition carries forward, nothing is repaired, b
 
   it("encounter 2 held with a death: the dead unit stays dead and is unpostable; HP never rises; the spent trap stays spent", async () => {
     const s = await encounter(d, 2, { kind: "caravan_held", kill: [d.third], unitDamage: 2, spendTraps: 1 });
-    expect(s.trip).toMatchObject({ phase: "decide", decisionFor: 2, unbankedCoin: coinForEncountersSurvived(2) });
-    expect(s.trip!.encounters[1]).toMatchObject({ index: 2, deaths: [d.third], coinAccrued: coinForEncounter(2) });
+    expect(s.trip).toMatchObject({ phase: "decide", decisionFor: 2, unbankedCoin: coinForEncountersSurvived(2, BAND) });
+    expect(s.trip!.encounters[1]).toMatchObject({ index: 2, deaths: [d.third], coinAccrued: coinForEncounter(2, BAND) });
     const m = await survivors(d);
     expect(m.units.find((u) => u.ref === d.third)!.hp).toBe(0);
     expect(m.traps.map((t) => t.spent)).toEqual([true, true, false]); // t0 spent at 1 is still spent at 2; t1 spent at 2
@@ -494,8 +498,8 @@ describe("the encounter chain: attrition carries forward, nothing is repaired, b
     await pool.query("SELECT resolution_job_requeue($1, 3, 'test')", [jobId]);
     await worker(doubleHandlers({ 3: { kind: "stalemate", unitDamage: 1, spendTraps: 1 } }));
     const s = await status(d);
-    expect(s.trip).toMatchObject({ phase: "decide", decisionFor: 3, unbankedCoin: coinForEncountersSurvived(3) });
-    expect(s.trip!.encounters[2]).toMatchObject({ outcome: "stalemate", coinAccrued: coinForEncounter(3) });
+    expect(s.trip).toMatchObject({ phase: "decide", decisionFor: 3, unbankedCoin: coinForEncountersSurvived(3, BAND) });
+    expect(s.trip!.encounters[2]).toMatchObject({ outcome: "stalemate", coinAccrued: coinForEncounter(3, BAND) });
     const after = await survivors(d);
     for (const u of after.units) expect(u.hp).toBeLessThanOrEqual(m.units.find((x) => x.ref === u.ref)!.hp);
     expect(after.units.find((u) => u.ref === d.third)!.hp).toBe(0);
@@ -514,7 +518,7 @@ describe("the encounter chain: attrition carries forward, nothing is repaired, b
     for (const r of results) expect(r.statusCode, r.body).toBe(200);
     expect(results.map((r) => r.json().replayed).sort()).toEqual([false, true, true]);
     const winner = results.find((r) => !r.json().replayed)!.json();
-    expect(winner).toMatchObject({ tripId, encountersSurvived: 3, requested: coinForBankedTrip(3), credited: coinForBankedTrip(3), discarded: 0 });
+    expect(winner).toMatchObject({ tripId, encountersSurvived: 3, requested: coinForBankedTrip(3, BAND), credited: coinForBankedTrip(3, BAND), discarded: 0 });
     // Chunk 19: the unit that died at encounter 2 is de-merged L2 → L1 by the bank itself.
     expect(winner.restored.deMerged).toEqual([{ ref: d.third, typeId: "desert.dust_rider", fromLevel: 2, toLevel: 1, diedAtEncounter: 2 }]);
     expect(winner.restored.trapsRestocked).toBe(3);
@@ -522,13 +526,13 @@ describe("the encounter chain: attrition carries forward, nothing is repaired, b
     expect(winner.restored.unitsHealed.length).toBe(3);
     const coin = await tripCoinEvents(d.accountId, tripId);
     expect(coin.map((e) => [e.payload["reason"], e.payload["amount"]])).toEqual([
-      ["encounter_survived", coinForEncounter(1)],
-      ["encounter_survived", coinForEncounter(2)],
-      ["encounter_survived", coinForEncounter(3)],
+      ["encounter_survived", coinForEncounter(1, BAND)],
+      ["encounter_survived", coinForEncounter(2, BAND)],
+      ["encounter_survived", coinForEncounter(3, BAND)],
       ["trip_banked", coinForDelivery(3)],
     ]);
     const balance1 = (await pool.query("SELECT coin_balance FROM account WHERE id = $1", [d.accountId])).rows[0].coin_balance as number;
-    expect(balance1 - balance0).toBe(coinForBankedTrip(3));
+    expect(balance1 - balance0).toBe(coinForBankedTrip(3, BAND));
     expect((await eventsOf(d.accountId, "trip_banked")).length).toBe(1);
     expect((await caravanRow(d)).state).toBe("in_town");
     const trip = await pool.query("SELECT ended_at, end_reason FROM trip WHERE id = $1", [tripId]);
@@ -612,7 +616,7 @@ describe("overrun ends the trip (chunk 19 applies the losses in the same transac
     expect(ev!.payload).toMatchObject({
       tripId,
       encounterIndex: 2,
-      unbankedCoin: coinForEncounter(1),
+      unbankedCoin: coinForEncounter(1, BAND),
       lossesApplied: true,
       partyOwnerAuthored: false,
       unitsDiedOnTrip: [{ ref: d.digger, typeId: "desert.well_digger", mergeLevel: 1, diedAtEncounter: 1 }],

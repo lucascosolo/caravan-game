@@ -31,6 +31,7 @@ import {
   type PoolEntry,
 } from "../src/matchmaking/band.js";
 import { authoredOverShare, type AuthoredServedShare } from "../src/matchmaking/band.js";
+import { FIRST_ENCOUNTER_CENTRE_OFFSET, centreOffsetFor, sandbagGap } from "../src/matchmaking/band.js";
 import { AUTHORED_BANDS, AUTHORED_PARTIES_PER_BAND, authoredBands, authoredPartyId, authoredPartySpecs, baseMergeLevel, maxLivingTier, rungsForPoints } from "../src/matchmaking/authored.js";
 import { LIVING_UNLOCK_WEBS, REGION_IDS, SIEGE_TYPES, pointsPerPoolAtLadderCap } from "@caravan/content";
 
@@ -496,6 +497,53 @@ describe("structural: no Coin, purchase or entitlement path anywhere on the matc
       expect(/online|offline|busy|last_seen|lastSeen|session/i.test(code), `${f} reads availability`).toBe(false);
       if (!/authored(Outfits)?\.ts$/.test(f)) expect(/region_id|regionId/i.test(code), `${f} reads region`).toBe(false);
       expect(/Math\.random|Date\.now/.test(code) && !f.endsWith(join("routes", "matchmaking.ts")), `${f} reads the clock or random`).toBe(false);
+    }
+  });
+});
+
+describe("chunk 19 QA D2b: encounter 1 is matched below the caravan, and that never floors a party it served", () => {
+  it("the offset applies to encounter 1 only; escalation for 2+ is unchanged", () => {
+    expect(FIRST_ENCOUNTER_CENTRE_OFFSET).toBe(TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET);
+    expect(FIRST_ENCOUNTER_CENTRE_OFFSET).toBe(-150);
+    expect(centreOffsetFor(1)).toBe(-150);
+    expect(escalatedCentre(1000, 1)).toBe(850);
+    for (let n = 2; n <= 40; n++) {
+      expect(centreOffsetFor(n)).toBe(escalationFor(n));
+      expect(escalatedCentre(1000, n)).toBe(1000 + escalationFor(n));
+    }
+    expect(escalatedCentre(1000, 2)).toBe(1015);
+  });
+
+  it("sandbagGap is measured beyond the band actually searched: unchanged when the centre is at or above the caravan", () => {
+    for (const width of bandWidths()) {
+      for (let party = 0; party <= 3000; party += 37) {
+        for (const n of [2, 3, 9]) {
+          const centre = escalatedCentre(1500, n);
+          expect(sandbagGap(1500, centre, party, width)).toBe(gapBeyondBand(1500 - party, width));
+        }
+      }
+    }
+    expect(() => sandbagGap(1000, 850.5, 900, 150)).toThrow(RangeError);
+  });
+
+  it("every party within ±width of an encounter-1 centre pays in full, and the offset only ever raises a multiplier", () => {
+    for (let caravan = 100; caravan <= 4000; caravan += 47) {
+      const centre = escalatedCentre(caravan, 1);
+      for (const width of bandWidths()) {
+        // Everything the search could serve from inside the band it used: FIXED_ONE, always.
+        for (let party = centre - width; party <= centre + width; party += 13) {
+          expect(sandbagEarnMultiplier(sandbagGap(caravan, centre, party, width))).toBe(FIXED_ONE);
+        }
+        // Outside the band (only the authored fallback reaches here): never lower than the same
+        // party would pay had the search been centred on the caravan with no offset.
+        for (let party = centre - width - 1200; party < centre - width; party += 29) {
+          const withOffset = sandbagEarnMultiplier(sandbagGap(caravan, centre, party, width));
+          const without = sandbagEarnMultiplier(sandbagGap(caravan, caravan, party, width));
+          expect(withOffset).toBeGreaterThanOrEqual(without);
+          // And it is exactly the gap below the band's low edge.
+          expect(sandbagGap(caravan, centre, party, width)).toBe(Math.max(0, centre - width - party));
+        }
+      }
     }
   });
 });

@@ -38,6 +38,7 @@
         4387,
         5920
       ],
+      "encounterBandScaleBp": 5000,
       "bankedTripBonus": 125,
       "deliveryPerEncounter": 125,
       "partyWin": 300

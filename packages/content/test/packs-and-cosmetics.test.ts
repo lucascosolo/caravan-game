@@ -67,15 +67,18 @@ describe("three fixed tiers (GUARDRAILS §2: fixed, previewed, consistent week t
     expect(TUNABLES.WEEKLY_PAY_CEILING).toBeGreaterThan(TUNABLES.COIN_STORAGE_CAP);
   });
 
-  it("the assumed free-vs-paid ratio is written down and within the bound (1.5× at the defaults)", () => {
-    expect(TUNABLES.FREE_WEEKLY_EARN_ESTIMATE).toBe(40_000);
+  it("the assumed free-vs-paid ratio is written down and within the bound (≈ 1.09× the derived mid week at the defaults)", () => {
+    // Chunk 19 QA D3: the MID value of the re-derived range (≈ 43.7k / 55.5k / 66.7k), rounded
+    // down; the server's stakes test pins it to scripts/balance/model.ts weeklyFreeEarn.
+    expect(TUNABLES.FREE_WEEKLY_EARN_ESTIMATE).toBe(55_000);
     expect(TUNABLES.PAID_TO_FREE_RATIO_MAX_BP).toBe(15_000);
-    // 60,000 / 40,000 = 1.5 exactly, cross-multiplied.
-    expect(TUNABLES.WEEKLY_PAY_CEILING * 10_000).toBe(TUNABLES.FREE_WEEKLY_EARN_ESTIMATE * 15_000);
+    // 60,000 / 55,000 ≈ 1.09, cross-multiplied: inside the 1.5× bound.
+    expect(TUNABLES.WEEKLY_PAY_CEILING * 10_000).toBeLessThan(TUNABLES.FREE_WEEKLY_EARN_ESTIMATE * 15_000);
+    expect(Math.floor((TUNABLES.WEEKLY_PAY_CEILING * 10_000) / TUNABLES.FREE_WEEKLY_EARN_ESTIMATE)).toBe(10_909);
     expect(TUNABLES.WEEKLY_PAY_CEILING * 10_000).toBeLessThanOrEqual(TUNABLES.FREE_WEEKLY_EARN_ESTIMATE * TUNABLES.PAID_TO_FREE_RATIO_MAX_BP);
     // The comment a balancer will find: the estimate's derivation sits next to the number.
     const src = readFileSync(join(HERE, "..", "src", "tunables.ts"), "utf8");
-    expect(src).toMatch(/FREE_WEEKLY_EARN_ESTIMATE: 40_000/);
+    expect(src).toMatch(/FREE_WEEKLY_EARN_ESTIMATE: 55_000/);
     expect(src).toMatch(/ASSUMPTION TO VALIDATE IN PLAYTESTING/);
     expect(src).toMatch(/THE P2W-RELEVANT NUMBER IS WEEKLY_PAY_CEILING/);
   });

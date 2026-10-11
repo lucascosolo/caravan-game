@@ -4,6 +4,7 @@
  * timing), and a search must store only what its draw could have picked — the parties
  * within the width it ended at (plus the authored fill set), never the ±600 scan.
  */
+import { TUNABLES } from "@caravan/content";
 import { entryBand, type PartyConfig } from "@caravan/circle";
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
 import type pg from "pg";
@@ -114,12 +115,15 @@ describe("QA S5: the pool scan is two indexed branches, and a search stores only
     }
     const d = await registerPlayer();
     const mine = await units(d, 2);
-    await pool.query("UPDATE pool_progress SET reputation = 1000 WHERE caravan_id = $1 AND pool = 'living'", [d.caravanId]);
+    // Chunk 19 QA D2b: encounter 1 is centred FIRST_ENCOUNTER_CENTRE_OFFSET (−150) below the
+    // caravan, so a caravan at 1150 searches at 1000.
+    await pool.query("UPDATE pool_progress SET reputation = $2 WHERE caravan_id = $1 AND pool = 'living'", [d.caravanId, 1000 - TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET]);
     expect((await call(d, "POST", `/caravans/${d.caravanId}/manifest`, { units: mine, traps: [], fence: null })).statusCode).toBe(201);
     await withTransaction(pool, (c) => createTrip(c, d.caravanId));
     const caravan = (await findCaravanById(pool, d.caravanId))!;
     const scanned = (await pool.query(POOL_SQL, [[d.accountId], 1000, REPUTATION_BAND_WIDTH_MAX])).rows.length;
     const menu = await withTransaction(appRole, (c) => searchCandidates(c, caravan, 1, { nowMs: Date.now() }));
+    expect(menu.centre).toBe(1000);
     expect(menu.bandWidthUsed).toBe(150);
     const row = (await pool.query<EncounterCandidatesRow>("SELECT * FROM encounter_candidates WHERE trip_id = (SELECT id FROM trip WHERE caravan_id = $1)", [d.caravanId])).rows[0]!;
     expect(scanned).toBeGreaterThan(300); // synthetic parties inside ±600 plus the authored set

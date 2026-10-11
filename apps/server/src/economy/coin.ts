@@ -14,7 +14,9 @@
  *                            deliberately no "credit one encounter now" path.
  *   chunk 19 (loss)       -> appendCoinCredits (coin_transferred_to_party_owner) for the
  *                            overrun transfer, sized from the trip's accrued (floored) rows.
- *   chunk 09/13 (party)   -> creditPartyWin        when a standing party overruns a caravan.
+ *   chunk 09/13 (party)   -> creditPartyWin        when a standing party overruns a caravan
+ *                            (chunk 19 QA D1: the trip loop's overrun appends `partyWinCredit`
+ *                            in the transfer batch, under `transfer:<jobId>`).
  *   chunk 17 (home town)  -> readCoinBalance, overflowForecast, and trickle.ts.
  *   anything that DEBITS  -> spendCoin. This is the ONLY debit path (QA S5): it flushes the
  *                            pending trickle first, so the balance a debit is checked against
@@ -53,34 +55,58 @@ function nextEncounterCoin(amount: number): number {
   return next;
 }
 
+/** Chunk 19 QA D2a: basis points of the base schedule each display band adds. */
+export const COIN_ENCOUNTER_BAND_SCALE_BP: number = TUNABLES.COIN_ENCOUNTER_BAND_SCALE_BP;
+if (!Number.isInteger(COIN_ENCOUNTER_BAND_SCALE_BP) || COIN_ENCOUNTER_BAND_SCALE_BP < 0) throw new Error("TUNABLES.COIN_ENCOUNTER_BAND_SCALE_BP must be a non-negative integer");
+
+function assertBand(band: number): void {
+  if (!Number.isInteger(band) || band < 0) throw new RangeError(`band must be a non-negative integer (a display band index), got ${String(band)}`);
+}
+
 /**
- * Coin for surviving the Nth encounter of a trip (1-based): BASE at encounter 1, then
- * ×COIN_ENCOUNTER_ESCALATION_MULT per subsequent encounter, floored at each step so the
- * sequence is an integer table, not a float curve. 400, 539, 727, 981, 1323, 1785, ...
- * Clamped at COIN_STORAGE_CAP (reached at encounter 18 with the defaults).
+ * Scale one base-schedule amount by the caravan's living display band (chunk 19 QA D2a):
+ * floor(amount × (10 000 + band × COIN_ENCOUNTER_BAND_SCALE_BP) / 10 000), clamped at the
+ * storage cap. Integer only.
  */
-export function coinForEncounter(encounterIndex: number): number {
+function scaleByBand(amount: number, band: number): number {
+  assertBand(band);
+  const scaled = Math.floor((amount * (10_000 + band * COIN_ENCOUNTER_BAND_SCALE_BP)) / 10_000);
+  if (!Number.isSafeInteger(scaled)) throw new RangeError("band-scaled encounter Coin left the safe-integer range");
+  return Math.min(scaled, TUNABLES.COIN_STORAGE_CAP);
+}
+
+/**
+ * Coin for surviving the Nth encounter of a trip (1-based) for a caravan in living display
+ * band `band` (matchmaking/band.ts bandOf(rating).index): the base schedule — BASE at
+ * encounter 1, then ×COIN_ENCOUNTER_ESCALATION_MULT per subsequent encounter, floored at each
+ * step (400, 539, 727, 981, 1323, 1785, ...; clamped at COIN_STORAGE_CAP from encounter 18) —
+ * times (1 + band × COIN_ENCOUNTER_BAND_SCALE_BP / 10 000), floored, clamped at the cap.
+ * Band 0 is the base schedule; REPUTATION_START (1000) is band 3: 1000, 1347, 1817, … .
+ * The trip loop reads `band` from the encounter's chosen menu row and stores the result.
+ */
+export function coinForEncounter(encounterIndex: number, band: number): number {
   assertPosInt("encounterIndex", encounterIndex);
   let amount: number = TUNABLES.COIN_PER_ENCOUNTER_BASE;
   for (let i = 2; i <= encounterIndex; i++) amount = nextEncounterCoin(amount);
-  return amount;
+  return scaleByBand(amount, band);
 }
 
-/** The per-encounter schedule for the first `count` encounters, for the pre-trip preview. */
-export function encounterCoinSchedule(count: number): number[] {
+/** The per-encounter schedule for the first `count` encounters at display band `band`, for previews. */
+export function encounterCoinSchedule(count: number, band: number): number[] {
   if (!Number.isInteger(count) || count < 0) throw new RangeError(`count must be a non-negative integer, got ${String(count)}`);
+  assertBand(band);
   const out: number[] = [];
   let amount: number = TUNABLES.COIN_PER_ENCOUNTER_BASE;
   for (let i = 1; i <= count; i++) {
-    out.push(amount);
+    out.push(scaleByBand(amount, band));
     amount = nextEncounterCoin(amount);
   }
   return out;
 }
 
-/** Total encounter Coin a trip has accrued (unbanked) after surviving `n` encounters. */
-export function coinForEncountersSurvived(n: number): number {
-  const total = encounterCoinSchedule(n).reduce((a, b) => a + b, 0);
+/** Total encounter Coin a trip in band `band` has accrued (unbanked, at full earn) after surviving `n` encounters. */
+export function coinForEncountersSurvived(n: number, band: number): number {
+  const total = encounterCoinSchedule(n, band).reduce((a, b) => a + b, 0);
   if (!Number.isSafeInteger(total)) throw new RangeError("encounter Coin total left the safe-integer range");
   return total;
 }
@@ -94,9 +120,9 @@ export function coinForDelivery(encountersSurvived: number): number {
   return TUNABLES.COIN_DELIVERY_PER_ENCOUNTER * encountersSurvived;
 }
 
-/** Everything a trip that banks after `n` survived encounters is worth at full earn: encounters + delivery. */
-export function coinForBankedTrip(encountersSurvived: number): number {
-  return coinForEncountersSurvived(encountersSurvived) + coinForDelivery(encountersSurvived);
+/** Everything a trip in band `band` that banks after `n` survived encounters is worth at full earn: encounters + delivery (the delivery does not scale with the band). */
+export function coinForBankedTrip(encountersSurvived: number, band: number): number {
+  return coinForEncountersSurvived(encountersSurvived, band) + coinForDelivery(encountersSurvived);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -238,7 +264,8 @@ export async function creditBankedTrip(
     /**
      * Chunk 19: the Coin each survived encounter actually accrued (the schedule passed through
      * the sandbagging earn floor, trip/stakes.ts `applyEarnFloor`), in encounter order. When
-     * omitted, the unfloored schedule (chunk 16's original contract).
+     * omitted, the unfloored band-0 base schedule (chunk 16's original contract; the trip loop
+     * always passes the stored amounts).
      */
     encounterCoin?: readonly number[];
   },
@@ -246,7 +273,7 @@ export async function creditBankedTrip(
   if (!Number.isInteger(input.encountersSurvived) || input.encountersSurvived < 0) {
     throw new RangeError("encountersSurvived must be a non-negative integer");
   }
-  const amounts = input.encounterCoin ?? encounterCoinSchedule(input.encountersSurvived);
+  const amounts = input.encounterCoin ?? encounterCoinSchedule(input.encountersSurvived, 0);
   if (amounts.length !== input.encountersSurvived) throw new RangeError(`encounterCoin names ${amounts.length} encounters, not ${input.encountersSurvived}`);
   const credits: CoinCreditSpec[] = amounts.map((amount, i) => ({
     amount,
@@ -258,19 +285,34 @@ export async function creditBankedTrip(
 }
 
 /**
+ * The party-win credit as a spec (chunk 19 QA D1), so the overrun can append it in the SAME
+ * batch as the Coin transfer — one causation id (`transfer:<jobId>`), one running clamp under
+ * the owner's headroom (trip/stakes.ts applyOverrunLosses). COIN_PER_PARTY_WIN, reason
+ * `party_win`, a plain `coin_earned`.
+ */
+export function partyWinCredit(input: { tripId: string; encounterIndex: number; jobId?: string }): CoinCreditSpec {
+  assertPosInt("encounterIndex", input.encounterIndex);
+  return {
+    amount: TUNABLES.COIN_PER_PARTY_WIN,
+    reason: "party_win",
+    extra: { tripId: input.tripId, encounterIndex: input.encounterIndex, ...(input.jobId ? { jobId: input.jobId } : {}) },
+  };
+}
+
+/**
  * The passive side's earn path: the owner of a standing party whose party overran a
- * caravan. The owner was never present; their party lost nothing (GUARDRAILS §0). The
- * caller (the resolution handler's commit, chunk 13/19) supplies the job's causation id.
+ * caravan. The owner was never present; their party lost nothing (GUARDRAILS §0). Standalone
+ * form (its own causation id); the trip loop's overrun pays it through `partyWinCredit` in the
+ * transfer batch instead (chunk 19 QA D1).
  */
 export async function creditPartyWin(
   client: pg.PoolClient,
   input: { accountId: string; causationId: string; tripId: string; encounterIndex: number },
 ): Promise<CoinCreditResult> {
-  assertPosInt("encounterIndex", input.encounterIndex);
   return appendCoinCredits(client, {
     causationId: input.causationId,
     accountId: input.accountId,
-    credits: [{ amount: TUNABLES.COIN_PER_PARTY_WIN, reason: "party_win", extra: { tripId: input.tripId, encounterIndex: input.encounterIndex } }],
+    credits: [partyWinCredit({ tripId: input.tripId, encounterIndex: input.encounterIndex })],
   });
 }
 

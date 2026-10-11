@@ -276,3 +276,15 @@ seed). The rest, below, by a chunk 14 fixer.
 - **N5** the menu carries `authoredShare: {authored, of, shareBp, maxShareBp}`;
   `usedAuthoredFallback` is `authoredOutsideBand` in the view (band.ts's
   `SelectionResult.usedAuthoredFallback` is untouched — chunk 25 is rewriting that draw).
+
+## Chunk 19 QA D2b (2026-10-11) — the first encounter is matched below the caravan
+
+`FIRST_ENCOUNTER_CENTRE_OFFSET` = −150 (tunable): encounter 1's band centre is caravan living
+Reputation − 150; encounters 2+ keep the escalation above (rating + 15·(n − 1)) — the offset is
+not cumulative. `band.ts`: `centreOffsetFor(n)`, `escalatedCentre` uses it. The sandbagging
+floor now measures the gap beyond the band ACTUALLY searched: `sandbagGap(caravan, centre,
+party, width)` = `gapBeyondBand(caravan − party, width + max(0, caravan − centre))` (unchanged
+when the centre is at or above the caravan), so the offset never floors a party it served
+(pure sweep in `matchmaking-pure.test.ts`). `candidateFromSnapshot` takes the centre; the menu's
+`escalation.applied` is −150 at encounter 1 and `rules.escalation.firstEncounterOffset` publishes
+the number. Nothing else in the search changed.

@@ -12,6 +12,26 @@ const querySchema = {
   },
 } as const;
 
+/**
+ * Chunk 19 QA S1 (chunk 14 QA N4: account ids are not public): the read model drops every
+ * payload key naming an account (`…AccountId`, `accountId`) whose value is not the reader's
+ * own id, at any depth — `trip_overrun.partyOwnerAccountId`, `encounter_resolved`'s
+ * `partyOwnerAccountId` and its snapshot's `ownerAccountId`, `party_served_as_encounter`'s
+ * `defenderAccountId`. The ledger row itself is untouched (it is the auditable record); this
+ * filters what leaves through the route only.
+ */
+const ACCOUNT_KEY = /(^a|A)ccountId$/;
+export function redactForeignAccountIds(value: unknown, ownAccountId: string): unknown {
+  if (Array.isArray(value)) return value.map((v) => redactForeignAccountIds(v, ownAccountId));
+  if (value === null || typeof value !== "object") return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (ACCOUNT_KEY.test(k) && v !== ownAccountId) continue;
+    out[k] = redactForeignAccountIds(v, ownAccountId);
+  }
+  return out;
+}
+
 /** The player's own ledger, oldest first, cursor on seq. The provably-fair record. */
 export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Querystring: { after: number; limit: number } }>(
@@ -30,7 +50,7 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
           causationId: e.causation_id,
           causationSeq: e.causation_seq,
           resolverVersion: e.resolver_version,
-          payload: e.payload,
+          payload: redactForeignAccountIds(e.payload, account.id),
           occurredAt: e.occurred_at.toISOString(),
         })),
         nextAfter: events.at(-1)?.seq ?? after,

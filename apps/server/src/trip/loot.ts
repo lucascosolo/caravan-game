@@ -38,7 +38,13 @@ export function partyLoot(kind: EncounterOutcomeKind, depth: number, full: numbe
   return Math.floor((full * depth * root) / (FIXED_ONE * FIXED_ONE));
 }
 
-/** The loot for encounter n of a trip (its Coin value is chunk 16's schedule). */
+/**
+ * The loot for encounter n of a trip, on chunk 16's schedule at BAND 0. Orchestrator
+ * integration note (chunk 13 × chunk 19 D2a): encounter Coin now scales with the caravan's
+ * Reputation band, but the resolver input carries no band, so the reported loot uses the
+ * unscaled schedule. Loot is reported, never credited, until the settle path (QA-15 S4)
+ * credits it; that change computes it with the chosen menu row's band, like coin_accrued.
+ */
 export function partyLootForEncounter(kind: EncounterOutcomeKind, depth: number, encounterIndex: number): number {
-  return partyLoot(kind, depth, coinForEncounter(encounterIndex));
+  return partyLoot(kind, depth, coinForEncounter(encounterIndex, 0));
 }

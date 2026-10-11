@@ -6,7 +6,8 @@
  * Built from the ledger, nothing else: every `party_served_as_encounter` on the owner's
  * account (chunk 02's handler writes one per resolution, account-scoped, stamped with the
  * resolver version) joined with the other events the same resolution wrote on the owner
- * under the same causation id — `coin_earned` (chunk 16's party_win),
+ * under the same causation id — `coin_earned` (chunk 16's party_win, paid on every overrun
+ * by a player-owned party since chunk 19 QA D1),
  * `coin_transferred_to_party_owner` (the unbanked Coin an overrun caravan lost, credited to
  * the party's owner — chunk 19), `reputation_changed` and `ladder_progress_gained` for the
  * siege pool (chunk 04's party side). The outcome payload is carried as chunk 13 writes it.
@@ -22,15 +23,25 @@ export interface PartyFeedEntry {
   tripId: string | null;
   /** Which encounter of the defender's trip this was: how deep into the trail the party struck. */
   encounterIndex: number | null;
-  defender: { accountId: string | null; username: string | null; caravanId: string | null; caravanName: string | null; regionId: string | null };
+  /**
+   * Who the party struck: the username (a public handle) and the caravan. Never an account id
+   * (chunk 19 QA S1, chunk 14 QA N4: account ids are not public).
+   */
+  defender: { username: string | null; caravanId: string | null; caravanName: string | null; regionId: string | null };
   /** The party version that fought (standing_party.updated_at at snapshot time). */
   partySavedAt: string | null;
   resolverVersion: number | null;
   /** Exactly as the resolution wrote it (chunk 13 defines the shape); `outcomeKind` is its `kind` when present. */
   outcome: Json | null;
   outcomeKind: string | null;
-  /** Everything the resolution credited to the owner, summed. 0 when nothing was. */
+  /** Everything the resolution credited to the owner, summed (transfer + party win). 0 when nothing was. */
   coinEarned: number;
+  /** Of `coinEarned`: the overrun caravan's unbanked Coin transferred to the owner (chunk 19). */
+  coinTransferred: number;
+  /** Of `coinEarned`: the party-win credit (COIN_PER_PARTY_WIN, reason `party_win`; chunk 19 QA D1). */
+  partyWinCoin: number;
+  /** What the owner's storage cap discarded from those credits (their `overflowDiscarded`, summed; chunk 19 QA S2). */
+  coinDiscardedAtCap: number;
   reputationDelta: number;
   ladderPointsGained: number;
 }
@@ -83,8 +94,8 @@ export async function listPartyFeed(db: Queryable, accountId: string, opts: { be
 
   const caravanIds = [...new Set(served.map((e) => str(e.payload["defenderCaravanId"])).filter((x): x is string => x !== null))];
   const caravans = caravanIds.length
-    ? await db.query<{ id: string; name: string; region_id: string; account_id: string; username: string | null }>(
-        `SELECT c.id, c.name, c.region_id, c.account_id, a.username
+    ? await db.query<{ id: string; name: string; region_id: string; username: string | null }>(
+        `SELECT c.id, c.name, c.region_id, a.username
          FROM caravan c LEFT JOIN account a ON a.id = c.account_id
          WHERE c.id = ANY($1::uuid[])`,
         [caravanIds],
@@ -96,10 +107,19 @@ export async function listPartyFeed(db: Queryable, accountId: string, opts: { be
     const p = e.payload;
     const sibs = byCause.get(e.causation_id) ?? [];
     let coinEarned = 0;
+    let coinTransferred = 0;
+    let partyWinCoin = 0;
+    let coinDiscardedAtCap = 0;
     let reputationDelta = 0;
     let ladderPointsGained = 0;
     for (const s of sibs) {
-      if (s.event_type === "coin_earned" || s.event_type === "coin_transferred_to_party_owner") coinEarned += int(s.payload["amount"]) ?? 0;
+      if (s.event_type === "coin_earned" || s.event_type === "coin_transferred_to_party_owner") {
+        const amount = int(s.payload["amount"]) ?? 0;
+        coinEarned += amount;
+        coinDiscardedAtCap += int(s.payload["overflowDiscarded"]) ?? 0;
+        if (s.event_type === "coin_transferred_to_party_owner") coinTransferred += amount;
+        else if (s.payload["reason"] === "party_win") partyWinCoin += amount;
+      }
       else if (s.event_type === "reputation_changed" && s.payload["pool"] === "siege") reputationDelta += int(s.payload["delta"]) ?? 0;
       else if (s.event_type === "ladder_progress_gained" && s.payload["pool"] === "siege") ladderPointsGained += int(s.payload["pointsDelta"]) ?? 0;
     }
@@ -114,7 +134,6 @@ export async function listPartyFeed(db: Queryable, accountId: string, opts: { be
       tripId: str(p["tripId"]),
       encounterIndex: int(p["encounterIndex"]),
       defender: {
-        accountId: str(p["defenderAccountId"]) ?? c?.account_id ?? null,
         username: c?.username ?? null,
         caravanId,
         caravanName: c?.name ?? null,
@@ -125,6 +144,9 @@ export async function listPartyFeed(db: Queryable, accountId: string, opts: { be
       outcome,
       outcomeKind,
       coinEarned,
+      coinTransferred,
+      partyWinCoin,
+      coinDiscardedAtCap,
       reputationDelta,
       ladderPointsGained,
     };

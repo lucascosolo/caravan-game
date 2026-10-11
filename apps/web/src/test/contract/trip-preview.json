@@ -7,24 +7,24 @@
     "decisionOpen": true,
     "decisionFor": 1,
     "unbankedCoin": {
-      "total": 400,
+      "total": 1000,
       "byEncounter": [
         {
           "index": 1,
-          "coin": 400
+          "coin": 1000
         }
       ]
     },
     "bankNow": {
-      "encounterCoin": 400,
+      "encounterCoin": 1000,
       "deliveryBonus": 125,
-      "total": 525,
+      "total": 1125,
       "forecast": {
         "balance": 1000,
         "cap": 50000,
         "room": 49000,
-        "prospectiveEarn": 525,
-        "wouldCredit": 525,
+        "prospectiveEarn": 1125,
+        "wouldCredit": 1125,
         "wouldDiscard": 0,
         "atCap": false
       },
@@ -55,7 +55,7 @@
       }
     ],
     "ifOverrun": {
-      "coinLost": 400,
+      "coinLost": 1000,
       "unitsLostOutright": [
         {
           "ref": "00000000-0000-4000-8000-000000000002",
@@ -210,8 +210,9 @@
     },
     "nextEncounter": {
       "index": 2,
-      "reward": 539,
-      "bankTotalIfSurvived": 1189,
+      "reward": 1347,
+      "band": 3,
+      "bankTotalIfSurvived": 2597,
       "difficulty": {
         "escalationApplied": 15,
         "risePerEncounter": 15,
