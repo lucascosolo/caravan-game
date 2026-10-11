@@ -13,7 +13,7 @@
  * `prefers-reduced-motion` turns the lattice fade into an instant toggle.
  */
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
-import { hitTest } from "./hit.ts";
+import { HIT_RADIUS, MIN_HIT_RADIUS_PX, hitTest } from "./hit.ts";
 import {
   canvasToWorld,
   clampCamera,
@@ -196,7 +196,10 @@ export const IsoCanvas = forwardRef<IsoCanvasHandle, IsoCanvasProps>(function Is
     }
     if (g.kind !== "none") return;
     const world = canvasToWorld(camRef.current, c.x, c.y);
-    const hit = hitTest(stateRef.current, world);
+    // The hit radius never shrinks below MIN_HIT_RADIUS_PX on screen, whatever the zoom.
+    const edge = canvasToWorld(camRef.current, c.x + MIN_HIT_RADIUS_PX, c.y);
+    const pxRadius = Math.hypot(edge.x - world.x, edge.y - world.y);
+    const hit = hitTest(stateRef.current, world, Math.max(HIT_RADIUS, pxRadius));
     const now = performance.now();
     if (hit && canDrag?.(hit)) {
       gestureRef.current = { kind: "drag", pointerId: e.pointerId, hit, moved: false, startX: c.x, startY: c.y, startedAt: now };

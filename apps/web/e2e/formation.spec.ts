@@ -42,7 +42,7 @@ test("search, scout three candidates, choose, drag a fence and a post, set a sta
   await page.getByLabel("Password").fill(PASSWORD);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
-  await page.getByRole("button", { name: "Trail" }).click();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "Trail" }).click();
 
   // ── matchmaking: search, three fully scoutable candidates, free time-gated reroll ──
   await page.getByTestId("search").click();
@@ -161,7 +161,7 @@ test("search, scout three candidates, choose, drag a fence and a post, set a sta
   await page.getByLabel("Username").fill(USERNAME);
   await page.getByLabel("Password").fill(PASSWORD);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await page.getByRole("button", { name: "Trail" }).click();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "Trail" }).click();
   await expect(page.getByTestId("committed-notice")).toBeVisible();
   await expect(page.getByTestId("facing-line")).toContainText(`Facing ${chosenName}.`);
   await expect(page.getByTestId("commit-open")).toHaveCount(0);

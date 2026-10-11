@@ -1,0 +1,321 @@
+/**
+ * "Outfit the caravan" (chunk 17, open question 1 decided as proposed): the loadout
+ * decision made in town before a trip. Living units from the roster against
+ * DEPLOYMENT_SLOT_CAP, traps against TRAP_SLOT_CAP, fence material against
+ * FENCE_MATERIAL_BUDGET (below the ring's position count, so gaps are forced), the Coin
+ * cap forecast for the trip, then a real-modal confirm that packs the manifest
+ * (`POST /caravans/:id/manifest`). It is not the merge board and not the wagon circle.
+ *
+ * The flow ends at "packed, waiting to ride out": opening the trip itself is chunk 15's.
+ * The server's packer decides legality; its issue list is shown exactly.
+ */
+import { getFenceTier, getTrapType } from "@caravan/content";
+import { useCallback, useEffect, useState } from "react";
+import { ApiError, type Api } from "../../api/client.ts";
+import type { EconomyView, IssueView, ManifestView } from "../../api/types.ts";
+import { ErrorBox } from "../../shell/ErrorBox.tsx";
+import { humanizeIssue } from "../../shell/issues.ts";
+import { Modal } from "../../shell/Modal.tsx";
+import { STRINGS } from "../../strings.ts";
+import type { RosterUnit } from "./board.ts";
+import { unitName } from "./BoardPanel.tsx";
+import {
+  EMPTY_OUTFIT,
+  FENCE_BUDGET,
+  RING_POSITIONS,
+  addTrap,
+  outfitMeters,
+  packRequest,
+  removeTrap,
+  setFenceCount,
+  setFenceTier,
+  toggleUnit,
+  trapCount,
+  type Meter,
+  type OutfitDraft,
+} from "./outfitModel.ts";
+
+const T = STRINGS.outfit;
+
+export interface OutfitScreenProps {
+  readonly api: Api;
+  readonly caravanId: string;
+  readonly units: readonly RosterUnit[];
+  readonly onBack: () => void;
+  /** The manifest is packed: the town re-reads its state. */
+  readonly onPacked: (manifest: ManifestView) => void;
+}
+
+interface Catalog {
+  readonly traps: readonly string[];
+  readonly fences: readonly string[];
+  readonly forecast: EconomyView | null;
+  readonly shortestTrip: number;
+}
+
+const asApiError = (err: unknown): ApiError => (err instanceof ApiError ? err : new ApiError(0, "unknown", STRINGS.app.genericError));
+
+function MeterBar({ m, label, testId }: { m: Meter; label: string; testId: string }): JSX.Element {
+  return (
+    <>
+      <p data-testid={testId} data-over={m.over > 0 ? "true" : "false"}>
+        {label}
+      </p>
+      <span className="meter" role="img" aria-label={label}>
+        <span className="meter__fill" style={{ width: `${Math.min(100, m.cap > 0 ? (m.chosen / m.cap) * 100 : 100)}%`, background: m.over > 0 ? "var(--warn)" : undefined }} />
+      </span>
+    </>
+  );
+}
+
+export function OutfitScreen({ api, caravanId, units, onBack, onPacked }: OutfitScreenProps): JSX.Element {
+  const [catalog, setCatalog] = useState<Catalog | null>(null);
+  const [loadError, setLoadError] = useState<ApiError | null>(null);
+  const [draft, setDraft] = useState<OutfitDraft>(EMPTY_OUTFIT);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+  const [issues, setIssues] = useState<readonly IssueView[]>([]);
+  const [packed, setPacked] = useState<ManifestView | null>(null);
+
+  const load = useCallback(async (): Promise<void> => {
+    setLoadError(null);
+    setCatalog(null);
+    try {
+      const [unlocks, economy] = await Promise.all([api.unlocks(), api.economy()]);
+      const reached = unlocks.webs.filter((w) => w.pool === "trap").flatMap((w) => w.nodes.filter((n) => n.reached).map((n) => n.id));
+      // The forecast is for the shortest trip: one encounter survived, then banked — both the server's numbers.
+      const shortestTrip = (economy.earn.encounterSchedule[0] ?? 0) + economy.earn.bankedTripBonus;
+      const forecast = await api.economy(shortestTrip);
+      setCatalog({ traps: reached.filter((id) => !!getTrapType(id)), fences: reached.filter((id) => !!getFenceTier(id)), forecast, shortestTrip });
+    } catch (err) {
+      setLoadError(asApiError(err));
+    }
+  }, [api]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const meters = outfitMeters(draft);
+
+  const pack = async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    setIssues([]);
+    try {
+      const res = await api.packManifest(caravanId, packRequest(draft));
+      setPacked(res.manifest);
+      setConfirming(false);
+      onPacked(res.manifest);
+    } catch (err) {
+      const e = asApiError(err);
+      setError(e);
+      setIssues(e.issues);
+      setConfirming(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const head = (
+    <>
+      <button type="button" className="btn" onClick={onBack} data-testid="outfit-back">
+        {T.back}
+      </button>
+      <h1>{T.title}</h1>
+    </>
+  );
+
+  if (packed) {
+    return (
+      <section data-testid="outfit-packed">
+        {head}
+        <p className="notice" role="status">
+          <strong>{T.packed}</strong>
+        </p>
+        <p data-testid="packed-summary">{T.packedSummary(packed.packed.units.length, packed.packed.traps.length, packed.packed.fences.length)}</p>
+        <p className="hint">{T.packedBody}</p>
+      </section>
+    );
+  }
+  if (loadError) {
+    return (
+      <section>
+        {head}
+        <ErrorBox error={loadError} heading={T.loadFailed} onRetry={() => void load()} />
+      </section>
+    );
+  }
+  if (!catalog) {
+    return (
+      <section>
+        {head}
+        <p className="hint" role="status">
+          {STRINGS.app.loading}
+        </p>
+      </section>
+    );
+  }
+
+  // Server issue refs shown by the names the player sees (chunk 08 QA S8).
+  const issueNames = new Map<string, string>([
+    ...units.map((u): [string, string] => [u.typeId, unitName(u.typeId)]),
+    ...units.map((u): [string, string] => [u.id, T.unitToggle(unitName(u.typeId), u.mergeLevel)]),
+    ...catalog.traps.map((id): [string, string] => [id, getTrapType(id)?.displayName ?? id]),
+    ...catalog.fences.map((id): [string, string] => [id, getFenceTier(id)?.displayName ?? id]),
+  ]);
+  const fenceTierName = draft.fence ? (getFenceTier(draft.fence.tierId)?.displayName ?? draft.fence.tierId) : "";
+  const overflow = catalog.forecast?.overflow ?? null;
+
+  return (
+    <section data-testid="outfit-screen">
+      {head}
+      <p className="hint">{T.intro}</p>
+
+      <h2>{T.unitsHeading}</h2>
+      <MeterBar m={meters.units} label={T.unitsMeter(meters.units.chosen, meters.units.cap)} testId="outfit-units-meter" />
+      <p className="hint">{T.unitsNote}</p>
+      {meters.units.over > 0 && (
+        <p className="error" role="alert" data-testid="outfit-units-over">
+          {T.unitsOver(meters.units.over)}
+        </p>
+      )}
+      {meters.noUnits && <p className="hint">{T.unitsNone}</p>}
+      <ul className="chips" data-testid="outfit-units">
+        {units.map((u) => {
+          const on = draft.units.includes(u.id);
+          return (
+            <li key={u.id} className={`chip${on ? " chip--selected" : ""}`} data-unit={u.id}>
+              <label className="chip__btn" style={{ flexDirection: "row", alignItems: "center", gap: "0.5rem", cursor: "pointer", touchAction: "pan-y" }}>
+                <input type="checkbox" checked={on} onChange={() => setDraft((d) => toggleUnit(d, u.id))} style={{ width: "1.25rem", height: "1.25rem" }} />
+                <span className="chip__name">{T.unitToggle(unitName(u.typeId), u.mergeLevel)}</span>
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+
+      <h2>{T.trapsHeading}</h2>
+      <MeterBar m={meters.traps} label={T.trapsMeter(meters.traps.chosen, meters.traps.cap)} testId="outfit-traps-meter" />
+      <p className="hint">{T.trapsNote}</p>
+      {meters.traps.over > 0 && (
+        <p className="error" role="alert" data-testid="outfit-traps-over">
+          {T.trapsOver(meters.traps.over)}
+        </p>
+      )}
+      {catalog.traps.length === 0 && <p className="hint">{T.trapsNone}</p>}
+      <ul className="cards" data-testid="outfit-traps">
+        {catalog.traps.map((id) => {
+          const name = getTrapType(id)?.displayName ?? id;
+          const n = trapCount(draft, id);
+          return (
+            <li key={id} className="card" data-type={id}>
+              <div className="card__head">
+                <span className="card__name">{name}</span>
+                <span>{T.trapCount(n)}</span>
+              </div>
+              <div className="row" style={{ marginTop: "0.375rem" }}>
+                <button type="button" className="btn" disabled={n === 0} onClick={() => setDraft((d) => removeTrap(d, id))}>
+                  {T.trapRemove(name)}
+                </button>
+                <button type="button" className="btn" onClick={() => setDraft((d) => addTrap(d, id))}>
+                  {T.trapAdd(name)}
+                </button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      <h2>{T.fenceHeading}</h2>
+      {catalog.fences.length === 0 ? (
+        <p className="hint">{T.fenceNone}</p>
+      ) : (
+        <>
+          <label className="field">
+            <span className="field__label">{T.fenceTier}</span>
+            <select value={draft.fence?.tierId ?? ""} onChange={(e) => setDraft((d) => setFenceTier(d, e.target.value === "" ? null : e.target.value))} data-testid="outfit-fence-tier">
+              <option value="">{T.fenceNoneTier}</option>
+              {catalog.fences.map((id) => (
+                <option key={id} value={id}>
+                  {getFenceTier(id)?.displayName ?? id}
+                </option>
+              ))}
+            </select>
+          </label>
+          {draft.fence && (
+            <label className="field">
+              <span className="field__label">{T.fenceCount}</span>
+              <input type="number" inputMode="numeric" min={0} max={FENCE_BUDGET} value={draft.fence.count} onChange={(e) => setDraft((d) => setFenceCount(d, Number(e.target.value)))} data-testid="outfit-fence-count" />
+            </label>
+          )}
+          <MeterBar m={meters.fence} label={T.fenceMeter(meters.fence.chosen, FENCE_BUDGET, RING_POSITIONS)} testId="outfit-fence-meter" />
+          {meters.fence.over > 0 && (
+            <p className="error" role="alert" data-testid="outfit-fence-over">
+              {T.fenceOver(meters.fence.over)}
+            </p>
+          )}
+        </>
+      )}
+
+      <h2>{T.coinHeading}</h2>
+      {overflow && (
+        <>
+          <p data-testid="outfit-forecast" className={overflow.warn ? "error" : undefined} role={overflow.warn ? "alert" : undefined}>
+            {T.coinForecast(overflow.message)}
+          </p>
+          <p className="hint">{T.coinForecastNote(catalog.shortestTrip)}</p>
+          {overflow.warn && <p className="hint">{T.coinWarn}</p>}
+        </>
+      )}
+
+      {issues.length > 0 && (
+        <div className="error" role="alert" data-testid="outfit-issues">
+          <div>{T.issuesHeading}</div>
+          <ul className="issues">
+            {issues.map((i, n) => (
+              <li key={`${i.code}-${n}`}>
+                {humanizeIssue(i, issueNames)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {error && issues.length === 0 && <ErrorBox error={error} heading={T.issuesHeading} />}
+
+      <div className="actions">
+        <button type="button" className="btn btn--primary btn--block" disabled={busy} onClick={() => setConfirming(true)} data-testid="outfit-ride-out">
+          {T.rideOut}
+        </button>
+      </div>
+
+      {confirming && (
+        <Modal
+          title={T.confirmTitle}
+          busy={busy}
+          onCancel={() => setConfirming(false)}
+          testId="outfit-dialog"
+          actions={
+            <>
+              <button type="button" className="btn" disabled={busy} onClick={() => setConfirming(false)}>
+                {T.confirmNo}
+              </button>
+              <button type="button" className="btn btn--primary" disabled={busy} onClick={() => void pack()} data-testid="outfit-confirm">
+                {busy ? T.packing : T.confirmYes}
+              </button>
+            </>
+          }
+        >
+          <p>{T.confirmIntro}</p>
+          <ul className="plain dialog__items">
+            <li>{T.confirmUnits(draft.units.length)}</li>
+            <li>{T.confirmTraps(draft.traps.length)}</li>
+            <li>{T.confirmFence(draft.fence?.count ?? 0, fenceTierName)}</li>
+          </ul>
+          {(meters.anyOver || meters.noUnits) && <p className="error">{T.confirmOverCaps}</p>}
+        </Modal>
+      )}
+    </section>
+  );
+}

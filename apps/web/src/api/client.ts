@@ -19,19 +19,53 @@
  * threw) or `bad_payload`; `ErrorBox` (src/shell) words both for the player.
  */
 import { ShapeError, expectShape, type Guard } from "./shape.ts";
-import { authShape, choiceShape, formationShape, manifestShape, meShape, menuShape, progressionShape, spendResultShape, unlocksShape } from "./shapes.ts";
+import {
+  authShape,
+  choiceShape,
+  economyShape,
+  formationShape,
+  manifestShape,
+  meShape,
+  menuShape,
+  mergePreviewShape,
+  mergeResultShape,
+  partyFeedShape,
+  partyShape,
+  progressionShape,
+  recruitResultShape,
+  recruitViewShape,
+  refugeeClaimShape,
+  refugeeRefreshShape,
+  refugeeRerollShape,
+  refugeeViewShape,
+  spendResultShape,
+  unlocksShape,
+} from "./shapes.ts";
 import type {
   AuthResponse,
   ApiErrorBody,
   CandidateMenuResponse,
   ChoiceView,
+  EconomyView,
   FormationBody,
   FormationResponse,
   IssueView,
   ManifestResponse,
   MeResponse,
+  MergePreview,
+  MergeRequest,
+  MergeResultView,
   PackManifestRequest,
+  PartyConfigBody,
+  PartyFeedPage,
+  PartyResponse,
   ProgressionResponse,
+  RecruitResult,
+  RecruitView,
+  RefugeeClaimResult,
+  RefugeeRefreshResult,
+  RefugeeRerollResult,
+  RefugeeView,
   SpendRequest,
   SpendResult,
   UnlocksResponse,
@@ -95,6 +129,25 @@ export interface Api {
   searchCandidates(caravanId: string, encounterIndex: number): Promise<CandidateMenuResponse>;
   candidates(caravanId: string, encounterIndex: number): Promise<CandidateMenuResponse>;
   chooseCandidate(caravanId: string, encounterIndex: number, candidateId: string): Promise<ChoiceView>;
+  // Economy & merging (chunk 16 routes), read by the Town tab (chunk 17). The preview is the
+  // legibility contract: cost, balance (with pending trickle) and resulting stats before commit.
+  // `prospectiveEarn` asks for the overflow forecast of a trip expected to earn that much.
+  economy(prospectiveEarn?: number): Promise<EconomyView>;
+  previewMerge(caravanId: string, instanceIds: readonly string[]): Promise<MergePreview>;
+  commitMerge(caravanId: string, req: MergeRequest): Promise<MergeResultView>;
+  // Unit acquisition (chunk 18 routes). GET never writes; `sequence` / `fromSequence` are
+  // required on every write and come from the GET (chunk 18 QA S1).
+  refugees(caravanId: string): Promise<RefugeeView>;
+  claimRefugee(caravanId: string, unitTypeId: string, sequence: number): Promise<RefugeeClaimResult>;
+  refreshRefugees(caravanId: string, fromSequence: number): Promise<RefugeeRefreshResult>;
+  rerollRefugees(caravanId: string, fromSequence: number): Promise<RefugeeRerollResult>;
+  recruitList(caravanId: string): Promise<RecruitView>;
+  recruit(caravanId: string, unitTypeId: string, requestId: string): Promise<RecruitResult>;
+  // Standing raid party (chunk 09 routes). Saving is free and instant; a 400 `invalid_party`
+  // carries the full issue list in `ApiError.issues`.
+  party(): Promise<PartyResponse>;
+  saveParty(config: PartyConfigBody): Promise<PartyResponse>;
+  partyFeed(before?: number): Promise<PartyFeedPage>;
 }
 
 function isErrorBody(value: unknown): value is ApiErrorBody {
@@ -170,5 +223,17 @@ export function createApi(opts: ApiOptions): Api {
     searchCandidates: (caravanId, n) => request("POST", `/me${caravans(caravanId)}/encounters/${n}/search`, menuShape),
     candidates: (caravanId, n) => request("GET", `/me${caravans(caravanId)}/encounters/${n}/candidates`, menuShape),
     chooseCandidate: (caravanId, n, candidateId) => request("POST", `/me${caravans(caravanId)}/encounters/${n}/choose`, choiceShape, { candidateId }),
+    economy: (prospectiveEarn) => request("GET", prospectiveEarn === undefined ? "/me/economy" : `/me/economy?prospectiveEarn=${Math.trunc(prospectiveEarn)}`, economyShape),
+    previewMerge: (caravanId, instanceIds) => request("POST", `/me${caravans(caravanId)}/merge/preview`, mergePreviewShape, { instanceIds }),
+    commitMerge: (caravanId, req) => request("POST", `/me${caravans(caravanId)}/merge`, mergeResultShape, req),
+    refugees: (caravanId) => request("GET", `/me${caravans(caravanId)}/refugees`, refugeeViewShape),
+    claimRefugee: (caravanId, unitTypeId, sequence) => request("POST", `/me${caravans(caravanId)}/refugees/claim`, refugeeClaimShape, { unitTypeId, sequence }),
+    refreshRefugees: (caravanId, fromSequence) => request("POST", `/me${caravans(caravanId)}/refugees/refresh`, refugeeRefreshShape, { fromSequence }),
+    rerollRefugees: (caravanId, fromSequence) => request("POST", `/me${caravans(caravanId)}/refugees/reroll`, refugeeRerollShape, { fromSequence }),
+    recruitList: (caravanId) => request("GET", `/me${caravans(caravanId)}/recruit`, recruitViewShape),
+    recruit: (caravanId, unitTypeId, requestId) => request("POST", `/me${caravans(caravanId)}/recruit`, recruitResultShape, { unitTypeId, requestId }),
+    party: () => request("GET", "/me/party", partyShape),
+    saveParty: (config) => request("PUT", "/me/party", partyShape, config),
+    partyFeed: (before) => request("GET", before === undefined ? "/me/party/feed" : `/me/party/feed?before=${Math.trunc(before)}`, partyFeedShape),
   };
 }

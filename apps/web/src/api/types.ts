@@ -23,8 +23,10 @@ export interface CaravanSummary {
   readonly id: string;
   readonly name: string;
   readonly region_id: string;
+  /** `in_town` (home, refitting) or `on_trip` (out; nothing is repaired until it returns). Chunk 15 moves it. */
+  readonly state?: "in_town" | "on_trip" | undefined;
   /** The roster (unit_instance rows) as `GET /me` returns it. */
-  readonly units?: readonly UnitInstanceView[];
+  readonly units?: readonly UnitInstanceView[] | undefined;
 }
 
 export interface UnitInstanceView {
@@ -231,4 +233,281 @@ export interface FormationResponse {
 /** `POST .../search` (201) and `GET .../candidates` → `{ menu }`. */
 export interface CandidateMenuResponse {
   readonly menu: CandidateMenuView;
+}
+
+// ── Economy & merging (chunk 16 routes: apps/server/src/routes/economy.ts) ─────────────
+
+/** `GET /me/economy`: the account's Coin as of now, the trickle, the cap headroom, the merge table. */
+export interface EconomyView {
+  /** Ledger balance plus the trickle pending right now — what the player has. */
+  readonly balance: number;
+  readonly cap: number;
+  /** Room under the cap RIGHT NOW (the trickle keeps filling it). */
+  readonly room: number;
+  readonly atCap: boolean;
+  readonly trickle: {
+    readonly ratePerHour: number;
+    readonly msPerCoin: number;
+    readonly pending: number;
+    readonly ledgerBalance: number;
+    readonly nextCoinInMs: number | null;
+    readonly accruedThroughMs: number;
+  };
+  readonly overflow: {
+    readonly prospectiveEarn: number;
+    readonly wouldCredit: number;
+    readonly wouldDiscard: number;
+    readonly warn: boolean;
+    readonly message: string;
+  };
+  readonly earn: {
+    readonly encounterSchedule: readonly number[];
+    readonly bankedTripBonus: number;
+    readonly partyWin: number;
+  };
+  readonly merge: {
+    /** `{ "2": 250, "3": 900, … }` per resulting unit, keyed by the resulting level. */
+    readonly costPerResultingUnitByLevel: Readonly<Record<string, number>>;
+    readonly recipes: readonly { readonly spend: number; readonly produce: number }[];
+    readonly levelCap: number;
+    readonly slotCost: number;
+  };
+}
+
+/** Stats of one unit at a merge level, as the server's merge preview quotes them. Ratings never scale; HP and damage output do. */
+export interface UnitStatsView {
+  readonly hp: number;
+  readonly offense: number;
+  readonly defense: number;
+  readonly damageOutputMult: number;
+  readonly multDen: number;
+  readonly referenceHit: number;
+}
+
+/** `POST /me/caravans/:id/merge/preview` — everything the player commits against, before committing. */
+export interface MergePreview {
+  readonly caravanId: string;
+  readonly unitTypeId: string;
+  readonly unitDisplayName: string;
+  readonly recipe: { readonly spend: number; readonly produce: number };
+  readonly fromLevel: number;
+  readonly toLevel: number;
+  readonly costPerUnit: number;
+  readonly totalCost: number;
+  /** Ledger balance PLUS pending trickle — what the commit will be checked against. */
+  readonly balance: number;
+  readonly pendingTrickle: number;
+  readonly affordable: boolean;
+  readonly consumed: {
+    readonly instanceIds: readonly string[];
+    readonly inParty: readonly string[];
+    readonly count: number;
+    readonly slots: number;
+    readonly perUnit: UnitStatsView;
+    readonly combined: UnitStatsView;
+  };
+  readonly requiresConfirmInParty: boolean;
+  readonly produced: { readonly count: number; readonly slots: number; readonly perUnit: UnitStatsView; readonly combined: UnitStatsView };
+  readonly slotsFreed: number;
+  readonly ability: { readonly archetype: string; readonly displayName: string };
+}
+
+export interface MergeRequest {
+  readonly instanceIds: readonly string[];
+  /** Only the literal `true` confirms consuming a unit the standing party names (409 `unit_in_party` otherwise). */
+  readonly confirmInParty?: boolean;
+}
+
+/** `POST /me/caravans/:id/merge` → the committed merge (or the stored one on a replay). */
+export interface MergeResultView {
+  readonly replayed: boolean;
+  readonly merged: { readonly unitTypeId: string; readonly fromLevel: number; readonly toLevel: number; readonly coinCost: number };
+  readonly consumedInstanceIds: readonly string[];
+  readonly producedInstanceIds: readonly string[];
+  readonly produced: readonly UnitInstanceView[];
+  readonly balanceAfter: number;
+}
+
+// ── Unit acquisition (chunk 18 routes: apps/server/src/routes/acquisition.ts) ──────────
+
+export interface UnitTypeSummaryView {
+  readonly unitTypeId: string;
+  readonly displayName: string;
+  readonly affinity: string;
+  readonly ability: { readonly archetype: string; readonly displayName: string };
+}
+
+export interface InventoryStatusView {
+  readonly count: number;
+  readonly cap: number;
+  readonly room: number;
+  readonly full: boolean;
+}
+
+export interface RefugeeOfferView extends UnitTypeSummaryView {
+  readonly slot: number;
+}
+
+export interface RefugeeMenuView {
+  /** Pass back as `sequence` (claim) or `fromSequence` (reroll, refresh). */
+  readonly sequence: number;
+  readonly origin: "free" | "reroll";
+  readonly rerollsThisWindow: number;
+  /** Exactly REFUGEE_OFFER_COUNT slots; with a small pool, slots repeat a type (collapsed on screen). */
+  readonly offers: readonly RefugeeOfferView[];
+  readonly generatedAtMs: number;
+  readonly claimed: { readonly unitTypeId: string; readonly instanceId: string; readonly claimedAtMs: number } | null;
+}
+
+/** `GET /me/caravans/:id/refugees` — the menu, the free timer, the next reroll cost, the balance. GET never writes past the first menu. */
+export interface RefugeeView {
+  readonly caravanId: string;
+  readonly menu: RefugeeMenuView;
+  readonly timer: {
+    readonly intervalMs: number;
+    readonly windowOpenedAtMs: number;
+    readonly nextFreeRefreshAtMs: number;
+    readonly msUntilFreeRefresh: number;
+    /** The next free menu is owed: claim the current one or take the refresh (free). */
+    readonly freeRefreshDue: boolean;
+    readonly refreshedNow: boolean;
+  };
+  readonly reroll: {
+    readonly nextCost: number;
+    readonly nextIndex: number;
+    readonly schedule: readonly number[];
+    readonly affordable: boolean;
+    readonly forfeitsUnclaimedOffer: boolean;
+    readonly blockedByFreeRefresh: boolean;
+  };
+  readonly balance: number;
+  readonly pendingTrickle: number;
+  readonly inventory: InventoryStatusView;
+}
+
+export interface AcquiredView {
+  readonly unitTypeId: string;
+  readonly instanceId: string;
+  readonly mergeLevel: number;
+  readonly source: string;
+  readonly coinCost: number;
+}
+
+export interface RefugeeClaimResult {
+  readonly replayed: boolean;
+  readonly acquired: AcquiredView;
+  readonly refugees: RefugeeView;
+}
+
+export interface RefugeeRefreshResult {
+  readonly replayed: boolean;
+  readonly fromSequence: number;
+  readonly forfeitedOffers: readonly RefugeeOfferView[] | null;
+  readonly refugees: RefugeeView;
+}
+
+export interface RefugeeRerollResult {
+  readonly replayed: boolean;
+  readonly fromSequence: number;
+  readonly coinCost: number;
+  readonly balanceAfter: number;
+  readonly refugees: RefugeeView;
+}
+
+export interface RecruitOfferView extends UnitTypeSummaryView {
+  readonly cost: number;
+  readonly affordable: boolean;
+}
+
+/** `GET /me/caravans/:id/recruit` — every unlocked type at its fixed cost; locked types listed, never sold. */
+export interface RecruitView {
+  readonly caravanId: string;
+  readonly costBase: number;
+  readonly scaling: string;
+  readonly recruitable: readonly RecruitOfferView[];
+  readonly locked: readonly UnitTypeSummaryView[];
+  readonly balance: number;
+  readonly pendingTrickle: number;
+  readonly inventory: InventoryStatusView;
+  readonly availability: { readonly cooldown: null; readonly dailyLimit: null };
+}
+
+export interface RecruitResult {
+  readonly replayed: boolean;
+  readonly acquired: AcquiredView;
+  readonly coinCost: number;
+  readonly balanceAfter: number;
+  readonly inventory: InventoryStatusView;
+}
+
+// ── Standing raid party (chunk 09 routes: apps/server/src/routes/party.ts) ────────────
+
+export type PartyConfigBody = import("@caravan/circle").PartyConfig;
+export type TargetingStanceView = import("@caravan/circle").TargetingStance;
+export type EntryEdgeView = import("@caravan/circle").EntryEdge;
+export type ScoutSiegeView = import("@caravan/circle").ScoutSiege;
+
+/** One living unit of the roster as the party builder sees it. */
+export interface RosterEntryView {
+  readonly instanceId: string;
+  readonly caravanId: string;
+  readonly typeId: string;
+  readonly displayName: string;
+  readonly mergeLevel: number;
+  readonly slotCost: 1;
+  /** The rating it fights with IN A PARTY (offense is `ratingInUse`). */
+  readonly offense: number;
+  readonly defense: number;
+  readonly hp: number;
+  readonly unlocked: boolean;
+  readonly inParty: boolean;
+  readonly packedOnTrip: boolean;
+  readonly aliveOnTrip: boolean | null;
+}
+
+/** `GET|PUT /me/party` → `{ party }`. */
+export interface PartyView {
+  readonly id: string;
+  readonly slot: number;
+  readonly savedAt: string;
+  readonly hash: string;
+  readonly config: PartyConfigBody;
+  readonly valid: boolean;
+  readonly issues: readonly IssueView[];
+  /** Byte-for-byte what a scouting defender is served; null while invalid. */
+  readonly scout: PartyScoutView | null;
+  readonly edges: readonly EntryEdgeView[];
+  readonly caps: { readonly units: number; readonly siege: number; readonly edges: number; readonly editCooldownMs: number; readonly partiesPerAccount: number };
+  readonly rules: {
+    readonly template: true;
+    readonly neverConsumed: true;
+    readonly unitsMayAlsoBePackedOnTrips: true;
+    readonly ratingInUse: "offense";
+    readonly stances: readonly string[];
+  };
+  readonly roster: readonly RosterEntryView[];
+  readonly siegeCatalog: readonly (ScoutSiegeView & { readonly unlocked: boolean })[];
+}
+
+export interface PartyResponse {
+  readonly party: PartyView;
+}
+
+/** One place the party was served (`GET /me/party/feed`). The owner was never there; this is how they learn. */
+export interface PartyFeedEntryView {
+  readonly seq: number;
+  readonly occurredAt: string;
+  readonly jobId: string | null;
+  readonly encounterIndex: number | null;
+  readonly defender: { readonly username: string | null; readonly caravanName: string | null; readonly regionId: string | null };
+  readonly outcomeKind: string | null;
+  readonly coinEarned: number;
+  readonly reputationDelta: number;
+  readonly ladderPointsGained: number;
+}
+
+export interface PartyFeedPage {
+  readonly entries: readonly PartyFeedEntryView[];
+  readonly nextBefore: number;
+  readonly hasMore: boolean;
 }
