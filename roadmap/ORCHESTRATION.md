@@ -2255,7 +2255,10 @@ Retry, 360 px layout `small: []` with labels measured.
 
 Maker worked in worktree `agent-a1b9e400fea2264b5`, reset to `roadmap/phase-2-spec` at
 `5d5fb30` (chunk 17 merged), then merged `roadmap/phase-2-spec` at `5baa11f` (chunk 25 QA
-fixes, chunk 12) before committing; the merge was clean. Every punch-list item is
+fixes, chunk 12) and again at `7db53ea` (chunk 17 QA fixes: `frame`/`frameCamera` and the
+live reduced-motion listener kept beside this round's IsoCanvas rewrite; the scene keeps both
+the mine-wheel angle and the node cache; the trail's in-memory drafts register with
+`onViewerReset`). Every punch-list item is
 `[closed]` with a one-line note; the chunk 08 file has a "QA round 1" section.
 
 - **B1 + D4.** The menu/choice guards match the final chunk 14/25 client view exactly
@@ -2295,8 +2298,10 @@ lattice 0.38 → 0 (no drag starts); a vertical swipe on a tray chip did not scr
 radius² 2.000 → 1.000; rider reach 5.35 / 7 / 1.35 cells. p12 (4× CPU, 8 posts, 6 traps,
 20 fences, 8 attackers): script 60.5 → 29.7 ms per drag move; login transfer 161 → 89 kB.
 
-**Test output.** See the Maker's report for the final runs: web 18 files / 167 passed + 2
-skipped (contract: store, cosmetics), twice; `pnpm e2e` 4 passed, twice; server 30 files
-incl. `contract.test.ts`; root `typecheck`, `lint`, `test:boundary` clean.
-`apps/server/test/qa02-round2.test.ts` (job queue, untouched here) failed 2 tests
-intermittently in this environment (1 of 4 runs alone) — flagged, not changed.
+**Test output (after the last merge).** `pnpm --filter @caravan/web test` 19 files, 186
+passed + 2 skipped (contract: store, cosmetics), twice; `pnpm e2e` 4 passed (smoke ×2,
+formation, town), twice; `@caravan/server` 30 files / 530 passed (incl. `contract.test.ts`;
+the fixtures came out byte-identical); circle 99, content 76, resolver 170; root
+`typecheck`, `lint`, `test:boundary` clean; the production bundle carries no `__isoDebug`.
+Flaky under the shared machine's load, untouched here: `qa02-round2.test.ts` (2 job-queue
+tests, 1 of 4 solo runs) and the resolver's 100 ms budget test (passed once the load dropped).
