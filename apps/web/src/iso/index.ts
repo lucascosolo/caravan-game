@@ -12,4 +12,5 @@ export * from "./hit.ts";
 export * from "./skins.ts";
 export * from "./types.ts";
 export { IsoScene, LATTICE_ALPHA, type SceneGeometry, type SceneOptions } from "./scene.ts";
-export { IsoCanvas, type IsoCanvasHandle, type IsoCanvasProps } from "./IsoCanvas.tsx";
+export { IsoCanvas, ISO_DEBUG, type IsoCanvasHandle, type IsoCanvasProps } from "./IsoCanvas.tsx";
+export * from "./gestures.ts";

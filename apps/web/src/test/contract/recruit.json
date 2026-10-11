@@ -1,0 +1,103 @@
+{
+  "route": "GET /me/caravans/:id/recruit",
+  "status": 200,
+  "body": {
+    "caravanId": "00000000-0000-4000-8000-000000000001",
+    "costBase": 600,
+    "scaling": "none",
+    "recruitable": [
+      {
+        "unitTypeId": "desert.dust_rider",
+        "displayName": "Dust Rider",
+        "affinity": "beast",
+        "ability": {
+          "archetype": "dash",
+          "displayName": "Spur On"
+        },
+        "cost": 600,
+        "affordable": true
+      },
+      {
+        "unitTypeId": "desert.sand_sharpshooter",
+        "displayName": "Sand Sharpshooter",
+        "affinity": "powder",
+        "ability": {
+          "archetype": "heavy_strike",
+          "displayName": "Long Shot"
+        },
+        "cost": 600,
+        "affordable": true
+      },
+      {
+        "unitTypeId": "desert.well_digger",
+        "displayName": "Well Digger",
+        "affinity": "grit",
+        "ability": {
+          "archetype": "structure_breaker",
+          "displayName": "Pick Swing"
+        },
+        "cost": 600,
+        "affordable": true
+      }
+    ],
+    "locked": [
+      {
+        "unitTypeId": "desert.canteen_carrier",
+        "displayName": "Canteen Carrier",
+        "affinity": "grit",
+        "ability": {
+          "archetype": "heal_radius",
+          "displayName": "Water Round"
+        }
+      },
+      {
+        "unitTypeId": "desert.coyote_pack",
+        "displayName": "Coyote Pack",
+        "affinity": "beast",
+        "ability": {
+          "archetype": "self_buff",
+          "displayName": "Frenzy"
+        }
+      },
+      {
+        "unitTypeId": "desert.longhorn_bull",
+        "displayName": "Longhorn Bull",
+        "affinity": "beast",
+        "ability": {
+          "archetype": "structure_breaker",
+          "displayName": "Horn Charge"
+        }
+      },
+      {
+        "unitTypeId": "desert.powder_monkey",
+        "displayName": "Powder Monkey",
+        "affinity": "powder",
+        "ability": {
+          "archetype": "burst_radius",
+          "displayName": "Satchel Charge"
+        }
+      },
+      {
+        "unitTypeId": "desert.vaquero",
+        "displayName": "Vaquero",
+        "affinity": "grit",
+        "ability": {
+          "archetype": "heavy_strike",
+          "displayName": "Rope and Drag"
+        }
+      }
+    ],
+    "balance": 1000,
+    "pendingTrickle": 0,
+    "inventory": {
+      "count": 3,
+      "cap": 200,
+      "room": 197,
+      "full": false
+    },
+    "availability": {
+      "cooldown": null,
+      "dailyLimit": null
+    }
+  }
+}

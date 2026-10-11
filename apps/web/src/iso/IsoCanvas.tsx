@@ -1,11 +1,19 @@
 /**
  * The React wrapper around IsoScene (chunk 08). Owns the canvas element, the camera and
- * every pointer gesture, and nothing else:
+ * every pointer gesture, and nothing else. The gesture RULES live in gestures.ts (pure,
+ * tested); this file feeds it pointer samples and applies what it says:
  *   - one pointer on empty ground: PAN;  two pointers: PINCH-ZOOM (wheel zooms on desktop);
+ *     a second pointer during an entity drag CANCELS the drag and starts the pinch (QA B3);
  *   - one pointer on a movable entity: ENTITY DRAG, reported through `onDragBegin` /
- *     `onDragMove` / `onDragEnd` as snapped cells — the screen decides what a drop means;
+ *     `onDragMove` / `onDragEnd` as snapped cells (`onDragCancel` when a pinch or the
+ *     browser takes the pointer) — the screen decides what a drop means;
  *   - a short still press: TAP on an entity (`onTapEntity`) or a cell (`onTapCell`), which
  *     is the no-drag way to place: select in the tray, tap a cell. Nothing here needs hover.
+ * Hit testing is in SCREEN pixels with a radius never under 22px (hit.ts, QA S10). Drag
+ * moves reach the screen at most once per animation frame (QA S2). The wheel listener is
+ * native and non-passive so zooming never also scrolls the page (QA S12). `focus` frames a
+ * rectangle of cells (zoom in only) when its key changes — the trail uses it to bring the
+ * ring close when a tray item is selected (QA S10).
  * Drags that START in the DOM (the manifest tray) use the imperative handle to convert
  * client coordinates to world cells; the scene then shows the same ghost and lattice.
  *
@@ -13,13 +21,15 @@
  * `prefers-reduced-motion` turns the lattice fade into an instant toggle.
  */
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
-import { HIT_RADIUS, MIN_HIT_RADIUS_PX, hitTest } from "./hit.ts";
+import { GestureMachine, type GestureEffect } from "./gestures.ts";
+import { hitRadiusPx, hitTestScreen } from "./hit.ts";
 import {
   TILE_W,
   canvasToWorld,
   clampCamera,
   clampZoom,
   fitCamera,
+  focusCamera,
   isOnLattice,
   panCamera,
   pinchCamera,
@@ -29,6 +39,7 @@ import {
   zoomCameraAbout,
   type Camera,
   type CellLike,
+  type CellRect,
   type WorldPoint,
 } from "./projection.ts";
 import { IsoScene, type SceneGeometry } from "./scene.ts";
@@ -41,8 +52,12 @@ export interface IsoCanvasHandle {
   cellToClient(cell: CellLike): { x: number; y: number } | null;
   /** Whether a client point is over the canvas element at all. */
   isOverCanvas(clientX: number, clientY: number): boolean;
-  /** Current lattice overlay opacity (0 when nothing is being dragged). */
+  /** Current lattice overlay opacity (0 when nothing is being dragged or placed). */
   latticeAlpha(): number;
+  /** Current camera zoom (probes and the e2e read it). */
+  zoom(): number;
+  /** Whether PixiJS's own accessibility overlay exists (it must not: the DOM lists are the text alternative, QA N3). */
+  pixiAccessibility(): boolean;
 }
 
 export interface IsoCanvasProps {
@@ -57,6 +72,10 @@ export interface IsoCanvasProps {
   readonly onDragBegin?: (hit: HitResult) => void;
   readonly onDragMove?: (cell: CellLike | null) => void;
   readonly onDragEnd?: (cell: CellLike | null) => void;
+  /** The drag was abandoned (a second finger, a cancelled pointer): nothing moves. Defaults to `onDragEnd(null)`. */
+  readonly onDragCancel?: () => void;
+  /** Frame these cells (zoom in only) whenever `key` changes to a new non-null value. */
+  readonly focus?: { readonly key: string; readonly rect: CellRect } | null;
   /** Called once if the renderer cannot start (no WebGL); the screen shows its text alternative. */
   readonly onUnavailable?: (reason: string) => void;
   /**
@@ -96,21 +115,18 @@ export function frameCamera(viewportW: number, viewportH: number, frame: FrameRe
   return { zoom, offsetX: viewportW / 2 - cx * zoom, offsetY: viewportH / 2 - cy * zoom };
 }
 
-const TAP_MOVE_PX = 8;
-const TAP_MS = 400;
+/**
+ * QA N5: `window.__isoDebug` exists only in dev and test builds, and in a build made with
+ * VITE_ISO_DEBUG=1 (what `pnpm e2e` builds for Playwright). A production build has none.
+ */
+export const ISO_DEBUG: boolean = import.meta.env.DEV || import.meta.env.MODE === "test" || import.meta.env.VITE_ISO_DEBUG === "1";
 
 function prefersReducedMotion(): boolean {
   return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-type Gesture =
-  | { kind: "none" }
-  | { kind: "pan"; pointerId: number; lastX: number; lastY: number; startX: number; startY: number; startedAt: number; moved: boolean }
-  | { kind: "pinch"; a: number; b: number; ax: number; ay: number; bx: number; by: number }
-  | { kind: "drag"; pointerId: number; hit: HitResult; moved: boolean; startX: number; startY: number; startedAt: number };
-
 export const IsoCanvas = forwardRef<IsoCanvasHandle, IsoCanvasProps>(function IsoCanvas(props, ref) {
-  const { geometry, state, label, background = 0x1b1a17, canDrag, onTapCell, onTapEntity, onDragBegin, onDragMove, onDragEnd, onUnavailable, frame } = props;
+  const { geometry, state, label, background = 0x1b1a17, focus, onUnavailable, frame } = props;
   const frameRef = useRef(frame);
   frameRef.current = frame;
   const hostRef = useRef<HTMLDivElement>(null);
@@ -118,9 +134,12 @@ export const IsoCanvas = forwardRef<IsoCanvasHandle, IsoCanvasProps>(function Is
   const sceneRef = useRef<IsoScene | null>(null);
   const camRef = useRef<Camera>({ offsetX: 0, offsetY: 0, zoom: 1 });
   const sizeRef = useRef({ w: 0, h: 0 });
-  const gestureRef = useRef<Gesture>({ kind: "none" });
+  const machine = useRef(new GestureMachine());
   const stateRef = useRef(state);
   stateRef.current = state;
+  // Callbacks are read through a ref so the native listeners never hold a stale closure.
+  const propsRef = useRef(props);
+  propsRef.current = props;
   const [unavailable, setUnavailable] = useState<string | null>(null);
 
   const applyCamera = (cam: Camera): void => {
@@ -143,6 +162,7 @@ export const IsoCanvas = forwardRef<IsoCanvasHandle, IsoCanvasProps>(function Is
     return canvasToWorld(camRef.current, c.x, c.y);
   };
   const worldToCell = (p: WorldPoint | null): CellLike | null => (p && isOnLattice(p, geometry.width, geometry.height) ? snapToCell(p) : null);
+  const canvasToCell = (x: number, y: number): CellLike | null => worldToCell(canvasToWorld(camRef.current, x, y));
 
   const handle: IsoCanvasHandle = {
     clientToCell: (x, y) => worldToCell(clientToWorld(x, y)),
@@ -159,10 +179,12 @@ export const IsoCanvas = forwardRef<IsoCanvasHandle, IsoCanvasProps>(function Is
       return !!c && c.x >= 0 && c.y >= 0 && c.x <= w && c.y <= h;
     },
     latticeAlpha: () => sceneRef.current?.latticeAlpha ?? 0,
+    zoom: () => camRef.current.zoom,
+    pixiAccessibility: () => sceneRef.current?.hasPixiAccessibility ?? false,
   };
   useImperativeHandle(ref, () => handle);
-  // Test hook (the Playwright e2e aims drops with it): the same handle, on `window`. Harmless in production.
   useEffect(() => {
+    if (!ISO_DEBUG) return;
     const w = window as unknown as { __isoDebug?: IsoCanvasHandle };
     w.__isoDebug = handle;
     return () => {
@@ -208,6 +230,14 @@ export const IsoCanvas = forwardRef<IsoCanvasHandle, IsoCanvasProps>(function Is
       applyCamera({ ...cam, offsetX: cam.offsetX + (next.w - prev.w) / 2, offsetY: cam.offsetY + (next.h - prev.h) / 2 });
     }) : null;
     ro?.observe(host);
+    // QA S12: a NATIVE, non-passive wheel listener, so preventDefault keeps the page still.
+    const onWheel = (e: WheelEvent): void => {
+      e.preventDefault();
+      const c = clientToCanvas(e.clientX, e.clientY);
+      if (!c) return;
+      applyCamera(zoomCameraAbout(camRef.current, e.deltaY < 0 ? 1.12 : 1 / 1.12, c.x, c.y));
+    };
+    canvas.addEventListener("wheel", onWheel, { passive: false });
     // QA-17 N7: follow a change to the reduced-motion setting while mounted.
     const mq = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
     const onMotion = (e: MediaQueryListEvent): void => scene.setReducedMotion(e.matches);
@@ -216,6 +246,9 @@ export const IsoCanvas = forwardRef<IsoCanvasHandle, IsoCanvasProps>(function Is
       disposed = true;
       mq?.removeEventListener?.("change", onMotion);
       ro?.disconnect();
+      canvas.removeEventListener("wheel", onWheel);
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
       scene.destroy();
       sceneRef.current = null;
     };
@@ -227,89 +260,93 @@ export const IsoCanvas = forwardRef<IsoCanvasHandle, IsoCanvasProps>(function Is
     sceneRef.current?.update(state);
   }, [state]);
 
+  // Frame the requested cells when the focus key changes (zoom in only).
+  const focusKey = focus?.key ?? null;
+  useEffect(() => {
+    if (!focus) return;
+    const { w, h } = sizeRef.current;
+    if (w <= 1 || h <= 1) return;
+    applyCamera(focusCamera(camRef.current, w, h, focus.rect));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusKey]);
+
   // ── pointer gestures ──────────────────────────────────────────────────────────────
 
-  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  // QA S2: drag moves are coalesced to one per animation frame.
+  const rafRef = useRef<number | null>(null);
+  const pendingMove = useRef<{ cell: CellLike | null } | null>(null);
+  const flushMove = (): void => {
+    rafRef.current = null;
+    const m = pendingMove.current;
+    pendingMove.current = null;
+    if (m) propsRef.current.onDragMove?.(m.cell);
+  };
+  const queueMove = (cell: CellLike | null): void => {
+    pendingMove.current = { cell };
+    if (rafRef.current === null) rafRef.current = typeof requestAnimationFrame === "function" ? requestAnimationFrame(flushMove) : (flushMove(), null);
+  };
+  const dropPendingMove = (): void => {
+    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    pendingMove.current = null;
+  };
+
+  const apply = (effects: readonly GestureEffect[]): void => {
+    const p = propsRef.current;
+    for (const fx of effects) {
+      switch (fx.kind) {
+        case "pan":
+          applyCamera(panCamera(camRef.current, fx.dx, fx.dy));
+          break;
+        case "pinch":
+          applyCamera(pinchCamera(camRef.current, fx.a0, fx.b0, fx.a1, fx.b1));
+          break;
+        case "dragBegin":
+          p.onDragBegin?.(fx.hit);
+          break;
+        case "dragMove":
+          queueMove(canvasToCell(fx.at.x, fx.at.y));
+          break;
+        case "dragEnd":
+          dropPendingMove();
+          p.onDragEnd?.(canvasToCell(fx.at.x, fx.at.y));
+          break;
+        case "dragCancel":
+          dropPendingMove();
+          if (p.onDragCancel) p.onDragCancel();
+          else p.onDragEnd?.(null);
+          break;
+        case "tapCell": {
+          const cell = canvasToCell(fx.at.x, fx.at.y);
+          if (cell) p.onTapCell?.(cell);
+          break;
+        }
+        case "tapEntity":
+          p.onTapEntity?.(fx.hit);
+          break;
+      }
+    }
+  };
+
+  const sample = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const c = clientToCanvas(e.clientX, e.clientY);
+    return c ? { id: e.pointerId, x: c.x, y: c.y, t: performance.now() } : null;
+  };
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>): void => {
-    const c = clientToCanvas(e.clientX, e.clientY);
-    if (!c) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    pointers.current.set(e.pointerId, c);
-    const g = gestureRef.current;
-    if (pointers.current.size === 2 && (g.kind === "pan" || g.kind === "none")) {
-      const [[aId, a], [bId, b]] = [...pointers.current.entries()] as [[number, { x: number; y: number }], [number, { x: number; y: number }]];
-      gestureRef.current = { kind: "pinch", a: aId, b: bId, ax: a.x, ay: a.y, bx: b.x, by: b.y };
-      return;
-    }
-    if (g.kind !== "none") return;
-    const world = canvasToWorld(camRef.current, c.x, c.y);
-    // The hit radius never shrinks below MIN_HIT_RADIUS_PX on screen, whatever the zoom.
-    const edge = canvasToWorld(camRef.current, c.x + MIN_HIT_RADIUS_PX, c.y);
-    const pxRadius = Math.hypot(edge.x - world.x, edge.y - world.y);
-    const hit = hitTest(stateRef.current, world, Math.max(HIT_RADIUS, pxRadius));
-    const now = performance.now();
-    if (hit && canDrag?.(hit)) {
-      gestureRef.current = { kind: "drag", pointerId: e.pointerId, hit, moved: false, startX: c.x, startY: c.y, startedAt: now };
-      return;
-    }
-    gestureRef.current = { kind: "pan", pointerId: e.pointerId, lastX: c.x, lastY: c.y, startX: c.x, startY: c.y, startedAt: now, moved: false };
+    const s = sample(e);
+    if (!s) return;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const hitAt = (x: number, y: number) => hitTestScreen(stateRef.current, { x, y }, camRef.current, hitRadiusPx(camRef.current.zoom));
+    apply(machine.current.down(s, hitAt, (hit) => propsRef.current.canDrag?.(hit) ?? false));
   };
-
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>): void => {
-    const c = clientToCanvas(e.clientX, e.clientY);
-    if (!c) return;
-    if (pointers.current.has(e.pointerId)) pointers.current.set(e.pointerId, c);
-    const g = gestureRef.current;
-    if (g.kind === "pan" && g.pointerId === e.pointerId) {
-      const dx = c.x - g.lastX;
-      const dy = c.y - g.lastY;
-      const moved = g.moved || Math.hypot(c.x - g.startX, c.y - g.startY) > TAP_MOVE_PX;
-      gestureRef.current = { ...g, lastX: c.x, lastY: c.y, moved };
-      if (moved) applyCamera(panCamera(camRef.current, dx, dy));
-    } else if (g.kind === "pinch") {
-      const a = pointers.current.get(g.a);
-      const b = pointers.current.get(g.b);
-      if (!a || !b) return;
-      applyCamera(pinchCamera(camRef.current, { x: g.ax, y: g.ay }, { x: g.bx, y: g.by }, a, b));
-      gestureRef.current = { ...g, ax: a.x, ay: a.y, bx: b.x, by: b.y };
-    } else if (g.kind === "drag" && g.pointerId === e.pointerId) {
-      const far = Math.hypot(c.x - g.startX, c.y - g.startY) > TAP_MOVE_PX;
-      if (!g.moved && far) {
-        gestureRef.current = { ...g, moved: true };
-        onDragBegin?.(g.hit);
-      }
-      if (g.moved || far) onDragMove?.(worldToCell(canvasToWorld(camRef.current, c.x, c.y)));
-    }
+    const s = sample(e);
+    if (s) apply(machine.current.move(s));
   };
-
   const finish = (e: React.PointerEvent<HTMLCanvasElement>, cancelled: boolean): void => {
-    const c = clientToCanvas(e.clientX, e.clientY);
-    pointers.current.delete(e.pointerId);
-    const g = gestureRef.current;
-    if (g.kind === "pinch") {
-      if (pointers.current.size < 2) gestureRef.current = { kind: "none" };
-      return;
-    }
-    if (g.kind === "pan" && g.pointerId === e.pointerId) {
-      gestureRef.current = { kind: "none" };
-      if (!cancelled && !g.moved && performance.now() - g.startedAt < TAP_MS && c) {
-        const cell = worldToCell(canvasToWorld(camRef.current, c.x, c.y));
-        if (cell) onTapCell?.(cell);
-      }
-      return;
-    }
-    if (g.kind === "drag" && g.pointerId === e.pointerId) {
-      gestureRef.current = { kind: "none" };
-      if (g.moved) onDragEnd?.(cancelled || !c ? null : worldToCell(canvasToWorld(camRef.current, c.x, c.y)));
-      else if (!cancelled) onTapEntity?.(g.hit);
-    }
-  };
-
-  const onWheel = (e: React.WheelEvent<HTMLCanvasElement>): void => {
-    const c = clientToCanvas(e.clientX, e.clientY);
-    if (!c) return;
-    applyCamera(zoomCameraAbout(camRef.current, e.deltaY < 0 ? 1.12 : 1 / 1.12, c.x, c.y));
+    const s = sample(e) ?? { id: e.pointerId, x: -1, y: -1, t: performance.now() };
+    apply(machine.current.up(s, cancelled));
   };
 
   return (
@@ -324,7 +361,6 @@ export const IsoCanvas = forwardRef<IsoCanvasHandle, IsoCanvasProps>(function Is
         onPointerMove={onPointerMove}
         onPointerUp={(e) => finish(e, false)}
         onPointerCancel={(e) => finish(e, true)}
-        onWheel={onWheel}
       />
       {unavailable && (
         <p className="iso__unavailable hint" role="status">

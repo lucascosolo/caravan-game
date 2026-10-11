@@ -13,6 +13,7 @@
  * belongs here too.
  */
 import { getFenceTier, getTrapType } from "@caravan/content";
+import { memo } from "react";
 import { STRINGS } from "../../strings.ts";
 import { fixedToText } from "../webs/catalogue.ts";
 import { AffinityIcon } from "../webs/AffinityIcon.tsx";
@@ -72,9 +73,12 @@ export interface ScoutPanelProps {
   readonly source?: "fixture" | "matchmaking";
   /** Distinguishes several panels on the candidates screen. */
   readonly idSuffix?: string;
+  /** An attacker tapped on the canvas (QA S14): its card is highlighted. */
+  readonly selectedRef?: string | null;
 }
 
-export function ScoutPanel({ scout, source = "matchmaking", idSuffix = "" }: ScoutPanelProps): JSX.Element {
+/** Memoised (QA S2): it is long, and nothing in it changes while the player drags. */
+export const ScoutPanel = memo(function ScoutPanel({ scout, source = "matchmaking", idSuffix = "", selectedRef = null }: ScoutPanelProps): JSX.Element {
   const cards = scout.units.map((u) => ({ unit: u, card: attackerCard(u) }));
   const headingId = `scout-heading${idSuffix}`;
   const typeName = (id: string): string => getFenceTier(id)?.displayName ?? getTrapType(id)?.displayName ?? id;
@@ -108,7 +112,13 @@ export function ScoutPanel({ scout, source = "matchmaking", idSuffix = "" }: Sco
 
       <ul className="cards" aria-label={T.scoutUnits(scout.units.length)}>
         {cards.map(({ unit, card }) => (
-          <li key={unit.ref} className="card card--attacker" data-testid={`scout-unit-${unit.ref}${idSuffix}`}>
+          <li
+            key={unit.ref}
+            className={`card card--attacker${selectedRef === unit.ref ? " card--selected" : ""}`}
+            data-testid={`scout-unit-${unit.ref}${idSuffix}`}
+            data-selected={selectedRef === unit.ref ? "true" : "false"}
+            tabIndex={-1}
+          >
             <div className="card__head">
               <span className="card__name">{card.displayName}</span>
               <AffinityIcon affinity={card.affinity} />
@@ -146,4 +156,4 @@ export function ScoutPanel({ scout, source = "matchmaking", idSuffix = "" }: Sco
       )}
     </section>
   );
-}
+});

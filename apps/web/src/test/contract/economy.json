@@ -1,0 +1,65 @@
+{
+  "route": "GET /me/economy",
+  "status": 200,
+  "body": {
+    "balance": 1000,
+    "cap": 50000,
+    "room": 49000,
+    "atCap": false,
+    "trickle": {
+      "ratePerHour": 200,
+      "msPerCoin": 18000,
+      "pending": 0,
+      "ledgerBalance": 1000,
+      "materializedNow": false,
+      "creditedNow": 0,
+      "discardedNow": 0,
+      "nextCoinInMs": 1000,
+      "accruedThroughMs": 1790000000000
+    },
+    "overflow": {
+      "behavior": "discard_with_warning",
+      "prospectiveEarn": 0,
+      "wouldCredit": 0,
+      "wouldDiscard": 0,
+      "warn": false,
+      "message": "Your store has room for 49000 more Coin right now."
+    },
+    "earn": {
+      "encounterSchedule": [
+        400,
+        500,
+        625,
+        781,
+        976,
+        1220,
+        1525,
+        1906,
+        2382,
+        2977
+      ],
+      "bankedTripBonus": 500,
+      "partyWin": 300
+    },
+    "merge": {
+      "costPerResultingUnitByLevel": {
+        "2": 250,
+        "3": 900,
+        "4": 3000,
+        "5": 9500
+      },
+      "recipes": [
+        {
+          "spend": 2,
+          "produce": 1
+        },
+        {
+          "spend": 5,
+          "produce": 3
+        }
+      ],
+      "levelCap": 5,
+      "slotCost": 1
+    }
+  }
+}

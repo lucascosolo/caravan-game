@@ -120,7 +120,11 @@ outfitting flow. Nobody owns the connective tissue.
 
 **Definition of done.** A new account can go from the town to a banked three-encounter
 trip and back without any screen that was not designed. The bank-or-push prompt
-itemizes every stake the design names.
+itemizes every stake the design names. **From chunk 08 (QA D1):** the commit →
+resolution → replay handoff works end to end — committing a formation on the Trail tab
+leads to the resolved encounter (chunk 15's loop, chunk 13's log) and its replay (chunk
+22) without leaving the flow. Chunk 08 ships the commit and the locked, committed state;
+this chunk completes the handoff once 13, 15 and 22 exist.
 
 **QA checks.** Guardrail 4: is there any resource the prompt does not itemize? Guardrail
 2: is there any purchasable thing reachable from this flow?

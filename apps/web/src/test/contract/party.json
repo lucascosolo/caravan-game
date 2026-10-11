@@ -1,0 +1,309 @@
+{
+  "route": "GET /me/party",
+  "status": 200,
+  "body": {
+    "party": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "slot": 0,
+      "createdAt": "2026-10-11T12:00:00.000Z",
+      "savedAt": "2026-10-11T12:00:01.000Z",
+      "hash": "a000000000000000000000000000000000000000000000000000000000000001",
+      "config": {
+        "v": 1,
+        "units": [
+          {
+            "ref": "00000000-0000-4000-8000-000000000002",
+            "stance": "nearest",
+            "edge": "north",
+            "cell": {
+              "x": 3,
+              "y": 0
+            }
+          },
+          {
+            "ref": "00000000-0000-4000-8000-000000000003",
+            "stance": "traps",
+            "edge": "east",
+            "cell": {
+              "x": 30,
+              "y": 2
+            }
+          }
+        ],
+        "siege": [
+          "siege.battering_wagon"
+        ]
+      },
+      "valid": true,
+      "issues": [],
+      "party": {
+        "v": 1,
+        "units": [
+          {
+            "ref": "00000000-0000-4000-8000-000000000002",
+            "typeId": "desert.dust_rider",
+            "mergeLevel": 1,
+            "stance": "nearest",
+            "edge": "north",
+            "cell": {
+              "x": 3,
+              "y": 0
+            }
+          },
+          {
+            "ref": "00000000-0000-4000-8000-000000000003",
+            "typeId": "desert.well_digger",
+            "mergeLevel": 1,
+            "stance": "traps",
+            "edge": "east",
+            "cell": {
+              "x": 30,
+              "y": 2
+            }
+          }
+        ],
+        "siege": [
+          {
+            "typeId": "siege.battering_wagon"
+          }
+        ]
+      },
+      "scout": {
+        "v": 1,
+        "units": [
+          {
+            "ref": "00000000-0000-4000-8000-000000000002",
+            "typeId": "desert.dust_rider",
+            "displayName": "Dust Rider",
+            "affinity": "beast",
+            "mergeLevel": 1,
+            "slotCost": 1,
+            "stance": "nearest",
+            "edge": "north",
+            "cell": {
+              "x": 3,
+              "y": 0
+            },
+            "pos": {
+              "x": 3584,
+              "y": 512
+            },
+            "ratingInUse": "offense",
+            "offense": 95,
+            "defense": 55,
+            "hp": 620,
+            "damagePerHitMult": 1024,
+            "moveSpeed": 2662,
+            "attackRange": 1024,
+            "attackCooldown": 800,
+            "ability": {
+              "archetype": "dash",
+              "displayName": "Spur On",
+              "description": "Surges 3.5 cells along its path.",
+              "cooldown": 9000,
+              "distance": 3584
+            }
+          },
+          {
+            "ref": "00000000-0000-4000-8000-000000000003",
+            "typeId": "desert.well_digger",
+            "displayName": "Well Digger",
+            "affinity": "grit",
+            "mergeLevel": 1,
+            "slotCost": 1,
+            "stance": "traps",
+            "edge": "east",
+            "cell": {
+              "x": 30,
+              "y": 2
+            },
+            "pos": {
+              "x": 31232,
+              "y": 2560
+            },
+            "ratingInUse": "offense",
+            "offense": 50,
+            "defense": 100,
+            "hp": 1100,
+            "damagePerHitMult": 1024,
+            "moveSpeed": 1024,
+            "attackRange": 1024,
+            "attackCooldown": 1400,
+            "ability": {
+              "archetype": "structure_breaker",
+              "displayName": "Pick Swing",
+              "description": "A full-weight swing at a fence segment for 4.5× a normal hit — never more than half a segment in one blow.",
+              "cooldown": 12000,
+              "fenceDamageMult": 4608
+            }
+          }
+        ],
+        "siege": [
+          {
+            "typeId": "siege.battering_wagon",
+            "displayName": "Battering Wagon",
+            "counters": {
+              "kind": "fence",
+              "category": "timber"
+            },
+            "effect": "accelerates",
+            "fenceDamageMult": 4096,
+            "nullifiesTrap": false,
+            "targetTypeIds": [
+              "fence.brush_pile",
+              "fence.split_rail"
+            ]
+          }
+        ],
+        "edges": [
+          "north",
+          "east"
+        ],
+        "unitSlots": {
+          "used": 2,
+          "cap": 8
+        },
+        "siegeSlots": {
+          "used": 1,
+          "cap": 3
+        }
+      },
+      "edges": [
+        "north",
+        "east"
+      ],
+      "caps": {
+        "units": 8,
+        "siege": 3,
+        "edges": 4,
+        "editCooldownMs": 0,
+        "partiesPerAccount": 1
+      },
+      "rules": {
+        "template": true,
+        "neverConsumed": true,
+        "unitsMayAlsoBePackedOnTrips": true,
+        "ratingInUse": "offense",
+        "stances": [
+          "nearest",
+          "traps",
+          "core"
+        ]
+      },
+      "roster": [
+        {
+          "instanceId": "00000000-0000-4000-8000-000000000002",
+          "caravanId": "00000000-0000-4000-8000-000000000004",
+          "typeId": "desert.dust_rider",
+          "displayName": "Dust Rider",
+          "mergeLevel": 1,
+          "slotCost": 1,
+          "offense": 95,
+          "defense": 55,
+          "hp": 620,
+          "unlocked": true,
+          "inParty": true,
+          "packedOnTrip": false,
+          "aliveOnTrip": null
+        },
+        {
+          "instanceId": "00000000-0000-4000-8000-000000000003",
+          "caravanId": "00000000-0000-4000-8000-000000000004",
+          "typeId": "desert.well_digger",
+          "displayName": "Well Digger",
+          "mergeLevel": 1,
+          "slotCost": 1,
+          "offense": 50,
+          "defense": 100,
+          "hp": 1100,
+          "unlocked": true,
+          "inParty": true,
+          "packedOnTrip": false,
+          "aliveOnTrip": null
+        }
+      ],
+      "siegeCatalog": [
+        {
+          "typeId": "siege.battering_wagon",
+          "displayName": "Battering Wagon",
+          "counters": {
+            "kind": "fence",
+            "category": "timber"
+          },
+          "effect": "accelerates",
+          "fenceDamageMult": 4096,
+          "nullifiesTrap": false,
+          "targetTypeIds": [
+            "fence.brush_pile",
+            "fence.split_rail"
+          ],
+          "unlocked": true
+        },
+        {
+          "typeId": "siege.fence_cutters",
+          "displayName": "Fence Cutters",
+          "counters": {
+            "kind": "fence",
+            "category": "wire"
+          },
+          "effect": "accelerates",
+          "fenceDamageMult": 4096,
+          "nullifiesTrap": false,
+          "targetTypeIds": [
+            "fence.barbed_wire"
+          ],
+          "unlocked": false
+        },
+        {
+          "typeId": "siege.blasting_crate",
+          "displayName": "Blasting Crate",
+          "counters": {
+            "kind": "fence",
+            "category": "stone"
+          },
+          "effect": "accelerates",
+          "fenceDamageMult": 4096,
+          "nullifiesTrap": false,
+          "targetTypeIds": [
+            "fence.stacked_stone"
+          ],
+          "unlocked": false
+        },
+        {
+          "typeId": "siege.bridging_planks",
+          "displayName": "Bridging Planks",
+          "counters": {
+            "kind": "trap",
+            "category": "groundwork"
+          },
+          "effect": "bypasses",
+          "fenceDamageMult": null,
+          "nullifiesTrap": true,
+          "targetTypeIds": [
+            "trap.spike_pit",
+            "trap.jaw_trap",
+            "trap.tripwire_snare",
+            "trap.caltrop_scatter"
+          ],
+          "unlocked": false
+        },
+        {
+          "typeId": "siege.dousing_wagon",
+          "displayName": "Dousing Wagon",
+          "counters": {
+            "kind": "trap",
+            "category": "powder"
+          },
+          "effect": "bypasses",
+          "fenceDamageMult": null,
+          "nullifiesTrap": true,
+          "targetTypeIds": [
+            "trap.powder_keg",
+            "trap.tar_pot"
+          ],
+          "unlocked": false
+        }
+      ]
+    }
+  }
+}

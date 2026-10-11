@@ -7,7 +7,7 @@ import { getFenceTier, getTrapType } from "@caravan/content";
 import { DEFENSIVE_STANCES, ringSegment, type DefensiveStance, type Formation, type Manifest } from "@caravan/circle";
 import { STRINGS } from "../../strings.ts";
 import { AffinityIcon } from "../webs/AffinityIcon.tsx";
-import { kindOfRef } from "./placement.ts";
+import { kindOfRef, segmentNumber } from "./placement.ts";
 import { UnitStatBlock } from "./ScoutPanel.tsx";
 import { defenderCard as card } from "./stats.ts";
 
@@ -36,7 +36,7 @@ export function SelectionPanel({ manifest, formation, selectedRef, locked, onSta
     body = (
       <>
         <div className="card__head">
-          <span className="card__name">{c?.displayName ?? u.typeId}</span>
+          <span className="card__name">{c?.displayName ?? T.unknownThing}</span>
           {c && <AffinityIcon affinity={c.affinity} />}
         </div>
         <p className="hint">
@@ -75,7 +75,7 @@ export function SelectionPanel({ manifest, formation, selectedRef, locked, onSta
     body = (
       <>
         <div className="card__head">
-          <span className="card__name">{type?.displayName ?? t.typeId}</span>
+          <span className="card__name">{type?.displayName ?? T.unknownThing}</span>
           {type && <AffinityIcon affinity={type.affinity} />}
         </div>
         <p className="hint">{t.spent ? T.trapSpent : laid ? `${T.trapSingleUse} ${T.laid(laid.cell.x, laid.cell.y)}` : `${T.trapSingleUse} ${T.notPlaced}`}</p>
@@ -97,11 +97,11 @@ export function SelectionPanel({ manifest, formation, selectedRef, locked, onSta
     body = (
       <>
         <div className="card__head">
-          <span className="card__name">{tier?.displayName ?? f.tierId}</span>
+          <span className="card__name">{tier?.displayName ?? T.unknownThing}</span>
         </div>
         <p className="hint">
-          {T.fenceSegment(f.ref, f.hp, f.maxHp)}
-          {on ? ` · #${on.segment} ${T.edgeName(ringSegment(on.segment).edge)}` : ` · ${T.notPlaced}`}
+          {T.fenceSegment(segmentNumber(manifest, f.ref), f.hp, f.maxHp)}
+          {on ? ` · ${T.ringPosition(on.segment, T.edgeName(ringSegment(on.segment).edge))}` : ` · ${T.notPlaced}`}
         </p>
         {tier && (
           <dl className="statlist statlist--compact">

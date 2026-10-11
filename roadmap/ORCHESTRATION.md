@@ -2250,3 +2250,58 @@ overflow, layout key carries account + caravan, sign-out leaves no keys (axis pi
 Retry, 360 px layout `small: []` with labels measured.
 
 **Next:** QA re-audit of chunk 17 against the punch list.
+
+### 2026-10-11 — Chunk 08 QA round 1 closed (B1–B4, D1–D5, S1–S15, N1–N11)
+
+Maker worked in worktree `agent-a1b9e400fea2264b5`, reset to `roadmap/phase-2-spec` at
+`5d5fb30` (chunk 17 merged), then merged `roadmap/phase-2-spec` at `5baa11f` (chunk 25 QA
+fixes, chunk 12) and again at `7db53ea` (chunk 17 QA fixes: `frame`/`frameCamera` and the
+live reduced-motion listener kept beside this round's IsoCanvas rewrite; the scene keeps both
+the mine-wheel angle and the node cache; the trail's in-memory drafts register with
+`onViewerReset`). Every punch-list item is
+`[closed]` with a one-line note; the chunk 08 file has a "QA round 1" section.
+
+- **B1 + D4.** The menu/choice guards match the final chunk 14/25 client view exactly
+  (owner `{displayName, authored, flavor}`, no account id, `gapBeyondBand`,
+  `authoredOutsideBand`, `authoredShare`, `authoredServed`; `snapshot` not read). The
+  **client–server contract test**: `apps/server/test/contract.test.ts` drives 23 routes on a
+  real account (me, auth, unlocks, progression, spend, economy, merge preview, refugees,
+  recruit, party GET/PUT, party feed, store, cosmetics, manifest pack/GET, search,
+  candidates, choose, formation PUT/GET/commit), writes each body to
+  `apps/web/src/test/contract/*.json` (deterministic: a sequence-backed uuid default for the
+  file, frozen clock, ids/hashes/timestamps renamed; reruns are byte-identical except the
+  weekly store rotation) and runs the client guards in-process; the web
+  `src/test/contract/contract.test.ts` runs every file through its guard
+  (`src/test/contract/routes.ts`). Chunk 17's guards are all on; **store and cosmetics have
+  no client guard yet and are skipped and listed**. `pnpm e2e` was already CI's last step.
+- **B2–B4.** True radii (`radiusEllipse`) of the resolver's reach (`toBattlefield` +
+  UNIT_RADIUS); the gesture machine is pure (`iso/gestures.ts`) and a second finger cancels a
+  drag; tray chips scroll on a vertical swipe and drag only after a long press or a sideways
+  move (`trail/trayGesture.ts`).
+- **D3** DOM placement picker. **D5** the lattice shows while a tray item is selected.
+  **D1/D2** recorded (PHASE-2 §23's DoD carries the commit → replay handoff).
+- **Chunk 11 QA D1 copy.** Reserve: "holds its post and strikes only what comes into attack
+  reach until an attacker breaches the ring; then joins the fight like a guard"; the threat
+  overlay counts reserve by attack reach.
+- **Outside the chunk's own files.** `packages/circle/src/party.ts` (S1: `ScoutUnit.
+  damagePerHitMult`; exports unchanged) and the two key-list assertions it moves
+  (`packages/circle/test/party.test.ts`, `apps/server/test/party.test.ts`);
+  `scripts/e2e.mjs` + `apps/web/playwright.config.ts` (N5: the e2e serves a
+  `VITE_ISO_DEBUG=1` build from `apps/web/dist-e2e`; per-test timeout 90 s, the four specs
+  share one machine and a software canvas); `.gitignore` (`dist-e2e/`); `PHASE-2.md` §23.
+
+**Probes (reviewer's, re-run against this build; before = `1ed535b` build).** p01: before
+`bad_payload` (`menu.usedAuthoredFallback`), after no error box. p04: pinch over a post —
+lattice 0.38 → 0 (no drag starts); a vertical swipe on a tray chip did not scroll (852 → 852)
+→ scrolls (924 → 1059); nothing placed either time. p05: pinch from a post — post moved to
+(4, 12) and no zoom → post stays at (13, 13), zoom changed. p06: drawn circle normalised
+radius² 2.000 → 1.000; rider reach 5.35 / 7 / 1.35 cells. p12 (4× CPU, 8 posts, 6 traps,
+20 fences, 8 attackers): script 60.5 → 29.7 ms per drag move; login transfer 161 → 89 kB.
+
+**Test output (after the last merge).** `pnpm --filter @caravan/web test` 19 files, 186
+passed + 2 skipped (contract: store, cosmetics), twice; `pnpm e2e` 4 passed (smoke ×2,
+formation, town), twice; `@caravan/server` 30 files / 530 passed (incl. `contract.test.ts`;
+the fixtures came out byte-identical); circle 99, content 76, resolver 170; root
+`typecheck`, `lint`, `test:boundary` clean; the production bundle carries no `__isoDebug`.
+Flaky under the shared machine's load, untouched here: `qa02-round2.test.ts` (2 job-queue
+tests, 1 of 4 solo runs) and the resolver's 100 ms budget test (passed once the load dropped).

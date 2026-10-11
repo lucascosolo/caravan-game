@@ -348,6 +348,12 @@ export interface ScoutUnit {
   readonly defense: number;
   /** Max HP at this merge level. */
   readonly hp: number;
+  /**
+   * The multiplier on every hit this unit lands, at this merge level (MERGE_STAT_MULT_BY_LEVEL;
+   * the resolver's DAMAGE_ROUNDING_ORDER step 3). Merge scales HP and damage OUTPUT, never a
+   * rating, so the scout shows it beside the unscaled offense (chunk 08 QA S1).
+   */
+  readonly damagePerHitMult: Fixed;
   readonly moveSpeed: Fixed;
   readonly attackRange: Fixed;
   readonly attackCooldown: Millis;
@@ -410,6 +416,7 @@ export function scoutUnit(u: PartyUnit): ScoutUnit {
     offense: type.offense,
     defense: type.defense,
     hp: scaleInt(type.hp, mergeStatMult(u.mergeLevel)),
+    damagePerHitMult: mergeStatMult(u.mergeLevel),
     moveSpeed: type.moveSpeed,
     attackRange: type.attackRange,
     attackCooldown: type.attackCooldown,

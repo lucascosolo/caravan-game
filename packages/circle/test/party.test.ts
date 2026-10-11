@@ -291,6 +291,7 @@ describe("the scouting view — what a defender sees is what the owner previews"
       offense: type.offense,
       defense: type.defense,
       hp: scaleInt(type.hp, mergeStatMult(5)),
+      damagePerHitMult: mergeStatMult(5),
       moveSpeed: type.moveSpeed,
       attackRange: type.attackRange,
       attackCooldown: type.attackCooldown,

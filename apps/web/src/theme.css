@@ -592,10 +592,20 @@ h2 {
   border: 2px solid var(--line);
   background: var(--bg-raised);
   cursor: grab;
-  touch-action: none;
+  /* Chunk 08 QA B4: a vertical swipe over the tray scrolls the page; a touch drag starts on
+     a long press or a sideways move (trayGesture.ts). No callout or text selection on hold. */
+  touch-action: pan-y;
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
   display: flex;
   flex-direction: column;
   gap: 0.125rem;
+}
+/* A chip the server's last answer named (QA S8): a dashed warning outline AND a word in the issue list, never colour alone. */
+.chip--issue .chip__btn {
+  border-color: var(--warn);
+  border-style: dashed;
 }
 .chip--selected .chip__btn {
   border-color: var(--accent);
@@ -694,4 +704,36 @@ h2 {
       opacity: 0;
     }
   }
+}
+
+/* Chunk 08 QA S14: the scouting card of an attacker tapped on the canvas. */
+.card--selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.card--attacker:focus {
+  outline: 2px solid var(--accent);
+}
+.btn--small {
+  min-height: var(--tap);
+  padding: 0 0.75rem;
+  font-size: 0.875rem;
+}
+/* Chunk 08 QA D3: the DOM placement picker. */
+.picker {
+  margin: 0.5rem 0;
+}
+.picker .row {
+  gap: 0.5rem;
+  align-items: stretch;
+}
+.picker__select {
+  flex: 1;
+  min-height: var(--tap);
+  min-width: 0;
+  font-size: 1rem;
+  background: var(--bg-raised);
+  color: var(--fg);
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
 }

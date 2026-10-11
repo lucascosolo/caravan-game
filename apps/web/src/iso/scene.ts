@@ -30,6 +30,7 @@ import {
   cellToWorld,
   depthKey,
   project,
+  radiusEllipse,
   type Camera,
   type CellLike,
   type WorldPoint,
@@ -99,7 +100,13 @@ export class IsoScene {
   private readonly world = new Container();
   private readonly island = new Graphics();
   private readonly lattice = new Graphics();
+  /** Threat bands and gap markers: redrawn only when the threat overlay itself changes (QA S2). */
+  private readonly threatLayer = new Graphics();
+  private threatSig = "";
   private readonly overlays = new Graphics();
+  /** Entity nodes kept across updates (QA S2): a node is rebuilt only when what it LOOKS like changes; a move only repositions it. */
+  private readonly nodes = new Map<string, { sig: string; node: Container }>();
+  private ghostSig = "";
   private readonly entities = new Container();
   private readonly ghost = new Container();
   private readonly skins: SkinRegistry;
@@ -119,7 +126,7 @@ export class IsoScene {
     this.entities.sortableChildren = true;
     this.lattice.alpha = 0;
     this.reducedMotion = opts.reducedMotion;
-    this.world.addChild(this.island, this.lattice, this.overlays, this.entities, this.ghost);
+    this.world.addChild(this.island, this.lattice, this.threatLayer, this.overlays, this.entities, this.ghost);
   }
 
   /** Create the renderer on a canvas. Resolves once the first frame can draw; rejects if WebGL is unavailable. */
@@ -136,12 +143,23 @@ export class IsoScene {
       preference: "webgl",
     });
     this.app = app;
+    // QA N3: PixiJS's AccessibilitySystem (loaded with the browser extensions during init)
+    // builds its own hidden DOM overlay on Tab — and a touch "hook" button on mobile — which
+    // would duplicate, out of date, the DOM lists that ARE this scene's text alternative.
+    // Its listeners and hook are torn down before the first frame; it never activates.
+    (app.renderer as unknown as { accessibility?: { destroy(): void } }).accessibility?.destroy();
     this.mounted = true;
     app.stage.addChild(this.world);
     this.drawIsland();
     this.drawLattice();
     app.ticker.add((ticker) => this.tick(ticker.deltaMS));
     if (this.state) this.update(this.state);
+  }
+
+  /** Whether PixiJS's accessibility overlay is active (it must never be, QA N3; the e2e presses Tab and asks). */
+  get hasPixiAccessibility(): boolean {
+    const r = this.app?.renderer as unknown as { accessibility?: { isActive?: boolean } } | undefined;
+    return r?.accessibility?.isActive ?? false;
   }
 
   get isMounted(): boolean {
@@ -255,35 +273,40 @@ export class IsoScene {
   update(state: IsoSceneState): void {
     this.state = state;
     if (!this.mounted) return;
-    this.latticeTarget = state.drag ? LATTICE_ALPHA : 0;
+    // GRID_VISIBILITY: the lattice shows while something is being dragged OR placed by tap (QA D5).
+    this.latticeTarget = state.drag || state.placing ? LATTICE_ALPHA : 0;
+    this.drawThreat(state);
     this.drawOverlays(state);
     this.drawEntities(state);
     this.drawGhost(state);
+  }
+
+  private drawThreat(state: IsoSceneState): void {
+    const sig = state.threat ? `${state.threat.entryEdges.join(",")}|${state.threat.gapCells.map((c) => `${c.x},${c.y}`).join(";")}` : "";
+    if (sig === this.threatSig) return;
+    this.threatSig = sig;
+    const g = this.threatLayer;
+    const geo = this.opts.geometry;
+    g.clear();
+    if (!state.threat) return;
+    // Threat bands: the edges this party enters from. Informational, low alpha.
+    for (const edge of state.threat.entryEdges) {
+      const d = geo.entryBandDepth;
+      for (let y = 0; y < geo.height; y++) {
+        for (let x = 0; x < geo.width; x++) {
+          const inBand = (edge === "north" && y < d) || (edge === "south" && y >= geo.height - d) || (edge === "west" && x < d) || (edge === "east" && x >= geo.width - d);
+          if (inBand) g.poly(pts(cellDiamond({ x, y }))).fill({ color: PALETTE.attacker, alpha: 0.18 });
+        }
+      }
+    }
+    // Gaps: a soft outline on each open ring position. Same colour as the lattice, never a warning.
+    for (const c of state.threat.gapCells) g.poly(pts(cellDiamond(c))).stroke({ width: 1.5, color: PALETTE.gap, alpha: 0.35 });
   }
 
   private drawOverlays(state: IsoSceneState): void {
     const g = this.overlays;
     const geo = this.opts.geometry;
     g.clear();
-    // Threat bands: the edges this party enters from. Informational, low alpha.
-    if (state.threat) {
-      for (const edge of state.threat.entryEdges) {
-        const d = geo.entryBandDepth;
-        const band: CellLike[] = [];
-        for (let y = 0; y < geo.height; y++) {
-          for (let x = 0; x < geo.width; x++) {
-            const inBand =
-              (edge === "north" && y < d) || (edge === "south" && y >= geo.height - d) || (edge === "west" && x < d) || (edge === "east" && x >= geo.width - d);
-            if (inBand) band.push({ x, y });
-          }
-        }
-        for (const c of band) g.poly(pts(cellDiamond(c))).fill({ color: PALETTE.attacker, alpha: 0.18 });
-      }
-      // Gaps: a soft outline on each open ring position. Same colour as the lattice, never a warning.
-      for (const c of state.threat.gapCells) {
-        g.poly(pts(cellDiamond(c))).stroke({ width: 1.5, color: PALETTE.gap, alpha: 0.35 });
-      }
-    }
     // The merge board (town) while a unit is being dragged: its cells outlined, so the
     // limited surface is visible exactly when it matters and reads as a place at rest.
     if (state.drag?.kind === "unit" && state.boardCells) {
@@ -293,20 +316,28 @@ export class IsoScene {
         g.poly(pts(cellDiamond(c))).fill({ color: free ? PALETTE.lattice : PALETTE.outlineDark, alpha: free ? 0.22 : 0.15 });
       }
     }
-    // Ring positions while a fence is being dragged, so the 28 targets are visible.
-    if (state.drag?.kind === "fence") {
+    // Ring positions while a fence is being dragged or placed by tap, so the 28 targets are visible.
+    if (state.drag?.kind === "fence" || state.placing === "fence") {
       const taken = new Set(state.fences.map((f) => `${f.cell.x},${f.cell.y}`));
       for (const c of geo.ringCells) {
         const free = !taken.has(`${c.x},${c.y}`);
         g.poly(pts(cellDiamond(c))).fill({ color: free ? PALETTE.lattice : PALETTE.outlineDark, alpha: free ? 0.22 : 0.15 });
       }
     }
-    // Aggro / leash / attack range as continuous circles at true radii (ellipses on screen).
+    // Aggro / leash / attack reach as continuous circles at TRUE radii (QA B2: projected world circles).
     if (state.showRadii) for (const p of state.posts) this.drawRadii(g, p.pos, p, p.selected ? 0.9 : 0.5);
     // Entry-band tint for the core so the goal is readable.
     if ((geo.fixtures ?? "circle") === "circle") for (const c of geo.coreCells) g.poly(pts(cellDiamond(c))).fill({ color: PALETTE.core, alpha: 0.18 });
   }
 
+  /**
+   * The three circles, told apart by LINE STYLE, never by "inner/outer" (QA S11: which one
+   * is larger depends on the type): aggro reach = thick solid line with a light fill; leash
+   * = thin solid line; attack reach = dotted line. The radii are what the resolver measures
+   * (reach includes UNIT_RADIUS; the caller passes them). Hold never leaves its post, so
+   * only its attack reach is drawn; guard and reserve draw all three (a reserve post strikes
+   * whatever enters its attack reach from the first tick and pursues once the ring is breached).
+   */
   private drawRadii(
     g: Graphics,
     pos: WorldPoint,
@@ -314,26 +345,53 @@ export class IsoScene {
     alpha: number,
   ): void {
     const c = project(pos);
-    const ell = (radius: number, color: number, width: number, a: number) => {
+    const ell = (radius: number, width: number, a: number, fill = false) => {
       if (radius <= 0) return;
-      g.ellipse(c.x, c.y, radius * (TILE_W / 2), radius * (TILE_H / 2)).stroke({ width, color, alpha: a });
+      const { rx, ry } = radiusEllipse(radius);
+      g.ellipse(c.x, c.y, rx, ry).stroke({ width, color: PALETTE.defender, alpha: a });
+      if (fill) g.ellipse(c.x, c.y, rx, ry).fill({ color: PALETTE.defender, alpha: a * 0.08 });
     };
-    if (r.stance === "hold") {
-      // Hold: never leaves the post; only its attack range matters.
-      ell(r.attackRange, PALETTE.defender, 2, alpha);
-      return;
+    const dotted = (radius: number, a: number) => {
+      if (radius <= 0) return;
+      const { rx, ry } = radiusEllipse(radius);
+      const n = Math.max(24, Math.round(radius * 16));
+      for (let i = 0; i < n; i += 2) {
+        const t0 = (i / n) * Math.PI * 2;
+        const t1 = ((i + 1) / n) * Math.PI * 2;
+        g.moveTo(c.x + rx * Math.cos(t0), c.y + ry * Math.sin(t0)).lineTo(c.x + rx * Math.cos(t1), c.y + ry * Math.sin(t1));
+      }
+      g.stroke({ width: 2, color: PALETTE.defender, alpha: a });
+    };
+    if (r.stance !== "hold") {
+      ell(r.leashDistance, 1, alpha * 0.6);
+      ell(r.aggroRadius, 2.5, alpha, true);
     }
-    ell(r.leashDistance, PALETTE.defender, 1, alpha * 0.6);
-    ell(r.aggroRadius, PALETTE.defender, 2, alpha);
-    g.ellipse(c.x, c.y, r.aggroRadius * (TILE_W / 2), r.aggroRadius * (TILE_H / 2)).fill({ color: PALETTE.defender, alpha: alpha * 0.08 });
-    if (r.stance === "reserve") ell(r.attackRange, PALETTE.defender, 1, alpha * 0.5);
+    dotted(r.attackRange, alpha);
+  }
+
+  /** Reuse the node under `key` if it still looks the same (`sig`), else build it; then place it at `pos`. */
+  private keep(seen: Set<string>, key: string, sig: string, pos: WorldPoint | null, layerBias: number, build: () => Container): Container {
+    seen.add(key);
+    const prior = this.nodes.get(key);
+    let node: Container;
+    if (prior && prior.sig === sig) node = prior.node;
+    else {
+      if (prior) prior.node.destroy({ children: true });
+      node = build();
+      this.nodes.set(key, { sig, node });
+      this.entities.addChild(node);
+    }
+    if (pos) {
+      const s = project(pos);
+      node.position.set(s.x, s.y);
+      node.zIndex = depthKey(pos, layerBias);
+    }
+    return node;
   }
 
   private drawEntities(state: IsoSceneState): void {
-    const layer = this.entities;
-    layer.removeChildren().forEach((c) => c.destroy({ children: true }));
+    const seen = new Set<string>();
     const geo = this.opts.geometry;
-    this.mineWheel = null;
     this.mineActive = state.mine?.active ?? false;
     // Fixed features first: the core and the four parked wagons (the wagon circle only).
     if ((geo.fixtures ?? "circle") === "circle" && geo.coreCells.length > 0) {
@@ -341,78 +399,129 @@ export class IsoScene {
         x: geo.coreCells.reduce((s, c) => s + c.x + 0.5, 0) / geo.coreCells.length,
         y: geo.coreCells.reduce((s, c) => s + c.y + 0.5, 0) / geo.coreCells.length,
       };
-      layer.addChild(this.marker(this.skins.core(), coreCenter, 1.6, 1, false));
-      for (const a of geo.anchorCells) layer.addChild(this.marker(this.skins.wagonAnchor(), cellToWorld(a), 1, 1, false));
+      this.keep(seen, "core", "", coreCenter, 1, () => this.marker(this.skins.core(), coreCenter, 1.6, 1, false));
+      geo.anchorCells.forEach((a, i) => this.keep(seen, `anchor:${i}`, "", cellToWorld(a), 1, () => this.marker(this.skins.wagonAnchor(), cellToWorld(a), 1, 1, false)));
     }
     // Town structures (chunk 17): inert scenery, drawn from the state, never simulated.
-    for (const s of state.structures ?? []) layer.addChild(this.structure(s));
+    for (const s of state.structures ?? []) {
+      const sig = `${s.kind}|${s.cell.x},${s.cell.y}|${s.w}x${s.h}|${s.label}`;
+      const prior = this.nodes.get(`structure:${s.id}`);
+      const rebuilt = !prior || prior.sig !== sig;
+      if (rebuilt && s.kind === "mine") this.mineWheel = null;
+      this.keep(seen, `structure:${s.id}`, sig, null, 1, () => this.structure(s));
+    }
     // Board units (chunk 17): static markers, a level badge, no stance, no radii, no HP.
     for (const u of state.boardUnits ?? []) {
-      const skin = this.skins.unit(u.typeId, "defender");
-      const node = this.marker(u.dimmed && skin.kind === "placeholder" ? { ...skin, fill: PALETTE.trapSpent } : skin, u.pos, u.target ? 1.15 : 1, 2, u.selected ?? false);
-      node.addChild(this.badge(String(u.mergeLevel), TILE_W * 0.22, -TILE_H * 0.55));
-      if (u.target) {
-        const ring = new Graphics();
-        ring.ellipse(0, 0, TILE_W * 0.42, TILE_H * 0.42).stroke({ width: 2, color: PALETTE.core, alpha: 0.95 });
-        node.addChild(ring);
-      }
-      layer.addChild(node);
+      this.keep(seen, `unit:${u.id}`, `${u.typeId}|${u.mergeLevel}|${u.selected ? 1 : 0}|${u.dimmed ? 1 : 0}|${u.target ? 1 : 0}`, u.pos, 2, () => {
+        const skin = this.skins.unit(u.typeId, "defender");
+        const node = this.marker(u.dimmed && skin.kind === "placeholder" ? { ...skin, fill: PALETTE.trapSpent } : skin, u.pos, u.target ? 1.15 : 1, 2, u.selected ?? false);
+        node.addChild(this.badge(String(u.mergeLevel), TILE_W * 0.22, -TILE_H * 0.55));
+        if (u.target) {
+          const ring = new Graphics();
+          ring.ellipse(0, 0, TILE_W * 0.42, TILE_H * 0.42).stroke({ width: 2, color: PALETTE.core, alpha: 0.95 });
+          node.addChild(ring);
+        }
+        return node;
+      });
     }
     for (const f of state.fences) {
       const pos = cellToWorld(f.cell);
-      const node = this.marker(this.skins.fence(f.tierId), pos, 1, 1, f.selected ?? false);
-      const bar = this.hpBar(f.hp / Math.max(1, f.maxHp), PALETTE.defender);
-      bar.position.set(0, -TILE_H * 0.9);
-      node.addChild(bar);
-      layer.addChild(node);
+      this.keep(seen, `fence:${f.id}`, `${f.tierId}|${f.hp}/${f.maxHp}|${f.selected ? 1 : 0}`, pos, 1, () => {
+        const node = this.marker(this.skins.fence(f.tierId), pos, 1, 1, f.selected ?? false);
+        const bar = this.hpBar(f.hp / Math.max(1, f.maxHp), PALETTE.defender);
+        bar.position.set(0, -TILE_H * 0.9);
+        node.addChild(bar);
+        return node;
+      });
     }
     for (const t of state.traps) {
-      const skin = this.skins.trap(t.typeId);
-      const node = this.marker(t.spent && skin.kind === "placeholder" ? { ...skin, fill: PALETTE.trapSpent } : skin, t.pos, 1, 1, t.selected ?? false);
-      layer.addChild(node);
+      this.keep(seen, `trap:${t.id}`, `${t.typeId}|${t.spent ? 1 : 0}|${t.selected ? 1 : 0}`, t.pos, 1, () => {
+        const skin = this.skins.trap(t.typeId);
+        return this.marker(t.spent && skin.kind === "placeholder" ? { ...skin, fill: PALETTE.trapSpent } : skin, t.pos, 1, 1, t.selected ?? false);
+      });
     }
     for (const p of state.posts) {
-      const node = this.marker(this.skins.unit(p.typeId, "defender"), p.pos, 1, 2, p.selected ?? false);
-      const bar = this.hpBar(p.hpFraction, PALETTE.defender);
-      bar.position.set(0, -TILE_H * 1.15);
-      node.addChild(bar);
-      node.addChild(this.badge(String(p.mergeLevel), TILE_W * 0.22, -TILE_H * 0.55));
-      node.addChild(this.stanceMark(p.stance));
-      layer.addChild(node);
+      this.keep(seen, `post:${p.id}`, `${p.typeId}|${p.mergeLevel}|${p.stance}|${p.hpFraction}|${p.selected ? 1 : 0}`, p.pos, 2, () => {
+        const node = this.marker(this.skins.unit(p.typeId, "defender"), p.pos, 1, 2, p.selected ?? false);
+        const bar = this.hpBar(p.hpFraction, PALETTE.defender);
+        bar.position.set(0, -TILE_H * 1.15);
+        node.addChild(bar);
+        node.addChild(this.badge(String(p.mergeLevel), TILE_W * 0.22, -TILE_H * 0.55));
+        node.addChild(this.stanceMark(p.stance));
+        return node;
+      });
     }
     for (const a of state.attackers) {
-      const node = this.marker(this.skins.unit(a.typeId, "attacker"), a.pos, 1, 2, a.selected ?? false);
-      node.addChild(this.badge(String(a.mergeLevel), TILE_W * 0.22, -TILE_H * 0.55));
-      layer.addChild(node);
+      this.keep(seen, `attacker:${a.id}`, `${a.typeId}|${a.mergeLevel}|${a.selected ? 1 : 0}`, a.pos, 2, () => {
+        const node = new Container();
+        // QA N10: the skin seam's promise — an attacker carries a DASHED ring under its marker
+        // (a defender a solid outline), so the two sides differ by shape, not colour alone.
+        node.addChild(this.dashedRing());
+        const m = this.marker(this.skins.unit(a.typeId, "attacker"), { x: 0, y: 0 }, 1, 2, a.selected ?? false);
+        m.position.set(0, 0);
+        node.addChild(m);
+        node.addChild(this.badge(String(a.mergeLevel), TILE_W * 0.22, -TILE_H * 0.55));
+        return node;
+      });
     }
     for (const s of state.siege) {
       const pos = this.edgePoint(s.edge, s.along);
-      layer.addChild(this.marker(this.skins.siege(s.typeId), pos, 1, 2, false));
+      this.keep(seen, `siege:${s.id}`, `${s.typeId}`, pos, 2, () => this.marker(this.skins.siege(s.typeId), pos, 1, 2, false));
+    }
+    for (const [key, v] of this.nodes) {
+      if (seen.has(key)) continue;
+      if (key.startsWith("structure:") && v.node.children.includes(this.mineWheel as Graphics)) this.mineWheel = null;
+      v.node.destroy({ children: true });
+      this.nodes.delete(key);
     }
   }
 
-  private drawGhost(state: IsoSceneState): void {
-    this.ghost.removeChildren().forEach((c) => c.destroy({ children: true }));
-    const d = state.drag;
-    if (!d || !d.cell) return;
-    const pos = cellToWorld(d.cell);
+  private dashedRing(): Graphics {
     const g = new Graphics();
-    g.poly(pts(cellDiamond(d.cell))).fill({ color: d.valid ? PALETTE.defender : PALETTE.attacker, alpha: 0.35 });
-    this.ghost.addChild(g);
-    if (d.radii) {
-      const rg = new Graphics();
-      this.drawRadii(rg, pos, d.radii, 0.9);
-      this.ghost.addChild(rg);
+    const rx = TILE_W * 0.38;
+    const ry = TILE_H * 0.38;
+    const n = 16;
+    for (let i = 0; i < n; i += 2) {
+      const t0 = (i / n) * Math.PI * 2;
+      const t1 = ((i + 1) / n) * Math.PI * 2;
+      g.moveTo(rx * Math.cos(t0), ry * Math.sin(t0)).lineTo(rx * Math.cos(t1), ry * Math.sin(t1));
     }
-    const skin =
-      d.kind === "fence"
-        ? this.skins.fence(d.typeId)
-        : d.kind === "trap"
-          ? this.skins.trap(d.typeId)
-          : this.skins.unit(d.typeId, d.kind === "attacker" ? "attacker" : "defender");
-    const m = this.marker(skin, pos, 1, 3, false);
-    m.alpha = 0.75;
-    this.ghost.addChild(m);
+    g.stroke({ width: 2, color: PALETTE.attacker, alpha: 0.95 });
+    return g;
+  }
+
+  private drawGhost(state: IsoSceneState): void {
+    const d = state.drag;
+    const sig = d && d.cell ? `${d.kind}|${d.typeId}|${d.valid ? 1 : 0}|${d.radii ? `${d.radii.aggroRadius},${d.radii.leashDistance},${d.radii.attackRange},${d.radii.stance}` : ""}` : "";
+    if (!d || !d.cell) {
+      if (this.ghostSig !== "") this.ghost.removeChildren().forEach((c) => c.destroy({ children: true }));
+      this.ghostSig = "";
+      return;
+    }
+    const s = project(cellToWorld(d.cell));
+    if (sig !== this.ghostSig) {
+      this.ghost.removeChildren().forEach((c) => c.destroy({ children: true }));
+      this.ghostSig = sig;
+      // Built around the origin; the container is then moved to the cell (a move is a reposition only).
+      const g = new Graphics();
+      g.poly(pts(cellDiamond({ x: -0.5, y: -0.5 }))).fill({ color: d.valid ? PALETTE.defender : PALETTE.attacker, alpha: 0.35 });
+      this.ghost.addChild(g);
+      if (d.radii) {
+        const rg = new Graphics();
+        this.drawRadii(rg, { x: 0, y: 0 }, d.radii, 0.9);
+        this.ghost.addChild(rg);
+      }
+      const skin =
+        d.kind === "fence"
+          ? this.skins.fence(d.typeId)
+          : d.kind === "trap"
+            ? this.skins.trap(d.typeId)
+            : this.skins.unit(d.typeId, d.kind === "attacker" ? "attacker" : "defender");
+      const m = this.marker(skin, { x: 0, y: 0 }, 1, 3, false);
+      m.alpha = 0.75;
+      this.ghost.addChild(m);
+    }
+    this.ghost.position.set(s.x, s.y);
   }
 
   // ── drawing helpers ───────────────────────────────────────────────────────────────

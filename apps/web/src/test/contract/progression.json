@@ -1,0 +1,71 @@
+{
+  "route": "GET /me/progression",
+  "status": 200,
+  "body": {
+    "pools": [
+      {
+        "pool": "living",
+        "scope": "caravan",
+        "accountId": null,
+        "caravanId": "00000000-0000-4000-8000-000000000001",
+        "reputation": 1000,
+        "ladder": {
+          "level": 0,
+          "points": 0,
+          "cap": 20,
+          "capped": false,
+          "nextRungAt": 100,
+          "pointsToNextRung": 100,
+          "nextRungUnlockPoints": 1
+        },
+        "unlockPoints": {
+          "granted": 0,
+          "spent": 0,
+          "available": 0
+        }
+      },
+      {
+        "pool": "siege",
+        "scope": "account",
+        "accountId": "00000000-0000-4000-8000-000000000002",
+        "caravanId": null,
+        "reputation": 1000,
+        "ladder": {
+          "level": 0,
+          "points": 0,
+          "cap": 20,
+          "capped": false,
+          "nextRungAt": 100,
+          "pointsToNextRung": 100,
+          "nextRungUnlockPoints": 1
+        },
+        "unlockPoints": {
+          "granted": 0,
+          "spent": 0,
+          "available": 0
+        }
+      },
+      {
+        "pool": "trap",
+        "scope": "account",
+        "accountId": "00000000-0000-4000-8000-000000000002",
+        "caravanId": null,
+        "reputation": 1000,
+        "ladder": {
+          "level": 0,
+          "points": 0,
+          "cap": 20,
+          "capped": false,
+          "nextRungAt": 100,
+          "pointsToNextRung": 100,
+          "nextRungUnlockPoints": 1
+        },
+        "unlockPoints": {
+          "granted": 0,
+          "spent": 0,
+          "available": 0
+        }
+      }
+    ]
+  }
+}

@@ -59,7 +59,9 @@ function menuOf(chosen: string | null, availableAtMs: number): CandidateMenuView
     escalation: { applied: 0, perEncounter: 25, nextEncounter: 25 },
     bandWidthUsed: 100,
     widened: false,
-    usedAuthoredFallback: true,
+    authoredOutsideBand: true,
+    authoredShare: { authored: 3, of: 3, shareBp: 10_000, maxShareBp: 3_000 },
+    authoredServed: null,
     candidates,
     searchedAtMs: Date.now(),
     reroll: { gate: "time", cooldownSeconds: 60, availableAtMs, available: availableAtMs <= Date.now() },
@@ -118,7 +120,15 @@ describe("TrailScreen — search, scout three candidates, reroll gate, choose, a
       expect(card.getByTestId(`scout-panel-${i}`)).toBeInTheDocument();
       expect(card.getAllByText(/Enters from the/).length).toBeGreaterThan(0);
     }
-    expect(screen.getByText("Includes authored parties: too few players were in range.")).toBeInTheDocument();
+    // B1: the server's authored facts, said as reported.
+    expect(screen.getByTestId("authored-outside-band")).toHaveTextContent("Includes authored parties from outside your band");
+    expect(screen.getByTestId("authored-share")).toHaveTextContent("3 of 3 offered are authored parties (the draw keeps authored parties to 30%");
+    // N1: each candidate's scouting report is open, and above its "Face …" button.
+    for (const i of [0, 1, 2]) {
+      const details = screen.getByTestId(`candidate-${i}`).querySelector("details")!;
+      expect(details.open).toBe(true);
+      expect(details.compareDocumentPosition(screen.getByTestId(`choose-${i}`)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
     // The reroll is visible, free, and time-gated: disabled with the seconds shown. No Coin anywhere.
     const reroll = screen.getByTestId("reroll");
     expect(reroll).toBeDisabled();
@@ -164,7 +174,7 @@ describe("TrailScreen — search, scout three candidates, reroll gate, choose, a
     });
     mount(fetchImpl);
     expect(await screen.findByTestId("trail-no-trip")).toHaveTextContent("Packed, but not yet on the trail.");
-    expect(screen.queryByTestId("error-box")).toBeNull();
+    expect(screen.queryByTestId("api-error")).toBeNull();
   });
 
   it("a malformed menu is bad_payload with Retry, not a crash", async () => {
@@ -174,8 +184,45 @@ describe("TrailScreen — search, scout three candidates, reroll gate, choose, a
       [`GET /me/caravans/${CARAVAN}/encounters/1/candidates`]: () => ({ status: 200, body: { menu: { tripId: "t1", candidates: "nope" } } }),
     });
     mount(fetchImpl);
-    expect(await screen.findByTestId("error-box")).toHaveTextContent("bad_payload");
+    expect(await screen.findByTestId("api-error")).toHaveTextContent("bad_payload");
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
     expect(new ApiError(0, "x", "y").issues).toEqual([]);
+  });
+
+  it("S4: the reroll countdown ignores the device clock — a clock 10 minutes fast cannot open it early", async () => {
+    const realNow = Date.now;
+    const serverNow = realNow();
+    // The device clock is 10 minutes ahead of the server's.
+    Date.now = () => realNow() + 10 * 60_000;
+    try {
+      const menu = { ...menuOf(null, serverNow + 60_000), searchedAtMs: serverNow, reroll: { gate: "time" as const, cooldownSeconds: 60, availableAtMs: serverNow + 60_000, available: false } };
+      const fetchImpl = fetchFor({
+        "GET /me": () => ({ status: 200, body: { account: { id: "acc", username: "dev" }, caravans: [{ id: CARAVAN, name: "x", region_id: "desert", units: [] }] } }),
+        [`GET /caravans/${CARAVAN}/manifest`]: () => ({ status: 200, body: manifestBody }),
+        [`GET /me/caravans/${CARAVAN}/encounters/1/candidates`]: () => ({ status: 200, body: { menu } }),
+      });
+      mount(fetchImpl);
+      const reroll = await screen.findByTestId("reroll");
+      expect(reroll).toBeDisabled();
+      expect(Number(reroll.getAttribute("data-seconds-left"))).toBeGreaterThanOrEqual(59);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
+  it("B1/N4: the menu guard takes the server's real shape and refuses a chosen id the menu does not carry", async () => {
+    const { menuShape } = await import("../../api/shapes.ts");
+    const { expectShape } = await import("../../api/shape.ts");
+    const ok = menuOf(null, Date.now());
+    expect(() => expectShape(menuShape, { menu: ok })).not.toThrow();
+    // The client view carries no owner account id, and an extra one (older server) is ignored.
+    expect(() => expectShape(menuShape, { menu: { ...ok, candidates: ok.candidates.map((c) => ({ ...c, owner: { ...c.owner, accountId: "x" } })) } })).not.toThrow();
+    expect(() => expectShape(menuShape, { menu: { ...ok, chosen: { candidateId: "f".repeat(32), chosenAt: "2026-10-11T00:00:00.000Z" } } })).toThrow(/chosen\.candidateId/);
+    const bad = (mut: (u: Record<string, unknown>) => Record<string, unknown>) => ({ menu: { ...ok, candidates: ok.candidates.map((c, i) => (i ? c : { ...c, scout: { ...c.scout, units: c.scout.units.map((u, j) => (j ? u : mut({ ...u }))) } })) } });
+    expect(() => expectShape(menuShape, bad((u) => ({ ...u, cell: { x: 32, y: 0 } })))).toThrow(/cell\.x/);
+    expect(() => expectShape(menuShape, bad((u) => ({ ...u, typeId: "desert.nope" })))).toThrow(/known unit type id/);
+    // A menu stored before S1 has no damagePerHitMult: the guard fills content's multiplier for that level.
+    const parsed = expectShape(menuShape, bad((u) => { const { damagePerHitMult: _drop, ...rest } = u; return rest; }));
+    expect(parsed.menu.candidates[0]!.scout.units[0]!.damagePerHitMult).toBe(ok.candidates[0]!.scout.units[0]!.damagePerHitMult);
   });
 });

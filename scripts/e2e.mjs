@@ -111,11 +111,18 @@ try {
   process.exit(1);
 }
 
-// 3. Playwright against vite preview (its /api proxy points at this server).
+// 3. Playwright against vite preview (its /api proxy points at this server). The specs aim
+// drops through `window.__isoDebug`, which a production build does not carry (chunk 08 QA
+// N5), so the client is built once more with VITE_ISO_DEBUG=1 into apps/web/dist-e2e and
+// the preview serves that. apps/web/dist (what ships) stays hook-free.
 let code = 1;
 try {
+  const built = await run("pnpm", ["--filter", "@caravan/web", "exec", "vite", "build", "--outDir", "dist-e2e", "--emptyOutDir", "--logLevel", "warn"], {
+    env: { ...process.env, VITE_ISO_DEBUG: "1" },
+  });
+  if (built !== 0) throw new Error("e2e: the e2e client build failed");
   code = await run("pnpm", ["--filter", "@caravan/web", "e2e"], {
-    env: { ...process.env, CARAVAN_API_URL: `http://${host}:${port}`, E2E_FORMATION_USERNAME: formationUser, E2E_FORMATION_PASSWORD: formationPassword },
+    env: { ...process.env, CARAVAN_API_URL: `http://${host}:${port}`, E2E_FORMATION_USERNAME: formationUser, E2E_FORMATION_PASSWORD: formationPassword, E2E_WEB_DIST: "dist-e2e" },
   });
 } finally {
   server.kill("SIGTERM");

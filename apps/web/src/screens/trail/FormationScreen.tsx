@@ -1,15 +1,21 @@
 /**
  * THE ENCOUNTER FORMATION SCREEN (chunk 08) — the game's primary gameplay screen.
  *
- * The player is mid-trip, facing ONE scouted party (scoutFeed.ts). They read it (ScoutPanel),
- * see what survives of what they packed (ManifestTray), and arrange the wagon circle
- * against it on the isometric scene: fence segments on the 28 ring positions under a
- * budget that forces gaps, traps and posts on free cells, a stance per post. Then they
- * save a draft or commit. The server decides legality on every save and commit and its
- * issue list is shown exactly; this screen only gates where a drop can land.
+ * The player is mid-trip, facing ONE scouted party. They read it (ScoutPanel), see what
+ * survives of what they packed (ManifestTray), and arrange the wagon circle against it on
+ * the isometric scene: fence segments on the 28 ring positions under a budget that forces
+ * gaps, traps and posts on free cells, a stance per post. The server decides legality on
+ * every save and commit and its issue list is shown with the player's names for things;
+ * where a drop may land is answered by @caravan/circle's own rules (placement.ts).
  *
  * Which way round: this is DEFENSE. The attackers are drawn at their scouted start cells
- * and never move here; the player's own units are what gets placed.
+ * and never move here; the player's own units are what gets placed. Tapping an attacker
+ * opens its scouting card (QA S14).
+ *
+ * The draft is saved to the server automatically a moment after each edit (QA S13). The
+ * server keeps a draft only once every living unit is posted, so until then the
+ * arrangement is also held in memory for this encounter, and a tab switch inside the app
+ * does not lose it.
  */
 import {
   CORE_CELLS,
@@ -27,16 +33,22 @@ import {
 import { TUNABLES } from "@caravan/content";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ApiError, type Api } from "../../api/client.ts";
+import { onViewerReset } from "../../auth/session.tsx";
 import type { FormationView, IssueView, ManifestView } from "../../api/types.ts";
-import { IsoCanvas, cellToWorld, type HitResult, type IsoCanvasHandle, type IsoSceneState, type SceneGeometry } from "../../iso/index.ts";
+import { IsoCanvas, cellToWorld, type CellRect, type HitResult, type IsoCanvasHandle, type IsoSceneState, type SceneGeometry } from "../../iso/index.ts";
+import { ErrorBox } from "../../shell/ErrorBox.tsx";
+import { Modal } from "../../shell/Modal.tsx";
+import { formatWhen, humanizeIssue } from "../../shell/issues.ts";
 import { STRINGS } from "../../strings.ts";
-import { CommitDialog } from "./CommitDialog.tsx";
+import { CommitDialog, type CommitCheck } from "./CommitDialog.tsx";
 import { ManifestTray } from "./ManifestTray.tsx";
-import { canDropAt, clearAll, dropAt, edgeReports, fenceBudget, gapCells, kindOfRef, remove, setStance } from "./placement.ts";
+import { clearAll, dropAt, dropRefusal, edgeReports, fenceBudget, gapCells, isEmptyFormation, isPlaced, kindOfRef, postReach, remove, setStance, type Refusal } from "./placement.ts";
+import { PlacementPicker } from "./PlacementPicker.tsx";
 import { ScoutPanel } from "./ScoutPanel.tsx";
 import type { ScoutedEncounter } from "./scoutTypes.ts";
 import { SelectionPanel } from "./SelectionPanel.tsx";
-import { defenderCard } from "./stats.ts";
+import { manifestNames } from "./stats.ts";
+import { TrayGesture, TRAY_LONG_PRESS_MS } from "./trayGesture.ts";
 
 const T = STRINGS.trail;
 
@@ -50,6 +62,33 @@ export const CIRCLE_GEOMETRY: SceneGeometry = {
   entryBandDepth: ENTRY_BAND_DEPTH,
 };
 
+/** What "zoom to the ring" frames when a tray item is selected (QA S10): the ring plus a margin for posts around it. */
+const RING_FOCUS_MARGIN = 4;
+const RING_RECT: CellRect = (() => {
+  const xs = RING_SEGMENTS.map((s) => s.cell.x);
+  const ys = RING_SEGMENTS.map((s) => s.cell.y);
+  return {
+    x0: Math.max(0, Math.min(...xs) - RING_FOCUS_MARGIN),
+    y0: Math.max(0, Math.min(...ys) - RING_FOCUS_MARGIN),
+    x1: Math.min(GRID_WIDTH - 1, Math.max(...xs) + RING_FOCUS_MARGIN),
+    y1: Math.min(GRID_HEIGHT - 1, Math.max(...ys) + RING_FOCUS_MARGIN),
+  };
+})();
+
+/** AUTOSAVE_DEBOUNCE (presentation tunable): how long after the last edit the draft is sent to the server. */
+export const AUTOSAVE_DEBOUNCE_MS = 1200;
+
+/**
+ * Unsaved arrangements, per encounter, for this page load only (QA S13). In memory: no
+ * storage, nothing survives a reload — the server's draft is the durable copy.
+ */
+const localDrafts = new Map<string, Formation>();
+// Sign-out forgets them (QA-17 S4's per-viewer reset): the next person never sees this arrangement.
+onViewerReset(() => localDrafts.clear());
+export function clearLocalDrafts(): void {
+  localDrafts.clear();
+}
+
 export interface FormationScreenProps {
   readonly api: Api;
   readonly caravanId: string;
@@ -58,59 +97,78 @@ export interface FormationScreenProps {
   readonly encounterIndex: number;
   readonly initial: FormationView | null;
   readonly scout: ScoutedEncounter;
+  /** Autosave debounce; tests pass a large value to keep it out of the way, or a small one to exercise it. */
+  readonly autosaveMs?: number;
 }
 
 interface Drag {
   readonly ref: string;
   readonly cell: Cell | null;
-  readonly valid: boolean;
+  readonly refusal: Refusal | null;
 }
 
-export function ErrorBox({ error }: { error: ApiError }): JSX.Element {
-  return (
-    <div className="error" role="alert" data-testid="error-box">
-      <div>{error.message}</div>
-      <div className="error__code">
-        {error.status > 0 ? `${error.status} ` : ""}
-        {error.code}
-        {error.detail && error.detail !== error.message ? <span className="error__detail"> · {error.detail}</span> : null}
-      </div>
-    </div>
-  );
-}
+type Focus = "notice" | "issues" | null;
 
-export function FormationScreen({ api, caravanId, trip, encounterIndex, initial, scout }: FormationScreenProps): JSX.Element {
+export function FormationScreen({ api, caravanId, trip, encounterIndex, initial, scout, autosaveMs = AUTOSAVE_DEBOUNCE_MS }: FormationScreenProps): JSX.Element {
   const manifest = trip.survivors;
-  const [formation, setFormation] = useState<Formation>(initial?.formation ?? clearAll());
+  const draftKey = `${caravanId}:${encounterIndex}:${scout.candidateId}`;
+  const [formation, setFormationRaw] = useState<Formation>(() => (initial?.committedAt ? initial.formation : (localDrafts.get(draftKey) ?? initial?.formation ?? clearAll())));
   const [saved, setSaved] = useState<FormationView | null>(initial);
   const [selectedRef, setSelectedRef] = useState<string | null>(null);
+  const [selectedAttacker, setSelectedAttacker] = useState<string | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [showRadii, setShowRadii] = useState(true);
   const [showThreat, setShowThreat] = useState(true);
   const [serverIssues, setServerIssues] = useState<readonly IssueView[]>([]);
+  const [autosaveIssues, setAutosaveIssues] = useState<readonly IssueView[]>([]);
   const [error, setError] = useState<ApiError | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [refused, setRefused] = useState<{ name: string; refusal: Refusal } | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [check, setCheck] = useState<CommitCheck>({ state: "checking" });
+  const [clearing, setClearing] = useState(false);
+  const [scoutOpen, setScoutOpen] = useState(true);
   const [canvasDown, setCanvasDown] = useState<string | null>(null);
+  const [focusAfter, setFocusAfter] = useState<Focus>(null);
   const isoRef = useRef<IsoCanvasHandle>(null);
+  const openedWith = useRef(formation);
+  const noticeRef = useRef<HTMLParagraphElement>(null);
+  const issuesRef = useRef<HTMLDivElement>(null);
 
   const committedAt = saved?.committedAt ?? null;
   const locked = committedAt !== null || busy;
   const dirty = saved === null || JSON.stringify(saved.formation) !== JSON.stringify(formation);
+  const names = useMemo(() => manifestNames(manifest), [manifest]);
+  const nameOf = useCallback((ref: string) => names.get(ref) ?? T.unknownThing, [names]);
+
+  const setFormation = useCallback(
+    (next: Formation | ((f: Formation) => Formation)) => {
+      setFormationRaw((f) => {
+        const v = typeof next === "function" ? next(f) : next;
+        localDrafts.set(draftKey, v);
+        return v;
+      });
+    },
+    [draftKey],
+  );
 
   // ── derived: the scene ──────────────────────────────────────────────────────────────
+  const placing = !locked && selectedRef && !drag && !isPlaced(formation, selectedRef) ? kindOfRef(manifest, selectedRef) : null;
   const scene = useMemo<IsoSceneState>(() => {
+    const radiiOf = (ref: string, stance: DefensiveStance) => {
+      const r = postReach(manifest, ref, stance);
+      return r ? { aggroRadius: r.aggroReach, leashDistance: r.leash, attackRange: r.attackReach } : null;
+    };
     const dragRadii = (() => {
-      if (!drag) return undefined;
-      const u = manifest.units.find((x) => x.ref === drag.ref);
-      const c = u ? defenderCard(u) : null;
-      if (!c) return undefined;
-      const st = formation.posts.find((p) => p.ref === drag.ref)?.stance ?? "guard";
-      return { aggroRadius: c.aggroRadius, leashDistance: c.leashDistance, attackRange: c.attackRange, stance: st };
+      if (!drag || kindOfRef(manifest, drag.ref) !== "post") return undefined;
+      const stance = formation.posts.find((p) => p.ref === drag.ref)?.stance ?? "guard";
+      const r = radiiOf(drag.ref, stance);
+      return r ? { ...r, stance } : undefined;
     })();
     const usedEdges = [...scout.scout.edges];
     const siegeByEdge = new Map<string, number>();
+    const dragKind = drag ? kindOfRef(manifest, drag.ref) : null;
     return {
       fences: formation.fences.flatMap((p) => {
         const f = manifest.fences.find((x) => x.ref === p.ref);
@@ -122,22 +180,9 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
       }),
       posts: formation.posts.flatMap((p) => {
         const u = manifest.units.find((x) => x.ref === p.ref);
-        const c = u ? defenderCard(u) : null;
-        if (!u || !c) return [];
-        return [
-          {
-            id: p.ref,
-            pos: cellToWorld(p.cell),
-            typeId: u.typeId,
-            mergeLevel: u.mergeLevel,
-            stance: p.stance,
-            hpFraction: u.maxHp > 0 ? u.hp / u.maxHp : 0,
-            aggroRadius: c.aggroRadius,
-            leashDistance: c.leashDistance,
-            attackRange: c.attackRange,
-            selected: selectedRef === p.ref,
-          },
-        ];
+        const r = u ? radiiOf(p.ref, p.stance) : null;
+        if (!u || !r) return [];
+        return [{ id: p.ref, pos: cellToWorld(p.cell), typeId: u.typeId, mergeLevel: u.mergeLevel, stance: p.stance, hpFraction: u.maxHp > 0 ? u.hp / u.maxHp : 0, ...r, selected: selectedRef === p.ref }];
       }),
       attackers: scout.scout.units.map((u) => ({
         id: u.ref,
@@ -147,6 +192,7 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
         stance: u.stance,
         // A standing party is a template: it always arrives whole.
         hpFraction: 1,
+        selected: selectedAttacker === u.ref,
       })),
       siege: scout.scout.siege.map((s) => {
         // Siege has no cell in the model; draw it beside the edge most of the party uses, spaced out.
@@ -156,85 +202,127 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
         return { id: s.typeId, typeId: s.typeId, edge, along: 0.3 + n * 0.12 };
       }),
       drag:
-        drag && kindOfRef(manifest, drag.ref)
+        drag && dragKind
           ? {
-              kind: kindOfRef(manifest, drag.ref)!,
+              kind: dragKind,
               typeId:
                 manifest.units.find((x) => x.ref === drag.ref)?.typeId ??
                 manifest.traps.find((x) => x.ref === drag.ref)?.typeId ??
                 manifest.fences.find((x) => x.ref === drag.ref)?.tierId ??
                 "",
               cell: drag.cell,
-              valid: drag.valid,
+              valid: drag.cell !== null && drag.refusal === null,
               ...(dragRadii ? { radii: dragRadii } : {}),
             }
           : null,
       threat: showThreat ? { entryEdges: usedEdges, gapCells: gapCells(formation) } : null,
       showRadii,
+      placing,
     };
-  }, [formation, manifest, drag, selectedRef, showRadii, showThreat, scout]);
+  }, [formation, manifest, drag, selectedRef, selectedAttacker, showRadii, showThreat, scout, placing]);
 
   const budget = fenceBudget(manifest, formation);
   const gaps = formationGaps(formation).length;
-  const reports = edgeReports(manifest, formation, scout.scout);
+  const reports = useMemo(() => edgeReports(manifest, formation, scout.scout), [manifest, formation, scout]);
+  const flagged = useMemo(() => new Set(serverIssues.flatMap((i) => (i.subject && names.has(i.subject) ? [i.subject] : []))), [serverIssues, names]);
 
-  // ── drags that start in the tray ────────────────────────────────────────────────────
+  // ── drags (canvas and tray) ─────────────────────────────────────────────────────────
   const dragRef = useRef<Drag | null>(null);
+  const formationRef = useRef(formation);
+  formationRef.current = formation;
   const updateDrag = useCallback(
     (ref: string, cell: Cell | null) => {
-      const next: Drag = { ref, cell, valid: cell ? canDropAt(manifest, formation, ref, cell) : false };
+      const prior = dragRef.current;
+      if (prior && prior.ref === ref && prior.cell?.x === cell?.x && prior.cell?.y === cell?.y) return;
+      const next: Drag = { ref, cell, refusal: cell ? dropRefusal(manifest, formationRef.current, ref, cell) : null };
       dragRef.current = next;
       setDrag(next);
     },
-    [manifest, formation],
+    [manifest],
   );
   const endDrag = useCallback(() => {
     const d = dragRef.current;
     dragRef.current = null;
     setDrag(null);
-    if (d?.cell && d.valid) {
-      setFormation((f) => dropAt(manifest, f, d.ref, d.cell!));
-      setSelectedRef(d.ref);
-      setStatus(null);
+    if (!d?.cell) return;
+    if (d.refusal) {
+      setRefused({ name: nameOf(d.ref), refusal: d.refusal });
+      return;
     }
-  }, [manifest]);
+    setFormation((f) => dropAt(manifest, f, d.ref, d.cell!));
+    setSelectedRef(d.ref);
+    setRefused(null);
+    setStatus(null);
+  }, [manifest, nameOf, setFormation]);
+  const cancelDrag = useCallback(() => {
+    dragRef.current = null;
+    setDrag(null);
+  }, []);
 
-  const onTrayDragStart = (ref: string, e: ReactPointerEvent<HTMLButtonElement>): void => {
-    if (locked) return;
-    const startX = e.clientX;
-    const startY = e.clientY;
-    let started = false;
-    const pointerId = e.pointerId;
-    // No pointer capture on purpose: capturing would re-target the pointer-up to the chip
-    // and the browser would then fire a `click` on it, toggling the selection the drop
-    // just made. The window listeners below carry the drag wherever the pointer goes.
-    const move = (ev: PointerEvent): void => {
-      if (ev.pointerId !== pointerId) return;
-      if (!started) {
-        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 8) return;
-        started = true;
-      }
-      ev.preventDefault();
-      updateDrag(ref, isoRef.current?.clientToCell(ev.clientX, ev.clientY) ?? null);
-    };
-    const up = (ev: PointerEvent): void => {
-      if (ev.pointerId !== pointerId) return;
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", cancel);
-      if (started) endDrag();
-    };
-    const cancel = (): void => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", cancel);
-      dragRef.current = null;
-      setDrag(null);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", cancel);
-  };
+  const lockedRef = useRef(locked);
+  lockedRef.current = locked;
+  const onTrayDragStart = useCallback(
+    (ref: string, e: ReactPointerEvent<HTMLButtonElement>): void => {
+      if (lockedRef.current) return;
+      const pointerId = e.pointerId;
+      const gesture = new TrayGesture(e.pointerType || "mouse", e.clientX, e.clientY, performance.now());
+      let raf: number | null = null;
+      let last: { x: number; y: number } | null = null;
+      const flush = (): void => {
+        raf = null;
+        if (last) updateDrag(ref, isoRef.current?.clientToCell(last.x, last.y) ?? null);
+      };
+      const timer = window.setTimeout(() => {
+        if (gesture.longPress(performance.now()) === "begin") updateDrag(ref, null);
+      }, TRAY_LONG_PRESS_MS);
+      // No pointer capture on purpose: capturing would re-target the pointer-up to the chip
+      // and the browser would then fire a `click` on it, toggling the selection the drop
+      // just made. The window listeners below carry the drag wherever the pointer goes.
+      const move = (ev: PointerEvent): void => {
+        if (ev.pointerId !== pointerId) return;
+        const over = isoRef.current?.isOverCanvas(ev.clientX, ev.clientY) ?? false;
+        const action = gesture.move(ev.clientX, ev.clientY, over);
+        if (gesture.state !== "pressed") window.clearTimeout(timer);
+        if (action === "none") return;
+        ev.preventDefault();
+        last = { x: ev.clientX, y: ev.clientY };
+        // QA S2: at most one drag update per animation frame.
+        if (raf === null) raf = requestAnimationFrame(flush);
+      };
+      // Once a touch drag has begun, the page must not scroll under it.
+      const touchMove = (ev: TouchEvent): void => {
+        if (gesture.dragging) ev.preventDefault();
+      };
+      const done = (): void => {
+        window.clearTimeout(timer);
+        if (raf !== null) cancelAnimationFrame(raf);
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", cancel);
+        window.removeEventListener("touchmove", touchMove);
+      };
+      const up = (ev: PointerEvent): void => {
+        if (ev.pointerId !== pointerId) return;
+        done();
+        const over = isoRef.current?.isOverCanvas(ev.clientX, ev.clientY) ?? false;
+        const action = gesture.up(over);
+        if (action === "drop") {
+          updateDrag(ref, isoRef.current?.clientToCell(ev.clientX, ev.clientY) ?? null);
+          endDrag();
+        } else if (action === "cancel") cancelDrag();
+      };
+      const cancel = (ev: PointerEvent): void => {
+        if (ev.pointerId !== pointerId) return;
+        done();
+        if (gesture.cancel() === "cancel") cancelDrag();
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", cancel);
+      window.addEventListener("touchmove", touchMove, { passive: false });
+    },
+    [updateDrag, endDrag, cancelDrag],
+  );
 
   // ── gestures on the canvas ──────────────────────────────────────────────────────────
   const canDrag = useCallback((hit: HitResult) => !locked && hit.kind !== "attacker", [locked]);
@@ -248,26 +336,105 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
     [updateDrag, endDrag],
   );
   const onTapEntity = useCallback((hit: HitResult) => {
-    if (hit.kind === "attacker") return;
+    if (hit.kind === "attacker") {
+      setSelectedAttacker(hit.id);
+      setScoutOpen(true);
+      return;
+    }
+    setSelectedAttacker(null);
     setSelectedRef((cur) => (cur === hit.id ? null : hit.id));
   }, []);
+  const placeSelected = useCallback(
+    (cell: Cell) => {
+      if (locked || !selectedRef) return;
+      const why = dropRefusal(manifest, formation, selectedRef, cell);
+      if (why) {
+        setRefused({ name: nameOf(selectedRef), refusal: why });
+        return;
+      }
+      setFormation((f) => dropAt(manifest, f, selectedRef, cell));
+      setRefused(null);
+      setStatus(null);
+    },
+    [locked, selectedRef, manifest, formation, nameOf, setFormation],
+  );
   const onTapCell = useCallback(
     (cell: Cell) => {
       if (locked) return;
-      if (selectedRef && canDropAt(manifest, formation, selectedRef, cell)) {
-        setFormation((f) => dropAt(manifest, f, selectedRef, cell));
-        setStatus(null);
-      } else setSelectedRef(null);
+      if (selectedRef) placeSelected(cell);
     },
-    [locked, selectedRef, manifest, formation],
+    [locked, selectedRef, placeSelected],
   );
-  // ── server calls: the server decides legality; its issues are shown exactly ─────────
-  const fail = (err: unknown): void => {
+  const onPick = useCallback((ref: string) => {
+    setSelectedAttacker(null);
+    setRefused(null);
+    setSelectedRef((cur) => (cur === ref ? null : ref));
+  }, []);
+
+  // S14: a tapped attacker's scouting card is scrolled to and focused.
+  useEffect(() => {
+    if (!selectedAttacker) return;
+    const el = document.querySelector<HTMLElement>(`[data-testid="scout-unit-${CSS.escape(selectedAttacker)}"]`);
+    el?.scrollIntoView?.({ block: "center" });
+    el?.focus({ preventScroll: true });
+  }, [selectedAttacker]);
+
+  // S6: after a commit, focus the outcome (the committed notice, or the issues).
+  useEffect(() => {
+    if (focusAfter === "notice") noticeRef.current?.focus();
+    if (focusAfter === "issues") issuesRef.current?.focus();
+    if (focusAfter) setFocusAfter(null);
+  }, [focusAfter]);
+
+  // ── server calls: the server decides legality; its issues are shown with the player's names ──
+  const inflight = useRef<Promise<unknown> | null>(null);
+  const autosaveTimer = useRef<number | null>(null);
+  const cancelAutosave = (): void => {
+    if (autosaveTimer.current !== null) window.clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = null;
+  };
+  const fail = (err: unknown): ApiError => {
     const e = err instanceof ApiError ? err : new ApiError(0, "unknown", STRINGS.app.genericError);
     setError(e);
     setServerIssues(e.issues);
+    return e;
   };
+
+  // S13: autosave a moment after each edit. A refusal here is quiet (it is not an action the
+  // player took): the issues are listed politely and the arrangement stays in memory.
+  useEffect(() => {
+    // Only after an edit: the arrangement the screen opened with is the server's (or this page's) already.
+    if (!dirty || committedAt || busy || formation === openedWith.current) return;
+    cancelAutosave();
+    autosaveTimer.current = window.setTimeout(() => {
+      autosaveTimer.current = null;
+      const sent = formation;
+      const p = api
+        .saveFormation(caravanId, encounterIndex, sent)
+        .then((res) => {
+          setSaved(res.formation);
+          setAutosaveIssues([]);
+          if (formationRef.current === sent) setStatus(T.autosaved);
+        })
+        .catch((err: unknown) => {
+          setAutosaveIssues(err instanceof ApiError ? err.issues : []);
+        })
+        .finally(() => {
+          if (inflight.current === p) inflight.current = null;
+        });
+      inflight.current = p;
+    }, autosaveMs);
+    return cancelAutosave;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formation, dirty, committedAt, busy]);
+
+  const settle = async (): Promise<void> => {
+    cancelAutosave();
+    if (inflight.current) await inflight.current.catch(() => undefined);
+  };
+
   const saveDraft = async (): Promise<FormationView | null> => {
+    await settle();
     setBusy(true);
     setError(null);
     setStatus(null);
@@ -276,6 +443,7 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
       setSaved(res);
       setFormation(res.formation);
       setServerIssues([]);
+      setAutosaveIssues([]);
       setStatus(T.saved);
       return res;
     } catch (err) {
@@ -285,7 +453,36 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
       setBusy(false);
     }
   };
+
+  // S7: the dialog opens with the server checking the arrangement; Commit is offered only once it accepts.
+  const openCommit = async (): Promise<void> => {
+    await settle();
+    setError(null);
+    setCheck({ state: "checking" });
+    setConfirming(true);
+    if (!dirty) {
+      setCheck({ state: "ok" });
+      return;
+    }
+    try {
+      const res = (await api.saveFormation(caravanId, encounterIndex, formation)).formation;
+      setSaved(res);
+      setFormation(res.formation);
+      setServerIssues([]);
+      setAutosaveIssues([]);
+      setCheck({ state: "ok" });
+    } catch (err) {
+      const e = err instanceof ApiError ? err : null;
+      if (e && e.issues.length > 0) setCheck({ state: "refused", issues: e.issues });
+      else {
+        setConfirming(false);
+        fail(err);
+      }
+    }
+  };
+
   const commit = async (): Promise<void> => {
+    await settle();
     setBusy(true);
     setError(null);
     try {
@@ -297,26 +494,50 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
       const res = (await api.commitFormation(caravanId, encounterIndex)).formation;
       setSaved(res);
       setFormation(res.formation);
+      localDrafts.delete(draftKey);
       setServerIssues([]);
+      setAutosaveIssues([]);
       setConfirming(false);
       setSelectedRef(null);
       setStatus(null);
+      setFocusAfter("notice");
     } catch (err) {
       setConfirming(false);
       fail(err);
+      setFocusAfter("issues");
     } finally {
       setBusy(false);
     }
   };
 
   const minGaps = RING_SEGMENTS.length - TUNABLES.FENCE_MATERIAL_BUDGET;
+  const selectedUnplaced = selectedRef !== null && !isPlaced(formation, selectedRef);
+  const focus = !locked && selectedUnplaced ? { key: selectedRef!, rect: RING_RECT } : null;
+
+  const issueList = (issues: readonly IssueView[]) => (
+    <ul className="issues">
+      {issues.map((i, n) => (
+        <li key={`${i.code}-${n}`}>
+          {humanizeIssue(i, names)} <span className="error__code">{T.issueCode(i.code)}</span>
+          {i.subject && names.has(i.subject) && kindOfRef(manifest, i.subject) && !locked && (
+            <>
+              {" "}
+              <button type="button" className="btn btn--small" onClick={() => onPick(i.subject!)} data-testid={`issue-show-${i.subject}`}>
+                {T.issueShow}
+              </button>
+            </>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
 
   return (
     <section className="formation" data-testid="formation-screen" data-encounter={encounterIndex} data-committed={committedAt ? "true" : "false"}>
       <h1>{T.encounter(encounterIndex)}</h1>
       {committedAt && (
-        <p className="notice" data-testid="committed-notice">
-          {T.committedAt(committedAt)}
+        <p className="notice" data-testid="committed-notice" tabIndex={-1} ref={noticeRef}>
+          {T.committedAt(formatWhen(committedAt))}
         </p>
       )}
 
@@ -331,6 +552,8 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
         onDragBegin={onDragBegin}
         onDragMove={onDragMove}
         onDragEnd={onDragEnd}
+        onDragCancel={cancelDrag}
+        focus={focus}
         onUnavailable={() => setCanvasDown(T.canvasUnavailable)}
       />
       {canvasDown && <p className="hint">{canvasDown}</p>}
@@ -343,6 +566,12 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
           <input type="checkbox" checked={showThreat} onChange={(e) => setShowThreat(e.target.checked)} /> {T.showThreat}
         </label>
       </div>
+
+      {refused && (
+        <p className="notice" role="status" data-testid="drop-refused" data-code={refused.refusal.code}>
+          {T.refusedDrop(refused.name, refused.refusal.message)} <span className="error__code">{T.refusalCode(refused.refusal.code)}</span>
+        </p>
+      )}
 
       <h2>{T.ringHeading}</h2>
       <p data-testid="budget-meter">{T.budgetMeter(budget.placed, budget.placed + budget.remaining, budget.ring)}</p>
@@ -361,6 +590,7 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
           </li>
         ))}
       </ul>
+      <p className="hint">{T.threatReachNote}</p>
 
       {selectedRef && (
         <SelectionPanel
@@ -379,36 +609,43 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
           onClose={() => setSelectedRef(null)}
         />
       )}
-      {selectedRef && !locked && !formation.posts.some((p) => p.ref === selectedRef) && !formation.traps.some((p) => p.ref === selectedRef) && !formation.fences.some((p) => p.ref === selectedRef) && (
+      {selectedRef && !locked && selectedUnplaced && (
         <p className="hint" data-testid="tap-to-place-hint">
-          {T.traySelectedHint(selectedRef)}
+          {T.traySelectedHint(nameOf(selectedRef))}
         </p>
       )}
+      {selectedRef && !locked && kindOfRef(manifest, selectedRef) && (
+        <PlacementPicker manifest={manifest} formation={formation} itemRef={selectedRef} name={nameOf(selectedRef)} onPlace={placeSelected} />
+      )}
 
-      <ManifestTray manifest={manifest} formation={formation} selectedRef={selectedRef} locked={locked} onPick={(ref) => setSelectedRef((cur) => (cur === ref ? null : ref))} onDragStart={onTrayDragStart} />
+      <ManifestTray manifest={manifest} formation={formation} selectedRef={selectedRef} locked={locked} flagged={flagged} onPick={onPick} onDragStart={onTrayDragStart} />
 
       {/* The full scouting report sits above the commit controls: nothing is committed without it on screen. */}
-      <details open className="scout-details">
+      <details open={scoutOpen} className="scout-details" onToggle={(e) => setScoutOpen((e.currentTarget as HTMLDetailsElement).open)}>
         <summary className="btn btn--block">{T.scoutHeading}</summary>
         <p data-testid="facing-line">
           {T.chosenLine(scout.owner.displayName)} {T.candidateRating(scout.reputation.rating, scout.reputation.band.low, scout.reputation.band.high)}
         </p>
-        <ScoutPanel scout={scout.scout} source={scout.source} />
+        <ScoutPanel scout={scout.scout} source={scout.source} selectedRef={selectedAttacker} />
       </details>
 
       {serverIssues.length > 0 && (
-        <div className="error" role="alert" data-testid="server-issues">
+        <div className="error" role="alert" data-testid="server-issues" tabIndex={-1} ref={issuesRef}>
           <div>{T.serverIssuesHeading}</div>
-          <ul className="issues">
-            {serverIssues.map((i, n) => (
-              <li key={`${i.code}-${n}`}>
-                {i.message} <span className="error__code">{T.issueCode(i.code)}</span>
-              </li>
-            ))}
-          </ul>
+          {issueList(serverIssues)}
         </div>
       )}
-      {error && serverIssues.length === 0 && <ErrorBox error={error} />}
+      {serverIssues.length === 0 && autosaveIssues.length > 0 && !committedAt && (
+        <div className="notice" role="status" data-testid="autosave-pending">
+          <div>{T.autosavePending}</div>
+          {issueList(autosaveIssues)}
+        </div>
+      )}
+      {error && serverIssues.length === 0 && (
+        <div tabIndex={-1} ref={issuesRef}>
+          <ErrorBox error={error} />
+        </div>
+      )}
       {status && (
         <p className="notice" role="status">
           {status}
@@ -417,19 +654,51 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
 
       {!committedAt && (
         <div className="actions">
-          <button type="button" className="btn" disabled={busy || formation === clearAll()} onClick={() => setFormation(clearAll())}>
+          <button type="button" className="btn" disabled={busy || isEmptyFormation(formation)} onClick={() => setClearing(true)} data-testid="clear-open">
             {T.clear}
           </button>
           <button type="button" className="btn" disabled={busy} onClick={() => void saveDraft()} data-testid="save-draft">
             {busy ? T.saving : T.saveDraft}
           </button>
-          <button type="button" className="btn btn--primary" disabled={busy} onClick={() => setConfirming(true)} data-testid="commit-open">
+          <button type="button" className="btn btn--primary" disabled={busy} onClick={() => void openCommit()} data-testid="commit-open">
             {T.commit}
           </button>
         </div>
       )}
 
-      {confirming &&<CommitDialog manifest={manifest} formation={formation} gaps={gaps} busy={busy} onConfirm={() => void commit()} onCancel={() => setConfirming(false)} />}
+      {clearing && (
+        <Modal
+          title={T.clearTitle}
+          busy={false}
+          onCancel={() => setClearing(false)}
+          testId="clear-dialog"
+          actions={
+            <>
+              <button type="button" className="btn" onClick={() => setClearing(false)}>
+                {T.clearNo}
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() => {
+                  setFormation(clearAll());
+                  setSelectedRef(null);
+                  setClearing(false);
+                }}
+                data-testid="clear-confirm"
+              >
+                {T.clearYes}
+              </button>
+            </>
+          }
+        >
+          <p>{T.clearBody}</p>
+        </Modal>
+      )}
+
+      {confirming && (
+        <CommitDialog manifest={manifest} formation={formation} gaps={gaps} busy={busy} check={check} names={names} onConfirm={() => void commit()} onCancel={() => setConfirming(false)} />
+      )}
     </section>
   );
 }

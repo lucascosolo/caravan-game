@@ -30,7 +30,11 @@ export interface TrapEntity {
   readonly selected?: boolean;
 }
 
-/** A posted defending unit. Radii are in cells; drawn as continuous circles when `showRadii`. */
+/**
+ * A posted defending unit. Radii are in cells and are what the resolver MEASURES (chunk 08
+ * QA B2/N11): `aggroRadius` and `attackRange` are REACH (the type's radius + UNIT_RADIUS),
+ * `leashDistance` is the post-to-unit-centre leash. Drawn as continuous circles when `showRadii`.
+ */
 export interface PostEntity {
   readonly id: string;
   readonly pos: WorldPoint;
@@ -129,6 +133,11 @@ export interface IsoSceneState {
   readonly threat: ThreatOverlay | null;
   /** SHOW_AGGRO_LEASH_OVERLAY: continuous circles at true radii for every post. */
   readonly showRadii: boolean;
+  /**
+   * Chunk 08 QA D5: something is selected for tap-to-place. That counts as "being placed":
+   * the lattice shows (and, for a fence, the ring targets) exactly as during a drag.
+   */
+  readonly placing?: "fence" | "trap" | "post" | null;
   // ── chunk 17 (home town): all optional so the circle and the replay are unchanged ──
   readonly boardUnits?: readonly BoardUnitEntity[];
   readonly structures?: readonly StructureEntity[];
