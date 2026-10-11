@@ -37,27 +37,38 @@ export function reputationBaseDelta(side: Side, outcome: EncounterOutcomeKind): 
   }
 }
 
+/** The smallest multiplier a delta of the given sign can be scaled by (chunk 04 QA D2). */
+export function gapMultiplierFloor(baseSign: 1 | -1): number {
+  return baseSign < 0 ? TUNABLES.REPUTATION_GAP_MULT_MIN_LOSS : TUNABLES.REPUTATION_GAP_MULT_MIN;
+}
+
 /**
  * The gap multiplier in fixed-point (FIXED_ONE = ×1), for a rating gap `opponent − self`
  * and the sign of the base delta. A win against a stronger opponent (positive gap) scales
- * up; a loss to a weaker one (negative gap) scales up; the mirror cases scale down. Clamped
- * to [REPUTATION_GAP_MULT_MIN, REPUTATION_GAP_MULT_MAX].
+ * up; a loss to a weaker one (negative gap) scales up; the mirror cases scale down. A win
+ * is clamped to [REPUTATION_GAP_MULT_MIN, REPUTATION_GAP_MULT_MAX], a loss to
+ * [REPUTATION_GAP_MULT_MIN_LOSS, REPUTATION_GAP_MULT_MAX]: the loss floor is higher so a
+ * rating cannot be tanked on purpose as fast as it can be climbed (chunk 04 QA D2).
  */
 export function gapMultiplier(gap: number, baseSign: 1 | -1 | 0): number {
   assertInt("gap", gap);
   if (baseSign === 0) return FIXED_ONE;
   const ramp = idiv(baseSign * gap * FIXED_ONE, TUNABLES.REPUTATION_GAP_DIVISOR);
-  return clampInt(FIXED_ONE + ramp, TUNABLES.REPUTATION_GAP_MULT_MIN, TUNABLES.REPUTATION_GAP_MULT_MAX);
+  return clampInt(FIXED_ONE + ramp, gapMultiplierFloor(baseSign), TUNABLES.REPUTATION_GAP_MULT_MAX);
 }
 
-/** `base` scaled by the gap multiplier, truncated toward zero. Sign of the result never flips. */
+/**
+ * `base` scaled by the gap multiplier, truncated toward zero. Sign of the result never
+ * flips, and the result is never -0 (`|| 0` normalises it, so a canonical JSON payload
+ * and a projection fold see the same integer zero).
+ */
 export function gapScaledDelta(base: number, selfRating: number, opponentRating: number): number {
   assertInt("base", base);
   assertInt("selfRating", selfRating);
   assertInt("opponentRating", opponentRating);
   const sign: 1 | -1 | 0 = base > 0 ? 1 : base < 0 ? -1 : 0;
   const mult = gapMultiplier(opponentRating - selfRating, sign);
-  return idiv(base * mult, FIXED_ONE);
+  return idiv(base * mult, FIXED_ONE) || 0;
 }
 
 export interface ReputationChange {
@@ -101,3 +112,34 @@ export function reputationDelta(
   const base = reputationBaseDelta(side, outcome);
   return applyFloor(selfRating, gapScaledDelta(base, selfRating, opponentRating));
 }
+
+/**
+ * Startup assertion (chunk 04 QA N4): every base delta, scaled by the smallest multiplier
+ * its sign can see, must still be at least one whole point in magnitude. Otherwise a
+ * tuning change could make an encounter silently move nothing. Checked once at module
+ * load so a bad registry value fails the server at boot, not in the middle of a fight.
+ */
+export const REPUTATION_BASE_DELTAS: readonly number[] = [
+  TUNABLES.REPUTATION_WIN_ATTACKER,
+  TUNABLES.REPUTATION_LOSS_ATTACKER,
+  TUNABLES.REPUTATION_CARAVAN_HELD,
+  TUNABLES.REPUTATION_CARAVAN_OVERRUN,
+];
+export function assertReputationTunablesCoherent(): void {
+  for (const base of REPUTATION_BASE_DELTAS) {
+    if (!Number.isInteger(base) || base === 0) throw new RangeError(`Reputation base delta must be a non-zero integer, got ${String(base)}`);
+    const floor = gapMultiplierFloor(base > 0 ? 1 : -1);
+    if (Math.abs(base) * floor < FIXED_ONE) {
+      throw new RangeError(`Reputation base delta ${base} × gap multiplier floor ${floor} is below FIXED_ONE (${FIXED_ONE}); it would truncate to 0`);
+    }
+  }
+  for (const [name, v] of [
+    ["REPUTATION_GAP_MULT_MIN", TUNABLES.REPUTATION_GAP_MULT_MIN],
+    ["REPUTATION_GAP_MULT_MIN_LOSS", TUNABLES.REPUTATION_GAP_MULT_MIN_LOSS],
+  ] as const) {
+    if (!Number.isInteger(v) || v <= 0 || v > TUNABLES.REPUTATION_GAP_MULT_MAX) {
+      throw new RangeError(`${name} must be a positive integer no greater than REPUTATION_GAP_MULT_MAX, got ${String(v)}`);
+    }
+  }
+}
+assertReputationTunablesCoherent();

@@ -84,7 +84,7 @@ describe("applying outcomes", () => {
     expect(r.created).toBe(true);
     const after = await snapshot();
     expect(after.living.rep).toBe(before.living.rep + TUNABLES.REPUTATION_CARAVAN_HELD);
-    expect(after.trap.rep).toBe(before.trap.rep + TUNABLES.REPUTATION_CARAVAN_HELD);
+    expect(after.trap.rep).toBe(TUNABLES.REPUTATION_START); // trap Reputation never moves (QA D1)
     expect(after.siege.rep).toBe(before.siege.rep + TUNABLES.REPUTATION_LOSS_ATTACKER);
     expect(after.living.points).toBe(before.living.points + TUNABLES.LADDER_GAIN_DEFENSE_HELD);
     expect(after.trap.points).toBe(before.trap.points + TUNABLES.LADDER_GAIN_DEFENSE_HELD);
@@ -141,7 +141,11 @@ describe("applying outcomes", () => {
             party: { ownerAccountId: o.accountId, poolsUsed: ["siege"] },
           }),
         )
-      ).events.map((e) => ({ type: e.event_type, seq: e.causation_seq, payload: e.payload, scope: e.caravan_id ? "caravan" : "account" }));
+      ).events.map((e) => {
+        const { inputHash, ...payload } = e.payload; // the input digest names the accounts; everything derived must match
+        expect(typeof inputHash).toBe("string");
+        return { type: e.event_type, seq: e.causation_seq, payload, scope: e.caravan_id ? "caravan" : "account" };
+      });
     const a = await run(d1, o1, "a");
     const b = await run(d2, o2, "b");
     expect(canonicalJson(a as unknown as Json)).toBe(canonicalJson(b as unknown as Json));
@@ -227,9 +231,11 @@ describe("permanence", () => {
     expect(trap.unlock_points_granted).toBe(totalUnlockPointsAtCap());
     expect(siege.unlock_points_granted).toBe(totalUnlockPointsAtCap());
     expect(living.ladder_level).toBe(LADDER_CAP);
-    // past the cap: a further encounter still moves Reputation but writes no ladder/grant event
+    // past the cap: a further encounter still moves Reputation but writes no ladder/grant event.
+    // The caravan's living rating sat on the floor long ago, so (N1) only the winning siege rating is written.
     const r = await withTransaction(pool, (c) => applyEncounterOutcome(c, progressionCausationId("encounter:cap:post"), input));
-    expect(r.events.map((e) => e.event_type)).toEqual(["reputation_changed", "reputation_changed", "reputation_changed"]);
+    expect(r.events.map((e) => [e.event_type, e.payload["pool"]])).toEqual([["reputation_changed", "siege"]]);
+    expect((await getCaravanPoolProgress(pool, d.caravanId))!.reputation).toBe(TUNABLES.REPUTATION_FLOOR);
     const grants = await pool.query<{ n: string }>(
       "SELECT count(*)::text AS n FROM ledger_event WHERE event_type = 'unlock_points_granted' AND caravan_id = $1",
       [d.caravanId],

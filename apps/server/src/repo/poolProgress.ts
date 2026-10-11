@@ -1,6 +1,7 @@
 /**
  * Pool progress data access. Note what is deliberately ABSENT here:
- *   - no function lowers ladder_level or unlock_points_granted (and the DB trigger refuses it);
+ *   - no function writes ladder_level, ladder_points or unlock_points_granted at all —
+ *     they are projections of ledger events (chunk 02/04); the DB trigger refuses a decrease;
  *   - no function debits reputation as a cost — it is a rating, adjusted by fight outcomes
  *     (chunk 04), never spent;
  *   - no function takes an account id for the living pool or a caravan id for trap/siege.
@@ -65,37 +66,10 @@ export async function listPoolProgressForAccount(db: Queryable, accountId: strin
   return res.rows;
 }
 
-function assertPositiveInt(name: string, value: number): void {
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new RangeError(`${name} must be a positive integer, got ${value}`);
-  }
-}
-
-/**
- * Raise a ladder by exactly one rung. Increments only; the DB trigger refuses anything
- * else. Chunk 04 wires rung-crossing to grants and the ledger.
- */
-export async function raiseLadderLevel(db: Queryable, progressId: string): Promise<PoolProgressRow> {
-  const res = await db.query<PoolProgressRow>(
-    "UPDATE pool_progress SET ladder_level = ladder_level + 1 WHERE id = $1 RETURNING *",
-    [progressId],
-  );
-  const row = res.rows[0];
-  if (!row) throw new Error(`pool_progress ${progressId} not found`);
-  return row;
-}
-
-/** Grant unlock points. `points` must be a positive integer; there is no revoke. */
-export async function grantUnlockPoints(db: Queryable, progressId: string, points: number): Promise<PoolProgressRow> {
-  assertPositiveInt("points", points);
-  const res = await db.query<PoolProgressRow>(
-    "UPDATE pool_progress SET unlock_points_granted = unlock_points_granted + $2 WHERE id = $1 RETURNING *",
-    [progressId, points],
-  );
-  const row = res.rows[0];
-  if (!row) throw new Error(`pool_progress ${progressId} not found`);
-  return row;
-}
+// Deliberately no raiseLadderLevel / grantUnlockPoints here (chunk 04 QA S6): the ONLY
+// writer of ladder_level, ladder_points and unlock_points_granted is the ledger's
+// projection trigger, fed by progression/outcome.ts. A repo-level UPDATE would move a
+// balance with no event to explain it.
 
 export function isAccountPool(pool: Pool): pool is AccountPool {
   return pool === "trap" || pool === "siege";

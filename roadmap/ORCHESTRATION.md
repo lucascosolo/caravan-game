@@ -638,3 +638,59 @@ From chunk 10 onward every Maker and fixer runs in its own git worktree on a bra
 named `chunk/NN`, and the orchestrator merges into `roadmap/phase-2-spec`. The shared
 working tree caused three staging incidents in the first batch (45c04b3, 3137656,
 a9a49a9).
+
+### 2026-10-11 — Chunk 04 (ladders & Reputation): QA round 1 closed (D1, D2, S1–S8, N1–N4, N7; N5/N6 noted)
+
+Closed by the Maker in a worktree branched from `roadmap/phase-2-spec` at `677bd9b`.
+Punch list `/roadmap/qa/04-punchlist.md` carries the per-item dispositions; the QA probe's
+reproductions are now `apps/server/test/qa04-progression.test.ts` (31 tests).
+
+- **D1.** `trap` Reputation no longer moves (`progression/outcome.ts` writes living on the
+  caravan side and siege on the party side, nothing else); `/progression/rules` publishes
+  `matchmakingRating`, which ratings move, and that a zero delta writes no event. Recorded in
+  the chunk 04 file and as "Decided in chunk 04 QA" in chunk 14's file.
+- **D2.** New tunable `REPUTATION_GAP_MULT_MIN_LOSS = fpMilli(500)`; `gapMultiplier` floors a
+  loss there and a win at `REPUTATION_GAP_MULT_MIN`. Rules endpoint renames `multMin` →
+  `multMinWin` + `multMinLoss`. PHASE-2's Coin floor and recent-opponent exclusion are
+  appended to chunk 14's file as checklist items (the punch list cites PHASE-2 §28; the text
+  is §31 "Integrity and anti-abuse").
+- **S1/S2/S8.** Migration `003_unlock_grant_once` (edited in place; nothing is deployed) now
+  carries: `ledger_event_ladder_progress_nonneg` (integer `pointsDelta ≥ 0`, integer
+  `levelsGained` in 0..20), `ledger_event_unlock_grant_shape` (integer `points > 0`, integer
+  `rung` in 1..20), the grant-once index without the `payload ? 'rung'` predicate,
+  `pool_progress_ladder_level_cap` (`ladder_level ≤ 20`) and a `pool_progress_guard_ladder_points`
+  trigger (no decrease). A `jsonb_int()` helper keeps a non-number payload from ever reaching a
+  cast. The cap literal is pinned to `TUNABLES.LADDER_RUNGS_PER_POOL` in the migration text and
+  the live constraints. Migration 002 and `roles.sql` untouched (a chunk 02 fixer owns them).
+- **S3.** `applyEncounterOutcome` stamps `payload.inputHash` (sha256 of the canonical input,
+  pools sorted) on every event it appends and throws `ProgressionCausationMismatch` on a
+  replay with a different input.
+- **S4/S5.** `GET /me/progression/events` has a Fastify querystring schema (`after` integer
+  0..2^53−1, `limit` 1..500, `pool` enum, unknown keys refused → 400). New
+  `listProgressionEventsForAccount` filters by type and pool in SQL, reads limit+1 and returns
+  `hasMore`.
+- **S6.** `raiseLadderLevel` / `grantUnlockPoints` deleted; `permanence.test.ts` now raises
+  progress through `appendEvents` only.
+- **N1–N4, N7.** No zero-delta `reputation_changed`; `assertInTransaction` (force an xid, then
+  `pg_current_xact_id_if_assigned()` in a second statement — the punch list's one-statement
+  form is NULL in any transaction that has not written yet); `circle/service.ts` imports the
+  attrition fold as `applyAttritionOutcome`; `gapScaledDelta` returns `|| 0` and
+  `assertReputationTunablesCoherent()` runs at module load; `toPoolProgressView` throws on a
+  living row without a caravan id.
+- **Fixture fallout.** Chunk 02's `ledger.test.ts` carried a `pointsDelta: -7` and two
+  rung-less grants (pre-dating cumulative points); updated to the shapes the CHECKs now
+  demand, and its "ladder decrease through an event" case now hits the payload CHECK before
+  chunk 01's trigger.
+
+**Verification (real output):** `apps/server` suite against `caravan_test_f04` — 16 files,
+231 tests passing (was 195 at the base); `@caravan/content` — 44 passing; `pnpm typecheck`
+clean in all four packages; `pnpm lint` clean; `pnpm test:boundary` passed.
+
+**Flagged, not changed:** (1) the `@caravan/circle` export is still named
+`applyEncounterOutcome` — the N3 rename at the package level is chunk 07's; (2) the QA probe
+also showed the app role can `UPDATE pool_progress SET ladder_level = ladder_level + 1`
+directly (an increase, which no guard refuses) — not on this punch list, but it is a
+ledger-bypassing rise; worth a QA item for chunk 02 or a column-level `REVOKE UPDATE` on the
+projected columns in `roles.sql`. `roadmap/INDEX.md` left at `built`; the orchestrator moves
+it to `QA'd`.
+

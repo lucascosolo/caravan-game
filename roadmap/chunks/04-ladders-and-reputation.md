@@ -1,6 +1,6 @@
 # Chunk 04 — Ladders & Reputation
 
-**Depends on:** 01, 02. **Status:** built (2026-10-11; QA pending).
+**Depends on:** 01, 02. **Status:** built (2026-10-11); QA round 1 closed by the Maker 2026-10-11 (see `/roadmap/qa/04-punchlist.md`).
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 ## Goal
@@ -51,6 +51,7 @@ unlock points at milestones.
 | `REPUTATION_CARAVAN_HELD` | +15 | |
 | `REPUTATION_CARAVAN_OVERRUN` | −20 | |
 | `REPUTATION_FLOOR` | 100 | Can't spiral to zero. |
+| `REPUTATION_GAP_MULT_MIN_LOSS` | fp 0.5 | QA D2: the loss-side clamp floor (wins keep the ×0.25 floor), so tanking a rating is ~2× slower than the win ramp. |
 
 Reputation adjustment must be a **pure deterministic function** of the two ratings
 and the outcome — no randomness, no time decay that reads the clock at compute time.
@@ -95,13 +96,16 @@ DB wrapper; `view.ts` read models), routes `GET /me/progression`,
 tunables under "Chunk 04" in `packages/content/src/tunables.ts`. Tests:
 `apps/server/test/progression-pure.test.ts`, `apps/server/test/progression.test.ts`.
 
-Readings of the brief that QA should check:
-- **Matchmaking ratings.** The caravan's rating is its `living` Reputation (caravan-level);
-  the standing party's rating is its owner's `siege` Reputation (the account-level
-  offense pool — a party is an account-level object, so its rating must be too). The
-  gap used for scaling is between those two. Both always move on every encounter; `trap`
-  Reputation moves only when traps were fielded; the owner's own living Reputation never
-  moves for a passive result.
+Readings of the brief, as settled by QA round 1:
+- **Matchmaking ratings (QA decision D1).** The caravan's rating is its `living`
+  Reputation (caravan-level); the standing party's rating is its owner's `siege`
+  Reputation — the account-level **offense Reputation, stored on the siege pool** (a party
+  is an account-level object, so its rating must be too). The gap used for scaling is
+  between those two. Both always move on every encounter; the owner's own living
+  Reputation never moves for a passive result. **`trap` Reputation never moves**: nothing
+  reads it, and a visible number that never matters violates GUARDRAILS §4, so it stays at
+  `REPUTATION_START` until a reader exists (the trap *ladder* still rises through use).
+  `GET /progression/rules` publishes which pool is each side's rating and which ratings move.
 - **Ladder attribution.** Active side: `living` and `trap` when fielded. Passive side:
   `siege` when fielded. The party's living units are a template, not a deployment, so
   they earn no living ladder — keeps the active side the living pool's path.
@@ -111,6 +115,30 @@ Readings of the brief that QA should check:
   `LADDER_GAIN_LOSS` (10). Party: overrun = `LADDER_GAIN_WIN` (30), held = `LADDER_GAIN_LOSS`,
   stalemate = `LADDER_GAIN_STALEMATE` (10). Capped ladders write no event.
 - **Gap scaling** is applied to all four Reputation deltas (not only the attacker's win),
-  as a clamped linear ramp in fixed-point: ×(1 ± gap/400), clamped to [×0.25, ×2].
-  Floor 100; a clamped loss records `floored: true` and the unclamped value.
+  as a clamped linear ramp in fixed-point: ×(1 ± gap/400), a win clamped to [×0.25, ×2]
+  and a loss to [×0.5, ×2] (QA decision D2: `REPUTATION_GAP_MULT_MIN_LOSS`, so sandbagging
+  a rating down is about twice as slow as the win ramp; no structural change). Floor 100;
+  the one event that reaches the floor records `floored: true` and the unclamped value;
+  a change whose applied delta is 0 writes no event (QA N1).
 - A self-encounter (same account both sides) is refused.
+
+## QA round 1 (closed 2026-10-11)
+
+Punch list: `/roadmap/qa/04-punchlist.md`. What changed:
+- Migration `003_unlock_grant_once` now also carries the storage guards: `ladder_progress_gained`
+  payloads must be non-negative integers with `levelsGained ≤ LADDER_RUNGS_PER_POOL`;
+  `unlock_points_granted` must carry `points > 0` and an integer `rung` in 1..cap; the grant-once
+  index covers every grant (no `payload ? 'rung'` predicate); `pool_progress.ladder_points` can
+  never decrease and `ladder_level ≤ LADDER_RUNGS_PER_POOL`. `qa04-progression.test.ts` pins the
+  cap in the migration text and the live constraints to the tunable.
+- `applyEncounterOutcome` stores `inputHash` on every event it writes and refuses the same
+  causation id with a different input (`ProgressionCausationMismatch`); it also refuses to run
+  outside an explicit transaction.
+- `GET /me/progression/events` validates its query with a Fastify schema (400 on anything
+  malformed, unknown keys included), filters by type and pool **in SQL** before the limit, and
+  returns `hasMore`.
+- The dead ledger-bypassing writers `raiseLadderLevel` / `grantUnlockPoints` are gone; every
+  rise is an event.
+- `apps/server/src/circle/service.ts` imports the manifest attrition fold as
+  `applyAttritionOutcome` (the `@caravan/circle` export keeps its name; renaming it there is
+  chunk 07's call).

@@ -15,7 +15,9 @@
  * composes these calls inside its own transaction.
  */
 import {
-  applyEncounterOutcome,
+  // Aliased (chunk 04 QA N3): the server also exports progression's `applyEncounterOutcome`
+  // (ratings and ladders); this one is the manifest attrition fold from @caravan/circle.
+  applyEncounterOutcome as applyAttritionOutcome,
   formationFromJson,
   formationGaps,
   manifestFromJson,
@@ -255,7 +257,7 @@ export async function applyOutcome(
   requireNextEncounter(manifest, encounterIndex);
   const row = await findFormation(client, manifestId, encounterIndex);
   if (!row?.committed_at) throw conflict("not_committed", "an outcome can only be applied to a committed formation");
-  const next = applyEncounterOutcome(manifestFromRow(manifest).survivors, outcome);
+  const next = applyAttritionOutcome(manifestFromRow(manifest).survivors, outcome);
   return updateSurvivors(client, { manifestId, survivorsJson: serializeManifest(next), encountersResolved: encounterIndex });
 }
 

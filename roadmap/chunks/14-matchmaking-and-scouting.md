@@ -104,3 +104,22 @@ availability logic that no longer has a reason to exist.
   incomplete information, which the design forbids.
 - **Snapshot integrity:** edit a party while it is mid-resolution in someone's trip and
   confirm the fight and its replay are unaffected.
+
+## Notes from chunk 04 QA
+
+- **Decided in chunk 04 QA (D1): which Reputation is each side's rating.** The caravan
+  being served is banded by its **living** Reputation (caravan-level). A standing party
+  is banded by its owner's **siege** Reputation — the account-level "offense Reputation,
+  stored on the siege pool". Trap Reputation has no reader and does not move; do not band
+  on it. `GET /progression/rules` → `reputation.matchmakingRating` publishes this and the
+  resolver-side writer is `apps/server/src/progression/outcome.ts`.
+- **Sandbagging (D2) — carry these into this chunk's checklist** (from PHASE-2 §31
+  "Integrity and anti-abuse"; the chunk 04 punch list cites it as §28):
+  - [ ] A **floor on Coin earned per encounter** against parties whose Reputation is far
+        below the caravan's, so farming trivially beatable parties pays less than playing.
+        Visible in the tunables registry, identical for every account.
+  - [ ] The **recent-opponent exclusion** (`RECENT_OPPONENT_EXCLUSION`) is enforced
+        server-side and tested, not only in the candidate menu's presentation.
+  - Chunk 04 blunts the rating side only: a loss is scaled by at least ×0.5
+    (`REPUTATION_GAP_MULT_MIN_LOSS`) and a win by at least ×0.25, so tanking a rating takes
+    roughly twice as many losses as climbing back takes wins. Nothing structural changed.

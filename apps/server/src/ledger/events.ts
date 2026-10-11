@@ -101,14 +101,21 @@ export interface ReputationChangedPayload extends PoolPayload {
 }
 
 export interface LadderProgressGainedPayload extends PoolPayload {
-  /** Change to ladder_points; may be negative when a rung is crossed and points reset. */
+  /**
+   * Change to ladder_points, >= 0. Points are CUMULATIVE (chunk 04): nothing resets on a
+   * rung crossing, so every delta is non-negative and the DB refuses anything else
+   * (migration 003).
+   */
   pointsDelta: number;
-  /** Rungs crossed by this event, >= 0. Ladder level never decreases. */
+  /** Rungs crossed by this event, 0..LADDER_RUNGS_PER_POOL. Ladder level never decreases. */
   levelsGained: number;
 }
 
 export interface UnlockPointsGrantedPayload extends PoolPayload {
+  /** > 0; there is no negative grant and no revoke. */
   points: number;
+  /** The rung this grant pays out, 1..LADDER_RUNGS_PER_POOL. Mandatory: one grant per rung, ever (unique index). */
+  rung: number;
 }
 
 export interface UnlockNodePurchasedPayload extends PoolPayload {
