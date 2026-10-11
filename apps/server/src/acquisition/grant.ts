@@ -68,6 +68,8 @@ export function bodyObject(body: unknown): Record<string, unknown> {
 }
 
 export interface OwnedCaravan extends AccessOwner {
+  /** Always read from the caravan row (chunk 05 QA S2 made it optional on AccessOwner). */
+  readonly regionId: RegionId;
   readonly state: CaravanState;
 }
 
