@@ -3,11 +3,13 @@
  * lists bounded, numbers bounded where they size a render, extra fields ignored. An item of a
  * category this client does not know is refused (bad_payload), never drawn half-understood.
  *
- * The strike's defender is checked to carry no `accountId`: the server must never send one
- * (PHASE-2 §29), and a client that would quietly accept one would hide the leak.
+ * A strike line is checked to carry no account id and no caravan id of the struck player
+ * (PHASE-2 §29): no `caravanId` on the defender and no key ending in `accountId` anywhere in the
+ * line (chunk 29 QA N8). `object()` ignores extra fields, so without this a server regression
+ * that re-added one would pass silently.
  */
 import { ShapeError, array, boolean, integer, literal, nullable, object, string, type Guard } from "./shape.ts";
-import type { InboxItemView, InboxStrikeView, InboxUnreadView, InboxView } from "./inboxTypes.ts";
+import type { InboxItemView, InboxMarkResult, InboxStrikeLinesView, InboxStrikeView, InboxUnreadView, InboxView } from "./inboxTypes.ts";
 
 const KEY = string({ maxLength: 200 });
 const ID = string({ maxLength: 160 });
@@ -18,12 +20,21 @@ const COUNT = integer({ min: 0, max: 1_000_000 });
 const COIN = integer({ min: 0, max: 1_000_000_000 });
 const CATEGORY = literal("party_strike", "refugees_arrived", "trip_cap_refilled", "mine_near_cap", "packs_rotated");
 
+/** Refuse any key naming an account id, at any depth of a strike line. */
+function refuseAccountIds(v: unknown, path: string): void {
+  if (!v || typeof v !== "object") return;
+  for (const [k, inner] of Object.entries(v as Record<string, unknown>)) {
+    if (/accountId$/i.test(k)) throw new ShapeError(`${path}.${k}`, "no account id (PHASE-2 §29)", inner);
+    refuseAccountIds(inner, `${path}.${k}`);
+  }
+}
+
 const defender: Guard<InboxStrikeView["defender"]> = (v, path) => {
-  if (v && typeof v === "object" && !Array.isArray(v) && "accountId" in v) throw new ShapeError(`${path}.accountId`, "no account id (PHASE-2 §29)", (v as Record<string, unknown>)["accountId"]);
+  if (v && typeof v === "object" && !Array.isArray(v) && "caravanId" in v) throw new ShapeError(`${path}.caravanId`, "no caravan id of the struck player (PHASE-2 §29)", (v as Record<string, unknown>)["caravanId"]);
   return object({ username: nullable(NAME), caravanName: nullable(NAME), regionId: nullable(ID) })(v, path);
 };
 
-const strikeLine: Guard<InboxStrikeView> = object({
+const strikeFields: Guard<InboxStrikeView> = object({
   seq: integer({ min: 0 }),
   occurredAt: TIMESTAMP,
   jobId: nullable(ID),
@@ -32,9 +43,15 @@ const strikeLine: Guard<InboxStrikeView> = object({
   defender,
   coinEarned: COIN,
   coinTransferred: COIN,
+  coinDiscardedAtCap: COIN,
   reputationDelta: integer(),
   ladderPointsGained: integer({ min: 0 }),
 });
+
+const strikeLine: Guard<InboxStrikeView> = (v, path) => {
+  refuseAccountIds(v, path);
+  return strikeFields(v, path);
+};
 
 const details = {
   party_strike: object({
@@ -50,6 +67,7 @@ const details = {
     ladderPointsGained: integer({ min: 0 }),
     windowStartMs: MS,
     windowEndMs: MS,
+    linesIncluded: boolean(),
     strikes: array(strikeLine, { maxLength: 64 }),
     notListed: COUNT,
   }),
@@ -67,13 +85,20 @@ export const inboxItemShape: Guard<InboxItemView> = (v, path) => {
   return { ...b, detail } as InboxItemView;
 };
 
-export const inboxShape: Guard<InboxView> = object({
+const inboxFields = {
   items: array(inboxItemShape, { maxLength: 256 }),
   unreadCount: COUNT,
   preferences: array(object({ category: CATEGORY, enabled: boolean(), defaultEnabled: boolean() }), { maxLength: 16 }),
+  olderStrikes: nullable(object({ batchesPastLimit: COUNT, beforeHorizon: boolean() })),
   strikeBatchWindowMs: integer({ min: 1 }),
   horizonMs: integer({ min: 1 }),
   delivery: literal("in_app"),
-});
+} as const;
+
+export const inboxShape: Guard<InboxView> = object(inboxFields);
+
+export const inboxMarkResultShape: Guard<InboxMarkResult> = object({ ...inboxFields, ignored: array(KEY, { maxLength: 256 }) });
+
+export const inboxStrikeLinesShape: Guard<InboxStrikeLinesView> = object({ window: integer({ min: 0 }), strikes: array(strikeLine, { maxLength: 64 }) });
 
 export const inboxUnreadShape: Guard<InboxUnreadView> = object({ unreadCount: COUNT });

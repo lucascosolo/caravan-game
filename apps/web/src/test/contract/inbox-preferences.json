@@ -76,6 +76,7 @@
         "defaultEnabled": false
       }
     ],
+    "olderStrikes": null,
     "strikeBatchWindowMs": 3600000,
     "horizonMs": 1209600000,
     "delivery": "in_app"

@@ -6,13 +6,16 @@
  * that grows when the item gains something new). An item is unread while no read mark for its
  * key has reached its version.
  *
- *   party_strike       key strike:<window index>     version = newest strike's ledger seq
+ *   party_strike       key strike:<window index>     version = newest ledger seq among the batch's strikes
+ *                                                    AND the credits / progression they caused (QA S2: a
+ *                                                    settle that lands later moves the version, so a read
+ *                                                    batch whose totals changed is unread again)
  *   refugees_arrived   key refugees:<caravan>:<ms>   version = the instant the free menu was owed
  *   trip_cap_refilled  key trip_cap:<ms>             version = the instant the cap was full again
  *   mine_near_cap      key mine:<last spend seq>     version = 1 (one per stretch between spends)
  *   packs_rotated      key packs:<week index>        version = 1
  */
-import { INBOX_MINE_NEAR_CAP_PERCENT, INBOX_STRIKE_BATCH_WINDOW_MS, type InboxCategory } from "./tunables.js";
+import { INBOX_MINE_NEAR_CAP_PERCENT, INBOX_STRIKES_PER_ITEM, INBOX_STRIKE_BATCH_WINDOW_MS, INBOX_HORIZON_MS, type InboxCategory } from "./tunables.js";
 
 /** One strike, as the owner's results feed reports it, minus anything the inbox does not need. */
 export interface InboxStrike {
@@ -26,6 +29,8 @@ export interface InboxStrike {
   defender: { username: string | null; caravanName: string | null; regionId: string | null };
   coinEarned: number;
   coinTransferred: number;
+  /** Of what this strike would have credited: the part the owner's storage cap discarded (the feed's `coinDiscardedAtCap`). */
+  coinDiscardedAtCap: number;
   reputationDelta: number;
   ladderPointsGained: number;
 }
@@ -34,7 +39,10 @@ export interface InboxStrike {
 export interface StrikeWindowTotals {
   window: number;
   count: number;
+  /** The item's version: the newest seq among the strikes and their owner-side events (QA S2). */
   maxSeq: number;
+  /** When the newest strike of the window happened (the item's time). */
+  newestAtMs: number;
   held: number;
   overran: number;
   stalemate: number;
@@ -59,9 +67,14 @@ export interface StrikeDetail {
   ladderPointsGained: number;
   windowStartMs: number;
   windowEndMs: number;
-  /** Newest first, at most INBOX_STRIKES_PER_ITEM. */
+  /**
+   * Whether `strikes` was filled in. Only the newest INBOX_ITEMIZED_BATCHES batches carry their
+   * lines in the inbox read (QA S4); an older batch's lines come from GET /me/inbox/strikes/:window.
+   */
+  linesIncluded: boolean;
+  /** Newest first, at most INBOX_STRIKES_PER_ITEM (empty when `linesIncluded` is false). */
   strikes: InboxStrike[];
-  /** Strikes in this window counted above but not itemized (see the Party tab's results feed). */
+  /** Strikes in this window counted above but never itemized (count − INBOX_STRIKES_PER_ITEM; see the Party tab's results feed). */
   notListed: number;
 }
 
@@ -123,12 +136,29 @@ export function strikeWindowOf(occurredAtMs: number, windowMs: number = INBOX_ST
   return Math.floor(occurredAtMs / windowMs);
 }
 
-/** One batched strike item per window. `strikes` are the listed ones (any order; filtered to the window here). */
-export function strikeItem(t: StrikeWindowTotals, listed: readonly InboxStrike[], windowMs: number = INBOX_STRIKE_BATCH_WINDOW_MS): DraftItem {
-  const inWindow = listed
-    .filter((s) => strikeWindowOf(Date.parse(s.occurredAt), windowMs) === t.window)
-    .sort((a, b) => b.seq - a.seq);
-  const newest = inWindow[0] ? Date.parse(inWindow[0].occurredAt) : (t.window + 1) * windowMs - 1;
+/**
+ * The first instant the inbox looks at: the start of the window holding `now − horizon`, so a
+ * batch is shown whole or not at all and its count always matches the feed's for that hour (QA N1).
+ */
+export function horizonStartMs(nowMs: number, horizonMs: number = INBOX_HORIZON_MS, windowMs: number = INBOX_STRIKE_BATCH_WINDOW_MS): number {
+  return Math.floor((nowMs - horizonMs) / windowMs) * windowMs;
+}
+
+/** The strike lines of one window: those of `listed` inside it, newest first, at most INBOX_STRIKES_PER_ITEM. */
+export function windowLines(window: number, listed: readonly InboxStrike[], windowMs: number = INBOX_STRIKE_BATCH_WINDOW_MS): InboxStrike[] {
+  return listed
+    .filter((s) => strikeWindowOf(Date.parse(s.occurredAt), windowMs) === window)
+    .sort((a, b) => b.seq - a.seq)
+    .slice(0, INBOX_STRIKES_PER_ITEM);
+}
+
+/**
+ * One batched strike item per window. `listed` are its lines (any order; filtered to the window
+ * here), or null when this batch's lines are not part of this read (QA S4).
+ */
+export function strikeItem(t: StrikeWindowTotals, listed: readonly InboxStrike[] | null, windowMs: number = INBOX_STRIKE_BATCH_WINDOW_MS): DraftItem {
+  const lines = listed === null ? [] : windowLines(t.window, listed, windowMs);
+  const newest = t.newestAtMs;
   const detail: StrikeDetail = {
     count: t.count,
     held: t.held,
@@ -142,8 +172,9 @@ export function strikeItem(t: StrikeWindowTotals, listed: readonly InboxStrike[]
     ladderPointsGained: t.ladderPointsGained,
     windowStartMs: t.window * windowMs,
     windowEndMs: (t.window + 1) * windowMs,
-    strikes: inWindow,
-    notListed: Math.max(0, t.count - inWindow.length),
+    linesIncluded: listed !== null,
+    strikes: lines,
+    notListed: Math.max(0, t.count - INBOX_STRIKES_PER_ITEM),
   };
   return { key: `strike:${t.window}`, category: "party_strike", version: t.maxSeq, occurredAtMs: newest, occurredAt: iso(newest), detail };
 }

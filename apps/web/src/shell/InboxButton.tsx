@@ -2,8 +2,9 @@
  * Chunk 29: the shell's inbox button with the unread badge. The count is the server's
  * (`GET /me/inbox/unread`), read on mount, on every route change, every INBOX_POLL_MS while the
  * page is visible, and whenever the Inbox screen publishes a fresh count. A failed read hides
- * the badge rather than showing a guess. The badge carries the number as text (never colour
- * alone), and the button's accessible name says it in words.
+ * the badge rather than showing a guess, and the accessible name is then just "Inbox" — not
+ * "nothing new", which would be a claim (chunk 29 QA N7). The badge carries the number as text
+ * (never colour alone), and the button's accessible name says it in words.
  */
 import { useCallback, useEffect, useState } from "react";
 import type { Api } from "../api/client.ts";
@@ -52,7 +53,7 @@ export function InboxButton({ route, api: override }: { readonly route: Route; r
       type="button"
       className="btn inbox-button"
       data-testid="inbox-button"
-      aria-label={T.buttonLabel(count)}
+      aria-label={unread === null ? T.button : T.buttonLabel(count)}
       aria-current={route === "inbox" ? "page" : undefined}
       onClick={() => navigate("inbox")}
     >

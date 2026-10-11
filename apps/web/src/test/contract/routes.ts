@@ -33,7 +33,7 @@ import {
   unequipResultShape,
 } from "../../api/shapes.ts";
 import { recentFightsShape, replayShape } from "../../api/replayShapes.ts";
-import { inboxShape, inboxUnreadShape } from "../../api/inboxShapes.ts";
+import { inboxMarkResultShape, inboxShape, inboxStrikeLinesShape, inboxUnreadShape } from "../../api/inboxShapes.ts";
 import { onboardingChangeShape, onboardingShape } from "../../onboarding/shapes.ts";
 import { bankResultShape, encounterCommitShape, pushResultShape, stakesPreviewShape, tripCapRefusalShape, tripStartShape, tripStatusShape } from "../../api/tripShapes.ts";
 
@@ -99,7 +99,8 @@ export const CONTRACT_GUARDS: Readonly<Record<string, Guard<unknown> | null>> = 
   // Chunk 29's inbox: the struck party's owner (a real-resolver strike), the badge, a mark-all, and every other category.
   inbox: inboxShape,
   "inbox-unread": inboxUnreadShape,
-  "inbox-read": inboxShape,
+  "inbox-read": inboxMarkResultShape,
+  "inbox-strikes": inboxStrikeLinesShape,
   "inbox-preferences": inboxShape,
 };
 
