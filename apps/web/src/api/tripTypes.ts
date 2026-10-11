@@ -98,14 +98,35 @@ export interface OverrunEndingView {
   readonly lossesApplied: boolean;
 }
 
-export type TripEndingView = BankedEndingView | OverrunEndingView;
+/**
+ * Chunk 15 QA D3: a trip whose encounter could not be resolved (its resolution job parked).
+ * It ended exactly as a bank after its last survived encounter (`encountersSurvived`; 0 = nothing
+ * survived, nothing credited), including the de-merges for deaths in those encounters; nothing
+ * of the voided fight was applied; the trip-cap use is not refunded.
+ */
+export interface VoidedEndingView {
+  readonly kind: "voided";
+  /** The encounter whose fight could not be resolved: discarded. */
+  readonly voidedEncounter: number;
+  /** The server's reason (the parked job's last error); technical text, shown as a detail only. */
+  readonly reason: string;
+  readonly encountersSurvived: number;
+  readonly unbankedCoin: number;
+  readonly deliveryBonus: number;
+  readonly requested: number;
+  readonly credited: number;
+  readonly discarded: number;
+  readonly restored: RestoredView;
+}
+
+export type TripEndingView = BankedEndingView | OverrunEndingView | VoidedEndingView;
 
 export interface TripView {
   readonly id: string;
   readonly manifestId: string;
   readonly startedAt: string;
   readonly endedAt: string | null;
-  readonly endReason: "banked" | "overrun" | null;
+  readonly endReason: "banked" | "overrun" | "voided" | null;
   readonly phase: TripPhase;
   readonly encountersResolved: number;
   /** The encounter being arranged / resolved; else null. */
@@ -162,14 +183,18 @@ export interface StakesPreview {
   readonly decisionOpen: boolean;
   readonly decisionFor: number | null;
   readonly unbankedCoin: { readonly total: number; readonly byEncounter: readonly { readonly index: number; readonly coin: number }[] };
-  readonly bankNow: {
+  /**
+   * What banking now would deliver. OMITTED before the first survived encounter (chunk 15 QA
+   * N2): there is nothing to bank yet, and a bank is only offered after surviving one.
+   */
+  readonly bankNow?: {
     readonly encounterCoin: number;
     readonly deliveryBonus: number;
     readonly total: number;
     readonly forecast: { readonly balance: number; readonly cap: number; readonly room: number; readonly prospectiveEarn: number; readonly wouldCredit: number; readonly wouldDiscard: number; readonly atCap: boolean };
     /** Banking de-merges every unit that died on this trip, exactly as listed (the same plan the bank applies). */
     readonly unitsDeMerged: readonly DeMergedUnitView[];
-  };
+  } | undefined;
   readonly units: readonly StakesUnitView[];
   readonly ifOverrun: {
     readonly coinLost: number;
@@ -189,7 +214,7 @@ export interface StakesPreview {
     readonly index: number;
     readonly reward: number;
     readonly bankTotalIfSurvived: number;
-    readonly difficulty: { readonly escalationApplied: number; readonly risePerEncounter: number; readonly harderThanThisEncounter: boolean };
+    readonly difficulty: { readonly escalationApplied: number; readonly risePerEncounter: number; /** Omitted before the first survived encounter (chunk 15 QA N2): there is no "this encounter" yet. */ readonly harderThanThisEncounter?: boolean | undefined };
     readonly partyArrivesFresh: boolean;
   };
   readonly lastOpponent: {
@@ -211,7 +236,7 @@ export interface BankResult {
   readonly requested: number;
   readonly credited: number;
   readonly discarded: number;
-  /** Null on a replayed bank (the stored result has no balance). */
+  /** The town balance right after the credit. A replayed bank returns the stored one (chunk 15 QA N5); null for a bank recorded before N5. */
   readonly balanceAfter: number | null;
   readonly restored: RestoredView;
   readonly replayed: boolean;

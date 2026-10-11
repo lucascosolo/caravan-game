@@ -97,7 +97,7 @@ export async function readTripCap(db: Queryable, accountId: string, nowMs: numbe
  * locked FOR UPDATE, so two concurrent starts on one account serialize here and each sees
  * the other's consumption. Returns the cap before and after.
  */
-export async function consumeTripCap(client: pg.PoolClient, accountId: string, nowMs: number): Promise<{ before: TripCapView; after: TripCapView }> {
+export async function consumeTripCap(client: pg.PoolClient, accountId: string, nowMs: number): Promise<{ before: TripCapView; after: TripCapView; tatMs: number }> {
   await client.query("INSERT INTO trip_cap (account_id, tat_ms) VALUES ($1, 0) ON CONFLICT (account_id) DO NOTHING", [accountId]);
   const tat = await readTripCapTat(client, accountId, true);
   const before = capView(tat, nowMs);
@@ -106,5 +106,5 @@ export async function consumeTripCap(client: pg.PoolClient, accountId: string, n
   }
   const next = capConsume(tat, nowMs);
   await client.query("UPDATE trip_cap SET tat_ms = $2 WHERE account_id = $1", [accountId, next]);
-  return { before, after: capView(next, nowMs) };
+  return { before, after: capView(next, nowMs), tatMs: next };
 }

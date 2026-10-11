@@ -21,7 +21,7 @@
  */
 import { doubleHandlers, type EncounterPlan } from "./tripDouble.js";
 import { drain } from "../jobs/worker.js";
-import type { HandlerRegistry } from "../jobs/worker.js";
+import type { HandlerRegistry, WorkerOptions } from "../jobs/worker.js";
 import type pg from "pg";
 
 export const TEST_RESOLVER_ENV = "CARAVAN_TEST_RESOLVER";
@@ -63,9 +63,12 @@ export function inlineWorkerFromEnv(env: Readonly<Record<string, string | undefi
   return { name: "test-double", handlers: doubleHandlers(DOUBLE_PLANS, DOUBLE_FALLBACK), delayMs: INLINE_WORKER_DELAY_MS };
 }
 
-/** Resolve every ready job now (after the configured delay). Errors are reported, never thrown into a request. */
-export function scheduleInlineDrain(pool: pg.Pool, worker: InlineEncounterWorker, onError: (err: unknown) => void): void {
+/**
+ * Resolve every ready job now (after the configured delay). Errors are reported, never thrown into a request.
+ * `hooks` (chunk 15 QA S4/D3): the trip loop's settle / void hooks, run by the worker (WorkerOptions).
+ */
+export function scheduleInlineDrain(pool: pg.Pool, worker: InlineEncounterWorker, onError: (err: unknown) => void, hooks: Pick<WorkerOptions, "afterCompleted" | "afterParked"> = {}): void {
   setTimeout(() => {
-    drain(pool, { workerId: `inline-${worker.name}`, handlers: worker.handlers, retryBackoffMs: () => 0 }).catch(onError);
+    drain(pool, { workerId: `inline-${worker.name}`, handlers: worker.handlers, retryBackoffMs: () => 0, ...hooks, onHookError: onError }).catch(onError);
   }, worker.delayMs);
 }

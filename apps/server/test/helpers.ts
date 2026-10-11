@@ -33,3 +33,27 @@ export async function expectDbError(db: pg.Pool, sql: string, params: unknown[] 
 export function unique(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 }
+
+/**
+ * Chunk 15 QA N4: `POST /caravans/:id/encounters/:n/formation/commit` now refuses outside an
+ * open trip with a chosen candidate. Chunk 07's model tests (packing and arranging in town,
+ * outcomes applied by hand) commit through the SERVICE instead; this answers in the route's
+ * response shape so those tests read the same. Returns null for any other request.
+ */
+export async function commitFormationInTown(db: pg.Pool, ownCaravanId: string, method: string, url: string): Promise<{ statusCode: number; body: string; json: () => any } | null> {
+  const m = /^\/caravans\/([^/]+)\/encounters\/(\d+)\/formation\/commit$/.exec(url);
+  if (method !== "POST" || !m || m[1] !== ownCaravanId) return null;
+  const { withTransaction } = await import("../src/db/pool.js");
+  const { findCaravanById } = await import("../src/repo/caravans.js");
+  const { commitFormation } = await import("../src/circle/service.js");
+  const reply = (statusCode: number, value: unknown) => ({ statusCode, body: JSON.stringify(value), json: () => JSON.parse(JSON.stringify(value)) });
+  try {
+    const caravan = await findCaravanById(db, ownCaravanId);
+    const formation = await withTransaction(db, (c) => commitFormation(c, caravan!, Number(m[2])));
+    return reply(200, { formation });
+  } catch (err) {
+    const e = err as { statusCode?: number; code?: string; message?: string; issues?: unknown };
+    if (typeof e.statusCode !== "number") throw err;
+    return reply(e.statusCode, { error: e.code, message: e.message, ...(e.issues ? { issues: e.issues } : {}) });
+  }
+}

@@ -13,7 +13,7 @@
     "reason": "no replay log was recorded for this fight",
     "outcome": {
       "kind": "caravan_held",
-      "loot": 141,
+      "loot": 353,
       "depth": 512,
       "units": [
         {

@@ -1,6 +1,6 @@
 # Chunk 19 — Stakes & loss wiring
 
-**Depends on:** 13, 15, 16. **Status:** built (fight outcome via chunk 15's `EncounterOutcome` seam until chunk 13; see Build notes).
+**Depends on:** 13, 15, 16. **Status:** done (QA'd; every punch-list item closed, S3 with chunk 15 QA S4 — settle at resolution).
 Read `/roadmap/GUARDRAILS.md` in full first, including §0 on which way round the game runs.
 
 ## Goal
@@ -330,7 +330,9 @@ losses" (bank refit level, overrun roster, `lossesApplied`). Economy tests repin
   settle writes progression under `progression:<job>`, the feed joined only the job id. Fixed in
   `party/feed.ts` (a join only).
 - The owner's transfer (and Reputation) still waits for the defender's next read (lazy settle) —
-  chunk 15 QA S4, assigned to the chunk 15 fixer.
+  chunk 15 QA S4, assigned to the chunk 15 fixer. **[closed — chunk 15 fixer: the worker settles in its
+  completion transaction (`TRIP_SETTLE_HOOKS`); a held fight now also pays the owner depth-scaled loot,
+  an overrun pays transfer + party win and no loot — roadmap/qa/15-punchlist.md, "one rule".]**
 - N6 (opponent rating exposure in progression events) is untouched: no new progression event.
 
 ## QA round 1 closed (roadmap/qa/19-punchlist.md)

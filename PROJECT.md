@@ -41,7 +41,7 @@ A trip:
 2. Matchmaking presents a scoutable attacking party (see §17).
 3. Player arranges the wagon circle against that specific party — fence placement, trap placement, garrison positions and stances — then resolves the fight (see §11).
 4. On surviving: **bank** (end trip, deliver, keep everything earned) or **push** (matchmaking serves the next encounter; the caravan carries forward whatever damage/losses it has — no repair or healing until the trip ends).
-5. Trip ends on: voluntary bank, the caravan being overrun, or a tick-cap stalemate (the attackers give up and withdraw — favors the caravan).
+5. Trip ends on: voluntary bank or the caravan being overrun. A tick-cap stalemate (the attackers give up and withdraw — favors the caravan) counts as surviving the encounter: the player may bank or push, as after a held fight (see §11).
 
 One trip, regardless of how many encounters it includes, consumes one use of an hourly trip cap (exact number TBD in balancing).
 

@@ -1,0 +1,140 @@
+{
+  "route": "GET /me/caravans/:id/trip (voided)",
+  "status": 200,
+  "body": {
+    "caravan": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "state": "in_town"
+    },
+    "cap": {
+      "available": 2,
+      "cap": 3,
+      "regenMs": 1200000,
+      "nextRegenAtMs": 1790000060000,
+      "fullAtMs": 1790000060000,
+      "gate": "time"
+    },
+    "trip": {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "manifestId": "00000000-0000-4000-8000-000000000003",
+      "startedAt": "2026-10-11T12:00:00.000Z",
+      "endedAt": "2026-10-11T12:00:01.000Z",
+      "endReason": "voided",
+      "phase": "ended",
+      "encountersResolved": 1,
+      "currentEncounter": null,
+      "job": null,
+      "decisionFor": null,
+      "unbankedCoin": 0,
+      "encounters": [
+        {
+          "index": 1,
+          "outcome": "caravan_held",
+          "depth": 512,
+          "deaths": [
+            "00000000-0000-4000-8000-000000000004"
+          ],
+          "coinAccrued": 1000,
+          "decision": "pushed",
+          "result": {
+            "jobId": "encounter:00000000-0000-4000-8000-000000000002:1",
+            "unitsKilled": [
+              {
+                "ref": "00000000-0000-4000-8000-000000000004",
+                "typeId": "desert.dust_rider",
+                "mergeLevel": 2,
+                "hpBefore": 775,
+                "maxHp": 775
+              }
+            ],
+            "unitsDamaged": [
+              {
+                "ref": "00000000-0000-4000-8000-000000000005",
+                "typeId": "desert.dust_rider",
+                "mergeLevel": 1,
+                "hpBefore": 620,
+                "hpAfter": 520,
+                "maxHp": 620
+              },
+              {
+                "ref": "00000000-0000-4000-8000-000000000006",
+                "typeId": "desert.dust_rider",
+                "mergeLevel": 1,
+                "hpBefore": 620,
+                "hpAfter": 520,
+                "maxHp": 620
+              }
+            ],
+            "unitsUnhurt": [],
+            "trapsSpent": [
+              {
+                "ref": "t0",
+                "typeId": "trap.spike_pit"
+              }
+            ],
+            "trapsUnfired": [],
+            "fencesBroken": [],
+            "fencesDamaged": []
+          }
+        }
+      ],
+      "ending": {
+        "kind": "voided",
+        "voidedEncounter": 2,
+        "reason": "NonRetryableJobError: encounter encounter:00000000-0000-4000-8000-000000000002:2: encounter outcome refused: unit '00000000-0000-4000-8000-000000000005' hp would rise 520 → 521; there is no healing mid-trip",
+        "encountersSurvived": 1,
+        "unbankedCoin": 1000,
+        "deliveryBonus": 125,
+        "requested": 1125,
+        "credited": 1125,
+        "discarded": 0,
+        "restored": {
+          "deMerged": [
+            {
+              "ref": "00000000-0000-4000-8000-000000000004",
+              "typeId": "desert.dust_rider",
+              "toLevel": 1,
+              "fromLevel": 2,
+              "diedAtEncounter": 1
+            }
+          ],
+          "unitsHealed": [
+            {
+              "ref": "00000000-0000-4000-8000-000000000005",
+              "maxHp": 620,
+              "typeId": "desert.dust_rider",
+              "hpAtBank": 520,
+              "mergeLevel": 1
+            },
+            {
+              "ref": "00000000-0000-4000-8000-000000000006",
+              "maxHp": 620,
+              "typeId": "desert.dust_rider",
+              "hpAtBank": 520,
+              "mergeLevel": 1
+            },
+            {
+              "ref": "00000000-0000-4000-8000-000000000004",
+              "maxHp": 775,
+              "typeId": "desert.dust_rider",
+              "hpAtBank": 0,
+              "mergeLevel": 2
+            }
+          ],
+          "trapsRestocked": 1,
+          "fenceSegmentsRebuilt": 0
+        }
+      }
+    },
+    "rules": {
+      "tripsPerHourCap": 3,
+      "tripCapRegenMs": 1200000,
+      "tripCapGate": "time",
+      "noRepairBetweenEncounters": true,
+      "restoreOnTripEnd": "full_on_bank_none_on_overrun",
+      "bankOfferedOnlyAfterSurviving": true,
+      "safetyBonusForPushing": false
+    },
+    "nowMs": 1790000000000
+  }
+}

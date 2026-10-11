@@ -39,7 +39,8 @@ import { createUnitInstance } from "../src/repo/unitInstances.js";
 import { hasAccess } from "../src/unlocks/access.js";
 import { bankTrip, settleEncounter, stakesPreview, type StakesPreview } from "../src/trip/service.js";
 import { redactForeignAccountIds } from "../src/routes/ledger.js";
-import { applyEarnFloor, mergeLevelAfterDeath, planUnitLosses, transferCausationId } from "../src/trip/stakes.js";
+import { applyEarnFloor, chosenEncounterTerms, mergeLevelAfterDeath, planUnitLosses, transferCausationId } from "../src/trip/stakes.js";
+import { partyLoot } from "../src/trip/loot.js";
 import { appRolePool, testPool, truncateAll, unique } from "./helpers.js";
 import { rebuildMixed, rebuildPlan, weeklyFreeEarn } from "../../../scripts/balance/model.js";
 import { doubleHandlers, type EncounterPlan } from "../src/dev/tripDouble.js";
@@ -462,7 +463,7 @@ describe("per-death de-merge on a BANKED trip, and the bank preview equals the b
     await push(d, tripId, 1);
     await encounter(d, 2, { kind: "stalemate", kill: [d.c] });
     const p = await preview(d);
-    expect(p.bankNow.unitsDeMerged).toEqual([
+    expect(p.bankNow!.unitsDeMerged).toEqual([
       { ref: d.a, typeId: "desert.dust_rider", fromLevel: 3, toLevel: 2, diedAtEncounter: 1 },
       { ref: d.c, typeId: "desert.well_digger", fromLevel: 1, toLevel: 1, diedAtEncounter: 2 },
     ]);
@@ -470,10 +471,10 @@ describe("per-death de-merge on a BANKED trip, and the bank preview equals the b
     const results = await Promise.all([bank(d, tripId, 2), bank(d, tripId, 2), bank(d, tripId, 2)]);
     for (const r of results) expect(r.statusCode, r.body).toBe(200);
     const winner = results.map((r) => r.json()).find((b) => !b.replayed)!;
-    expect(winner.restored.deMerged).toEqual(p.bankNow.unitsDeMerged);
-    expect(winner.requested).toBe(p.bankNow.total);
-    expect(winner.credited + winner.discarded).toBe(p.bankNow.total);
-    expect(await balance(d.accountId)).toBe(before + p.bankNow.forecast.wouldCredit);
+    expect(winner.restored.deMerged).toEqual(p.bankNow!.unitsDeMerged);
+    expect(winner.requested).toBe(p.bankNow!.total);
+    expect(winner.credited + winner.discarded).toBe(p.bankNow!.total);
+    expect(await balance(d.accountId)).toBe(before + p.bankNow!.forecast.wouldCredit);
     // De-merged exactly once despite three banks.
     expect(await levelOf(d.a)).toBe(2);
     expect(await levelOf(d.c)).toBe(1); // floored
@@ -638,7 +639,21 @@ describe("the attacking party's owner risks nothing", () => {
     expect((await pool.query("SELECT * FROM standing_party WHERE account_id = $1", [o.accountId])).rows).toEqual(partyRowBefore);
     expect((await call(o, "GET", "/me/party")).json()).toEqual(partyViewBefore);
     expectNotReduced(permBefore, await permanence(o.accountId, o.caravanId));
-    expect(await balance(o.accountId)).toBe(coinBefore + coinForEncounter(1, BAND) + TUNABLES.COIN_PER_PARTY_WIN);
+    // Chunk 15 QA S4: each hold pays the owner its depth-scaled loot (the double's held depth is
+    // 512) at THAT encounter's chosen-row band; the overrun pays the transfer + party win and no loot.
+    const lootAt = async (tripId: string, n: number) => partyLoot("caravan_held", 512, coinForEncounter(n, (await chosenEncounterTerms(pool, tripId, n)).band));
+    const loot1 = await lootAt(t1, 1);
+    expect(loot1).toBeGreaterThan(0);
+    // o may also have been drawn for d2's (held) encounter 1: one loot credit per hold it was served in.
+    const lootCredits = (await eventsOf(o.accountId, "coin_earned")).filter((e) => e.payload["reason"] === "party_loot");
+    expect(lootCredits.map((e) => e.payload["tripId"])).toContain(t1);
+    let lootTotal = 0;
+    for (const e of lootCredits) {
+      const want = await lootAt(String(e.payload["tripId"]), Number(e.payload["encounterIndex"]));
+      expect(e.payload["amount"]).toBe(want);
+      lootTotal += want;
+    }
+    expect(await balance(o.accountId)).toBe(coinBefore + lootTotal + coinForEncounter(1, BAND) + TUNABLES.COIN_PER_PARTY_WIN);
     const ownerTypes = new Set((await eventsOf(o.accountId)).map((e) => e.event_type));
     for (const t of ["unit_demerged_on_death", "unit_lost_on_wipe", "coin_lost_on_wipe", "coin_spent", "standing_party_invalidated", "unit_retired"]) expect(ownerTypes.has(t as never), t).toBe(false);
 
@@ -650,6 +665,7 @@ describe("the attacking party's owner risks nothing", () => {
       coinEarned: coinForEncounter(1, BAND) + TUNABLES.COIN_PER_PARTY_WIN,
       coinTransferred: coinForEncounter(1, BAND),
       partyWinCoin: TUNABLES.COIN_PER_PARTY_WIN,
+      lootCoin: 0,
       coinDiscardedAtCap: 0,
       tripId: t2,
       encounterIndex: 2,
@@ -657,7 +673,7 @@ describe("the attacking party's owner risks nothing", () => {
     // Chunk 19 QA S1: the feed names the defender by username, never by account id.
     expect(entry.defender).not.toHaveProperty("accountId");
     expect(JSON.stringify(feed)).not.toContain(d2.accountId);
-    expect(feed.entries.find((e: { jobId: string }) => e.jobId === `encounter:${t1}:1`)).toMatchObject({ outcomeKind: "caravan_held", coinEarned: 0, partyWinCoin: 0, coinTransferred: 0 });
+    expect(feed.entries.find((e: { jobId: string }) => e.jobId === `encounter:${t1}:1`)).toMatchObject({ outcomeKind: "caravan_held", coinEarned: loot1, lootCoin: loot1, partyWinCoin: 0, coinTransferred: 0, outcome: { loot: loot1 } });
   });
 });
 
@@ -955,13 +971,13 @@ describe("QA N3: the bank clamps against the balance its forecast showed (the pe
     const row = await caravanRow(d);
     const p = await stakesPreview(appRole, row, later);
     // ~2,000 coins pending (a few more if the test ran slowly): the room is ~1,000, below the bank's total.
-    expect(p.bankNow.forecast.balance).toBeGreaterThanOrEqual(TUNABLES.COIN_STORAGE_CAP - 1_000);
-    expect(p.bankNow.forecast.wouldCredit).toBe(TUNABLES.COIN_STORAGE_CAP - p.bankNow.forecast.balance);
-    expect(p.bankNow.forecast.wouldCredit).toBeLessThan(p.bankNow.total); // without the flush the bank would credit the full total
-    expect(p.bankNow.forecast.wouldDiscard).toBe(p.bankNow.total - p.bankNow.forecast.wouldCredit);
+    expect(p.bankNow!.forecast.balance).toBeGreaterThanOrEqual(TUNABLES.COIN_STORAGE_CAP - 1_000);
+    expect(p.bankNow!.forecast.wouldCredit).toBe(TUNABLES.COIN_STORAGE_CAP - p.bankNow!.forecast.balance);
+    expect(p.bankNow!.forecast.wouldCredit).toBeLessThan(p.bankNow!.total); // without the flush the bank would credit the full total
+    expect(p.bankNow!.forecast.wouldDiscard).toBe(p.bankNow!.total - p.bankNow!.forecast.wouldCredit);
     const res = await withTransaction(appRole, (c) => bankTrip(c, row, { tripId, encounterIndex: 1 }, later));
-    expect(res.credited).toBe(p.bankNow.forecast.wouldCredit);
-    expect(res.discarded).toBe(p.bankNow.forecast.wouldDiscard);
+    expect(res.credited).toBe(p.bankNow!.forecast.wouldCredit);
+    expect(res.discarded).toBe(p.bankNow!.forecast.wouldDiscard);
     expect(await balance(d.accountId)).toBe(TUNABLES.COIN_STORAGE_CAP);
   });
 
@@ -1030,10 +1046,10 @@ describe("QA probe, randomized: preview == applied, Coin conserved (transfer + d
         const r = await bank(d, tripId, k);
         expect(r.statusCode, r.body).toBe(200);
         const b = r.json();
-        expect(b.restored.deMerged).toEqual(p!.bankNow.unitsDeMerged);
-        expect(b.requested).toBe(p!.bankNow.total);
-        expect(b.credited).toBe(p!.bankNow.forecast.wouldCredit);
-        for (const u of p!.bankNow.unitsDeMerged) expect(await levelOf(u.ref)).toBe(u.toLevel);
+        expect(b.restored.deMerged).toEqual(p!.bankNow!.unitsDeMerged);
+        expect(b.requested).toBe(p!.bankNow!.total);
+        expect(b.credited).toBe(p!.bankNow!.forecast.wouldCredit);
+        for (const u of p!.bankNow!.unitsDeMerged) expect(await levelOf(u.ref)).toBe(u.toLevel);
         expect(await balance(d.accountId)).toBe(balBefore + b.credited);
       } else {
         const recBefore = await balance(recipient.accountId);
@@ -1133,7 +1149,7 @@ describe("system (authored) owners: Coin lost to them is destroyed, nothing is m
     expect(accrued).toBeLessThan(coinForEncounter(1, bandOf(9_000).index));
     const res = await bank(d, tripId, 1);
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.json().requested).toBe(p.bankNow.total);
+    expect(res.json().requested).toBe(p.bankNow!.total);
     const earned = (await eventsOf(d.accountId, "coin_earned")).filter((e) => e.payload["tripId"] === tripId);
     expect(earned.map((e) => [e.payload["reason"], e.payload["amount"]])).toEqual([
       ["encounter_survived", accrued],

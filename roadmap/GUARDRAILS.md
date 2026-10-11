@@ -142,7 +142,8 @@ right now, even though multi-caravan is post-v1.
 
 - **Account-level** (persists across future caravans):
   trap Reputation / ladder / unlock web, siege Reputation / ladder / unlock web.
-  Also account-level: Coin and its storage cap, purchases, auth identity.
+  Also account-level: Coin and its storage cap, purchases, auth identity, and the
+  hourly trip cap (one cap shared by all of an account's caravans; chunk 15 QA D2).
 - **Caravan-level** (region-specific, does not transfer):
   living-unit Reputation / ladder / unlock web, the region choice itself, the camp
   layout, owned living-unit instances and their merge levels.
