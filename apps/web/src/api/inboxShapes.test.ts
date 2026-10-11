@@ -7,8 +7,9 @@ import inboxJson from "../test/contract/inbox.json";
 import inboxPrefsJson from "../test/contract/inbox-preferences.json";
 import inboxReadJson from "../test/contract/inbox-read.json";
 import inboxUnreadJson from "../test/contract/inbox-unread.json";
+import inboxStrikesJson from "../test/contract/inbox-strikes.json";
 import { ShapeError, expectShape } from "./shape.ts";
-import { inboxShape, inboxUnreadShape } from "./inboxShapes.ts";
+import { inboxMarkResultShape, inboxShape, inboxStrikeLinesShape, inboxUnreadShape } from "./inboxShapes.ts";
 
 const body = (): { items: Record<string, unknown>[] } & Record<string, unknown> => JSON.parse(JSON.stringify(inboxJson.body)) as { items: Record<string, unknown>[] };
 const refuse = (b: unknown): string => {
@@ -26,8 +27,10 @@ describe("inboxShape", () => {
     const owner = expectShape(inboxShape, inboxJson.body);
     expect(owner.items[0]?.category).toBe("party_strike");
     expect(owner.unreadCount).toBeGreaterThan(0);
-    const read = expectShape(inboxShape, inboxReadJson.body);
+    const read = expectShape(inboxMarkResultShape, inboxReadJson.body);
     expect(read.unreadCount).toBe(0);
+    expect(read.ignored).toEqual([]);
+    expect(expectShape(inboxStrikeLinesShape, inboxStrikesJson.body).strikes.length).toBeGreaterThan(0);
     expect(read.items.every((i) => !i.unread)).toBe(true);
     const prefs = expectShape(inboxShape, inboxPrefsJson.body);
     expect(prefs.items.map((i) => i.category)).toEqual(expect.arrayContaining(["refugees_arrived", "trip_cap_refilled", "mine_near_cap"]));
@@ -39,6 +42,22 @@ describe("inboxShape", () => {
     const strike = b.items[0] as { detail: { strikes: { defender: Record<string, unknown> }[] } };
     strike.detail.strikes[0]!.defender["accountId"] = "11111111-1111-4111-8111-111111111111";
     expect(refuse(b)).toMatch(/accountId/);
+  });
+
+  it("QA N8: refuses a defender caravan id, and any key ending in accountId anywhere on a strike line", () => {
+    const line = (b: ReturnType<typeof body>) => (b.items[0] as { detail: { strikes: Record<string, unknown>[] } }).detail.strikes[0]!;
+    const a = body();
+    (line(a)["defender"] as Record<string, unknown>)["caravanId"] = "22222222-2222-4222-8222-222222222222";
+    expect(refuse(a)).toMatch(/caravanId/);
+    const b = body();
+    line(b)["defenderAccountId"] = "11111111-1111-4111-8111-111111111111";
+    expect(refuse(b)).toMatch(/defenderAccountId/);
+    const c = body();
+    line(c)["extra"] = { nested: { ownerAccountID: "x" } };
+    expect(refuse(c)).toMatch(/ownerAccountID/);
+    const lines = JSON.parse(JSON.stringify(inboxStrikesJson.body)) as { strikes: Record<string, unknown>[] };
+    lines.strikes[0]!["defenderAccountId"] = "x";
+    expect(() => expectShape(inboxStrikeLinesShape, lines)).toThrow(/defenderAccountId/);
   });
 
   it("refuses an unknown category and a detail that does not match its category", () => {

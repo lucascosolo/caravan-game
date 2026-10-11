@@ -459,12 +459,17 @@ describe("client–server contract (chunk 08 QA D4)", () => {
 
     // Chunk 29: the inbox, recorded last for the same reason. The real-resolver fight above
     // struck `fought`'s party: its owner's inbox holds that strike batch (with the replay link).
-    const ownerInbox = (await record("inbox", "GET /me/inbox", await call(fought, "GET", "/me/inbox"), 200)) as { items: { category: string; unread: boolean; detail: { strikes: { jobId: string }[] } }[]; unreadCount: number };
+    const ownerInbox = (await record("inbox", "GET /me/inbox", await call(fought, "GET", "/me/inbox"), 200)) as { items: { key: string; version: number; category: string; unread: boolean; detail: { strikes: { jobId: string }[] } }[]; unreadCount: number };
     expect(ownerInbox.items[0]).toMatchObject({ category: "party_strike", unread: true });
     expect(ownerInbox.items[0]!.detail.strikes.map((x) => x.jobId)).toContain(commit.jobId);
     expect(JSON.stringify(ownerInbox)).not.toContain(v.accountId);
     await record("inbox-unread", "GET /me/inbox/unread", await call(fought, "GET", "/me/inbox/unread"), 200);
-    await record("inbox-read", "POST /me/inbox/read", await call(fought, "POST", "/me/inbox/read", { all: true }), 200);
+    // Chunk 29 QA S4: one batch's lines on demand (the route an older batch's "Show the fights" calls).
+    const strikesBody = (await record("inbox-strikes", "GET /me/inbox/strikes/:window", await call(fought, "GET", `/me/inbox/strikes/${ownerInbox.items[0]!.key.split(":")[1]}`), 200)) as { strikes: { jobId: string }[] };
+    expect(strikesBody.strikes.map((x) => x.jobId)).toContain(commit.jobId);
+    // QA S1: "Mark all read" sends the key and version of every unread item on screen.
+    const shown = ownerInbox.items.filter((i) => i.unread).map((i) => ({ key: i.key, version: i.version }));
+    await record("inbox-read", "POST /me/inbox/read", await call(fought, "POST", "/me/inbox/read", { marks: shown }), 200);
     // Every other category, on the player's own account two hours on (the frozen clock moves;
     // sessions expire by the database's clock): the trip cap is full again, the refugee drip
     // owes a free menu, and the balance is near the storage cap.
@@ -480,6 +485,7 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     expect(prefs.items.map((i) => i.category)).toEqual(expect.arrayContaining(["mine_near_cap", "refugees_arrived", "trip_cap_refilled"]));
     vi.setSystemTime(FROZEN_MS);
     for (const name of ["inbox", "inbox-read", "inbox-preferences"]) recorded.get(name)!.body = stableInbox(recorded.get(name)!.body);
+    recorded.get("inbox-strikes")!.body = { ...(recorded.get("inbox-strikes")!.body as object), window: 1 };
 
     // Write the fixtures (only when they changed, so a rerun leaves the tree clean).
     mkdirSync(OUT, { recursive: true });
