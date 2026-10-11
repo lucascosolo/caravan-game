@@ -940,6 +940,7 @@ h2 {
   flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 0.5rem;
+}
 /* ---------- chunk 24: the first-session guide ---------- */
 /* A card in the normal flow (never an overlay over the controls it points at). Marked by a
    word ("Guide"), a border style and a ✓ / ○ shape per step, not by colour alone. */
