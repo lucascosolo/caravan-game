@@ -222,8 +222,8 @@ describe("chunk 32: every panel against the seeded history", () => {
     ]);
   });
 
-  it("overrun rate by the caravan's Reputation band (every caravan starts at 1000: band 3)", () => {
-    expect(dash.panels.overrunByBand).toEqual([{ band: 3, encounters: 4, held: 2, overrun: 1, stalemate: 1, overrunRateBp: 2500 }]);
+  it("overrun rate by the caravan's Reputation band (every caravan starts at REPUTATION_START, 400 since the chunk 37 balance pass: band 1)", () => {
+    expect(dash.panels.overrunByBand).toEqual([{ band: 1, encounters: 4, held: 2, overrun: 1, stalemate: 1, overrunRateBp: 2500 }]);
   });
 
   it("unit pick and win rates on both sides; trap and siege usage; stances and slot fill", () => {
@@ -362,21 +362,21 @@ describe("chunk 32: every panel against the seeded history", () => {
 
   it("pool health: the four live parties and nine caravans by band (fights move Reputation), bands below empty (alarm), served shares by band", () => {
     const bands = dash.panels.poolHealth.bands;
-    expect(bands.map((b) => b.band)).toEqual([0, 1, 2, 3]);
-    for (const b of bands.slice(0, 2)) expect(b).toMatchObject({ liveParties: 0, authoredParties: 0, caravans: 0, served: 0, liveShareBp: null, alarm: "empty" });
-    expect(bands[3]).toMatchObject({ low: 1000, high: 1299 });
+    // Chunk 37 balance pass: REPUTATION_START 1000 → 400, so the caravans and parties sit in band 1.
+    expect(bands.map((b) => b.band)).toEqual([0, 1]);
+    expect(bands[1]).toMatchObject({ low: 400, high: 699 });
     expect(bands.reduce((s, b) => s + b.liveParties, 0)).toBe(4);
     expect(bands.reduce((s, b) => s + b.authoredParties, 0)).toBe(0);
     expect(bands.reduce((s, b) => s + b.caravans, 0)).toBe(9);
-    // Encounter 1 searches 150 below the caravan (band 2); encounter 2 searches above it (band 3).
-    expect(bands[2]).toMatchObject({ served: 3, servedAuthored: 0, servedAuthoredShareBp: 0 });
-    expect(bands[3]).toMatchObject({ served: 1, servedAuthored: 0, servedAuthoredShareBp: 0 });
+    // Encounter 1 searches 150 below the caravan (band 0); encounter 2 searches above it (band 1).
+    expect(bands[0]).toMatchObject({ authoredParties: 0, served: 3, servedAuthored: 0, servedAuthoredShareBp: 0 });
+    expect(bands[1]).toMatchObject({ served: 1, servedAuthored: 0, servedAuthoredShareBp: 0 });
     for (const b of bands) {
       const total = b.liveParties + b.authoredParties;
       expect(b.alarm, `band ${b.band}`).toBe(total < 3 ? "empty" : b.liveParties === 0 ? "no_live" : "ok");
     }
     expect(dash.panels.poolHealth.alarms).toBe(bands.filter((b) => b.alarm !== "ok").length);
-    expect(dash.panels.poolHealth.alarms).toBeGreaterThanOrEqual(2);
+    expect(dash.panels.poolHealth.alarms).toBeGreaterThanOrEqual(1); // band 0 (chunk 37: two bands in play, was ≥ 2 of four)
   });
 
   it("retention: day-1/7/30 return over backdated accounts; an opted-out account is left out", async () => {

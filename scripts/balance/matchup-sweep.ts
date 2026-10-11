@@ -126,6 +126,8 @@ export interface SweepReport {
   readonly matrix: Record<string, Record<number, number>>;
   readonly tripCurves: Record<number, { skilled: number[]; naive: number[]; deathsPerHeld: number }>;
   readonly firstFightGuided: number;
+  /** Of the posted units in overrun fights, the share killed IN the fight (trip-ev / measured-ev `--final`). */
+  readonly finalFightDeathShare: number;
 }
 
 export async function sweep(opts: { quick: boolean; diag?: boolean; trips?: boolean; jobs: number; seeds: number; script: string }): Promise<SweepReport> {
@@ -254,7 +256,8 @@ export async function sweep(opts: { quick: boolean; diag?: boolean; trips?: bool
   out("");
   out(`Most-often-best layouts: ${[...wins.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([n, c]) => `${n} ${c}`).join(", ")}`);
   const tripTasks: TripTask[] = [];
-  if (opts.trips === false) return { lines, matrix, tripCurves: {}, firstFightGuided: NaN };
+  const finalFightDeathShare = share(overRows.reduce((s, x) => s + x.r.deaths, 0), overRows.reduce((s, x) => s + x.n, 0));
+  if (opts.trips === false) return { lines, matrix, tripCurves: {}, firstFightGuided: NaN, finalFightDeathShare };
   const typicalOf = (r: RegionId, b: number) => rosters.find((x) => x.label === `b${b}-typical ${r} defensive`)!;
   for (const r of opts.quick ? (["desert", "mountain"] as RegionId[]) : [...REGION_IDS]) for (const b of bands) for (let seed = 1; seed <= opts.seeds; seed++) for (const naive of [false, true]) tripTasks.push({ kind: "trip", roster: typicalOf(r, b), band: b, seed, layouts: tripLayouts, naive });
   const trips = (await runParallel(opts.script, tripTasks, work, opts.jobs)) as TripRow[];
@@ -289,7 +292,7 @@ export async function sweep(opts: { quick: boolean; diag?: boolean; trips?: bool
   out("");
   out(`Equilibrium band (highest band with skilled encounter-1 hold ≥ ${pct(breakEven)}): ` + keys.map((k) => `${k}: ${bands.filter((b) => (matrix[k]?.[b] ?? 0) >= breakEven).pop() ?? "below 0"}`).join(", "));
   const guidedFresh = rows.filter((r, i) => matchTasks[i]!.roster.label.startsWith("fresh") && r.band === 0);
-  return { lines, matrix, tripCurves, firstFightGuided: share(guidedFresh.filter((r) => held(r.guided)).length, guidedFresh.length) };
+  return { lines, matrix, tripCurves, firstFightGuided: share(guidedFresh.filter((r) => held(r.guided)).length, guidedFresh.length), finalFightDeathShare };
 }
 
 const isMain = process.argv[1]?.endsWith("matchup-sweep.ts") ?? false;
@@ -303,5 +306,5 @@ if (isMain && !serveIfChild(work)) {
   for (const l of report.lines) console.log(l);
   console.log(`(${((Date.now() - t0) / 1000).toFixed(0)} s)`);
   const j = process.argv.indexOf("--json");
-  if (j >= 0) writeFileSync(process.argv[j + 1]!, JSON.stringify({ matrix: report.matrix, tripCurves: report.tripCurves }, null, 1));
+  if (j >= 0) writeFileSync(process.argv[j + 1]!, JSON.stringify({ matrix: report.matrix, tripCurves: report.tripCurves, finalFightDeathShare: report.finalFightDeathShare }, null, 1));
 }

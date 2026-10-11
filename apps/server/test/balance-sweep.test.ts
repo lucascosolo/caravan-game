@@ -13,6 +13,8 @@
  */
 import { describe, expect, it } from "vitest";
 import { firstTrip, firstTripTasks, summarize } from "../../../scripts/balance/first-trip.js";
+import { corpus } from "../../../scripts/balance/matchup-sweep.js";
+import { turtleRoster } from "../../../scripts/balance/probes.js";
 import { NAIVE, SKILLED, authoredParties, bandTypicalRoster, bestFight, manifestOf } from "../../../scripts/balance/sweep.js";
 
 /** Tunable (chunk 37): the CI slice's wall-clock budget. */
@@ -20,6 +22,13 @@ const SWEEP_BUDGET_MS = 150_000;
 const started = Date.now();
 
 describe("balance sweep — the CI slice (PHASE-2 §37)", () => {
+  it("the full sweep's corpus and the standing probes' turtle pack legally (the scripts typecheck through this import)", () => {
+    expect(corpus(true).rosters).toHaveLength(18);
+    expect(corpus(false).rosters).toHaveLength(68);
+    for (const r of corpus(false).rosters) expect(() => manifestOf(r)).not.toThrow();
+    for (const region of ["desert", "high_plains", "mountain", "badlands"] as const) expect(manifestOf(turtleRoster(region)).units).toHaveLength(8);
+  });
+
   it("a fresh account's first trip: encounter 1 in band 0, the guided layout holds ≥ 70 %, encounter 2 held more often than not", () => {
     const rs = firstTripTasks(2, 1).map(firstTrip);
     const s = summarize(rs);

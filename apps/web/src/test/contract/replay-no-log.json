@@ -54,7 +54,7 @@
       "coin": [
         {
           "reason": "encounter_survived",
-          "amount": 1000,
+          "amount": 600,
           "discarded": 0
         }
       ],

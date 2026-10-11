@@ -95,7 +95,7 @@
       "trip": {
         "ended": false,
         "endReason": null,
-        "unbankedCoin": 1000
+        "unbankedCoin": 600
       }
     },
     "resolverVersion": 8,
@@ -243,7 +243,7 @@
     },
     "stored": {
       "rawBytes": 4026,
-      "storedBytes": 1208,
+      "storedBytes": 1209,
       "encoding": "gzip",
       "sha256": "a000000000000000000000000000000000000000000000000000000000000002",
       "contentHash": "a000000000000000000000000000000000000000000000000000000000000003",

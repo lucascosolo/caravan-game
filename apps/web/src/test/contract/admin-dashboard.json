@@ -223,8 +223,8 @@
       "FENCE_SEGMENT_HP_DEFAULT": 400,
       "FENCE_HIT_SEGMENT_CAP": 512,
       "FENCE_MATERIAL_BUDGET": 20,
-      "TRAP_DAMAGE_MIN": 60,
-      "TRAP_DAMAGE_MAX": 250,
+      "TRAP_DAMAGE_MIN": 90,
+      "TRAP_DAMAGE_MAX": 375,
       "TRAP_SLOW_MAGNITUDE_DEFAULT": 409,
       "TRAP_ROOT_DURATION_DEFAULT": 1500,
       "TRAP_SLOT_CAP": 6,
@@ -335,7 +335,7 @@
       ],
       "overrunByBand": [
         {
-          "band": 3,
+          "band": 1,
           "encounters": 4,
           "held": 2,
           "overrun": 1,
@@ -586,14 +586,14 @@
           "type": "coin_earned",
           "reason": "encounter_survived",
           "events": 2,
-          "coin": 2000,
+          "coin": 1200,
           "discarded": 0
         },
         {
           "type": "coin_earned",
           "reason": "party_loot",
           "events": 2,
-          "coin": 706,
+          "coin": 424,
           "discarded": 0
         },
         {
@@ -628,7 +628,7 @@
           "type": "coin_transferred_to_party_owner",
           "reason": "caravan_overrun",
           "events": 1,
-          "coin": 1000,
+          "coin": 600,
           "discarded": 0
         }
       ],
@@ -667,22 +667,22 @@
           {
             "decile": 2,
             "players": 1,
-            "minFree": 1125,
-            "maxFree": 1125,
-            "avgFree": 1125,
+            "minFree": 725,
+            "maxFree": 725,
+            "avgFree": 725,
             "avgPaid": 0,
             "payers": 0,
-            "ceilingToFreeBp": 533333
+            "ceilingToFreeBp": 827586
           },
           {
             "decile": 3,
             "players": 1,
-            "minFree": 1125,
-            "maxFree": 1125,
-            "avgFree": 1125,
+            "minFree": 725,
+            "maxFree": 725,
+            "avgFree": 725,
             "avgPaid": 0,
             "payers": 0,
-            "ceilingToFreeBp": 533333
+            "ceilingToFreeBp": 827586
           }
         ]
       },
@@ -792,32 +792,6 @@
             "band": 0,
             "low": 100,
             "high": 399,
-            "liveParties": 0,
-            "authoredParties": 0,
-            "caravans": 0,
-            "served": 0,
-            "servedAuthored": 0,
-            "liveShareBp": null,
-            "servedAuthoredShareBp": null,
-            "alarm": "empty"
-          },
-          {
-            "band": 1,
-            "low": 400,
-            "high": 699,
-            "liveParties": 0,
-            "authoredParties": 0,
-            "caravans": 0,
-            "served": 0,
-            "servedAuthored": 0,
-            "liveShareBp": null,
-            "servedAuthoredShareBp": null,
-            "alarm": "empty"
-          },
-          {
-            "band": 2,
-            "low": 700,
-            "high": 999,
             "liveParties": 1,
             "authoredParties": 0,
             "caravans": 1,
@@ -828,9 +802,9 @@
             "alarm": "empty"
           },
           {
-            "band": 3,
-            "low": 1000,
-            "high": 1299,
+            "band": 1,
+            "low": 400,
+            "high": 699,
             "liveParties": 3,
             "authoredParties": 0,
             "caravans": 12,
@@ -841,7 +815,7 @@
             "alarm": "ok"
           }
         ],
-        "alarms": 3
+        "alarms": 1
       }
     }
   }

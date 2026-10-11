@@ -9,15 +9,15 @@
     "currentResolverVersion": 8,
     "outcome": {
       "kind": "caravan_held",
-      "loot": 371,
-      "depth": 529,
+      "loot": 172,
+      "depth": 446,
       "units": [
         {
-          "hp": 0,
+          "hp": 1016,
           "ref": "00000000-0000-4000-8000-000000000002"
         },
         {
-          "hp": 413,
+          "hp": 425,
           "ref": "00000000-0000-4000-8000-000000000003"
         }
       ],
@@ -47,7 +47,7 @@
           "ref": "f5"
         }
       ],
-      "endTick": 790,
+      "endTick": 605,
       "spentTraps": [
         "t0"
       ]
@@ -56,8 +56,8 @@
       "scale": 1024,
       "measuredFrom": "ring_line",
       "lootCurve": "depth_pow_1_5",
-      "value": 529,
-      "lootShare": 380
+      "value": 446,
+      "lootShare": 293
     },
     "party": {
       "partyId": "00000000-0000-4000-8000-000000000004",
@@ -95,7 +95,7 @@
       "trip": {
         "ended": false,
         "endReason": null,
-        "unbankedCoin": 1000
+        "unbankedCoin": 600
       }
     },
     "resolverVersion": 8,
@@ -118,8 +118,8 @@
       ]
     },
     "stored": {
-      "rawBytes": 5033,
-      "storedBytes": 1493,
+      "rawBytes": 4026,
+      "storedBytes": 1209,
       "encoding": null,
       "sha256": "a000000000000000000000000000000000000000000000000000000000000002",
       "contentHash": "a000000000000000000000000000000000000000000000000000000000000003",
@@ -145,7 +145,7 @@
         "fencesBroken": 0,
         "raidersFallen": 2,
         "trapsNullified": 0,
-        "defendersFallen": 1
+        "defendersFallen": 0
       }
     },
     "log": null
