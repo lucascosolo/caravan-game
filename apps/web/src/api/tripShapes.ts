@@ -21,6 +21,7 @@ import type {
   TripStartResult,
   TripStatusView,
   TripView,
+  VoidedEndingView,
 } from "./tripTypes.ts";
 
 const ID = string({ maxLength: 160 });
@@ -115,11 +116,30 @@ const overrunEnding: Guard<OverrunEndingView> = object({
   lossesApplied: boolean(),
 });
 
+/**
+ * Chunk 15 QA D3: the void path's ending, as the `trip_voided` event recorded it. Every voided
+ * trip post-dates chunk 19, so its refit's `deMerged` is REQUIRED (as on a bank answer): a
+ * missing list is `bad_payload`, never "nobody died".
+ */
+const voidedEnding: Guard<VoidedEndingView> = object({
+  kind: literal("voided"),
+  voidedEncounter: integer({ min: 1, max: 1_000_000 }),
+  reason: string({ maxLength: 4096 }),
+  encountersSurvived: ENCOUNTER,
+  unbankedCoin: COIN,
+  deliveryBonus: COIN,
+  requested: COIN,
+  credited: COIN,
+  discarded: COIN,
+  restored: restoredShape,
+});
+
 const tripEnding: Guard<TripEndingView> = (v, path) => {
   const kind = v && typeof v === "object" ? (v as { kind?: unknown }).kind : undefined;
   if (kind === "banked") return bankedEnding(v, path);
   if (kind === "overrun") return overrunEnding(v, path);
-  throw new ShapeError(`${path}.kind`, `one of "banked" | "overrun"`, kind);
+  if (kind === "voided") return voidedEnding(v, path);
+  throw new ShapeError(`${path}.kind`, `one of "banked" | "overrun" | "voided"`, kind);
 };
 
 const tripView: Guard<TripView> = object({
@@ -127,7 +147,7 @@ const tripView: Guard<TripView> = object({
   manifestId: ID,
   startedAt: TS,
   endedAt: nullable(TS),
-  endReason: nullable(literal("banked", "overrun")),
+  endReason: nullable(literal("banked", "overrun", "voided")),
   phase: literal("arranging", "resolving", "resolution_unavailable", "decide", "ended"),
   encountersResolved: ENCOUNTER,
   currentEncounter: nullable(integer({ min: 1, max: 1_000_000 })),
@@ -154,19 +174,20 @@ export const encounterCommitShape: Guard<EncounterCommitResult> = object({ jobId
 const fenceIntact = object({ ref: REF, tierId: ID, hp: HP, maxHp: HP });
 const fenceDestroyed = object({ ref: REF, tierId: ID, maxHp: HP });
 
-export const stakesPreviewShape: Guard<StakesPreview> = object({
+const stakesPreviewFields: Guard<StakesPreview> = object({
   tripId: ID,
   encountersSurvived: ENCOUNTER,
   decisionOpen: boolean(),
   decisionFor: nullable(integer({ min: 1, max: 1_000_000 })),
   unbankedCoin: object({ total: COIN, byEncounter: array(object({ index: integer({ min: 1, max: 1_000_000 }), coin: COIN }), { maxLength: MAX_ENCOUNTERS_SHOWN }) }),
-  bankNow: object({
+  // Chunk 15 QA N2: omitted before the first survived encounter (nothing to bank yet).
+  bankNow: optional(object({
     encounterCoin: COIN,
     deliveryBonus: COIN,
     total: COIN,
     forecast: object({ balance: COIN, cap: COIN, room: COIN, prospectiveEarn: COIN, wouldCredit: COIN, wouldDiscard: COIN, atCap: boolean() }),
     unitsDeMerged: array(deMergedUnit, LIST),
-  }),
+  })),
   units: array(
     object({ ...unitRef, hp: HP, maxHp: HP, damage: HP, alive: boolean(), diedAtEncounter: nullable(ENCOUNTER), mergeLevelOnDeath: LEVEL }),
     LIST,
@@ -184,7 +205,7 @@ export const stakesPreviewShape: Guard<StakesPreview> = object({
     index: integer({ min: 1, max: 1_000_000 }),
     reward: COIN,
     bankTotalIfSurvived: COIN,
-    difficulty: object({ escalationApplied: SIGNED, risePerEncounter: SIGNED, harderThanThisEncounter: boolean() }),
+    difficulty: object({ escalationApplied: SIGNED, risePerEncounter: SIGNED, harderThanThisEncounter: optional(boolean()) }),
     partyArrivesFresh: boolean(),
   }),
   lastOpponent: nullable(
@@ -194,6 +215,23 @@ export const stakesPreviewShape: Guard<StakesPreview> = object({
     }),
   ),
 });
+
+/**
+ * Chunk 15 QA N2: `bankNow` and `nextEncounter.difficulty.harderThanThisEncounter` are omitted
+ * ONLY before the first survived encounter. Once one is survived both must be there: an absent
+ * bank quote after surviving is `bad_payload`, never a silent "nothing to bank" (the chunk 23
+ * QA S2 lesson: an optional field must not swallow a server drift).
+ */
+export const stakesPreviewShape: Guard<StakesPreview> = (v, path) => {
+  const p = stakesPreviewFields(v, path);
+  if (p.encountersSurvived >= 1) {
+    if (p.bankNow === undefined) throw new ShapeError(`${path}.bankNow`, "present once an encounter is survived", undefined);
+    if (p.nextEncounter.difficulty.harderThanThisEncounter === undefined) {
+      throw new ShapeError(`${path}.nextEncounter.difficulty.harderThanThisEncounter`, "present once an encounter is survived", undefined);
+    }
+  }
+  return p;
+};
 
 export const pushResultShape: Guard<PushResult> = object({ tripId: ID, pushedPast: ENCOUNTER, nextEncounter: ENCOUNTER, replayed: boolean() });
 

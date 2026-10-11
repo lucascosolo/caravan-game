@@ -435,6 +435,7 @@ export const STRINGS = {
     unbankedTotal: (coin: number): string => `${coin} Coin carried on the trail, not yet banked.`,
     unbankedEncounter: (n: number, coin: number): string => `Encounter ${n}: ${coin} Coin`,
     bankHeading: "Bank now",
+    bankNotYet: "Nothing to bank yet: a bank is offered once you survive an encounter.",
     bankLine: (encounterCoin: number, bonus: number, total: number): string => `${encounterCoin} Coin from the encounters + ${bonus} Coin for the delivery = ${total} Coin.`,
     bankForecastFits: (credit: number, balance: number, cap: number): string => `All ${credit} Coin fits: your store holds ${balance} of ${cap} Coin right now.`,
     bankDemergedHeading: "Units that died lose a merge level when you bank:",
@@ -513,6 +514,13 @@ export const STRINGS = {
     summaryEncounters: "Encounter by encounter",
     summaryEncounterLine: (n: number, outcome: string, coin: number): string => `Encounter ${n}: ${outcome} ${coin > 0 ? `+${coin} Coin.` : ""}`.trim(),
     summaryRestoreNote: "Nothing else was at risk: the roster left in town and Coin banked before this trip were never touched.",
+    // the voided trip (chunk 15 QA D3): an encounter that could not be resolved
+    summaryVoided: (n: number): string => `Encounter ${n} could not be resolved, so the trip was called off. The caravan is back in town.`,
+    summaryVoidedNothingApplied: (n: number): string => `Nothing from encounter ${n} was applied: no damage, no deaths, no Coin won or lost, nothing paid to the raiders.`,
+    summaryVoidedBanked: (n: number): string => `The trip was banked as of encounter ${n}, the last one survived:`,
+    summaryVoidedNoneSurvived: "No encounter was survived before it, so there was nothing to deliver: no Coin was credited and no unit changed.",
+    summaryVoidedCapSpent: "The trip still used 1 of your available trips: that use is not given back, it returns with time as usual.",
+    summaryVoidedReason: "Why the server could not resolve it",
   },
   /**
    * The home town (chunk 17). Copy rules: the town is a SETTLEMENT, never a base or a camp,

@@ -75,7 +75,8 @@ function trapNames(traps: readonly { readonly typeId: string }[]): string {
 
 export function Stakes({ preview }: { readonly preview: StakesPreview }): JSX.Element {
   const p = preview;
-  const f = p.bankNow.forecast;
+  const bankNow = p.bankNow;
+  const f = bankNow?.forecast;
   const damagedFences = p.fences.intact.filter((x) => x.hp < x.maxHp);
   const rep = p.lastOpponent?.reputation;
   return (
@@ -94,18 +95,27 @@ export function Stakes({ preview }: { readonly preview: StakesPreview }): JSX.El
 
       <section className="card" data-testid="stake-bank">
         <h2>{T.bankHeading}</h2>
-        <p>{T.bankLine(p.bankNow.encounterCoin, p.bankNow.deliveryBonus, p.bankNow.total)}</p>
-        <p data-testid="stake-bank-forecast" className={f.wouldDiscard > 0 ? "error" : undefined} role={f.wouldDiscard > 0 ? "alert" : undefined}>
-          {f.wouldDiscard > 0 ? T.bankForecastOverflow(f.wouldCredit, f.wouldDiscard, f.balance, f.cap) : T.bankForecastFits(f.wouldCredit, f.balance, f.cap)}
-        </p>
-        {p.bankNow.unitsDeMerged.length === 0 ? (
-          <p className="hint" data-testid="stake-bank-demerged-none">
-            {T.bankDemergedNone}
+        {/* Chunk 15 QA N2: the server omits the bank quote before the first survived encounter. */}
+        {!bankNow || !f ? (
+          <p className="hint" data-testid="stake-bank-none">
+            {T.bankNotYet}
           </p>
         ) : (
           <>
-            <p>{T.bankDemergedHeading}</p>
-            <DeMergedList units={p.bankNow.unitsDeMerged} testId="stake-bank-demerged" />
+            <p>{T.bankLine(bankNow.encounterCoin, bankNow.deliveryBonus, bankNow.total)}</p>
+            <p data-testid="stake-bank-forecast" className={f.wouldDiscard > 0 ? "error" : undefined} role={f.wouldDiscard > 0 ? "alert" : undefined}>
+              {f.wouldDiscard > 0 ? T.bankForecastOverflow(f.wouldCredit, f.wouldDiscard, f.balance, f.cap) : T.bankForecastFits(f.wouldCredit, f.balance, f.cap)}
+            </p>
+            {bankNow.unitsDeMerged.length === 0 ? (
+              <p className="hint" data-testid="stake-bank-demerged-none">
+                {T.bankDemergedNone}
+              </p>
+            ) : (
+              <>
+                <p>{T.bankDemergedHeading}</p>
+                <DeMergedList units={bankNow.unitsDeMerged} testId="stake-bank-demerged" />
+              </>
+            )}
           </>
         )}
       </section>
@@ -401,7 +411,11 @@ export function BankOrPushScreen({ api, caravanId, tripId, encounterIndex, onDec
             <p className="hint" role="status">
               {STRINGS.app.loading}
             </p>
-          ) : confirm.kind === "bank" ? (
+          ) : confirm.kind === "bank" && !quote.bankNow ? (
+            <p className="error" data-testid="bank-quote-none">
+              {T.bankNotYet}
+            </p>
+          ) : confirm.kind === "bank" && quote.bankNow ? (
             <>
               <p data-testid="bank-quote">{T.bankConfirmBody(quote.bankNow.total, quote.bankNow.forecast.wouldCredit, quote.bankNow.forecast.wouldDiscard)}</p>
               {quote.bankNow.unitsDeMerged.length === 0 ? (
