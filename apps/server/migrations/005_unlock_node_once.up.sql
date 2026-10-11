@@ -9,6 +9,12 @@
 -- purchase by its account (caravan_id NULL, folded to the nil uuid so it takes part in the
 -- key). The index also serves the access check's read ("which nodes has this owner
 -- reached for this pool").
+--
+-- What this index does NOT do: it says nothing about whether the node is in the owner's
+-- web (a desert caravan's event naming `mountain.grizzly` is unique and accepted), whether
+-- its prerequisites were reached, or whether the cost matches the tier. The spend service
+-- is the only writer and validates all of that against the authored web; the storage layer
+-- only guarantees once-per-node and (migration 006) a well-formed, non-free purchase.
 CREATE UNIQUE INDEX ledger_event_unlock_node_once
   ON ledger_event (
     (payload->>'pool'),

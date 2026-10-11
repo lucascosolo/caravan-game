@@ -1,6 +1,6 @@
 # Chunk 05 — Unlock webs (data + spend logic)
 
-**Depends on:** 03, 04. **Status:** built.
+**Depends on:** 03, 04. **Status:** built (QA round 1 closed; awaiting re-audit).
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 ## Goal
@@ -39,7 +39,7 @@ reach nodes. This is **the only access gate in the game** — get the enforcemen
 | `LIVING_WEB_NODES` | 8 per region (one per unit type) | Matches chunk 03's roster. |
 | `TRAP_WEB_NODES` | 6 + 4 fence-tier nodes = 10 | Fence segment tiers are unlock-web purchases too (§20 lists fence unlock-web cost). |
 | `SIEGE_WEB_NODES` | 5 | |
-| `NODE_COST_CURVE` | tier 1 = 1 point, tier 2 = 2, tier 3 = 4, tier 4 = 6 | Against `UNLOCK_POINTS_PER_RUNG` totalling 30 per pool, a player reaches most but not all of a web by ladder cap — meaningful choice, not a checklist. |
+| `NODE_COST_CURVE` | **per pool** (QA D1): living `0/1/4/8/14`, trap `0/1/3/7/10`, siege `0/1/8/15/21` | Supersedes the first draft's uniform `1/2/4/6`, under which a capped ladder bought every web outright. Against `UNLOCK_POINTS_PER_RUNG` totalling 30 per pool, a player now reaches ~77–79% of a web's paid total by ladder cap — meaningful choice, not a checklist — while every single node stays reachable at cap (validated on load). |
 | `WEB_SHAPE` | DAG with 2–3 roots per pool, prerequisites required | "Web", not a line: multiple viable paths, so two players at equal ladder can have different rosters. |
 | `STARTING_NODES` | 2 living, 1 trap, 1 siege unlocked free at creation | So a new account can actually play. |
 
@@ -81,7 +81,8 @@ reach nodes. This is **the only access gate in the game** — get the enforcemen
 Where it lives: `packages/content/src/unlockWebs.ts` (the three webs as data, pure
 evaluation, validation at import), the chunk 05 block of `packages/content/src/tunables.ts`,
 `apps/server/src/unlocks/{access,spend,view}.ts`, `apps/server/src/routes/unlocks.ts`,
-migration `005_unlock_node_once`. `apps/server/src/circle/access.ts` now re-exports the real
+`apps/server/src/util/uuid.ts`, migrations `005_unlock_node_once` and
+`006_unlock_node_purchase_shape`. `apps/server/src/circle/access.ts` now re-exports the real
 `hasAccess` (as `isUnlocked`) and `accessCheckFor(db, owner)` — the chunk 07 stub is gone.
 
 Decisions and assumptions, in the order they came up:
@@ -100,11 +101,16 @@ Decisions and assumptions, in the order they came up:
   the two starters, rejoining at a tier-3 node; a tier-3 specialist behind the paid root; the
   tier-4 capstone behind that) so the learning curve is the same whichever region a player
   picks.
-- **Cost = `UNLOCK_NODE_COST_BY_TIER[tier]`** = 0/1/2/4/6, the brief's curve. With the brief's
-  node counts the paid totals are living 19, trap 24, siege 11 — all **below** the 30 points
-  a capped ladder grants, so a capped ladder reaches a whole web. The "most but not all"
-  intent needs a steeper curve or more nodes; the registry comment says so. **Flagged for QA
-  / balance, deliberately not changed** (the curve is a specified number, not an unspecified one).
+- **Cost = `UNLOCK_NODE_COST_BY_TIER[pool][tier]`** — one curve per pool (QA round 1, D1):
+  living 0/1/4/8/14, trap 0/1/3/7/10, siege 0/1/8/15/21. The first draft used the brief's
+  uniform 0/1/2/4/6, under which the paid totals (19 / 24 / 11) were all below the 30 points
+  a capped ladder grants and a capped ladder bought a whole web; it was flagged rather than
+  re-tuned, and the orchestrator decided the per-pool curve. Paid totals are now 39 / 39 /
+  38, so cap reaches 76.9% / 76.9% / 78.9% — "most but not all" — and `validateUnlockWebs`
+  checks that every node's **closure cost** (`closureCost(web, nodeId)`: its cost plus every
+  transitive prerequisite's) fits the cap, so no node is ever out of a free player's reach.
+  `nodeCost(web, node)` takes the web; `costCurveFor(pool)` and `pointsPerPoolAtLadderCap()`
+  are the two numbers everything is sized against.
 - **Spend = one `unlock_node_purchased` event** (`{pool, nodeId, cost, tier}`), causation id
   `unlock:<pool>:<scope id>:<node id>`, appended under the account's append lock after the
   read-check (node in web → not reached → prerequisites reached → cost ≤ available). Chunk
@@ -119,10 +125,26 @@ Decisions and assumptions, in the order they came up:
 - **Reads**: `GET /unlocks/webs` (public, every web and cost, identical for everyone) and
   `GET /me/unlocks` (trap, siege, then each caravan's living web; every node with `cost`,
   `reached`, `prerequisitesMet`, `affordable`, `missing`; the pool's granted/spent/available).
-- **Access is read from the ledger directly** (`purchasedNodeIds` → `reachedSet`), no cache,
-  no projection table: the ledger is append-only, so the reached set can only grow.
+- **Access is read from the ledger directly**, no cache, no projection table: the ledger is
+  append-only, so the reached set can only grow. An `AccessOwner` is the `(accountId,
+  caravanId)` pair; `readOwnerSnapshot` reads the caravan's **region and ownership from the
+  caravan row** and the three purchase lists in one query (QA round 1, S2). A caravan that is
+  not the account's, a non-uuid id, or a caller-supplied `regionId` that disagrees with the
+  row resolves to no owner, and no owner has access to anything — not even starters.
   `accessCheckFor(db, owner)` binds one snapshot per validation pass, taken inside the
-  transaction that uses it (chunk 07's three call sites now `await` it).
+  transaction that uses it (chunk 07's three call sites `await` it).
+- **Ids from the outside go through `util/uuid.ts` `isUuid`** (canonical 8-4-4-4-12 only; QA
+  round 1, S1): the spend body's `caravanId` (400 `bad_caravan`), the circle routes' path
+  param (404), and the access owner. A 36-character non-uuid never reaches a `::uuid` cast.
+- **Storage backstops** (what the app role cannot do even with crafted events): once per
+  node per owner (005's unique index), and a purchase must carry `cost > 0` and a non-empty
+  string `nodeId` (006's CHECK; QA round 1, S3). Neither says the node is in the owner's web
+  or that the cost matches the tier — the spend service is the only writer and the only
+  judge of that, against the authored web; a crafted out-of-region purchase charges points
+  and grants nothing.
+- **`GET /me/unlocks` is one snapshot**: `unlockWebsSnapshot` runs the read inside a
+  `REPEATABLE READ READ ONLY` transaction (QA round 1, N1), so points and purchases never
+  disagree in one response.
 - **Nothing here grants points.** A source test asserts `unlock_points_granted` is written
   only by `progression/outcome.ts` and `unlock_node_purchased` only by `unlocks/spend.ts`,
   and that the unlocks module never mentions Coin, ladders, grants, instances or purchases.

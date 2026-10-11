@@ -15,8 +15,9 @@
  *
  * Shape: each web is a DAG with WEB_ROOTS_MIN..MAX roots. `requires` lists prerequisite
  * node ids, ALL of which must be reached first. Tier 0 nodes are the STARTING nodes —
- * reached free at creation, never purchased. Cost is a pure function of tier
- * (UNLOCK_NODE_COST_BY_TIER); nothing per node, nothing per player.
+ * reached free at creation, never purchased. Cost is a pure function of (pool, tier)
+ * (UNLOCK_NODE_COST_BY_TIER, one curve per pool — chunk 05 QA D1); nothing per node,
+ * nothing per player.
  */
 import { deepFreeze } from "./freeze.js";
 import { FENCE_TIERS } from "./fences.js";
@@ -163,11 +164,38 @@ export function findUnlockNode(web: UnlockWeb, nodeId: string): UnlockNode | und
   return web.nodes.find((n) => n.id === nodeId);
 }
 
-/** Unlock points to reach a node: a function of its tier only. Starting nodes cost 0. */
-export function nodeCost(node: UnlockNode): number {
-  const cost = TUNABLES.UNLOCK_NODE_COST_BY_TIER[node.tier];
-  if (cost === undefined) throw new RangeError(`node '${node.id}' has tier ${node.tier} outside the cost table`);
+/** The cost curve of a pool, indexed by tier (tier 0 = 0). */
+export function costCurveFor(pool: UnlockPool): readonly number[] {
+  return TUNABLES.UNLOCK_NODE_COST_BY_TIER[pool];
+}
+
+/** Unlock points to reach a node: a function of its web's pool and its tier only. Starting nodes cost 0. */
+export function nodeCost(web: UnlockWeb, node: UnlockNode): number {
+  const cost = costCurveFor(web.pool)[node.tier];
+  if (cost === undefined) throw new RangeError(`node '${node.id}' has tier ${node.tier} outside the ${web.pool} cost table`);
   return cost;
+}
+
+/** The unlock points a capped ladder grants one pool: what every cost curve is sized against. */
+export function pointsPerPoolAtLadderCap(): number {
+  return TUNABLES.UNLOCK_POINTS_BY_RUNG.reduce((a, b) => a + b, 0);
+}
+
+/**
+ * The points needed to reach `nodeId` from nothing: its own cost plus every transitive
+ * prerequisite's (each counted once). The cheapest path to a node; what "reachable at
+ * ladder cap" means.
+ */
+export function closureCost(web: UnlockWeb, nodeId: string): number {
+  const seen = new Set<string>();
+  const visit = (id: string): number => {
+    if (seen.has(id)) return 0;
+    seen.add(id);
+    const n = findUnlockNode(web, id);
+    if (!n) throw new RangeError(`node '${id}' is not in web '${web.id}'`);
+    return nodeCost(web, n) + n.requires.reduce((sum, r) => sum + visit(r), 0);
+  };
+  return visit(nodeId);
 }
 
 /** Starting nodes are tier 0: reached at creation, never purchased. */
@@ -226,7 +254,7 @@ export function evaluateWeb(web: UnlockWeb, purchased: Iterable<string>, availab
   return web.nodes.map((n) => {
     const missing = n.requires.filter((r) => !reached.has(r));
     const isReached = reached.has(n.id);
-    const cost = nodeCost(n);
+    const cost = nodeCost(web, n);
     return {
       id: n.id,
       tier: n.tier,
@@ -257,7 +285,7 @@ export function checkSpend(web: UnlockWeb, purchased: Iterable<string>, availabl
   if (reached.has(node.id)) return { ok: false, reason: "already_reached" };
   const missing = node.requires.filter((r) => !reached.has(r));
   if (missing.length > 0) return { ok: false, reason: "prerequisites_unmet", missing };
-  const cost = nodeCost(node);
+  const cost = nodeCost(web, node);
   if (cost > availablePoints) return { ok: false, reason: "insufficient_points", cost };
   return { ok: true, node, cost };
 }
@@ -277,10 +305,16 @@ export function maximalReachableSets(web: UnlockWeb, budget: number): string[][]
       if (!results.has(key)) results.set(key, [...purchased].sort());
       return;
     }
-    for (const n of options) walk([...purchased, n.id], spent + nodeCost(n));
+    for (const n of options) walk([...purchased, n.id], spent + nodeCost(web, n));
   };
   walk([], 0);
-  return [...results.values()].sort((a, b) => a.join("|").localeCompare(b.join("|")));
+  // Code-point order (QA-05 N2): `localeCompare` depends on the host's ICU data; `<` does not.
+  return [...results.values()].sort((a, b) => compareCodePoints(a.join("|"), b.join("|")));
+}
+
+/** Plain code-point string order — the same on every host, unlike `localeCompare`. */
+export function compareCodePoints(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -291,13 +325,18 @@ export function maximalReachableSets(web: UnlockWeb, budget: number): string[][]
 
 export function validateUnlockWebs(webs: readonly UnlockWeb[] = UNLOCK_WEBS): string[] {
   const problems: string[] = [];
-  const costs = TUNABLES.UNLOCK_NODE_COST_BY_TIER;
-  if (costs.length !== TUNABLES.UNLOCK_WEB_TIERS + 1) problems.push(`UNLOCK_NODE_COST_BY_TIER has ${costs.length} entries, expected UNLOCK_WEB_TIERS + 1 = ${TUNABLES.UNLOCK_WEB_TIERS + 1}`);
-  if (costs[0] !== 0) problems.push("UNLOCK_NODE_COST_BY_TIER[0] must be 0: starting nodes are free");
-  for (let t = 1; t < costs.length; t++) {
-    const c = costs[t]!;
-    if (!Number.isInteger(c) || c <= (costs[t - 1] ?? 0)) problems.push(`UNLOCK_NODE_COST_BY_TIER must be strictly increasing integers; tier ${t} = ${c}`);
+  // One cost curve per pool (QA-05 D1): tier 0 free, then strictly increasing integers.
+  for (const pool of UNLOCK_POOLS) {
+    const costs = TUNABLES.UNLOCK_NODE_COST_BY_TIER[pool];
+    const where = `UNLOCK_NODE_COST_BY_TIER.${pool}`;
+    if (costs.length !== TUNABLES.UNLOCK_WEB_TIERS + 1) problems.push(`${where} has ${costs.length} entries, expected UNLOCK_WEB_TIERS + 1 = ${TUNABLES.UNLOCK_WEB_TIERS + 1}`);
+    if (costs[0] !== 0) problems.push(`${where}[0] must be 0: starting nodes are free`);
+    for (let t = 1; t < costs.length; t++) {
+      const c = costs[t]!;
+      if (!Number.isInteger(c) || c <= (costs[t - 1] ?? 0)) problems.push(`${where} must be strictly increasing integers; tier ${t} = ${c}`);
+    }
   }
+  const cap = pointsPerPoolAtLadderCap();
 
   const unitIds = new Set(LIVING_UNIT_TYPES.map((u) => u.id as string));
   const trapIds = new Set(TRAP_TYPES.map((t) => t.id as string));
@@ -357,6 +396,16 @@ export function validateUnlockWebs(webs: readonly UnlockWeb[] = UNLOCK_WEBS): st
       state.set(id, 2);
     };
     for (const n of web.nodes) visit(n.id, []);
+
+    // Every node is reachable by a capped ladder: the cheapest path to it fits the points
+    // the ladder grants. "Most but not all of a web" must never mean "some nodes, never".
+    // Only meaningful once the web's own structure checked out (closureCost walks it).
+    if (!problems.some((p) => p.startsWith(where))) {
+      for (const n of web.nodes) {
+        const need = closureCost(web, n.id);
+        if (need > cap) problems.push(`${where} node '${n.id}': reaching it needs ${need} points but a capped ladder grants ${cap}`);
+      }
+    }
 
     // Shape: a web, not a line.
     const roots = web.nodes.filter((n) => n.requires.length === 0).length;

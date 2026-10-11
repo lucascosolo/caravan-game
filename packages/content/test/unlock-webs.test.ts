@@ -16,10 +16,13 @@ import {
   TUNABLES,
   UNLOCK_WEBS,
   checkSpend,
+  closureCost,
+  compareCodePoints,
   evaluateWeb,
   isDeepFrozen,
   maximalReachableSets,
   nodeCost,
+  pointsPerPoolAtLadderCap,
   startingNodeIds,
   unlockWebFor,
   validateUnlockWebs,
@@ -27,7 +30,7 @@ import {
   type UnlockWeb,
 } from "../src/index.js";
 
-const paidTotal = (web: UnlockWeb): number => web.nodes.reduce((sum, n) => sum + nodeCost(n), 0);
+const paidTotal = (web: UnlockWeb): number => web.nodes.reduce((sum, n) => sum + nodeCost(web, n), 0);
 
 describe("the webs are complete, fixed data", () => {
   it("validate clean and are deep-frozen", () => {
@@ -71,15 +74,48 @@ describe("the webs are complete, fixed data", () => {
     expect(unlockWebFor("siege")).toBe(SIEGE_UNLOCK_WEB);
   });
 
-  it("costs come from the tier table and the tier table is the brief's curve", () => {
-    expect(TUNABLES.UNLOCK_NODE_COST_BY_TIER).toEqual([0, 1, 2, 4, 6]);
-    for (const w of UNLOCK_WEBS) for (const n of w.nodes) expect(nodeCost(n)).toBe(TUNABLES.UNLOCK_NODE_COST_BY_TIER[n.tier]);
-    // Documented in the registry: every web's paid total is under the 30 points a capped ladder grants.
-    const cap = TUNABLES.UNLOCK_POINTS_BY_RUNG.reduce((a, b) => a + b, 0);
+  it("costs come from the per-pool tier table (QA-05 D1): tier 0 free, first paid node 1 point, strictly increasing", () => {
+    expect(TUNABLES.UNLOCK_NODE_COST_BY_TIER).toEqual({ living: [0, 1, 4, 8, 14], trap: [0, 1, 3, 7, 10], siege: [0, 1, 8, 15, 21] });
+    for (const w of UNLOCK_WEBS) for (const n of w.nodes) expect(nodeCost(w, n)).toBe(TUNABLES.UNLOCK_NODE_COST_BY_TIER[w.pool][n.tier]);
+    for (const curve of Object.values(TUNABLES.UNLOCK_NODE_COST_BY_TIER)) {
+      expect(curve[0]).toBe(0);
+      expect(curve[1]).toBe(1);
+      for (let t = 1; t < curve.length; t++) expect(curve[t]!).toBeGreaterThan(curve[t - 1]!);
+    }
+    // The same tier costs differently per pool: the curves are independent knobs.
+    expect(nodeCost(SIEGE_UNLOCK_WEB, SIEGE_UNLOCK_WEB.nodes.find((n) => n.tier === 2)!)).not.toBe(nodeCost(TRAP_UNLOCK_WEB, TRAP_UNLOCK_WEB.nodes.find((n) => n.tier === 2)!));
+  });
+
+  it("a capped ladder (30 points) reaches most but not all of every web: ~77–79% of the paid total, and every single node is reachable at cap", () => {
+    const cap = pointsPerPoolAtLadderCap();
     expect(cap).toBe(30);
-    for (const r of REGION_IDS) expect(paidTotal(LIVING_UNLOCK_WEBS[r])).toBe(19);
-    expect(paidTotal(TRAP_UNLOCK_WEB)).toBe(24);
-    expect(paidTotal(SIEGE_UNLOCK_WEB)).toBe(11);
+    for (const r of REGION_IDS) expect(paidTotal(LIVING_UNLOCK_WEBS[r])).toBe(39);
+    expect(paidTotal(TRAP_UNLOCK_WEB)).toBe(39);
+    expect(paidTotal(SIEGE_UNLOCK_WEB)).toBe(38);
+    for (const w of UNLOCK_WEBS) {
+      const share = (cap * 100) / paidTotal(w);
+      expect(share, w.id).toBeGreaterThanOrEqual(75);
+      expect(share, w.id).toBeLessThan(80);
+      // every root-to-node path fits in the cap: no node is "never" for a free player
+      for (const n of w.nodes) expect(closureCost(w, n.id), `${w.id} ${n.id}`).toBeLessThanOrEqual(cap);
+      // and at cap there is still a choice to make: more than one maximal reachable set
+      const atCap = maximalReachableSets(w, cap);
+      expect(atCap.length, w.id).toBeGreaterThan(1);
+      for (const set of atCap) expect(set.length, w.id).toBeLessThan(w.nodes.filter((n) => n.tier > 0).length);
+    }
+    // closureCost counts a shared prerequisite once
+    expect(closureCost(LIVING_UNLOCK_WEBS.desert, "desert.longhorn_bull")).toBe(4 + 4 + 8);
+    expect(closureCost(SIEGE_UNLOCK_WEB, "siege.blasting_crate")).toBe(8 + 21);
+    expect(closureCost(TRAP_UNLOCK_WEB, "fence.stacked_stone")).toBe(3 + 7 + 10);
+  });
+
+  it("validation refuses a cost curve that puts any node out of a capped ladder's reach, or a curve that is not per pool / not increasing", () => {
+    const desert = LIVING_UNLOCK_WEBS.desert;
+    // Push the capstone's chain above the cap by stacking its prerequisites: vaquero now also needs the whole rejoin branch.
+    const heavy: UnlockWeb = { ...desert, nodes: desert.nodes.map((n) => (n.id === "desert.vaquero" ? { ...n, requires: ["desert.canteen_carrier", "desert.longhorn_bull"] } : n)) };
+    const problems = validateUnlockWebs([heavy, ...UNLOCK_WEBS.filter((w) => w !== desert)]);
+    expect(problems.some((p) => /desert\.vaquero.*needs (\d+) points but a capped ladder grants 30/.test(p))).toBe(true);
+    expect(closureCost(heavy, "desert.vaquero")).toBe(1 + 8 + 14 + 4 + 4 + 8);
   });
 
   it("starting nodes: 2 living per region (the first two of the roster), 1 trap, 1 fence tier (tier 1), 1 siege — all free, all roots", () => {
@@ -92,7 +128,7 @@ describe("the webs are complete, fixed data", () => {
     expect(startingNodeIds(SIEGE_UNLOCK_WEB)).toEqual(["siege.battering_wagon"]);
     for (const w of UNLOCK_WEBS) for (const id of startingNodeIds(w)) {
       const n = w.nodes.find((x) => x.id === id)!;
-      expect(nodeCost(n)).toBe(0);
+      expect(nodeCost(w, n)).toBe(0);
       expect(n.requires).toEqual([]);
     }
   });
@@ -118,8 +154,16 @@ describe("the webs are DAGs with genuine branching", () => {
       // and they genuinely differ in which types exist, not just in order
       const asKeys = new Set(sets.map((s) => s.join("|")));
       expect(asKeys.size).toBe(sets.length);
-      for (const s of sets) expect(s.reduce((sum, id) => sum + nodeCost(w.nodes.find((n) => n.id === id)!), 0)).toBeLessThanOrEqual(budget);
+      for (const s of sets) expect(s.reduce((sum, id) => sum + nodeCost(w, w.nodes.find((n) => n.id === id)!), 0)).toBeLessThanOrEqual(budget);
     }
+  });
+
+  it("maximalReachableSets is ordered by code point, not locale (QA-05 N2)", () => {
+    const sets = maximalReachableSets(TRAP_UNLOCK_WEB, 12);
+    const keys = sets.map((s) => s.join("|"));
+    expect(keys).toEqual([...keys].sort(compareCodePoints));
+    expect(compareCodePoints("a", "B")).toBe(1); // 'B' (0x42) < 'a' (0x61): code points, not dictionary order
+    expect(compareCodePoints("x", "x")).toBe(0);
   });
 
   it("validation catches a dangling prerequisite, a cycle, a foreign-region unit, a missing type, a costed starting node and a line-shaped web", () => {
@@ -156,9 +200,9 @@ describe("pure evaluation", () => {
     const byId = Object.fromEntries(view.map((v) => [v.id, v]));
     expect(byId["siege.battering_wagon"]).toMatchObject({ starting: true, reached: true, affordable: false, cost: 0 });
     expect(byId["siege.bridging_planks"]).toMatchObject({ reached: false, prerequisitesMet: true, affordable: true, cost: 1 });
-    expect(byId["siege.fence_cutters"]).toMatchObject({ reached: false, prerequisitesMet: true, affordable: false, cost: 2 });
-    expect(byId["siege.dousing_wagon"]).toMatchObject({ reached: false, prerequisitesMet: false, affordable: false, cost: 2, missing: ["siege.bridging_planks"] });
-    expect(byId["siege.blasting_crate"]).toMatchObject({ reached: false, prerequisitesMet: false, affordable: false, cost: 6, missing: ["siege.fence_cutters"] });
+    expect(byId["siege.fence_cutters"]).toMatchObject({ reached: false, prerequisitesMet: true, affordable: false, cost: 8 });
+    expect(byId["siege.dousing_wagon"]).toMatchObject({ reached: false, prerequisitesMet: false, affordable: false, cost: 8, missing: ["siege.bridging_planks"] });
+    expect(byId["siege.blasting_crate"]).toMatchObject({ reached: false, prerequisitesMet: false, affordable: false, cost: 21, missing: ["siege.fence_cutters"] });
   });
 
   it("checkSpend refuses an unknown node, a starting node, a reached node, unmet prerequisites and too few points — and accepts a legal spend", () => {
@@ -168,7 +212,8 @@ describe("pure evaluation", () => {
     expect(checkSpend(w, ["trap.jaw_trap"], 30, "trap.jaw_trap")).toEqual({ ok: false, reason: "already_reached" });
     expect(checkSpend(w, [], 30, "trap.powder_keg")).toEqual({ ok: false, reason: "prerequisites_unmet", missing: ["trap.jaw_trap"] });
     expect(checkSpend(w, [], 0, "trap.jaw_trap")).toEqual({ ok: false, reason: "insufficient_points", cost: 1 });
-    expect(checkSpend(w, ["trap.jaw_trap"], 4, "trap.powder_keg")).toMatchObject({ ok: true, cost: 4 });
+    expect(checkSpend(w, ["trap.jaw_trap"], 6, "trap.powder_keg")).toEqual({ ok: false, reason: "insufficient_points", cost: 7 });
+    expect(checkSpend(w, ["trap.jaw_trap"], 7, "trap.powder_keg")).toMatchObject({ ok: true, cost: 7 });
     // a purchased id that is not in this web is ignored, never credited
     expect(checkSpend(w, ["siege.blasting_crate"], 30, "trap.tar_pot")).toEqual({ ok: false, reason: "prerequisites_unmet", missing: ["trap.caltrop_scatter"] });
   });
