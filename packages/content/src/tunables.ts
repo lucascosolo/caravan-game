@@ -546,6 +546,31 @@ export const TUNABLES = {
   COIN_OVERFLOW_BEHAVIOR: "discard_with_warning",
 
   // ────────────────────────────────────────────────────────────────────────────────────
+  // Chunk 15 — the trip loop. A trip is a chain of matchmade encounters, nothing more: no
+  // geography, no travel timer. The cap is per ACCOUNT, consumed at trip START (never per
+  // encounter), regenerates lazily from a stored timestamp, and is never purchasable — no
+  // Coin, pack or entitlement can refill or raise it (GUARDRAILS §2).
+  // ────────────────────────────────────────────────────────────────────────────────────
+
+  /** TUNABLE (chunk 15). Trip starts stored at most; one is consumed per trip however many encounters it has. */
+  TRIPS_PER_HOUR_CAP: 3,
+  /** TUNABLE (chunk 15). One trip-cap use regenerates every 20 minutes (3 per hour at the cap of 3). */
+  TRIP_CAP_REGEN_MS: 20 * 60_000,
+  /**
+   * Fixed by design (chunk 15). No repair, resupply or healing between encounters: unit HP,
+   * fence HP and spent traps carry forward. Not tunable; documented so nobody adds a knob.
+   * MAX_ENCOUNTERS_PER_TRIP is deliberately absent (unbounded): attrition plus chunk 14's
+   * escalation is the limit. Add a cap only if testing shows a degenerate infinite push.
+   */
+  NO_REPAIR_BETWEEN_ENCOUNTERS: true,
+  /**
+   * Fixed by design (chunk 15). A banked caravan refits fully in town (every packed unit at
+   * full HP, traps restocked, fences rebuilt — the next manifest is packed fresh); an
+   * overrun caravan has nothing to restore (chunk 19 applies its losses).
+   */
+  RESTORE_ON_TRIP_END: "full_on_bank_none_on_overrun",
+
+  // ────────────────────────────────────────────────────────────────────────────────────
   // Chunk 20 — monetization packs (GUARDRAILS §2). Nothing in this block reaches a stat, a
   // resolution rule, a cap, an unlock, a slot count or a trip-cap use: a pack holds COIN
   // (pace) and COSMETICS (purely visual), and the schema's CHECK on pack contents mirrors

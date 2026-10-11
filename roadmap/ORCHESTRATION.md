@@ -2305,3 +2305,44 @@ the fixtures came out byte-identical); circle 99, content 76, resolver 170; root
 `typecheck`, `lint`, `test:boundary` clean; the production bundle carries no `__isoDebug`.
 Flaky under the shared machine's load, untouched here: `qa02-round2.test.ts` (2 job-queue
 tests, 1 of 4 solo runs) and the resolver's 100 ms budget test (passed once the load dropped).
+### 2026-10-11 — Chunk 15 (trip loop): `not started` → `built` (fight outcome via seam until 13)
+
+**Built** in worktree `agent-a4ead8af6ce344c6e` off `roadmap/phase-2-spec` @ `8b360fb`. The
+outer loop of the active side: start (trip cap, `caravan.state = on_trip`, `trip_started`) →
+per encounter search / choose (chunk 14) → arrange (chunk 07) → commit + enqueue
+(`enqueueChosenEncounter`) → resolve → settle (attrition, progression, unbanked Coin) → bank
+(`creditBankedTrip` once, refit, back to town) or push (binding) or overrun (trip ends;
+typed chunk 19 hand-off, no losses applied). Full detail and the exact `EncounterOutcome` type
+are in the chunk file's Build notes.
+
+- **The seam (chunk 13 dependency).** `apps/server/src/trip/outcome.ts`: `EncounterOutcome
+  {kind, depth (fixed-point 0..1024), units, spentTraps, fences}`, `EncounterResolver`,
+  `resolveEncounter`, `resolverInputFromJob`, `productionEncounterResolver` (throws,
+  TODO(chunk-13)). `makeEncounterResolutionHandler(resolver)` in the chunk 02 handler file; the
+  production handler is still gated by `ENCOUNTER_RESOLUTION_WIRED = false` and parks. Chunk 13
+  implements the adapter and flips the flag; nothing in the trip loop changes. Tests use the
+  deterministic double `test/trip-double.ts`.
+- **Migration 012** `trip.end_reason`, `trip_encounter` (settled encounters, unbanked Coin,
+  one-time decision; immutable, ordered, undeletable), `trip_cap` (account-level GCRA
+  timestamp; never decreases).
+- **Routes** under `/me/caravans/:id/trip`: GET status, `start`, `encounters/:n/commit`,
+  `preview`, `push`, `bank` (`{tripId, encounterIndex}`).
+- **Cross-chunk edits (small, for QA):** chunk 14 `searchCandidates` refuses 409
+  `decide_first` while the bank-or-push decision is open; `matchmaking/trips.ts` gained
+  `end_reason` / `endTrip(…, reason?)`; chunk 04 `applyEncounterOutcome` gained
+  `partySide: "skip"` (system owners: no party-side event; input hash unchanged when omitted);
+  tunables chunk 15 block.
+
+**Test command:** `cd apps/server && TEST_DATABASE_URL=postgres://caravan:caravan@localhost:5432/caravan_test_c15 npx vitest run`
+→ 30 files, 555 tests passing (new `test/trip.test.ts`, 27). Root `pnpm typecheck`, `pnpm lint`,
+`pnpm test:boundary` clean.
+
+**For chunk 19:** `settleLocked` in `src/trip/service.ts` is the overrun hand-off
+(TODO(chunk-19): destroy `unitsAliveAtCollapse`, de-merge `unitsDiedOnTrip`, transfer
+`unbankedCoin` to the owner capped / destroy for a system owner, set `lossesApplied`), the
+accrual site for `applyEarnFloor` is marked there too, and `bankTrip`'s `restored.deMergePending`
+lists the banked trip's dead units for the per-death de-merge.
+
+**Next:** adversarial QA of chunk 15 against GUARDRAILS §0/§1/§4/bounded stakes and the chunk
+checklist — especially push-scouting (can the next party be seen before deciding?), bank exactly
+once, attrition persistence across 3+ encounters, and the lock order against merges and the worker.
