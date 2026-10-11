@@ -13,6 +13,8 @@ import resolvingJson from "./contract/trip-status-resolving.json";
 import packedJson from "./contract/trip-status-packed.json";
 import bankedJson from "./contract/trip-status-banked.json";
 import overrunJson from "./contract/trip-status-overrun.json";
+import voidedJson from "./contract/trip-status-voided.json";
+import previewStartJson from "./contract/trip-preview-start.json";
 import previewJson from "./contract/trip-preview.json";
 import preview2Json from "./contract/trip-preview-2.json";
 import refusedJson from "./contract/trip-start-refused.json";
@@ -23,6 +25,15 @@ export const statusResolving = (): TripStatusView => expectShape(tripStatusShape
 export const statusPacked = (): TripStatusView => expectShape(tripStatusShape, packedJson.body);
 export const statusBanked = (): TripStatusView => expectShape(tripStatusShape, bankedJson.body);
 export const statusOverrun = (): TripStatusView => expectShape(tripStatusShape, overrunJson.body);
+/**
+ * Chunk 15 QA D3: a trip whose encounter 2 could not be resolved (its job parked): voided, banked
+ * as of encounter 1 (Coin + delivery credited, the level-2 rider that died there de-merged 2 → 1).
+ */
+export const statusVoided = (): TripStatusView => expectShape(tripStatusShape, voidedJson.body);
+/** The raw recorded voided body (for guard tests that edit it). */
+export const voidedRaw = (): Record<string, any> => structuredClone(voidedJson.body) as Record<string, any>;
+/** Chunk 15 QA N2: the preview right after riding out, before any survival: no `bankNow`, no `harderThanThisEncounter`. */
+export const previewAtStart = (): StakesPreview => expectShape(stakesPreviewShape, previewStartJson.body);
 export const previewAfter1 = (): StakesPreview => expectShape(stakesPreviewShape, previewJson.body);
 /**
  * After encounter 2 of the recorded trip: the caravan HELD but its level-3 veteran died there

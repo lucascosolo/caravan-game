@@ -1,7 +1,7 @@
 /**
- * The trip summary (chunk 23), shown when a trip ends — banked or overrun — and on the Trail
+ * The trip summary (chunk 23), shown when a trip ends — banked, overrun or voided (chunk 15 QA D3) — and on the Trail
  * tab afterwards until the caravan is packed again. Everything comes from the trip status
- * (`trip.ending`, as the `trip_banked` / `trip_overrun` ledger event recorded it, and each
+ * (`trip.ending`, as the `trip_banked` / `trip_overrun` / `trip_voided` ledger event recorded it, and each
  * encounter's `result`); a just-made bank adds the balance its answer carried. It feeds the
  * replay (chunk 22) through each encounter's "Watch the fight".
  */
@@ -72,6 +72,40 @@ export function TripSummary({ trip, bank = null, balance = null, past = false }:
             )}
           </ul>
           <p className="hint">{e.lossesApplied ? T.summaryLossesApplied : T.summaryLossesPending}</p>
+        </div>
+      )}
+      {e?.kind === "voided" && (
+        <div className="notice" data-testid="summary-voided">
+          <p>
+            <strong>{T.summaryVoided(e.voidedEncounter)}</strong>
+          </p>
+          <p data-testid="summary-voided-nothing">{T.summaryVoidedNothingApplied(e.voidedEncounter)}</p>
+          {e.encountersSurvived === 0 ? (
+            <p data-testid="summary-voided-none">{T.summaryVoidedNoneSurvived}</p>
+          ) : (
+            <>
+              <p>{T.summaryVoidedBanked(e.encountersSurvived)}</p>
+              <p>{T.summaryDelivered(e.unbankedCoin, e.deliveryBonus, e.requested)}</p>
+              <p data-testid="summary-credited">{T.summaryCredited(e.credited, e.discarded)}</p>
+              {balanceNow !== null && <p data-testid="summary-balance">{T.summaryBalance(balanceNow)}</p>}
+              <p>{T.summaryRefit(e.restored.unitsHealed.length, e.restored.trapsRestocked, e.restored.fenceSegmentsRebuilt)}</p>
+              {e.restored.deMerged.length > 0 && (
+                <>
+                  <p>{T.summaryBankDemerged}</p>
+                  <DeMergedList units={e.restored.deMerged} testId="summary-voided-demerged" />
+                </>
+              )}
+            </>
+          )}
+          <p data-testid="summary-voided-cap">{T.summaryVoidedCapSpent}</p>
+          {e.reason !== "" && (
+            <details>
+              <summary>{T.summaryVoidedReason}</summary>
+              <p className="hint" data-testid="summary-voided-reason">
+                {e.reason}
+              </p>
+            </details>
+          )}
         </div>
       )}
       <p className="hint">{T.summaryRestoreNote}</p>

@@ -383,6 +383,55 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     // The recorded (renamed) log is still a valid replay: the web suite plays it.
     expect(() => readReplay((normalise(mine) as { log: unknown }).log)).not.toThrow();
 
+    // Chunk 15 QA D3 (+ N2), recorded LAST so its rows shift no earlier fixture's ids: a trip
+    // whose second encounter cannot be resolved (the double's outcome is refused, so the job
+    // parks) is VOIDED — banked as of encounter 1 (its Coin + the delivery, its merged unit's
+    // death de-merged 2 → 1), nothing of encounter 2 applied, the trip-cap use kept spent. Its
+    // preview before the first survival omits `bankNow` and `harderThanThisEncounter` (N2).
+    const w = await register("contract_voider");
+    const [wVet] = await giveUnits(w, ["desert.dust_rider"], 2);
+    const wRiders = await giveUnits(w, ["desert.dust_rider", "desert.dust_rider"]);
+    const wUnits = [wVet!, ...wRiders];
+    expect((await call(w, "POST", `/caravans/${w.caravanId}/manifest`, { units: wUnits, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 20 } })).statusCode).toBe(201);
+    const wTrip = `/me/caravans/${w.caravanId}/trip`;
+    const wStartRes = await call(w, "POST", `${wTrip}/start`);
+    expect(wStartRes.statusCode, wStartRes.body).toBe(201);
+    const wStarted = wStartRes.json() as { tripId: string };
+    const wPreview0 = (await record("trip-preview-start", "GET /me/caravans/:id/trip/preview (before the first survival)", await call(w, "GET", `${wTrip}/preview`), 200)) as Record<string, unknown> & {
+      nextEncounter: { difficulty: Record<string, unknown> };
+    };
+    expect(wPreview0).toMatchObject({ encountersSurvived: 0, decisionOpen: false });
+    expect("bankNow" in wPreview0).toBe(false);
+    expect("harderThanThisEncounter" in wPreview0.nextEncounter.difficulty).toBe(false);
+    const wPosts = [...wUnits].sort().map((ref, i) => ({ ref, cell: { x: 13 + i * 5, y: 13 }, stance: i === 0 ? "hold" : "guard" }));
+    const wFight = async (n: number, wFormation: unknown): Promise<void> => {
+      const sr = await call(w, "POST", `/me/caravans/${w.caravanId}/encounters/${n}/search`);
+      expect(sr.statusCode, sr.body).toBe(201);
+      const menu = sr.json() as { menu: { candidates: { candidateId: string; owner: { displayName: string } }[] } };
+      const pick = [...menu.menu.candidates].sort((a, b) => (a.owner.displayName < b.owner.displayName ? -1 : 1))[0]!;
+      expect((await call(w, "POST", `/me/caravans/${w.caravanId}/encounters/${n}/choose`, { candidateId: pick.candidateId })).statusCode).toBe(200);
+      const put = await call(w, "PUT", `/caravans/${w.caravanId}/encounters/${n}/formation`, wFormation);
+      expect(put.statusCode, put.body).toBe(200);
+      const commit = await call(w, "POST", `${wTrip}/encounters/${n}/commit`);
+      expect(commit.statusCode, commit.body).toBe(202);
+    };
+    await wFight(1, { v: 2, fences: [{ ref: "f0", segment: 0 }], traps: [{ ref: "t0", cell: { x: 14, y: 12 } }], posts: wPosts });
+    await resolve({ 1: { kind: "caravan_held", unitDamage: 100, spendTraps: 1, kill: [wVet!] } });
+    expect((await call(w, "POST", `${wTrip}/push`, { tripId: wStarted.tripId, encounterIndex: 1 })).statusCode).toBe(200);
+    await wFight(2, { v: 2, fences: [{ ref: "f1", segment: 1 }], traps: [], posts: wPosts.filter((x) => x.ref !== wVet) });
+    // An outcome that heals a unit is refused by the server (not retryable): the job parks.
+    await resolve({ 2: { kind: "caravan_held", tamper: (o) => ({ ...o, units: o.units.map((u) => ({ ...u, hp: u.hp + 1 })) }) } });
+    const voided = (await record("trip-status-voided", "GET /me/caravans/:id/trip (voided)", await call(w, "GET", wTrip), 200)) as {
+      caravan: { state: string };
+      trip: { endReason: string; phase: string; encounters: unknown[]; ending: Record<string, unknown> & { restored: { deMerged: unknown[] } } };
+    };
+    expect(voided.caravan.state).toBe("in_town");
+    expect(voided.trip).toMatchObject({ endReason: "voided", phase: "ended" });
+    expect(voided.trip.encounters).toHaveLength(1);
+    expect(voided.trip.ending).toMatchObject({ kind: "voided", voidedEncounter: 2, encountersSurvived: 1 });
+    expect(voided.trip.ending["credited"]).toBeGreaterThan(0);
+    expect(voided.trip.ending.restored.deMerged).toEqual([{ ref: wVet, typeId: "desert.dust_rider", fromLevel: 2, toLevel: 1, diedAtEncounter: 1 }]);
+
     // Write the fixtures (only when they changed, so a rerun leaves the tree clean).
     mkdirSync(OUT, { recursive: true });
     for (const [name, r] of recorded) {

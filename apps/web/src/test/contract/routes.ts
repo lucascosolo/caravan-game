@@ -69,6 +69,9 @@ export const CONTRACT_GUARDS: Readonly<Record<string, Guard<unknown> | null>> = 
   "trip-bank": bankResultShape,
   "trip-status-banked": tripStatusShape,
   "trip-status-overrun": tripStatusShape,
+  // Chunk 15 QA D3 / N2: a voided trip, and the preview before the first survival (no bank quote).
+  "trip-status-voided": tripStatusShape,
+  "trip-preview-start": stakesPreviewShape,
   // The 409 body the client reads through ApiError.body (cap + retryAfterSeconds).
   "trip-start-refused": tripCapRefusalShape,
   // Chunk 20's Packs and Cosmetics screens.
