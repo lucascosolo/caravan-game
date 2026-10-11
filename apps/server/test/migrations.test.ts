@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { appliedMigrationIds, loadMigrations, migrateDown, migrateUp } from "../src/db/migrate.js";
+import { appliedMigrationIds, applyRoles, loadMigrations, migrateDown, migrateUp } from "../src/db/migrate.js";
 import { testPool } from "./helpers.js";
 
 const pool = testPool();
@@ -15,6 +15,13 @@ async function tableNames(): Promise<string[]> {
 describe("migrations", () => {
   beforeAll(async () => {
     await migrateUp(pool);
+  });
+
+  // This file recreates every table; re-apply the column-level grants so later files that
+  // assert the app role's privileges do not depend on file order.
+  afterAll(async () => {
+    await migrateUp(pool);
+    await applyRoles(pool);
   });
 
   it("every up migration has a down", () => {
@@ -38,8 +45,8 @@ describe("migrations", () => {
     expect(ran.length).toBe(all.length);
     expect(await appliedMigrationIds(pool)).toEqual(all.map((m) => m.id));
     expect(await tableNames()).toEqual([
-      "account", "caravan", "home_town", "ledger_event", "ledger_snapshot", "pool_progress", "region",
-      "resolution_job", "schema_migrations", "session", "standing_party", "unit_instance",
+      "account", "caravan", "encounter_candidates", "home_town", "ledger_event", "ledger_snapshot", "pool_progress", "refugee_menu", "region",
+      "resolution_job", "schema_migrations", "session", "standing_party", "trip", "unit_instance",
       "wagon_formation", "wagon_manifest",
     ]);
 

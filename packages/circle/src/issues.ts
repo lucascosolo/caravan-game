@@ -39,7 +39,16 @@ export type IssueCode =
   | "cell_reserved"
   | "post_too_close"
   /** QA D1: a post's defensive stance is not one of DEFENSIVE_STANCES. */
-  | "bad_stance";
+  | "bad_stance"
+  // ── chunk 09: standing raid party ──────────────────────────────────────────────────
+  /** More siege pieces than SIEGE_SLOT_CAP. */
+  | "slot_cap_siege"
+  /** The same siege type twice: a counter applies once, so a second piece is a non-choice. */
+  | "duplicate_siege"
+  /** A unit's approach edge is not one of ENTRY_EDGES. */
+  | "bad_edge"
+  /** A unit's starting cell is not inside its edge's entry band (START_POSITION_BAND). */
+  | "cell_off_band";
 
 export type Validation<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly issues: readonly Issue[] };
 

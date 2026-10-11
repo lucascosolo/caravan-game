@@ -1238,3 +1238,255 @@ the migrated test database the smoke step already uses.
 **Next:** hand to adversarial QA against GUARDRAILS §3/§4 and the chunk checklist — in
 particular whether any string reads as "you get a unit", whether anything is hidden on a
 locked node, and the direct-API bypass (which chunk 05 covers server-side).
+
+### 2026-10-11 — Chunk 18 (unit acquisition): QA round 1 punch list closed
+
+**Closed** in a worktree on top of `0896b8f` (`roadmap/qa/18-punchlist.md`: D1, D2, S1–S3,
+N1–N5 all `[closed]`). Files touched: `apps/server/src/acquisition/{refugees,grant}.ts`,
+`routes/acquisition.ts`, `db/types.ts`, migration `007_refugee_menu` (in place: new column),
+`test/acquisition.test.ts` (41 → 51), the chunk file, the punch list, this entry.
+
+- **D1 — a free refresh is taken, never pushed.** GET writes only the caravan's first menu
+  (bootstrap) and otherwise never; past the timer it reports `timer.freeRefreshDue` and leaves
+  an unclaimed menu alone. New free, idempotent `POST /me/caravans/:id/refugees/refresh
+  {fromSequence}` takes the owed menu (201; 200 replay; `forfeitedOffers` when the current menu
+  was unclaimed; 409 `free_refresh_not_due` / `stale_menu`). A claim of the current menu takes
+  it in the same request. A reroll while one is owed is 409 `free_refresh_due`, unpaid.
+- **D2 — fixed grid.** `refugee_menu.window_opened_at_ms`: a free menu's grid point
+  (`anchor + k·interval`, the latest ≤ now; CHECK `<= generated_at_ms`), copied onto its
+  rerolls. 16 menus/day whatever the polling cadence; a week away still yields one menu, on the
+  grid. The window-opener row is no longer read.
+- **S1/S3** `sequence` / `fromSequence` required and bounded to `1..2147483647` → 400 before
+  any query. **N2** `msUntilFreeRefresh` clamped to `[0, interval]`. **N3** `menu_corrupt`
+  (409, names the caravan) replaces the bare `Error`s. **N1/N4/N5** documented in the chunk
+  file (migration 007; three slots not three types; reroll deliberately cheaper than recruit).
+- **Regressions from the reviewer's probes:** golden sha256 of 5 000 draws
+  (`c489d769…ec152`, pinned), the `{}` double-tap reroll, the lost-response claim retry
+  across a free refresh, the claim landing at 90:01, clock skew, replay of every stored row,
+  the junk-request sweep (NUL in a type id, upper-cased ids, non-object bodies).
+
+**Test command:** `TEST_DATABASE_URL=postgres://caravan:caravan@localhost:5432/caravan_test_f18 pnpm --filter @caravan/server exec vitest run`
+— see the closing report for the counts. `pnpm typecheck`, `pnpm lint`, `pnpm test:boundary` clean.
+
+**Client note:** the web client (chunk 11 onward) must send `menu.sequence` back on every
+mutating refugee call and show a "take your free menu" action when `timer.freeRefreshDue`.
+
+**Next:** QA re-review of chunk 18 against the closed list.
+
+### 2026-10-11 — Chunk 18 (unit acquisition: refugee drip & mercenary recruit): `not started` → `built`
+
+**Built** in a worktree on top of `c977601`. New: `apps/server/src/acquisition/{refugeeMenu,
+grant,refugees,recruit,index}.ts`, `apps/server/src/routes/acquisition.ts` (registered in
+`app.ts`, append only), migration `007_refugee_menu` (one row per menu ever offered: seed,
+the pool drawn from, the offers, `generated_at_ms`, the claim), a chunk 18 block in
+`packages/content/src/tunables.ts` (`REFUGEE_REFRESH_INTERVAL_MINUTES` 90,
+`REFUGEE_OFFER_COUNT` 3, `REFUGEE_REROLL_COST_SCHEDULE` [150, 300, 600],
+`REFUGEE_OFFER_WEIGHTING`, `REFUGEE_OFFER_SEED`, `MERCENARY_COST_BASE` 600,
+`MERCENARY_COST_SCALING` "none", `UNIT_INVENTORY_CAP` 200), `RefugeeMenuRow` in
+`db/types.ts`, `test/acquisition.test.ts` (41 tests). Changed: `test/migrations.test.ts`
+(table list gains `refugee_menu`).
+
+- **Boundary.** `grantUnit` is the only INSERT into `unit_instance` in the module and calls
+  chunk 05's `hasAccess` right before it, under the account append lock, inside the
+  transaction. Both paths route through it. A hand-crafted request naming a locked node,
+  another region's unit, a trap id, or a type nobody has gets 409 `not_unlocked` with nothing
+  written — tested per case, exhaustively over every living type outside the reached set with
+  the storage cap in Coin, and against a tampered menu row offering a locked type.
+- **Refugee drip.** Seed fnv1a32(`<caravan id>:<sequence>`), xorshift32 with rejection
+  sampling, partial Fisher–Yates over the pool sorted by id; replayable from the row
+  (`replayMenu`). Free timer lazy, one menu per refresh, no stockpiling; a free refresh
+  resets the reroll window; rerolls never move the timer and are served AFTER any due free
+  refresh. Claim = the pick, no further randomness; one pick per menu; 8 concurrent claims →
+  1 instance. 50 rerolls never leave the unlocked pool; unlocking a node through
+  `/me/unlocks/spend` is what widens it. Uniformity checked over 20 000 seeds.
+- **Mercenary recruit.** Flat 600 via `spendCoin` (+ `unit_acquired` alongside, one cause),
+  every unlocked type, always: 10 back-to-back and 6 concurrent purchases succeed; optional
+  `requestId` for retry safety. Price list shows locked types as not for sale.
+- **Legibility.** Both GETs return everything before commit: offers with display names and
+  abilities, the timer, next reroll cost + schedule + affordability, recruit cost per type,
+  balance including pending trickle, inventory count/cap.
+
+**Test command:** `cd apps/server && TEST_DATABASE_URL=postgres://caravan:caravan@localhost:5432/caravan_test_c18 npx vitest run`
+— 21 files, 367 tests passing (baseline on `c977601`: 20 files, 326). `pnpm typecheck`,
+`pnpm lint`, `pnpm test:boundary` clean; `@caravan/content` 55 passing.
+
+**Assumptions made:** listed under "Build notes" in `chunks/18-unit-acquisition.md`. The ones
+QA should weigh: (1) acquisition is allowed while the caravan is on a trip (the instance joins
+the town roster, never the locked manifest); (2) a free refresh replaces an unclaimed menu
+and rerolling forfeits an unclaimed menu — the view flags both; (3) the reroll price holds at
+600 past the third reroll until the next free refresh; (4) a pool of fewer than 3 types fills
+the extra slots with replacement so a menu is always exactly 3.
+
+**Note for the orchestrator:** during one full run, `qa02-regressions.test.ts` S1/S3 failed
+after `migrations.test.ts` had rolled the schema back and forward in the same run (column-level
+grants on recreated tables); it did not reproduce in three further runs or in isolation. Not
+touched here — flagged as a pre-existing suite-order hazard.
+
+**Next:** hand to adversarial QA against GUARDRAILS §1/§2/§3/§4/§5 and the chunk checklist;
+re-run the grind-wall/P2W check on reroll and recruit pricing as chunk 16's QA asked.
+
+### 2026-10-11 — Chunk 09 (standing raid party): `not started` → `built`
+
+**Built** in worktree `agent-a2ac97f2ed890ce31` off `roadmap/phase-2-spec` @ `c977601`.
+The passive side, server-side: the party model, its routes, the real party snapshot and
+the results feed. Nothing else in the repo touched beyond the append-only edits listed.
+
+- **`packages/circle/src/party.ts`** (pure): `TARGETING_STANCES = nearest | traps | core`
+  (a different enum from the formation's defensive stances, on purpose); `PartyConfig` =
+  the owner's CHOICES (`{v:1, units:[{ref, stance, edge, cell}], siege:[typeId]}`, refs are
+  `unit_instance` ids, each unit its own edge + start cell in that edge's entry band, split
+  across all four allowed); `resolveParty(config, roster, isUnlocked)` joins each ref to its
+  live type/merge level and returns every issue at once (`slot_cap_units` 8, `slot_cap_siege`
+  3, `unknown_ref`, `duplicate_ref`, `duplicate_siege`, `type_locked`, `bad_stance`,
+  `bad_edge`, `bad_cell`, `cell_off_band`, `oversized`) or a deep-frozen canonical `Party`
+  (units sorted by ref, siege by type — the explicit order the resolver's tie-breaks get);
+  `scoutParty(party)` is THE scouting view, one function for the owner's preview and chunk
+  14's scout: every unit with both ratings (`ratingInUse: "offense"`, no blended number),
+  merged HP, range, cooldown, ability, stance, edge, cell and `pos = cellCenter`, every
+  siege piece with `counters`, `effect` (accelerates/bypasses), the multiplier/nullify
+  tunable and the exact fence tiers / trap types it hits; `serialize.ts` gained strict
+  `partyConfigFromJson` / `serializePartyConfig` / `partyFromJson` / `serializeParty`.
+  Import-time coherence assertions (`MAX_APPROACH_EDGES == ENTRY_EDGES.length`,
+  `PARTY_EDIT_COOLDOWN_MS == 0`). No-floats source grep covers the new file.
+- **Tunables** (`packages/content`): `PARTY_SLOT_CAP` 8 (asserted == `DEPLOYMENT_SLOT_CAP`),
+  `SIEGE_SLOT_CAP` 3, `MAX_APPROACH_EDGES` 4, `PARTY_EDIT_COOLDOWN_MS` 0 (fixed by design,
+  nothing reads it as a gate), `PARTIES_PER_ACCOUNT` 1.
+- **Migration 006**: `standing_party` gets its own `id` (PK), `slot` (unique per account —
+  the schema now allows more parties; v1 reads slot 0 only) and `composition` jsonb (shape
+  CHECK with `coalesce`, so a missing key cannot pass). Triggers: identity immutable,
+  `updated_at` moves iff composition changes (so chunk 02's `savedAt` means "which version
+  was served"; the jobs tests' manual `updated_at` edits still work), delete refused while
+  the account exists, TRUNCATE refused. **Deliberately no FK from party units to
+  `unit_instance`**: a merge or a trip loss removes the instance and the party must then read
+  as invalid, not be silently trimmed nor block the roster change. Down deletes non-zero
+  slots before restoring the account-id key.
+- **Server**: `src/party/{repo,service,feed}.ts`, `src/routes/party.ts` (registered
+  append-only in `app.ts`). `GET /me/party` → config, `valid` + issues, resolved `party`,
+  `scout` preview, `edges`, caps, `rules` (template / neverConsumed /
+  unitsMayAlsoBePackedOnTrips / stances), the roster with `inParty`, `packedOnTrip`,
+  `aliveOnTrip`, both ratings and `slotCost: 1`, and the `siegeCatalog` with `unlocked`.
+  `PUT /me/party` → free, instant, idempotent; 400 `malformed_party` from the strict parser
+  (stance/edge enums named), 400 `invalid_party` + full issue list from resolution; stores
+  the canonical config and appends one account-scoped `standing_party_saved`
+  (`party_saved:<partyId>:<saveSeq>`, counted under the account append lock). `GET
+  /me/party/feed` → `party_served_as_encounter` joined with same-causation Coin / siege
+  Reputation / siege ladder events and the defender caravan's name, region and username;
+  newest first, `before` cursor. **`snapshotStandingParty`** now resolves the party against
+  the live roster + web and freezes `{ownerAccountId, partyId, slot, savedAt, hash,
+  composition: Party}`; an unresolvable party throws `StandingPartyInvalidError` (chunk 14
+  must re-scout rather than serve a party the defender did not see).
+- **Access** reads chunk 05's `accessCheckFor`: living on each instance's caravan, siege
+  on the account (union over the account's caravans; exact with one).
+
+**Test command:** `cd apps/server && TEST_DATABASE_URL=postgres://caravan:caravan@localhost:5432/caravan_test_c09 npx vitest run`
+→ 21 files, 351 tests passing (baseline on c977601: 20 files, 326). `pnpm --filter
+@caravan/circle test` 8 files, 84 (was 64); `pnpm --filter @caravan/content test` 55;
+root `pnpm typecheck`, `pnpm lint`, `pnpm test:boundary` clean. New: `packages/circle/test/
+party.test.ts` (20) and `apps/server/test/party.test.ts` (25). Covered: fresh party valid
+and empty with caps/rules/roster/catalog; full party split across four edges, event
+account-scoped, stored canonical, re-PUT in another order a no-op; ninth unit / fourth
+siege, bad stance, bad edge, core / interior / wrong-band cells, off-lattice, duplicate
+instance and siege, another player's instance (`unknown_ref`, no hint), locked living type
+the caravan owns and locked siege by hand-crafted request, unknown siege, unknown keys /
+float cell / smuggled hp / array / wrong version, 500-unit body → one `oversized`; twenty
+alternating saves all 200 with `saveSeq` 1..20; **the load-bearing check**: one party
+served into 12 resolutions by 3 workers under a stand-in handler that annihilates it on
+half and credits Coin/Reputation/ladder on the other half — owner's `unit_instance` rows,
+`standing_party` row and `GET /me/party` byte-identical, every job holds one identical
+snapshot; editing afterwards leaves old jobs' snapshots and serves the new one; feed pages
+newest-first with defender/depth/outcome/Coin/Reputation per entry and a defender's own
+feed empty; a unit both packed and in the party: packing legal and reported, the unit
+dying in the manifest (chunk 07 `applyOutcome`) leaves roster/party/snapshot untouched and
+the party rides at full HP, deleting the instance (chunk 19's loss) makes `GET` invalid
+with `unknown_ref`, `PUT` 400, snapshot throws, dropping the ref fixes it; a de-merge is
+reflected not refused; DB guards against the app role; a source grep that `src/party`,
+`routes/party.ts` and `jobs/snapshots.ts` never write `unit_instance` or read Coin /
+purchases, and `party/repo.ts` is the only writer of `standing_party`.
+
+**Assumptions** are listed under "Build notes" in `chunks/09-standing-raid-party.md`. The
+three that matter most for QA and for chunks 14/19: (1) stored composition is choices only,
+stats/levels are joined live, so a lost instance invalidates the party and a de-merge is
+simply reflected; (2) the snapshot refuses an invalid party — chunk 14 should resolve and
+scout from the same `snapshotStandingParty` it will commit with, and handle the error by
+re-scouting; (3) siege types cannot repeat within a party. The visual builder (drag
+lattice, touch targets) is chunk 17's town screen; everything it needs is in `GET /me/party`.
+
+**Next:** hand to adversarial QA against GUARDRAILS §0/§2/§3/§4 and the chunk checklist —
+especially whether any path can reach `unit_instance` or `standing_party` from the
+resolution path, whether the preview and the scout can ever diverge, and whether the
+chunk 02 placeholder handler and chunk 14 need the invalid-party error surfaced.
+
+### 2026-10-11 — Chunk 14 (matchmaking & scouting): `not started` → `built`
+
+**Built** in worktree `agent-ab0db9580a484b2ab` off `roadmap/phase-2-spec` @ `f0a2209`
+(Merge chunk 09). Picks WHO ATTACKS THE CARAVAN at each encounter and lets the defender
+scout every candidate in full before committing. Also settles the chunk 09 QA blocker on
+party snapshots (contract recorded in the chunk file's Build notes).
+
+- **Pure core** `apps/server/src/matchmaking/band.ts`: `candidateSeed` (fnv1a32 over
+  caravan:trip:index:seq), `escalatedCentre` (+15 per encounter = 5% of the 300 span),
+  `bandWidths` (±150 → ±600 by 100), `bandOf`, `authoredAllowance` (floor(L × 0.3/0.7), never
+  fewer than needed to reach 3), `sandbagEarnMultiplier` (chunk 04 QA D2 earn floor, fixed-
+  point), `selectCandidates` (seeded Fisher–Yates over the sorted eligible pool per widening
+  pass, authored cap per pass, then authored-outside-band nearest-first fallback; takes a
+  `skipped` set so a skipped invalid party replays). Integer-only; chunk 18's xorshift32 /
+  uniformBelow are now exported and reused.
+- **Service** `matchmaking/service.ts`: `searchCandidates` (locks the trip row, requires
+  n = encounters_resolved + 1, first search immediate, later ones free after
+  `REROLL_COOLDOWN_SECONDS` on a caller-supplied `nowMs`, `409 already_chosen` once chosen;
+  excludes self + `LinkedAccountsResolver` (v1 stub, `exclusions.ts`) + the account's last 5
+  chosen parties; pool = every non-empty slot-0 party joined to owner username/`is_system`
+  and SIEGE Reputation, region never read; **snapshots each pick exactly once**, skips
+  `StandingPartyInvalidError` with the id recorded and re-draws; stores seed/centre/pool/
+  excluded/skipped/candidates), `readCandidates`, `chooseCandidate` (current menu only;
+  `stale_candidate` for a rerolled-away id; no live re-resolve), `replaySearch`,
+  `enqueueChosenEncounter` — THE CHUNK 15 SEAM: hands the chosen snapshot to
+  `enqueueEncounterResolution`'s new optional `party` input, which stores it as-is.
+- **Candidate view**: stable 32-hex id, owner {accountId, displayName, authored},
+  reputation {rating, band, gapFromCaravan, sandbagEarnMultiplier}, the frozen snapshot and
+  `scout = scoutParty(partyFromJson(snapshot.composition))`. The menu carries caravan
+  rating/band, centre, escalation applied/perEncounter/nextEncounter, passes, widened,
+  usedAuthoredFallback, the reroll gate (time only), chosen, and the rules.
+- **Routes** `routes/matchmaking.ts`: `POST /me/caravans/:id/encounters/:n/search` (201),
+  `GET …/candidates`, `POST …/choose {candidateId}`; `409 reroll_cooldown` with Retry-After.
+- **Migration 009**: `account.is_system`; `trip` (one per manifest, one open per caravan,
+  identity immutable, ended frozen, delete refused while the caravan exists);
+  `encounter_candidates` (PK trip/index/seq, immutable once inserted except the one-time
+  choose, CHECK that the chosen id was offered, partial unique index one chosen per
+  encounter, delete refused). `trips.ts` `createTrip` / `endTrip` for chunk 15.
+- **Authored cold-start seam (PHASE-2 §25)** `matchmaking/authored.ts`: 12 system accounts,
+  3 parties per band for bands 0–3, all regions/stances/edge splits on free starting types;
+  ordinary rows via `saveParty`; `pnpm db:seed` calls it (idempotent).
+- **Tunables** (chunk 14 block): CANDIDATES_PER_SEARCH 3, REPUTATION_BAND_WIDTH 150,
+  _WIDEN_STEP 100, _WIDTH_MAX 600, REROLL_COOLDOWN_SECONDS 180, SELF_EXCLUDE,
+  RECENT_OPPONENT_EXCLUSION 5, DIFFICULTY_ESCALATION_BP 500, EMPTY_POOL_BEHAVIOR,
+  CANDIDATE_SELECTION_SEED, AUTHORED_PARTY_MAX_SHARE_BP 3000, SANDBAG_EARN_GAP_START 300,
+  SANDBAG_EARN_MULT_MIN 0.25.
+
+**Test command:** `cd apps/server && TEST_DATABASE_URL=postgres://caravan:caravan@localhost:5432/caravan_test_c14 npx vitest run`
+→ 24 files, 438 tests passing (baseline on f0a2209: 22 files, 405). New:
+`test/matchmaking-pure.test.ts` (16: integer band math, escalation, widths, seed, allowance,
+earn floor, reproducible/order-independent draw, widening passes, skip set, authored fill and
+share over 500 seeds, fallback and short pool, the authored spec set, the no-Coin / no-
+availability / no-region source scan) and `test/matchmaking.test.ts` (17: exactly 3 scoutable
+candidates with every scout field, scout byte-identical to the owner's preview, cross-region
+candidates, auth/404/no_trip/wrong_encounter, reroll 409 + Retry-After + exact boundary +
+sequence, stored rows replay, self / linked / recent-5-across-trips exclusion, escalation
+across encounters 1–3, choose/idempotent/already_chosen/search-after-choose refused, owner
+edits + de-merge + loss after scouting leave `job.input.party` byte-identical to the scouted
+snapshot and its scout view, invalid party skipped at generation and recorded while an
+invalid-after-scout party is still honoured, stale_candidate, authored fallback on an empty
+band with the snapshot shape indistinguishable and system logins refused, authored cap with a
+deep live pool, DB guards against the app role). `migrations.test.ts` table list updated.
+Root `pnpm typecheck`, `pnpm lint`, `pnpm test:boundary` clean; `packages/content` 58 pass.
+
+**Assumptions** are in the chunk file's Build notes: the snapshot contract (choose never
+re-resolves; the brief's "refuse and re-scout" is replaced by skip-at-generation); +15/encounter
+reads "5% of band width" as 5% of the full span; the authored cap is a draw-pool cap, not a
+served ratio; empty parties are never served; routes under `/me/caravans/…`.
+
+**Next:** hand to adversarial QA against GUARDRAILS §1/§2/§4 and the chunk checklist — the
+field-by-field scout comparison, whether any code can re-resolve a party after the search, the
+reroll gate's immunity to any Coin surface, and whether chunk 15 can drive
+`createTrip → search → choose → commitFormation → enqueueChosenEncounter` without touching
+`encounter_candidates` directly.

@@ -42,6 +42,14 @@ export interface EnqueueEncounterInput {
   defenderCaravanId: string;
   partyOwnerAccountId: string;
   formation: JsonObject;
+  /**
+   * Chunk 14: the party snapshot taken ONCE when the candidate menu was generated and
+   * stored on the chosen candidate. Stored into the job input as-is, so what the defender
+   * scouted is byte-for-byte what is fought; the live party is NOT re-resolved here, and
+   * its owner editing or losing units since the search changes nothing. Omitted only by
+   * the pre-chunk-14 path (chunk 02 tests), which snapshots live at enqueue.
+   */
+  party?: StandingPartySnapshot;
 }
 
 /**
@@ -68,7 +76,10 @@ export async function enqueueEncounterResolution(
     }
     return { job: existing, created: false };
   }
-  const party = await snapshotStandingParty(client, input.partyOwnerAccountId);
+  if (input.party && input.party.ownerAccountId !== input.partyOwnerAccountId) {
+    throw new Error(`party snapshot belongs to account ${input.party.ownerAccountId}, not ${input.partyOwnerAccountId}`);
+  }
+  const party = input.party ?? (await snapshotStandingParty(client, input.partyOwnerAccountId));
   const jobInput: EncounterJobInput = {
     tripId: input.tripId,
     encounterIndex: input.encounterIndex,

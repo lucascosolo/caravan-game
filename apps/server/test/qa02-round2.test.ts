@@ -12,7 +12,7 @@
  *   R2-N3  a result exists only on a completed row
  */
 import { RESOLVER_VERSION } from "@caravan/resolver";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { applyRoles } from "../src/db/migrate.js";
 import { withTransaction } from "../src/db/pool.js";
 import type { ResolutionJobRow } from "../src/db/types.js";
@@ -93,6 +93,14 @@ beforeAll(async () => {
     return { accountId: r.account.id, caravanId: r.caravan.id };
   };
   [A, B] = await Promise.all([reg("a"), reg("b")]);
+});
+// Every test leases "the next job", and earlier tests deliberately leave failed jobs behind
+// with a 1 s retry backoff. Under CPU load that backoff elapses mid-file and the wrong job
+// is leased (seen ~1 in 3 full runs). Each test starts from an empty queue instead.
+beforeEach(async () => {
+  // Rows are permanent while their account exists, so park the leftovers out of the lease
+  // window instead of deleting them: a queued job only becomes leasable at next_attempt_at.
+  await owner.query("UPDATE resolution_job SET next_attempt_at = now() + interval '1 day' WHERE status = 'queued'");
 });
 afterAll(async () => {
   await owner.end();

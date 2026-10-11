@@ -50,16 +50,16 @@ building the mirror image of this game is the easiest mistake available.
 | 06 | [Unlock web UI](chunks/06-unlock-web-ui.md) | Browsable web view for all three pools with costs visible before spending. | 05 | built |
 | 07 | [Wagon circle model](chunks/07-wagon-circle-model.md) | Trip-locked manifest vs. per-encounter formation; fence segments with HP and forced gaps, trap and post placement, carry-forward attrition. | 03 | done |
 | 08 | [Encounter formation UI](chunks/08-encounter-formation-ui.md) | **The primary gameplay screen.** Scout the incoming party, arrange the circle against it, commit. Also builds the shared isometric renderer. | 07, 05, 14 | not started |
-| 09 | [Standing raid party](chunks/09-standing-raid-party.md) | The passive side: a party configured in town, never consumed, served into other players' trips, plus its results feed. | 03, 05, 07 | not started |
+| 09 | [Standing raid party](chunks/09-standing-raid-party.md) | The passive side: a party configured in town, never consumed, served into other players' trips, plus its results feed. | 03, 05, 07 | built |
 | 10 | [Resolver core: tick loop & movement](chunks/10-resolver-core.md) | Fixed-timestep engine, continuous fixed-point movement, lattice pathing, fence collision. **Highest-risk chunk — build and test in isolation.** | 03, 07 | built |
 | 11 | [Resolver combat: damage, traps, posted units](chunks/11-resolver-combat.md) | Cooldown-paced damage + affinity, swept-path trap triggers, posted-unit aggro/leash pursuit, siege counters. | 10 | not started |
 | 12 | [Unit abilities](chunks/12-unit-abilities.md) | Six deterministic ability archetypes firing on automatic cooldowns, one per unit type. | 11 | not started |
 | 13 | [Resolver outcomes & replay](chunks/13-resolver-outcomes-and-replay.md) | End conditions, depth-scaled loot, the event/waypoint replay log, and the determinism harness. | 12 | not started |
-| 14 | [Matchmaking & scouting](chunks/14-matchmaking-and-scouting.md) | Reputation-banded selection of standing parties as encounters; 3 fully-scoutable candidates, free time-gated reroll, escalating difficulty. | 04, 09 | not started |
+| 14 | [Matchmaking & scouting](chunks/14-matchmaking-and-scouting.md) | Reputation-banded selection of standing parties as encounters; 3 fully-scoutable candidates, free time-gated reroll, escalating difficulty. | 04, 09 | built |
 | 15 | [Trip loop](chunks/15-trip-loop.md) | Encounter chaining, bank/push, carry-forward attrition with no resupply, hourly trip cap. | 07, 13, 14 | not started |
 | 16 | [Economy: Coin](chunks/16-economy-coin.md) | Earn/spend/passive trickle/storage cap, and the merge system it pays for. | 02, 03 | done |
 | 17 | [Home town](chunks/17-home-town.md) | The safe settlement: static merge board, the mine visualizing passive Coin, outfitting a caravan, and navigation. Never attacked. | 03, 08, 16 | not started |
-| 18 | [Unit acquisition](chunks/18-unit-acquisition.md) | Refugee drip (choice of 3, Coin reroll) and mercenary recruit (exact pick, Coin) — both gated by the web. | 05, 16 | not started |
+| 18 | [Unit acquisition](chunks/18-unit-acquisition.md) | Refugee drip (choice of 3, Coin reroll) and mercenary recruit (exact pick, Coin) — both gated by the web. | 05, 16 | done |
 | 19 | [Stakes & loss wiring](chunks/19-stakes-and-loss.md) | Per-death merge-level regression, total loss when overrun, unbanked-Coin transfer to the winning party's owner. | 13, 15, 16 | not started |
 | 20 | [Monetization packs](chunks/20-monetization-packs.md) | Weekly rotating $5/$10/$25 packs, fixed and previewed contents, sandboxed purchase flow. | 16 | not started |
 

@@ -355,6 +355,100 @@ export const TUNABLES = {
   UNIT_RADIUS: fpMilli(350),
   /** TUNABLE (chunk 13, consumed from chunk 10). A full-state keyframe every 5 s (= 100 ticks) so playback can seek and truncation is detectable. */
   LOG_KEYFRAME_INTERVAL: seconds(5),
+  // Chunk 09 — the standing raid party (the PASSIVE side; GUARDRAILS §0). A template,
+  // never consumed, never loses units. Nothing here is purchasable: Coin cannot buy a
+  // bigger party, more siege slots or extra parties (GUARDRAILS §2).
+  // ────────────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * TUNABLE (chunk 09). Living units a standing party fields. Matched to DEPLOYMENT_SLOT_CAP
+   * so the two sides are comparably sized. A merged unit takes ONE slot whatever its level —
+   * slot efficiency is the entire benefit of merging (GUARDRAILS §2). A test asserts equality.
+   */
+  PARTY_SLOT_CAP: 8,
+  /** TUNABLE (chunk 09). Siege pieces a party carries, separate from unit slots. Each is a distinct counter bet. */
+  SIEGE_SLOT_CAP: 3,
+  /** Fixed by design (chunk 09). A party may split across every entry edge: all four. Must equal ENTRY_EDGES.length. */
+  MAX_APPROACH_EDGES: 4,
+  /**
+   * Fixed by design (chunk 09, PARTY_EDIT_COOLDOWN). Editing the party is free and instant.
+   * 0 means NO cooldown; a non-zero value would create a Coin sink that sells convenience,
+   * so nothing reads this as anything but a documented zero. A test asserts it is 0.
+   */
+  PARTY_EDIT_COOLDOWN_MS: 0,
+  /**
+   * TUNABLE (chunk 09). Standing parties per account in v1. The schema allows more
+   * (standing_party is keyed by its own id with a per-account slot; PHASE-2 §43 raises this);
+   * the service refuses a slot ≥ this value.
+   */
+  PARTIES_PER_ACCOUNT: 1,
+
+  // ────────────────────────────────────────────────────────────────────────────────────
+  // Chunk 14 — matchmaking & scouting. Picks WHO ATTACKS THE CARAVAN (GUARDRAILS §0):
+  // standing parties, banded by Reputation. Randomness here shapes only which candidates
+  // are OFFERED, seeded from stored state (§1). The reroll is free and time-gated; there
+  // is no Coin path in this block or anywhere on the search path (§2). Every candidate is
+  // scouted in full before the player commits (§4). Whole integers throughout.
+  // ────────────────────────────────────────────────────────────────────────────────────
+
+  /** Fixed by design (chunk 14). A search offers exactly this many candidates; the player picks one. */
+  CANDIDATES_PER_SEARCH: 3,
+  /**
+   * TUNABLE (chunk 14). Half-width of the Reputation band around the (escalated) centre on
+   * the first pass: candidates whose owner's siege Reputation is within ±this. The band
+   * SPAN (2 × width) is also the size of a display band (band k = [FLOOR + k·span, …)).
+   */
+  REPUTATION_BAND_WIDTH: 150,
+  /** TUNABLE (chunk 14). Each failed pass (fewer than CANDIDATES_PER_SEARCH eligible) widens the half-width by this. */
+  REPUTATION_BAND_WIDEN_STEP: 100,
+  /** TUNABLE (chunk 14). The widest half-width a search will use before the authored fallback. */
+  REPUTATION_BAND_WIDTH_MAX: 600,
+  /**
+   * TUNABLE (chunk 14). Searching again for the same encounter is FREE and gated only by
+   * this many seconds since the last search. NEVER purchasable: no Coin, no pack and no
+   * "skip the wait" surface may read or shorten this (GUARDRAILS §2). A test greps for it.
+   */
+  REROLL_COOLDOWN_SECONDS: 180,
+  /** Fixed by design (chunk 14). A caravan never meets its own account's party. Linked accounts (PHASE-2 §31) are excluded the same way. */
+  SELF_EXCLUDE: true,
+  /** TUNABLE (chunk 14). The last N parties this ACCOUNT committed to (any caravan, any trip) are not offered again. Enforced server-side. */
+  RECENT_OPPONENT_EXCLUSION: 5,
+  /**
+   * TUNABLE (chunk 14). Difficulty escalation: the band centre rises by this many basis
+   * points of the band SPAN (2 × REPUTATION_BAND_WIDTH) per encounter index beyond the
+   * first. 500 bp of 300 = +15 Reputation per encounter. Central to bank-or-push: pushing
+   * must mean a harder party, legibly. Tune with care.
+   */
+  DIFFICULTY_ESCALATION_BP: 500,
+  /**
+   * Fixed by design (chunk 14). When a band holds too few candidates: widen (above), then
+   * fill from AUTHORED parties (system-owned, the same object as any other party, never
+   * special-cased downstream). Never a fabricated party, never a resolver special case.
+   */
+  EMPTY_POOL_BEHAVIOR: "widen_then_authored",
+  /**
+   * Fixed by design (chunk 14). The candidate draw is seeded by FNV-1a (32-bit) over
+   * `<caravan id>:<trip id>:<encounter index>:<search sequence>` and drawn with xorshift32
+   * — integer-only, stored with the menu, so any menu ever offered can be replayed.
+   */
+  CANDIDATE_SELECTION_SEED: "fnv1a32(caravanId:tripId:encounterIndex:searchSeq)",
+  /**
+   * TUNABLE (chunk 14 / PHASE-2 §25). Authored parties retire BY RATIO: in a band holding L
+   * live parties, at most floor(L × share / (1 − share)) authored parties join the draw
+   * (so authored ≤ share of the pool), except that enough always join to reach
+   * CANDIDATES_PER_SEARCH. Basis points.
+   */
+  AUTHORED_PARTY_MAX_SHARE_BP: 3000,
+  /**
+   * TUNABLE (chunk 14 / PHASE-2 §31, chunk 04 QA D2). Sandbagging floor on Coin EARNED per
+   * encounter: when the caravan's living Reputation exceeds the party owner's siege
+   * Reputation by more than SANDBAG_EARN_GAP_START, the encounter's Coin earn is scaled by
+   * 1 − (gap − start) / REPUTATION_GAP_DIVISOR, floored at SANDBAG_EARN_MULT_MIN. Shown on
+   * every candidate before the player commits; chunk 19 applies it. Identical for every
+   * account; it reads ratings only.
+   */
+  SANDBAG_EARN_GAP_START: 300,
+  SANDBAG_EARN_MULT_MIN: fpMilli(250),
 
   // ────────────────────────────────────────────────────────────────────────────────────
   // Chunk 16 — Coin economy and merge pricing. Coin buys PACE only (GUARDRAILS §2): nothing
@@ -397,6 +491,52 @@ export const TUNABLES = {
   MERGE_SLOT_COST: 1,
   /** Fixed by design (chunk 16). Earnings above the cap are discarded, and the player is warned before the trip, never silently. */
   COIN_OVERFLOW_BEHAVIOR: "discard_with_warning",
+
+  // ────────────────────────────────────────────────────────────────────────────────────
+  // Chunk 18 — unit acquisition: refugee drip and mercenary recruit (GUARDRAILS §3).
+  // Both paths grant LEVEL-1 instances of types the caravan has ALREADY reached in its
+  // living web; nothing here can widen that pool. Coin buys pace and certainty only.
+  // ────────────────────────────────────────────────────────────────────────────────────
+
+  /** TUNABLE (chunk 18). The free refugee timer: a fresh menu of offers every 90 minutes. */
+  REFUGEE_REFRESH_INTERVAL_MINUTES: 90,
+  /** Fixed by design (chunk 18). A refugee menu offers exactly this many types; the player takes exactly one. */
+  REFUGEE_OFFER_COUNT: 3,
+  /**
+   * TUNABLE (chunk 18). Coin cost of the Nth reroll within one free-refresh window
+   * (index 0 = first reroll). Past the end of the table the LAST value repeats. The window
+   * — and so the index — resets on every free refresh. A reroll buys a SOONER menu from
+   * the SAME unlocked pool, never a wider or better one.
+   */
+  REFUGEE_REROLL_COST_SCHEDULE: [150, 300, 600],
+  /**
+   * Fixed by design (chunk 18). Offers are drawn uniformly, without replacement, from the
+   * caravan's unlocked living pool sorted by type id; when the pool holds fewer types than
+   * REFUGEE_OFFER_COUNT the remaining slots are drawn uniformly WITH replacement from the
+   * same pool, so a menu is always exactly REFUGEE_OFFER_COUNT offers. No type is ever
+   * weighted up, down, or excluded while it is unlocked.
+   */
+  REFUGEE_OFFER_WEIGHTING: "uniform_without_replacement",
+  /**
+   * Fixed by design (chunk 18). The menu seed is derived from (caravan id, refresh sequence
+   * number) by FNV-1a (32-bit) over `<caravan id>:<sequence>`, then drawn with xorshift32 —
+   * integer-only and stored with the menu so QA can replay any menu ever offered.
+   */
+  REFUGEE_OFFER_SEED: "fnv1a32(caravanId:sequence)",
+  /**
+   * TUNABLE (chunk 18). Coin for one guaranteed level-1 copy of any unlocked type. ALWAYS
+   * available for every unlocked type: no cooldown, no daily limit, no per-type restriction —
+   * this is the safety valve that makes the refugee drip's randomness acceptable.
+   */
+  MERCENARY_COST_BASE: 600,
+  /** Fixed in MVP (chunk 18). No scaling of the mercenary cost; if any is ever added it must never make a type unobtainable. */
+  MERCENARY_COST_SCALING: "none",
+  /**
+   * TUNABLE (chunk 18). Storage guard on unit instances per caravan — generous on purpose
+   * (a full 8-slot level-5 circle needs 128 level-1 copies in total, far fewer at once) so
+   * it never blocks acquisition in practice. Not a balance lever.
+   */
+  UNIT_INVENTORY_CAP: 200,
 
   // ────────────────────────────────────────────────────────────────────────────────────
   // Merge recipes (PROJECT.md §7). Fixed by design; listed so the guardrail test can read them.

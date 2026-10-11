@@ -43,6 +43,24 @@ export interface UnitInstanceRow {
   created_at: Date;
 }
 
+/** Chunk 18: one refugee menu (see migration 007). jsonb columns come back parsed. */
+export interface RefugeeMenuRow {
+  caravan_id: string;
+  sequence: number;
+  origin: "free" | "reroll";
+  window_sequence: number;
+  seed: number;
+  pool_type_ids: string[];
+  offered_type_ids: string[];
+  generated_at_ms: number;
+  /** The free-timer grid point this menu's window belongs to (QA D2); the next free window opens one interval later. */
+  window_opened_at_ms: number;
+  claimed_type_id: string | null;
+  claimed_instance_id: string | null;
+  claimed_at_ms: number | null;
+  created_at: Date;
+}
+
 export interface SessionRow {
   id: string;
   account_id: string;
@@ -97,7 +115,13 @@ export interface ResolutionJobRow {
 }
 
 export interface StandingPartyRow {
+  /** Chunk 09: the party's own id; `(account_id, slot)` is unique and v1 uses slot 0 only. */
+  id: string;
   account_id: string;
+  slot: number;
+  /** @caravan/circle PartyConfig in canonical form (the owner's choices; no stats, no HP). */
+  composition: Record<string, unknown>;
   created_at: Date;
+  /** Moves exactly when `composition` does (trigger); the job snapshot records it as `savedAt`. */
   updated_at: Date;
 }
