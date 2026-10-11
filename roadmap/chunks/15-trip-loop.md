@@ -20,8 +20,9 @@ owns attrition, trip state, and the trip cap.
 4. On surviving: **bank** (end trip, deliver, keep everything earned) or **push**
    (matchmaking serves the next attacker; the caravan carries forward whatever damage
    and losses it has — **no repair, no resupply, no healing until the trip ends**).
-5. Trip ends on: **voluntary bank, the caravan being overrun, or** — favorably —
-   a tick-cap stalemate at which the attackers withdraw.
+5. Trip ends on: **voluntary bank or the caravan being overrun.** A tick-cap stalemate
+   (the attackers withdraw) counts as surviving: bank or push, as after a held fight
+   (QA D4). The hourly trip cap is per account, shared by all its caravans (QA D2).
 
 **Critical framing — this is not a map or travel layer.** There is **no geography, no
 route-picking, no spatial overworld, no travel timer**. Do not build one. A trip is a
@@ -67,7 +68,7 @@ to trip structure. This is the specific way the concept drifted once already; wa
       difficulty.
 - [ ] Attrition carries forward: unit damage and deaths, destroyed fence segments, and
       spent traps all persist with no repair or restock.
-- [ ] Trip ends on bank, being overrun, or stalemate-then-bank. Each path returns the
+- [ ] Trip ends on bank or being overrun; a stalemate is survived (bank or push). Each path returns the
       caravan to town.
 - [ ] Manifest edits refused for the whole trip, server-side.
 - [ ] Trip cap enforced: one use per trip regardless of encounter count; regen works.

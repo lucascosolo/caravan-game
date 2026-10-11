@@ -42,4 +42,4 @@ Followed as the orchestrator brief stated it; no earlier punch-list decision say
 - Consistency: `full` is stamped into the job input at enqueue (`partyLootFull`), so the handler's reported `outcome.loot` (job.result, `encounter_resolved`, `party_served_as_encounter`) is a pure function of the job input and equals the credit's requested amount (credited + discarded). The feed adds `lootCoin`. One batch per job under `transfer:<jobId>` (a job is held OR overrun), and the (causation_id, seq) uniqueness makes a second credit impossible.
 
 ## Still open from this list
-- D2 (record the account-level trip cap in GUARDRAILS §5's list) and D4 (PROJECT.md §2's stalemate line, the chunk 15 DoD wording) are documentation edits to GUARDRAILS / PROJECT.md that were not in this fixer's assignment; not done here.
+- D2 (record the account-level trip cap in GUARDRAILS §5's list) and D4 (PROJECT.md §2's stalemate line, the chunk 15 DoD wording) are documentation edits to GUARDRAILS / PROJECT.md that were not in this fixer's assignment; done by the orchestrator on merge.
