@@ -603,4 +603,11 @@ describe("ability descriptions agree with the data (QA N3)", () => {
       }
     }
   });
+
+  it("chunk 12: every structure breaker states the per-segment cap, and the words match STRUCTURE_BREAKER_SEGMENT_CAP (×0.50 = 'half')", () => {
+    expect(TUNABLES.STRUCTURE_BREAKER_SEGMENT_CAP).toBe(512);
+    const breakers = LIVING_UNIT_TYPES.filter((u) => u.ability.archetype === "structure_breaker");
+    expect(breakers.length).toBe(6);
+    for (const u of breakers) expect(u.ability.description, u.id).toMatch(/never more than half a segment in one blow/);
+  });
 });

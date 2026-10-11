@@ -56,7 +56,9 @@ export interface HeavyStrikeAbility extends AbilityBase {
 /**
  * Archetype 3: restore `healFraction` of max HP to every living ally within `radius`.
  * Bounded by `charges` per battle — finite, non-regenerating, reset (not accumulated) at
- * the start of each encounter. No overheal, no revival (chunk 12 healer rules).
+ * the start of each encounter. No overheal, no revival (chunk 12 healer rules); a heal never
+ * raises a unit above the HP it brought into the battle (the resolver's HEAL_CEILING), so
+ * damage carried forward from earlier encounters is never healed.
  */
 export interface HealRadiusAbility extends AbilityBase {
   readonly archetype: "heal_radius";

@@ -55,6 +55,8 @@ export const DEFAULT_TUNABLES: ResolverTunables = {
   trapTriggerRadius: fx(768), // 0.75 cells
   siegeFenceDamageMult: fx(4096), // ×4
   leashHysteresisMult: fx(819), // ×0.80
+  abilityFirstUseDelayMult: fx(1024), // ×1.0: the first use waits a full cooldown
+  structureBreakerSegmentCap: fx(512), // ×0.50 of a segment's max HP per breaker hit
 };
 
 /** (radius + UNIT_RADIUS)²: the REACH rule's squared threshold for the default unit radius. */
@@ -63,8 +65,87 @@ export const reachSq = (radius: number): number => (radius + 358) * (radius + 35
 /** A short fight for tests that only care about the first seconds. */
 export const SHORT_TUNABLES: ResolverTunables = { ...DEFAULT_TUNABLES, battleLengthCapSeconds: 30 };
 
+/**
+ * Chunk 12: the same tunables with the first ability use pushed past the tick cap
+ * (abilityFirstUseDelayMult ×64, the input bound — a 9 s dash first readies at tick 11 520).
+ * For the chunk 10/11 tests that pin a movement or combat rule tick-exactly in isolation;
+ * every unit still HAS its ability, it just never comes off its first cooldown. The fights
+ * that pin ability rules use the real delay.
+ */
+export function quiet(t: ResolverTunables): ResolverTunables {
+  return { ...t, abilityFirstUseDelayMult: fx(64 * 1024) };
+}
+export const QUIET_SHORT_TUNABLES: ResolverTunables = quiet(SHORT_TUNABLES);
+
 export const DASH: Ability = { archetype: "dash", displayName: "Spur On", description: "Surges along its path.", cooldown: ms(9000), distance: fx(3584) };
 export const HEAVY: Ability = { archetype: "heavy_strike", displayName: "Long Shot", description: "One aimed round.", cooldown: ms(15000), damageMult: fx(3584) };
+/** Chunk 12: one literal per remaining archetype, at content's reference values. */
+export const BURST: Ability = { archetype: "burst_radius", displayName: "Lit Fuse", description: "Hits every enemy within 2 cells.", cooldown: ms(12000), radius: fx(2048), damageMult: fx(1536) };
+export const HEAL: Ability = { archetype: "heal_radius", displayName: "Canteen", description: "Restores 10% max HP to allies within 2.5 cells.", cooldown: ms(14000), radius: fx(2560), healFraction: fx(102), charges: 4 };
+export const BUFF: Ability = { archetype: "self_buff", displayName: "Pack Fury", description: "+30% damage for 5 seconds.", cooldown: ms(10000), damageBonus: fx(307), duration: ms(5000) };
+export const BREAKER: Ability = { archetype: "structure_breaker", displayName: "Ram", description: "Rams a fence segment for 5x.", cooldown: ms(12000), fenceDamageMult: fx(5120) };
+export const ALL_ABILITIES: readonly Ability[] = [BURST, HEAVY, HEAL, BUFF, DASH, BREAKER];
+
+/**
+ * Chunk 12 determinism corpus: ability-heavy fights. Every archetype on both sides, healers
+ * on both sides with full-length fights (charges run out), dashes against a sealed ring,
+ * breakers with the countering siege, and a same-tick heal-vs-burst set-up.
+ */
+export function abilityScenarios(): { name: string; input: ResolveInput }[] {
+  const at = (ref: string, ability: Ability, edge: EntryEdge, cell: Cell, over: Partial<UnitSpec> = {}) => unit({ ref, ability, edge, cell, ...over });
+  const timberSiege = { ref: "s", typeId: "siege.battering_wagon", counters: { kind: "fence", category: "timber" } } as const;
+  return [
+    {
+      name: "abilities-all-six-both-sides",
+      input: input(
+        battlefield({
+          fences: ringExcept([3, 10, 17, 24], 400),
+          traps: [trap("t1", { x: 15, y: 9 }), trap("t2", { x: 21, y: 15 }, { effect: ROOT }), trap("t3", { x: 9, y: 15 }, { effect: SLOW })],
+          posts: ALL_ABILITIES.map((ability, k) => post(`p${k}`, [{ x: 13, y: 13 }, { x: 17, y: 13 }, { x: 13, y: 17 }, { x: 17, y: 17 }, { x: 15, y: 13 }, { x: 15, y: 17 }][k]!, { ability, stance: (["guard", "hold", "guard", "reserve", "guard", "hold"] as const)[k]!, mergeLevel: 1 + (k % 5) })),
+        }),
+        party(
+          [
+            at("a0", BURST, "north", { x: 12, y: 0 }, { stance: "nearest" }),
+            at("a1", HEAVY, "north", { x: 18, y: 1 }, { stance: "nearest", attackRange: 4096 }),
+            at("a2", HEAL, "east", { x: 31, y: 14 }, { stance: "nearest" }),
+            at("a3", BUFF, "east", { x: 30, y: 17 }, { stance: "nearest", mergeLevel: 3 }),
+            at("a4", DASH, "south", { x: 15, y: 31 }, { stance: "core", moveSpeed: 2600 }),
+            at("a5", BREAKER, "west", { x: 0, y: 12 }, { stance: "core", hp: 1400 }),
+          ],
+          [timberSiege],
+        ),
+      ),
+    },
+    {
+      name: "abilities-dash-sealed-ring",
+      input: input(battlefield({ fences: ringExcept([], 300), traps: [trap("t", { x: 15, y: 6 })] }), party([unit({ ref: "a" }), unit({ ref: "b", cell: { x: 0, y: 15 }, edge: "west" }), unit({ ref: "c", cell: { x: 31, y: 20 }, edge: "east", moveSpeed: 2600 })]), { ...SHORT_TUNABLES, abilityFirstUseDelayMult: fx(256) }),
+    },
+    {
+      name: "abilities-breaker-siege-stone",
+      input: input(
+        battlefield({ fences: ringExcept([], 1000).map((f) => ({ ...f, category: "stone" as const })), posts: [post("p", { x: 15, y: 13 }, { ability: HEAL })] }),
+        party([unit({ ref: "a", ability: BREAKER, mergeLevel: 5, offense: 120 }), unit({ ref: "b", ability: BREAKER, cell: { x: 0, y: 15 }, edge: "west" })], [{ ref: "s", typeId: "siege.blasting_crate", counters: { kind: "fence", category: "stone" } }]),
+        { ...SHORT_TUNABLES, abilityFirstUseDelayMult: fx(0) },
+      ),
+    },
+    {
+      name: "abilities-healers-full-length",
+      input: input(
+        battlefield({ posts: [post("h1", { x: 15, y: 9 }, { ability: HEAL, stance: "hold" }), post("h2", { x: 16, y: 9 }, { ability: HEAL, stance: "hold" }), post("t", { x: 15, y: 10 }, { stance: "hold", hp: 3000, maxHp: 3000 })] }),
+        party([unit({ ref: "a", stance: "nearest", hp: 4000, ability: HEAL }), unit({ ref: "b", stance: "nearest", hp: 2000, ability: BURST }), unit({ ref: "c", stance: "nearest", ability: BUFF })]),
+      ),
+    },
+    {
+      name: "abilities-same-tick-heal-vs-burst",
+      input: input(
+        battlefield({ posts: [post("h", { x: 15, y: 6 }, { ability: HEAL, stance: "hold" }), post("p", { x: 15, y: 5 }, { stance: "hold", hp: 300, maxHp: 1100 })] }),
+        // A 1-tick burst: it fires every tick it has a target, so the heal that answers it lands on a burst tick.
+        party([unit({ ref: "a", stance: "nearest", ability: { ...BURST, cooldown: ms(50) } as Ability, hp: 5000 }), unit({ ref: "b", stance: "nearest", ability: HEAL, hp: 5000 })]),
+        { ...SHORT_TUNABLES, abilityFirstUseDelayMult: fx(0) },
+      ),
+    },
+  ];
+}
 
 export interface FenceSpec {
   segment: number;
@@ -148,6 +229,7 @@ export interface UnitSpec {
   hp?: number;
   affinity?: PartyUnit["affinity"];
   mergeLevel?: number;
+  ability?: Ability;
 }
 
 export function unit(spec: UnitSpec): PartyUnit {
@@ -167,7 +249,7 @@ export function unit(spec: UnitSpec): PartyUnit {
     moveSpeed: fx(spec.moveSpeed ?? 1536), // 1.5 cells/s → 76 per tick
     attackRange: fx(spec.attackRange ?? 1024),
     attackCooldown: ms(spec.attackCooldown ?? 1000),
-    ability: DASH,
+    ability: spec.ability ?? DASH,
   };
 }
 
@@ -209,7 +291,9 @@ export function cornerClipScenario(): ResolveInput {
  * Chunk 11's budget scenario: 16 attackers (all three stances, all three affinities, every
  * merge level, a mix of speeds and ranges) against 8 posts (all three stances) behind all 28
  * fence segments, with 6 traps (damage, slow, root) and two siege pieces, for the full 180 s.
- * The performance check and the log-size measurement run it.
+ * The performance check and the log-size measurement run it. Since chunk 12 every unit and
+ * post carries one of the six archetypes in rotation (ALL_ABILITIES), so the budget is
+ * measured with abilities firing.
  */
 export function fullLoadScenario(): ResolveInput {
   const affinities = ["grit", "powder", "beast"] as const;
@@ -237,6 +321,7 @@ export function fullLoadScenario(): ResolveInput {
         moveSpeed: 1024 + ((k * 397) % 2049),
         attackRange: k % 4 === 3 ? 4096 : 1024,
         attackCooldown: 400 + ((k * 331) % 2101),
+        ability: ALL_ABILITIES[k % 6]!,
       }),
     );
   }
@@ -263,6 +348,7 @@ export function fullLoadScenario(): ResolveInput {
       attackCooldown: ms(500 + ((k * 277) % 2001)),
       aggroRadius: fx(3072 + 1024 * (k % 3)),
       leashDistance: fx(4096 + 1024 * (k % 2)),
+      ability: ALL_ABILITIES[(k + 3) % 6]!,
     }),
   );
   const traps: BattlefieldTrap[] = [
@@ -302,6 +388,8 @@ export function scenarios(): { name: string; input: ResolveInput }[] {
   const north = (ref: string, stance: Stance, x: number) => unit({ ref, stance, edge: "north", cell: { x, y: 1 } });
   const south = (ref: string, stance: Stance, x: number) => unit({ ref, stance, edge: "south", cell: { x, y: GRID_HEIGHT - 2 } });
   return [
+    // ── chunk 12 ability scenarios ──
+    ...abilityScenarios(),
     // ── chunk 11 QA round 1 (literal inputs, qa11-fixtures.ts; assertions in qa11.test.ts) ──
     { name: "qa11-chatter-guard", input: CHATTER_GUARD_INPUT },
     { name: "qa11-rand93", input: RAND93_INPUT },

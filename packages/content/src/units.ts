@@ -102,7 +102,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "structure_breaker",
       displayName: "Pick Swing",
-      description: "A full-weight swing at a fence segment for 4.5× a normal hit.",
+      description: "A full-weight swing at a fence segment for 4.5× a normal hit — never more than half a segment in one blow.",
       cooldown: seconds(12),
       fenceDamageMult: fpMilli(4500),
     },
@@ -216,7 +216,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "structure_breaker",
       displayName: "Horn Charge",
-      description: "Rams a fence segment for 5× a normal hit.",
+      description: "Rams a fence segment for 5× a normal hit — never more than half a segment in one blow.",
       cooldown: seconds(16),
       fenceDamageMult: fp(5),
     },
@@ -307,7 +307,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "structure_breaker",
       displayName: "Stampede",
-      description: "Smashes a fence segment for 5× a normal hit.",
+      description: "Smashes a fence segment for 5× a normal hit — never more than half a segment in one blow.",
       cooldown: seconds(18),
       fenceDamageMult: fp(5),
     },
@@ -397,7 +397,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "structure_breaker",
       displayName: "Maul Work",
-      description: "Hammers a fence segment for 4× a normal hit.",
+      description: "Hammers a fence segment for 4× a normal hit — never more than half a segment in one blow.",
       cooldown: seconds(12),
       fenceDamageMult: fp(4),
     },
@@ -489,7 +489,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "structure_breaker",
       displayName: "Double Jack",
-      description: "Drives a drill steel into a fence segment for 5.5× a normal hit.",
+      description: "Drives a drill steel into a fence segment for 5.5× a normal hit — never more than half a segment in one blow.",
       cooldown: seconds(14),
       fenceDamageMult: fpMilli(5500),
     },
@@ -694,7 +694,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "structure_breaker",
       displayName: "Pry Bar",
-      description: "Levers a fence segment apart for 4× a normal hit.",
+      description: "Levers a fence segment apart for 4× a normal hit — never more than half a segment in one blow.",
       cooldown: seconds(10),
       fenceDamageMult: fp(4),
     },

@@ -26,7 +26,7 @@ import {
   type ResolveOutput,
   type SimState,
 } from "../src/index.js";
-import { DEFAULT_TUNABLES, SHORT_TUNABLES, battlefield, clone, input, ms, party, post, reachSq, ringExcept, unit } from "./fixtures.js";
+import { DEFAULT_TUNABLES, QUIET_SHORT_TUNABLES, SHORT_TUNABLES, battlefield, clone, input, ms, party, post, reachSq, ringExcept, unit } from "./fixtures.js";
 
 const events = <K extends LogEvent["k"]>(out: { readonly log: readonly LogEvent[] }, k: K) => out.log.filter((e): e is Extract<LogEvent, { k: K }> => e.k === k);
 const keyframes = (out: ResolveOutput) => events(out, "keyframe");
@@ -208,7 +208,7 @@ describe("guard: leash and hysteresis", () => {
 describe("guard: pursuit and the fight", () => {
   it("end to end: a guard notices a passing attacker, chases it within its leash, drops it, returns, and goes idle — every transition logged", () => {
     // The attacker (core stance) walks straight down x = 15 past a guard at (12,8), 3 cells off its line.
-    const out = resolve(input(battlefield({ posts: [guardAt({ x: 12, y: 8 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, hp: 5000 })]), SHORT_TUNABLES));
+    const out = resolve(input(battlefield({ posts: [guardAt({ x: 12, y: 8 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, hp: 5000 })]), QUIET_SHORT_TUNABLES));
     const kinds = out.log.filter((e) => (e.k === "aggro" || e.k === "disengage" || e.k === "returned") && e.u === 1).map((e) => e.k);
     expect(kinds).toEqual(["aggro", "disengage", "returned"]);
     // Following the attacker keeps it inside aggro reach, so it is the leash that ends the chase.

@@ -2081,3 +2081,56 @@ chunk 15/16 should refuse it server-side. Board positions are client-side (local
 **Next:** adversarial QA against the chunk 17 checklist (no simulation in town, never
 attackable, mine presentational, merge legibility, full board + recruit, grid visibility,
 one renderer).
+
+### 2026-10-11 — Chunk 12 (unit abilities): `not started` → `built` — `[resolver-bump]` 4 → 5
+
+**Built** in an isolated worktree branched from `roadmap/phase-2-spec` at 670e717.
+**`RESOLVER_VERSION` is now 5**; no golden corpus exists yet (`pnpm determinism`: 20 scenarios,
+3 processes × 3 runs agree). Every rule and tie-break is in `chunks/12-unit-abilities.md`
+§ "Build notes" and in the header of `packages/resolver/src/abilities.ts`. What other chunks
+need to know:
+
+- **Phase 7 is real** (`abilities.ts`): six archetype cases, decide in ascending id against
+  the start-of-phase state, apply non-heals then heals (each ascending id). **A heal never
+  saves a unit from same-tick damage.** First use waits a full cooldown
+  (`abilityFirstUseDelayMult` input, ×1.0); ready-and-satisfiable trigger; 0-HP units are never
+  targets.
+- **Damage pipeline** gained step 3b (self buff while in force, all of the caster's hits) and
+  3c (ability multiplier on the merged hit). No ability field scales with merge level.
+- **Two new rules beyond the brief's numbers, flagged for QA/orchestrator:**
+  (1) `STRUCTURE_BREAKER_SEGMENT_CAP` ×0.50 (content tunable, stated in every breaker's
+  description): one breaker hit takes at most half a segment's max HP — additive siege alone
+  still lets a level-5 Buffalo Bull deal 2336 to a 1000-HP Stacked Stone segment.
+  (2) **HEAL_CEILING = the HP a unit brought into the battle**: heals undo this fight's damage
+  only. Without it the attrition probe showed a healer circle leaving a weak encounter with
+  more HP than it entered (a between-encounter top-up, healer rule 4).
+- **Reported, not changed:** with stone siege a level-5 Buffalo Bull's NORMAL hit (292 × 4 =
+  1168) already one-shots a full Stacked Stone segment (chunk 11 / chunk 37 balance).
+- **Replay (chunk 13):** new `ability` event (`a`, `tg: [{kind, id, amount, hp}]`, plus
+  `charges` / `until` / `x, y`); a dash is a movement leg applied after the unit's own movement
+  phase (log.ts INTERPOLATION CONTRACT); keyframes carry `ab`. An attacker's dash path is tested
+  against traps in the next tick's phase 4.
+- **Input:** `ResolverTunables` gained `abilityFirstUseDelayMult` and
+  `structureBreakerSegmentCap`; circle's `resolverTunables()` builds them; ability fields are
+  bounded at both ends. `UnitState` gained ability fields and `startHp`; `engaged` /
+  `breachableFence` moved from tick.ts to combat.ts (exported from the index).
+- **QA probes as tests** (`packages/circle/test/abilities-qa.test.ts`, real content): the
+  worst-case healer turtle held 0/8 approaches in both `hold` and `guard` against 8 level-5
+  raiders; across a 3–8 raider × level 1–5 sweep healers never held > 4/8 nor added more than
+  one hold over tanks in the same slots; breaker × level × siege × tier exhaustively < segment
+  HP (≤ 50 %); attrition gate: three survived encounters leave the healer circle at 82.6–89.9 %
+  (asserted < 90 %), HP never rises across an encounter. Healing offset 7.5–16 % in full fights
+  (under the 25–35 % target; healers die early) — balance note for chunk 37.
+- **Budgets:** full load (every unit with an ability) best 69 ms alone / 77 ms under the
+  suite (< 100 ms); log 124.7 KB (was 115.5; keyframes 95.5 KB).
+
+**Verification:** resolver **170 passing** (12 files; `abilities.test.ts` 36 new), circle 99
+(5 new), content 76 (1 new), web 83, server 512 against `caravan_test_c12` (one run hit the
+known `qa02-round2` lease-trigger flake; passes alone and on rerun); `pnpm typecheck`, `pnpm
+lint`, `pnpm test:boundary` (16 src files), `pnpm determinism`, `pnpm build` clean. Six chunk
+10/11 tests that pin tick-exact movement/combat now run with `quiet()` (first ability use
+pushed past the cap). AGENTS.md's resolver test count (134) is stale; not edited.
+
+**Next:** adversarial QA against the chunk's checklist — especially the heal-ceiling and
+segment-cap decisions, the same-tick ordering, dash vs fences/traps/leash, and whether the
+scout view shows effect, radius and cooldown (chunk 14 / web, not touched here).

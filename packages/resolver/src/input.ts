@@ -184,6 +184,21 @@ export interface ResolverTunables {
    * back within this fraction of its leash distance from its post.
    */
   readonly leashHysteresisMult: Fixed;
+
+  // ── Chunk 12 — abilities. Defaults in @caravan/content's registry; all TUNABLE there. ──
+  /**
+   * ABILITY_FIRST_USE_DELAY_MULT (×1.0 = 1024): a unit's first firing waits
+   * floor(cooldownTicks × this) ticks — units don't open with their ability. Never scaled
+   * by merge level.
+   */
+  readonly abilityFirstUseDelayMult: Fixed;
+  /**
+   * STRUCTURE_BREAKER_SEGMENT_CAP (×0.50 = 512): one structure-breaker hit takes at most this
+   * fraction of the segment's MAX HP (floored, then the minimum of 1), so no merge level and
+   * no siege counter lets the ability one-shot a segment of any tier (chunk 12 interaction
+   * stacking check; abilities.ts STRUCTURE_BREAKER_DAMAGE).
+   */
+  readonly structureBreakerSegmentCap: Fixed;
 }
 
 export const AFFINITY_OUTCOMES = ["advantage", "neutral", "disadvantage"] as const;
@@ -229,6 +244,8 @@ const INPUT_KEYS = {
     "trapTriggerRadius",
     "siegeFenceDamageMult",
     "leashHysteresisMult",
+    "abilityFirstUseDelayMult",
+    "structureBreakerSegmentCap",
   ],
   abilityBase: ["archetype", "displayName", "description", "cooldown"],
 } as const;
@@ -240,6 +257,22 @@ const ABILITY_EXTRA_KEYS: Readonly<Record<string, readonly string[]>> = {
   self_buff: ["damageBonus", "duration"],
   dash: ["distance"],
   structure_breaker: ["fenceDamageMult"],
+};
+
+/**
+ * Chunk 12 ABILITY_FIELD_BOUNDS — validation limits, not balance (content sits far inside):
+ * radii and dash distance within maxDistance; damage multipliers ×1.0..×64 (an ability hit is
+ * never weaker than the hit it multiplies; a structure breaker is a BONUS vs fences, so ≥ ×1.0,
+ * which also keeps the additive siege rule monotone); heal fraction 0..100 % of max HP;
+ * charges 0..1000; buff bonus 0..×64; buff duration 1 ms..maxMillis.
+ */
+const ABILITY_FIELD_BOUNDS: Readonly<Record<string, Readonly<Record<string, readonly [number, number]>>>> = {
+  burst_radius: { radius: [0, INPUT_BOUNDS.maxDistance], damageMult: [FIXED_POINT_SCALE, INPUT_BOUNDS.maxMult] },
+  heavy_strike: { damageMult: [FIXED_POINT_SCALE, INPUT_BOUNDS.maxMult] },
+  heal_radius: { radius: [0, INPUT_BOUNDS.maxDistance], healFraction: [0, FIXED_POINT_SCALE], charges: [0, 1000] },
+  self_buff: { damageBonus: [0, INPUT_BOUNDS.maxMult], duration: [1, INPUT_BOUNDS.maxMillis] },
+  dash: { distance: [0, INPUT_BOUNDS.maxDistance] },
+  structure_breaker: { fenceDamageMult: [FIXED_POINT_SCALE, INPUT_BOUNDS.maxMult] },
 };
 
 function positiveInt(v: unknown, where: string, min: number): number {
@@ -268,7 +301,13 @@ function assertAbility(v: unknown, where: string): void {
   nonEmptyString(base.displayName, `${where}.displayName`);
   if (typeof base.description !== "string") fail(`${where}.description must be a string`);
   boundedInt(base.cooldown, `${where}.cooldown`, 1, INPUT_BOUNDS.maxMillis);
-  for (const k of ABILITY_EXTRA_KEYS[base.archetype as string] ?? []) positiveInt(base[k], `${where}.${k}`, 0);
+  // Chunk 12: every ability magnitude bounded at both ends (ABILITY_FIELD_BOUNDS).
+  const bounds = ABILITY_FIELD_BOUNDS[base.archetype as string] ?? {};
+  for (const k of ABILITY_EXTRA_KEYS[base.archetype as string] ?? []) {
+    const b = bounds[k];
+    if (b === undefined) positiveInt(base[k], `${where}.${k}`, 0);
+    else boundedInt(base[k], `${where}.${k}`, b[0], b[1]);
+  }
 }
 
 /** Throws unless `v` is exactly a Party: closed keys, valid stances, entry cells in their bands. */
@@ -336,6 +375,8 @@ export function assertTunables(v: unknown): asserts v is ResolverTunables {
   boundedInt(t.trapTriggerRadius, "tunables.trapTriggerRadius", 0, INPUT_BOUNDS.maxDistance);
   boundedInt(t.siegeFenceDamageMult, "tunables.siegeFenceDamageMult", 1, INPUT_BOUNDS.maxMult);
   boundedInt(t.leashHysteresisMult, "tunables.leashHysteresisMult", 0, FIXED_POINT_SCALE);
+  boundedInt(t.abilityFirstUseDelayMult, "tunables.abilityFirstUseDelayMult", 0, INPUT_BOUNDS.maxMult);
+  boundedInt(t.structureBreakerSegmentCap, "tunables.structureBreakerSegmentCap", 1, FIXED_POINT_SCALE);
 }
 
 /**
@@ -487,6 +528,8 @@ export function normalizeInput(input: ResolveInput): ResolveInput {
       trapTriggerRadius: input.tunables.trapTriggerRadius,
       siegeFenceDamageMult: input.tunables.siegeFenceDamageMult,
       leashHysteresisMult: input.tunables.leashHysteresisMult,
+      abilityFirstUseDelayMult: input.tunables.abilityFirstUseDelayMult,
+      structureBreakerSegmentCap: input.tunables.structureBreakerSegmentCap,
     },
   };
 }
