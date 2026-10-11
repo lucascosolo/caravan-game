@@ -312,7 +312,7 @@ describe("reserve", () => {
     expect(attackerInsideRing(state)).toBe(0);
   });
 
-  it("ignores every attacker — no acquisition, no hits even in reach — until released, then behaves as guard for good", () => {
+  it("does not acquire or move until released, but fires at an attacker in reach (QA-11 D1); then behaves as guard for good", () => {
     const state = mk(input(battlefield({ posts: [post("p", { x: 15, y: 9 }, { stance: "reserve" })] }), party([unit({ ref: "a" }), unit({ ref: "b" })])));
     const r = state.units[2]!;
     const ry = cellCenter({ x: 15, y: 9 }).y;
@@ -321,9 +321,12 @@ describe("reserve", () => {
     const log: LogEvent[] = [];
     postedUnitPhase(state, log);
     attackPhase(state, log);
-    expect(log.filter((e) => e.k === "aggro" || e.k === "released")).toHaveLength(0);
-    expect(log.filter((e) => e.k === "hit" && e.u === 2)).toHaveLength(0);
-    expect(log.filter((e) => e.k === "hit" && e.u === 0)).toHaveLength(1); // the attacker is not so polite
+    expect(log.filter((e) => e.k === "aggro" || e.k === "released" || e.k === "hold" || e.k === "path")).toHaveLength(0);
+    expect(r.postMode).toBe("idle");
+    expect([r.x, r.y]).toEqual([PX, ry]);
+    expect(log.filter((e) => e.k === "hit" && e.u === 2)).toHaveLength(1); // stance gates acquisition and movement, not what gets hit
+    expect(log.filter((e) => e.k === "hit" && e.u === 0)).toHaveLength(1);
+    r.cooldownRemaining = 0;
     // Unit b steps one cell inside the ring: released on b, and it acquires the NEAREST attacker (a).
     place(state, 1, (12 * 1024 + 512) as Fixed, (12 * 1024 + 512) as Fixed);
     state.units[0]!.cooldownRemaining = 0;

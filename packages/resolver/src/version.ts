@@ -6,6 +6,9 @@
  * QA round 1 (leg-parametric movement with margin line of sight, the tick-exact breach
  * price, clamped breach edges, same-tick waypoint arrival); 3 is chunk 11's combat
  * (cooldown-paced hits with the affinity layer, swept-path traps, posted-unit stances /
- * aggro / leash, siege counters, unit death, the REACH rule and the new input tunables).
+ * aggro / leash, siege counters, unit death, the REACH rule and the new input tunables);
+ * 4 is chunk 11's QA round 1 (every stance fires in reach, a breacher answers only a unit
+ * that can reach it, pursuit routes bounded by leash and aggro, aggro hysteresis on the
+ * target last lost, the leash clamp, traps skip 0-HP units, tighter input bounds).
  */
-export const RESOLVER_VERSION = 3;
+export const RESOLVER_VERSION = 4;

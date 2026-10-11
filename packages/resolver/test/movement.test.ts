@@ -43,7 +43,7 @@ describe("fixed-timestep loop", () => {
     expect(out.tickCap).toBe(60);
     expect(out.ticks).toBe(60);
     expect(out.end).toBe("tick_cap");
-    expect(out.resolverVersion).toBe(3);
+    expect(out.resolverVersion).toBe(4);
     const full = resolve(input(battlefield(), party([unit({ ref: "a" })])));
     expect(full.tickCap).toBe(3600);
     expect(full.ticks).toBe(3600);

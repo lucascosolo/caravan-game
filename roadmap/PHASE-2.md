@@ -480,6 +480,18 @@ real-shaped data.
 - Explicit sign-off on: the free-versus-paid weekly ratio, the merge cost curve, the
   encounter reward escalation versus difficulty escalation, and the trip cap.
 
+**Balance notes carried in (chunk 11 QA, RESOLVER_VERSION 3 — re-measure on the current version
+before acting):**
+- Win matrix (level 1, open field, `nearest` attacker vs a `guard` post): the attacker wins
+  63.7 %. Range dominates: ranged types top the attacker list and bottom the guard list.
+  Grizzly is top in both roles (cf. chunk 03 QA N6). The four healers are weak until chunk
+  12's abilities exist.
+- Affinity changes 7.1 % of outcomes; every non-neutral pair changes some; stats decide 93 %.
+  Revisit ×1.25 / ×0.80 against the 40–120 offense spread.
+- Chunk 11 QA round 1 (RESOLVER_VERSION 4) changed three things that move these numbers:
+  reserve posts fire back, a breacher ignores posts that cannot reach it, and guards no longer
+  chase detours out of aggro or leash. Re-run the matrix before tuning.
+
 **Definition of done.** No single type predicts outcomes above threshold in the sweep,
 the alpha's bank-versus-push curve shows real decisions at encounters two through five,
 and the grind-wall dashboard shows the paid path as optional across deciles.

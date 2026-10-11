@@ -1871,6 +1871,8 @@ fix). AGENTS.md's resolver test count updated (119).
 - Posted units route around fence only (no breach edges) and keep pursuing when no route
   exists rather than disengaging, to avoid per-tick chatter.
 - `SIEGE_TRAP_NULLIFY` is not carried as input (content marks it fixed by design).
+- (6, added by QA-11 N6) Fence hits are hits, so the dealer's merge multiplier scales them
+  too (and the breach price follows); abilities and siege are unaffected by merge level.
 
 **Next:** hand to adversarial QA against the chunk's checklist — especially the slot rule by
 hand-calculation, the exact-boundary tests (leash, aggro, reach, ring cell), the trap sweep
@@ -1977,3 +1979,58 @@ Punch list `roadmap/qa/20-punchlist.md`, every item `[closed]`.
 Tests: `apps/server` 27 files / 497 passing (new `qa20-store-regressions.test.ts`, 12 — the
 reviewer's probe P1–P5 as regressions); `packages/content` 75. `pnpm typecheck`, `pnpm lint`,
 `pnpm test:boundary` clean. INDEX.md status left for the orchestrator.
+
+### 2026-10-11 — Chunk 11 (resolver combat): QA round 1 closed (B1, D1, D2, S1, N1–N4, N6; N5 forwarded) — `[resolver-bump]` 3 → 4
+
+Maker closed `roadmap/qa/11-punchlist.md` in an isolated worktree branched from
+`roadmap/phase-2-spec` at 766ba87. **`RESOLVER_VERSION` is now 4**; no golden corpus exists yet
+(`pnpm determinism`: 15 scenarios, 3 processes × 3 runs agree). Rules are written in place in
+`chunks/11-resolver-combat.md` § "Build notes" and summarised under "QA round 1 — closed".
+What other chunks should know:
+
+- **Every stance fires in reach (D1).** `canAttack` is removed from the resolver's exports; an
+  unreleased `reserve` post fires back, it just does not acquire or move. **Follow-up (outside
+  this task's files, GUARDRAILS §4 legibility):** `apps/web/src/strings.ts:248` still tells the
+  player a reserve post "Ignores everything until an attacker is inside the ring", and the
+  `packages/circle/src/formation.ts:25` comment says the same; both should read "stays put and
+  only fires at attackers in reach until one is inside the ring, then guards".
+- **ATTACK_PRIORITY (D2).** A breaching attacker answers only a unit that has it in reach
+  (`threatInReach`, exported); a harmless post no longer shields a fence. Non-breachers keep
+  nearest-in-reach. The breach price is unchanged (still an estimate).
+- **Guards (B1, N1).** A pursuit route whose detour leaves aggro reach of the target or the
+  leash is no route (stand, keep the target); the target last dropped as `lost` is re-acquired
+  only within 0.8 × aggro reach; a pursuing guard never steps past its leash (the step is
+  clamped and it disengages `leash` at once). `disengage.why` is `leash | lost | dead` only.
+  New exports: `pursuitRouteInBounds`, `threatInReach`; `UnitState` gained `lostTarget` and
+  `aggroHysteresisSq`. Chunk 13's renderer: no new event kinds, no format change.
+- **Input (S1, N3).** Post ranges/radii/leash ≥ 0, post cooldown ≥ 1 ms, trap damage ≥ 1, slow
+  magnitude 0..1024, effect duration 1..60 000 ms; no trap or post on a core cell, no trap in
+  an entry band. Circle's formation validation already keeps content inside these (circle 94
+  passing, no change needed).
+- **Traps (N2).** An attacker at 0 HP is not tested against further traps in that phase.
+- **Corpus.** `test/qa11-fixtures.ts` (literal `chatter-guard`, `rand93`, shield hold/baseline)
+  plus `reserveFiresBackScenario()`; `sealed-ring-breach`'s post moved from core cell (15,14)
+  to (15,13) (N3 now refuses the old one).
+
+**Probe (`scratchpad/qa11wt/p11_chatter_freq.ts`, the reviewer's corpus with import paths
+pointed at this worktree), before → after:** fights with a post acquiring ≥ 30 times 5/211 →
+0/216 (the corpus now includes the five new scenarios); worst (post, target) acquisitions 1546
+(rand93) → 11 (`combat-leash-oscillation`, the designed bounded oscillation); fights with any
+pair > 3 acquisitions 11 → 4, all leash oscillations; worst log 455 204 B (rand93) → 117 810 B
+(`combat-full-load-16v8v28`, unchanged by this round; N5 stays with chunk 13). p12 leash
+overshoot 130 → 0 fixed units, hits from beyond the leash 1 → 0; p3c shooter-vs-grizzly core
+arrival 1895 → 311 (baseline 299); p5 every S1/N3 case refused; p6 the reserve post lands 22
+hits on a grizzly at the gap (was 0).
+
+**Verification:** resolver **134 passing** (10 files; new `qa11.test.ts` 15; `combat` D2 test
+rewritten; `posted` reserve test now expects the reserve to fire), circle 94, content 75;
+`pnpm typecheck` (all five projects), `pnpm lint`, `pnpm test:boundary` (15 src files),
+`pnpm determinism` clean. `budget.test.ts` best-of-7 is under 100 ms alone (55 ms); under the
+full parallel suite one run measured 108 ms best — the known contention flake, not a
+regression (the leash clamp only runs on the tick a guard meets its leash). AGENTS.md's
+resolver test count (53) is stale; not edited (outside this task's files).
+
+**Balance notes** from the punch list are recorded under PHASE-2.md §37.
+
+**Next:** QA re-audit of chunk 11 round 1.
+

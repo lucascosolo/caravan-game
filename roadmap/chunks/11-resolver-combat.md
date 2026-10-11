@@ -1,6 +1,6 @@
 # Chunk 11 — Resolver combat: damage, traps, posted units
 
-**Depends on:** 10. **Status:** built (RESOLVER_VERSION 3; see "Build notes" at the end).
+**Depends on:** 10. **Status:** built, QA round 1 closed (RESOLVER_VERSION 4; see "Build notes" and "QA round 1 — closed" at the end).
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 ## Goal
@@ -149,6 +149,9 @@ chunk 07 so the model and the resolver agree:
   inside the square the fence and the four wagon anchors sit on). From that tick on it
   behaves exactly as `guard`. It does not revert to ignoring once triggered.
 
+(Chunk 11 QA D1: this holds with no exception — an unreleased `reserve` post still fires at an
+attacker in its reach; the stance gates acquisition and movement only.)
+
 Stance never changes mid-fight. Target selection (`ATTACK_TARGET_SELECTION`) is the same
 for all three; the stance drives **movement and acquisition**, not what gets hit. Add the
 tie-break and boundary tests for `hold` (target at exactly attack range) and `reserve`
@@ -194,11 +197,16 @@ Every rule below is named in a header comment where it lives.
   and resets to `cooldownTicks`; first hit on contact, then every cooldownTicks; a ready
   unit with nothing in reach stays ready; one hit per unit per tick.
 - **ATTACK_TARGET_SELECTION** — nearest living enemy UNIT within reach, lowest id on an
-  exact tie, for every stance on both sides and independent of the movement target (a
-  `core` attacker fires at a guard it walks past; a pursuing guard hits whichever attacker
-  is nearest). **ATTACK_PRIORITY**: an enemy in reach beats the fence a unit is breaching
-  (a ranged breacher shoots the guard behind the fence first; the breach price does not
-  model this — it is an estimate, as chunk 10 already says).
+  exact tie, for every stance on both sides with no exception (QA D1: an unreleased `reserve`
+  post fires too), and independent of the movement target (a `core` attacker fires at a guard
+  it walks past; a pursuing guard hits whichever attacker is nearest). **ATTACK_PRIORITY**
+  (QA D2): an attacker that is BREACHING (standing at an intact segment it can hit this tick)
+  switches from the fence only to a unit that can reach it back — an enemy within the
+  attacker's reach that also has the attacker within ITS reach (`threatInReach`; nearest,
+  lowest id). It fights back against what is hurting it; a post that cannot touch it no
+  longer shields the fence. With no such threat it keeps hitting the fence. A non-breaching
+  attacker (including one still walking up to the fence) keeps nearest-in-reach. The breach
+  price remains an estimate (a threat that can reach the breacher still costs it time).
 - **SIMULTANEOUS_DAMAGE** — hits land in id order during phase 6, but `alive` is read for
   targeting and a unit whose HP reached 0 earlier in the phase still fires; HP floors at 0;
   phase 8 kills every 0-HP unit in id order. Mutual kills happen and are tested. A unit a
@@ -222,10 +230,11 @@ Every rule below is named in a header comment where it lives.
   Every change of effective speed logs a `speed` event (in force from the next tick) — the
   replay contract in `log.ts` gained that clause; legs are never restarted by an effect.
 - **POSTED STANCES** — `hold`: never moves, never acquires, hits in reach from its post.
-  `reserve`: ignores every attacker — neither acquires NOR attacks, even in reach
-  (`canAttack`) — until the lowest-id living attacker's CELL has Chebyshev distance
+  `reserve`: does not acquire and does not move — but FIRES at anything in reach, like every
+  stance (QA D1) — until the lowest-id living attacker's CELL has Chebyshev distance
   < PERIMETER_RING_RADIUS from the core centre cell (a ring/gap cell does not count, one
-  cell inside does), logged `released`, then guard forever. `guard`: the state machine below.
+  cell inside does; a breacher standing on the ring cell releases it one cell late, by
+  design), logged `released`, then guard forever. `guard`: the state machine below.
 - **GUARD STATE MACHINE** (`postMode` idle / pursuing / returning), per tick, top to bottom:
   pursuing → returning on `dead` (target not alive), else `leash` (centre distance from the
   POST > leashSq — **inclusive leash**: exactly at the leash is still engaged), else `lost`
@@ -234,18 +243,30 @@ Every rule below is named in a header comment where it lives.
   LEASH_HYSTERESIS × leash of the post (inclusive), same rule; deaf to aggro until then.
   Every disengage, including `dead`, goes through returning. returning → idle on standing
   exactly on the post (`returned`). Acquisition is decided by aggro alone (a target beyond
-  the leash but inside aggro is acquired and chased to the leash). Oscillation at the leash
-  is therefore bounded to (1 − hysteresis) × leash of walking per half-cycle and is in the
-  determinism corpus (`combat-leash-oscillation`).
+  the leash but inside aggro is acquired and chased to the leash). **AGGRO_HYSTERESIS** (QA
+  B1b): the attacker last dropped as `lost` is re-acquired only within LEASH_HYSTERESIS ×
+  aggro reach (`aggroHysteresisSq`); every other attacker keeps the full reach; re-acquiring
+  it clears the memory. **LEASH_CLAMP** (QA N1): a pursuing post never steps past its leash —
+  a step that would end beyond it is shortened to the largest integer budget that ends
+  within it (binary search re-running the leg rule from a snapshot) and the post disengages
+  `leash` in the same phase, so it never stands or fires from beyond the leash; a step ending
+  exactly on the leash is not clamped. The `leash` check at the top is now defensive.
+  Oscillation at the leash is bounded to (1 − hysteresis) × leash of walking per half-cycle
+  and is in the determinism corpus (`combat-leash-oscillation`).
 - **POSTED MOVEMENT** — the same leg rule and `path`/`hold`/`speed` events as attackers
   (posts start `holding: true` so an idle post logs nothing). Routes: `findPath` with NO
   breach edges (a post never breaks the caravan's own fence) + string pulling, ending on the
   exact goal position (replacing the last cell-centre waypoint when that leg is LOS-clear,
   else appended); recomputed every `pathRecomputeInterval` ticks, on a mode/target change,
   and on the tick after a fence breaks (`pathDirty`; attackers keep chunk 10's
-  `fenceBrokeSinceRecompute`). A pursuing post with no route stands, keeps pursuing, fires
-  if the target comes into reach — no per-tick acquire/drop chatter (tested). A pursuing
-  post whose target is in reach holds. Posts never spring traps (only attackers are tested).
+  `fenceBrokeSinceRecompute`). **PURSUIT_ROUTE_BOUND** (QA B1a): a pursuit route counts only
+  if every waypoint before the last is within the leash of the post AND within aggro reach
+  of the target's position (distance to a point is convex along a leg, so no detour leg
+  leaves either radius; the last leg runs straight at the target and meets the leash only
+  where LEASH_CLAMP stops it). A route that fails it is NO ROUTE: a pursuing post with no
+  route stands, keeps its target, fires if the target comes into reach and retries at the
+  next recompute — it neither disengages nor re-acquires (tested). A pursuing post whose
+  target is in reach holds. Posts never spring traps (only attackers are tested).
 - **SIEGE** — `fence.siegeCountered` / `trap.siegeCountered` are decided once at setup from
   the party's `siege[].counters`; `siegeFenceMult` returns `siegeFenceDamageMult` (×4) for a
   countered category, ×1 otherwise; unit hits never see siege. `SIEGE_TRAP_NULLIFY` is not
@@ -274,3 +295,41 @@ brief is a named test. Determinism corpus: 10 scenarios (4 new: three stances + 
 siege, leash oscillation, affinity mirror, full load), 100× in-process and 3 processes
 agree. Circle 87, content 58 passing; `pnpm typecheck`, `pnpm lint`, `pnpm test:boundary`
 (15 src files) clean.
+
+## QA round 1 — closed (Maker, 2026-10-11) — RESOLVER_VERSION 3 → 4 `[resolver-bump]`
+
+Punch list `roadmap/qa/11-punchlist.md`; every item marked there. The rules above are
+updated in place (ATTACK_TARGET_SELECTION / ATTACK_PRIORITY, POSTED STANCES, GUARD STATE
+MACHINE, POSTED MOVEMENT); in short:
+
+- **B1** (guard chatter) — PURSUIT_ROUTE_BOUND (`posted.ts pursuitRouteInBounds`): a route
+  whose detour leaves aggro reach of the target or the leash is no route (stand, keep the
+  target, fire in reach). AGGRO_HYSTERESIS (`lostTarget`, `aggroHysteresisSq`): after a `lost`
+  the same attacker is re-acquired only within LEASH_HYSTERESIS_MULT × aggro reach.
+  `chatter-guard`: 782 → 1 aggro, log 223 KB → 22 KB. `rand93`: 1550 → 1 per post per
+  target, log 455 KB → 53 KB. Over the reviewer's 200 random legal fights: fights with
+  a post acquiring ≥ 30 times 5 → 0; fights with any (post, target) pair acquired more than 3
+  times 11 → 4, all four leash oscillations (bounded by design; the worst is the designed
+  `combat-leash-oscillation` fixture, 11 in 30 s).
+- **D1** — `canAttack` is gone; every stance fires at the nearest attacker in reach.
+- **D2** — `combat.ts threatInReach`, `tick.ts breachableFence`; the shooter-vs-harmless-post
+  case reaches the core at tick 311 against 299 with no post (was 1895), within one 1.8 s
+  (36-tick) cooldown.
+- **S1** — post attackRange / aggroRadius / leashDistance ∈ [0, maxDistance], post
+  attackCooldown ∈ [1, maxMillis], trap damage ∈ [1, maxRating], slow magnitude ∈ [0, 1024],
+  effect duration ∈ [1, maxMillis]; one refusal test per field (`test/qa11.test.ts`).
+- **N1** — LEASH_CLAMP: over every probe scenario max overshoot 130 fixed units → 0, hits from
+  beyond the leash 1 → 0.
+- **N2** — TRAP_SKIPS_ZERO_HP (`traps.ts`): an attacker at 0 HP is not tested against further
+  traps that phase.
+- **N3** — `input.ts` refuses a trap or a post on a core cell and a trap in an entry band.
+  (The chunk 10 fixture `sealed-ring-breach` had its post on core cell (15,14); moved to
+  (15,13).)
+- **N4** — stale comments fixed (`battlefield.ts` stance / unmerged defense; `log.ts`
+  `disengage.why` is `leash | lost | dead`, the never-emitted `unreachable` removed).
+- **N5** — forwarded to chunk 13 (unchanged; full-load log 117.8 KB).
+
+Fixtures: `test/qa11-fixtures.ts` holds the reviewer's `chatter-guard` and `rand93` inputs and
+the D2 shield pair as literals; with `reserveFiresBackScenario()` they are five new scenarios
+in the determinism corpus (15 total), asserted in `test/qa11.test.ts`.
+

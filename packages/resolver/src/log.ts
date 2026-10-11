@@ -53,7 +53,7 @@ export type LogEvent =
   | { readonly t: number; readonly k: "target"; readonly u: number; readonly target: LogTarget | null }
   /** Phase 2: the unit's remaining route changed. `wp` are [x, y, breachFenceIndex]. */
   | { readonly t: number; readonly k: "path"; readonly u: number; readonly speed: number; readonly wp: readonly (readonly [number, number, number])[] }
-  /** Phase 3: the unit stopped (target in range, arrived, or breaching) / resumed. */
+  /** Phase 3 (attackers) / phase 5 (posted units): the unit stopped (target in range, arrived, breaching, no route) / resumed. */
   | { readonly t: number; readonly k: "hold"; readonly u: number; readonly holding: boolean }
   /** Phase 3: the unit first stood on a core cell. */
   | { readonly t: number; readonly k: "core_reached"; readonly u: number }
@@ -69,8 +69,8 @@ export type LogEvent =
   | { readonly t: number; readonly k: "trap_nullified"; readonly i: number; readonly u: number }
   /** Phase 5 (chunk 11): posted unit `u` acquired attacker `v` and begins pursuing. */
   | { readonly t: number; readonly k: "aggro"; readonly u: number; readonly v: number }
-  /** Phase 5 (chunk 11): posted unit `u` dropped its pursuit — leash exceeded, target out of aggro, target dead, or no route — and returns to its post. */
-  | { readonly t: number; readonly k: "disengage"; readonly u: number; readonly why: "leash" | "lost" | "dead" | "unreachable" }
+  /** Phase 5 (chunk 11): posted unit `u` dropped its pursuit — leash limit hit, target out of aggro, or target dead — and returns to its post. A pursuit with no route never disengages (posted.ts PURSUIT_ROUTE_BOUND). */
+  | { readonly t: number; readonly k: "disengage"; readonly u: number; readonly why: "leash" | "lost" | "dead" }
   /** Phase 5 (chunk 11): posted unit `u` is back on its post and idle. */
   | { readonly t: number; readonly k: "returned"; readonly u: number }
   /** Phase 5 (chunk 11): a `reserve` post saw attacker `v` inside the ring and now behaves as `guard`. */
