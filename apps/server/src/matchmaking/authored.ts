@@ -203,12 +203,15 @@ export function rungsForPoints(points: number): number {
 const LAST_ORDINAL = Math.max(1, AUTHORED_BANDS - 1);
 
 /**
- * Deepest living-web tier a band may field: 0 at the floor, UNLOCK_WEB_TIERS in the top band,
- * spread linearly over the ordinals. Chunk 25 QA N5: the tier steps and the merge-level steps
- * (below) fall on DIFFERENT bands — the merge curve is offset by half a step — so no two
- * adjacent bands field the same (max tier, base merge level); validateSpecs refuses a set
- * where they do.
+ * Chunk 37 balance pass (BALANCE-LOG.md): the outfits' merge level climbs from MERGE_LEVEL_MIN to
+ * MERGE_LEVEL_MAX over AUTHORED_CLIMB_BANDS ordinals (6 of the 7), a little faster than a caravan's
+ * own progress, so the middle and upper bands field a level above what a caravan there typically
+ * packs; the living tier still spreads over every ordinal. validateSpecs: (tier, merge level,
+ * raiders in the band) never falls from one band to the next and always rises somewhere.
  */
+const CLIMB: number = Math.max(1, Math.min(LAST_ORDINAL, TUNABLES.AUTHORED_CLIMB_BANDS));
+
+/** Deepest living-web tier a band may field: 0 at the floor, UNLOCK_WEB_TIERS in the top band, spread linearly over the ordinals. */
 export function maxLivingTier(bandOrdinal: number): number {
   return Math.min(TUNABLES.UNLOCK_WEB_TIERS, Math.floor((bandOrdinal * TUNABLES.UNLOCK_WEB_TIERS) / LAST_ORDINAL));
 }
@@ -216,17 +219,15 @@ export function maxLivingTier(bandOrdinal: number): number {
 export function maxSiegeTier(bandOrdinal: number): number {
   return Math.min(TUNABLES.UNLOCK_WEB_TIERS, bandOrdinal);
 }
-/** The top merge level a band fields (its leader may be one higher): MERGE_LEVEL_MIN at the floor, MERGE_LEVEL_MAX in the top band, offset half a step from the tier curve. */
+/** The merge level a band fields (its leader may be one higher): MERGE_LEVEL_MIN at the floor, MERGE_LEVEL_MAX from ordinal AUTHORED_CLIMB_BANDS up. */
 export function baseMergeLevel(bandOrdinal: number): number {
-  // Balance pass (chunk 37, BALANCE-LOG.md): no half-step offset any more — the floor bands are
-  // the unmerged starter outfits a fresh caravan meets first, and the curve rises from there.
   const steps = TUNABLES.MERGE_LEVEL_MAX - TUNABLES.MERGE_LEVEL_MIN;
-  return Math.min(TUNABLES.MERGE_LEVEL_MAX, TUNABLES.MERGE_LEVEL_MIN + Math.floor((bandOrdinal * steps) / LAST_ORDINAL));
+  return Math.min(TUNABLES.MERGE_LEVEL_MAX, TUNABLES.MERGE_LEVEL_MIN + Math.floor((bandOrdinal * steps) / CLIMB));
 }
 
 /**
- * How many raiders party `i` of a band fields (chunk 37 balance pass, BALANCE-LOG.md): three at
- * the floor, rising by about five over the set to a full PARTY_SLOT_CAP in the top band, the odd
+ * How many raiders party `i` of a band fields (chunk 37 balance pass, BALANCE-LOG.md): AUTHORED_PARTY_SIZE_FLOOR at
+ * the floor, rising by AUTHORED_PARTY_SIZE_RISE over the set (capped at PARTY_SLOT_CAP), the odd
  * parties of a band one ahead of the even ones on the half steps. Never fewer than the edges it splits over.
  */
 export function bandPartySize(bandOrdinal: number, i: number): number {
@@ -236,6 +237,7 @@ export function bandPartySize(bandOrdinal: number, i: number): number {
 const AUTHORED_SIZE_FLOOR: number = TUNABLES.AUTHORED_PARTY_SIZE_FLOOR;
 const AUTHORED_SIZE_RISE: number = TUNABLES.AUTHORED_PARTY_SIZE_RISE;
 const AUTHORED_LEADER_FROM_ORDINAL: number = TUNABLES.AUTHORED_LEADER_FROM_BAND_ORDINAL;
+const AUTHORED_FULL_LEVEL_FROM_ORDINAL: number = TUNABLES.AUTHORED_FULL_LEVEL_FROM_BAND_ORDINAL;
 
 export function outfitSlug(name: string): string {
   let slug = name.toLowerCase().replace(/['\u2019]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
@@ -294,7 +296,7 @@ export function authoredPartySpecs(): AuthoredPartySpec[] {
       const units: { typeId: string; mergeLevel: number }[] = [];
       for (let u = 0; u < size; u++) {
         const leader = ordinal >= AUTHORED_LEADER_FROM_ORDINAL && i % 3 === 0 ? 1 : 0;
-        const level = u === 0 ? Math.min(TUNABLES.MERGE_LEVEL_MAX, base + leader) : Math.max(TUNABLES.MERGE_LEVEL_MIN, base - (u % 2));
+        const level = u === 0 ? Math.min(TUNABLES.MERGE_LEVEL_MAX, base + leader) : Math.max(TUNABLES.MERGE_LEVEL_MIN, base - (ordinal >= AUTHORED_FULL_LEVEL_FROM_ORDINAL ? 0 : u % 2));
         units.push({ typeId: roster.types[u % roster.types.length]!, mergeLevel: level });
       }
       const loadouts = SIEGE_LOADOUTS.filter((l) => l.every((id) => (findUnlockNode(siegeWeb, id)?.tier ?? Infinity) <= maxSiegeTier(ordinal)));

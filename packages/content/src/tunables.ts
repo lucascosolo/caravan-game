@@ -225,9 +225,9 @@ export const TUNABLES = {
    */
   LEASH_HYSTERESIS_MULT: fpMilli(800),
   /** TUNABLE. 1.5 cells/second. Roster range below. Driven by fight pacing vs. the tick cap. */
-  MOVE_SPEED_DEFAULT: fpMilli(1500),
-  MOVE_SPEED_MIN: fpMilli(800),
-  MOVE_SPEED_MAX: fp(3),
+  MOVE_SPEED_DEFAULT: fpMilli(1050),
+  MOVE_SPEED_MIN: fpMilli(560),
+  MOVE_SPEED_MAX: fpMilli(2100),
   /** TUNABLE. Range is the only thing that makes a unit melee or ranged — no separate flag. */
   ATTACK_RANGE_MELEE_DEFAULT: fp(1),
   ATTACK_RANGE_RANGED_DEFAULT: fp(4),
@@ -292,7 +292,7 @@ export const TUNABLES = {
   TRAP_DAMAGE_MIN: 90,
   TRAP_DAMAGE_MAX: 375,
   /** TUNABLE (chunk 11). Swept-path trigger radius around a trap's cell centre. 0.75 cells. */
-  TRAP_TRIGGER_RADIUS: fpMilli(750),
+  TRAP_TRIGGER_RADIUS: fpMilli(1250),
   /** TUNABLE (chunk 11). Slow effect: −0.40 move speed for 3 s. */
   TRAP_SLOW_MAGNITUDE_DEFAULT: fpMilli(400),
   TRAP_SLOW_DURATION_DEFAULT: seconds(3),
@@ -344,7 +344,7 @@ export const TUNABLES = {
    * gaps). A test asserts FENCE_MATERIAL_BUDGET < PERIMETER_SEGMENTS; raising it to the ring
    * size deletes the game.
    */
-  FENCE_MATERIAL_BUDGET: 24,
+  FENCE_MATERIAL_BUDGET: 20,
   /**
    * Fixed by design (chunk 07 QA D2, decided for chunk 10): lattice pathing is 4-connected —
    * orthogonal steps only, no diagonal moves and therefore no corner cutting between two
@@ -547,8 +547,12 @@ export const TUNABLES = {
    * three-raider starter outfits and difficulty rises monotonically from there.
    */
   AUTHORED_PARTY_SIZE_FLOOR: 3,
-  AUTHORED_PARTY_SIZE_RISE: 7,
+  /** TUNABLE (chunk 37): the band ordinals over which the outfits' living tier and merge level climb from the floor to the top (from ordinal 1). */
+  AUTHORED_CLIMB_BANDS: 6,
+  AUTHORED_PARTY_SIZE_RISE: 6,
   AUTHORED_LEADER_FROM_BAND_ORDINAL: 2,
+  /** TUNABLE (chunk 37): from this band ordinal every raider fields the band's base merge level (below it, every second raider is one level lower). */
+  AUTHORED_FULL_LEVEL_FROM_BAND_ORDINAL: 2,
   /**
    * TUNABLE (chunk 25). Retire-by-ratio, second stage: the most recent N SERVED encounters
    * (chosen candidates in encounter_candidates) whose band centre fell in a display band
@@ -720,7 +724,9 @@ export const TUNABLES = {
    * `scripts/balance/trip-ev.ts` (model.ts `weeklyFreeEarn`): the full-week trickle
    * (200/h × 168 h = 33,600) plus N trips, each worth its gross Coin banked at the best-EV
    * point for an 8 × L1 circle (the cheapest to lose, so the most pushed), at display band 3
-   * (REPUTATION_START), hold rate p1 − 0.05 per encounter after the first:
+   * (REPUTATION_START's band until the chunk 37 balance pass; since it, the band the matchup
+   * sweep measures an 8 × L1 circle settling at — model.ts L1_EQUILIBRIUM_BAND — still 3), hold
+   * rate p1 − 0.05 per encounter after the first:
    *   - LOW  — 3 trips/h for ~5 h (15 trips), p1 0.60: 33,600 + 15 × 675 ≈ 43,700.
    *   - MID  — 5 × 1 h sessions opening with the regen burst (30 trips), p1 0.65:
    *            33,600 + 30 × 731 ≈ 55,500.
@@ -832,7 +838,7 @@ export const TUNABLES = {
    * (GUARDRAILS §3), grants no Coin and no unlock point, and is the same rule for every
    * caravan (not a tutorial gift). 0 turns it off. An integer, never negative.
    */
-  STARTING_ROSTER: { copiesPerStarterType: 1 },
+  STARTING_ROSTER: { copiesPerStarterType: 3 },
   // ── END STARTING_ROSTER ──
 
   // ────────────────────────────────────────────────────────────────────────────────────

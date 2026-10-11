@@ -160,11 +160,19 @@ export function curveHold(curve: readonly number[]): (j: number) => number {
 export const START_BAND = bandOf(TUNABLES.REPUTATION_START).index;
 
 /**
+ * Chunk 37 balance pass (BALANCE-LOG.md): the display band an 8 × L1 circle settles at, measured
+ * by the matchup sweep (the highest band whose skilled encounter-1 hold rate clears the Reputation
+ * break-even). The weekly free earn is derived there, not at REPUTATION_START's band — since the
+ * pass a new caravan starts at band 1 and climbs. Re-measure when content or the authored set move.
+ */
+export const L1_EQUILIBRIUM_BAND = 3;
+
+/**
  * Weekly free Coin (chunk 19 QA D3): the full-week trickle plus `tripsPerWeek` trips' gross
  * Coin, each banked at the best-EV point for an 8 × L1 circle (the cheapest circle to lose,
  * so the most-pushed — the generous end of "realistic").
  */
-export function weeklyFreeEarn(tripsPerWeek: number, p1: number, decay: number, band = START_BAND): { trickle: number; perTrip: number; bankAt: number; total: number } {
+export function weeklyFreeEarn(tripsPerWeek: number, p1: number, decay: number, band = L1_EQUILIBRIUM_BAND): { trickle: number; perTrip: number; bankAt: number; total: number } {
   const trickle = TUNABLES.COIN_TRICKLE_RATE_PER_HOUR * 24 * 7;
   const m: TripModelInput = { holdRate: linearHold(p1, decay), deathsPerHeld: 0.5, circle: Array(TUNABLES.DEPLOYMENT_SLOT_CAP).fill(1), band, finalFightDeathShare: 0.5 };
   const row = evRow(m);

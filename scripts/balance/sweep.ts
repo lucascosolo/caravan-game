@@ -500,6 +500,35 @@ export interface FightResult {
 /** Exploration only (never set by the sweep itself): rewrite the plain resolver input before it runs, to try a number without editing content. */
 export const EXPLORE: { transform: ((input: ReturnType<typeof resolverInputOf>) => ReturnType<typeof resolverInputOf>) | null } = { transform: null };
 
+/**
+ * Exploration only: `--explore aggro=2048,trapRadius=1280,def=0.9,speed=0.8,hp=0.8` rewrites the
+ * resolver input (posts' aggro + leash in fixed cells, the trap trigger radius, posts' defense
+ * scale, raiders' speed / HP scale) so a lever can be tried before it is written into content.
+ */
+export function exploreFromArgv(argv: readonly string[]): void {
+  const i = argv.indexOf("--explore");
+  if (i < 0) return;
+  const kv = Object.fromEntries(argv[i + 1]!.split(",").map((p) => p.split("=") as [string, string]).map(([k, v]) => [k, Number(v)]));
+  EXPLORE.transform = (inp) => {
+    const x = JSON.parse(JSON.stringify(inp)) as ReturnType<typeof resolverInputOf>;
+    const w = x as unknown as { battlefield: { posts: { aggroRadius: number; leashDistance: number; defense: number }[] }; party: { units: { moveSpeed: number; hp: number; maxHp: number }[] }; tunables: { trapTriggerRadius: number } };
+    for (const p of w.battlefield.posts) {
+      if (kv["aggro"]) {
+        p.aggroRadius += kv["aggro"];
+        p.leashDistance += kv["aggro"];
+      }
+      if (kv["def"]) p.defense = Math.max(1, Math.round(p.defense * kv["def"]));
+    }
+    for (const u of w.party.units) {
+      if (kv["speed"]) u.moveSpeed = Math.floor(u.moveSpeed * kv["speed"]);
+      if (kv["hp"]) u.hp = u.maxHp = Math.floor(u.maxHp * kv["hp"]);
+    }
+    if (kv["trapRadius"]) w.tunables.trapTriggerRadius = kv["trapRadius"];
+    return x;
+  };
+}
+exploreFromArgv(process.argv);
+
 export function fight(m: Manifest, f: Formation, sp: ServedParty, layout: Layout): FightResult {
   const input = resolverInputOf({ tripId: "sweep", encounterIndex: 1, formation: f, survivors: m, party: sp.party, contentHash: null });
   const out: ResolveOutput = resolve(EXPLORE.transform ? EXPLORE.transform(input) : input);
@@ -641,16 +670,24 @@ export function fenceTierAt(o: number): number {
 }
 
 /**
- * What a caravan typically packs in band ordinal `o`, by the same progress curve the authored set
- * fields at that band (a player there has merged and unlocked about as far as the outfits they
- * meet): eight units (at the floor: the starting roster and one refugee) at the band's base merge
+ * What a caravan typically packs in band ordinal `o` (a stated assumption of the sweep, not
+ * measured play: merge level 1, 1, 2, 2, 3, 3, 4, 5 and living tier 0, 0, 1, 1, 2, 2, 3, 4 — the
+ * curve the authored set used before this pass): eight units (at the floor: the starting roster and one refugee) at the band's base merge
  * level, living types up to the band's tier, six traps (they cost nothing to pack) of the types
  * reachable by then, and a full fence of the best tier reachable.
  */
+/** A caravan's own progress by band ordinal (merge level 1 → 5 and living tier 0 → 4 spread evenly over the eight bands). The authored outfits climb a little faster (authored.ts). */
+export function playerLevelAt(o: number): number {
+  return Math.min(TUNABLES.MERGE_LEVEL_MAX, TUNABLES.MERGE_LEVEL_MIN + Math.floor((o * (TUNABLES.MERGE_LEVEL_MAX - TUNABLES.MERGE_LEVEL_MIN)) / 7));
+}
+export function playerTierAt(o: number): number {
+  return Math.min(TUNABLES.UNLOCK_WEB_TIERS, Math.floor((o * TUNABLES.UNLOCK_WEB_TIERS) / 7));
+}
+
 export function bandTypicalRoster(regionId: RegionId, o: number, composition: Composition = "defensive"): RosterSpec {
   const fresh = starterTypes(regionId).length * STARTING_ROSTER_MODEL.copiesPerStarterType + 1;
   const size = Math.min(TUNABLES.DEPLOYMENT_SLOT_CAP, o === 0 ? fresh : TUNABLES.DEPLOYMENT_SLOT_CAP);
-  return rosterAt(regionId, { size, level: baseMergeLevel(o), tier: maxLivingTier(o), traps: TUNABLES.TRAP_SLOT_CAP, trapTier: Math.min(3, Math.floor((o + 1) / 2)), fenceTier: fenceTierAt(o), composition, label: `b${o}-typical ${regionId} ${composition}` });
+  return rosterAt(regionId, { size, level: playerLevelAt(o), tier: playerTierAt(o), traps: TUNABLES.TRAP_SLOT_CAP, trapTier: Math.min(3, Math.floor((o + 1) / 2)), fenceTier: fenceTierAt(o), composition, label: `b${o}-typical ${regionId} ${composition}` });
 }
 
 /** A layout by name (SKILLED ∪ NAIVE ∪ GUIDED). */

@@ -178,6 +178,8 @@ export async function sweep(opts: { quick: boolean; diag?: boolean; trips?: bool
   const hist = [0, 0, 0, 0, 0];
   for (const r of heldRows) hist[r.depth === 0 ? 0 : Math.min(4, 1 + Math.floor((4 * r.depth) / 1024))]!++;
   out(`Depth of held fights: 0 (never crossed the ring) ${hist[0]}, 1–25% ${hist[1]}, 25–50% ${hist[2]}, 50–75% ${hist[3]}, 75–100% ${hist[4]} (of ${heldRows.length})`);
+  const overRows = rows.map((r, i) => ({ r, n: matchTasks[i]!.roster.units.length })).filter(({ r }) => r.kind === "caravan_overrun");
+  out(`Overrun fights: share of the posted units killed IN the fight (de-merged, not destroyed): ${pct(share(overRows.reduce((s, x) => s + x.r.deaths, 0), overRows.reduce((s, x) => s + x.n, 0)))} (trip-ev --final)`);
   const healed = rows.reduce((s, r) => s + r.healed, 0);
   const taken = rows.reduce((s, r) => s + r.postDamageTaken, 0);
   out(`Healing offset over the corpus: ${pct(share(healed, taken))} of damage posts took was healed`);
@@ -214,28 +216,35 @@ export async function sweep(opts: { quick: boolean; diag?: boolean; trips?: bool
     feats.set(`post ability ${a}`, (i) => matchTasks[i]!.roster.units.some((x) => getUnitType(x.typeId)!.ability.archetype === a));
   }
   for (const p of ["nearest", "traps", "core", "mixed"]) feats.set(`stance pattern ${p}`, (i) => partyOf(i).spec.stancePattern === p);
-  const flags: string[] = [];
-  const deltas: [string, number][] = [];
-  for (const [name, has] of feats) {
-    let wsum = 0;
-    let dsum = 0;
-    for (const b of bands) {
-      const idx = rows.map((_, i) => i).filter((i) => rows[i]!.band === b);
-      const yes = idx.filter(has);
-      const no = idx.filter((i) => !has(i));
-      if (yes.length < 4 || no.length < 4) continue;
-      const w = Math.min(yes.length, no.length);
-      dsum += w * (share(yes.filter((i) => held(rows[i]!.kind)).length, yes.length) - share(no.filter((i) => held(rows[i]!.kind)).length, no.length));
-      wsum += w;
+  const flagPass = (label: string, stratum: (i: number) => string, names: (n: string) => boolean) => {
+    const flags: string[] = [];
+    const deltas: [string, number][] = [];
+    const strata = new Map<string, number[]>();
+    rows.forEach((_, i) => strata.set(stratum(i), [...(strata.get(stratum(i)) ?? []), i]));
+    for (const [name, has] of feats) {
+      if (!names(name)) continue;
+      let wsum = 0;
+      let dsum = 0;
+      for (const idx of strata.values()) {
+        const yes = idx.filter(has);
+        const no = idx.filter((i) => !has(i));
+        if (yes.length < 3 || no.length < 3) continue;
+        const w = Math.min(yes.length, no.length);
+        dsum += w * (share(yes.filter((i) => held(rows[i]!.kind)).length, yes.length) - share(no.filter((i) => held(rows[i]!.kind)).length, no.length));
+        wsum += w;
+      }
+      if (wsum === 0) continue;
+      const d = dsum / wsum;
+      deltas.push([name, d]);
+      if (Math.abs(d) > FLAG_THRESHOLD) flags.push(`${name} ${d > 0 ? "+" : ""}${(100 * d).toFixed(0)} pts`);
     }
-    if (wsum === 0) continue;
-    const d = dsum / wsum;
-    deltas.push([name, d]);
-    if (Math.abs(d) > FLAG_THRESHOLD) flags.push(`${name} ${d > 0 ? "+" : ""}${(100 * d).toFixed(0)} pts`);
-  }
-  out(flags.length ? "  FLAGGED: " + flags.join("; ") : "  none flagged");
-  deltas.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
-  out("  largest: " + deltas.slice(0, 8).map(([n, d]) => `${n} ${d > 0 ? "+" : ""}${(100 * d).toFixed(0)}`).join(", "));
+    out(`  [${label}] ` + (flags.length ? "FLAGGED: " + flags.join("; ") : "none flagged"));
+    deltas.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+    out(`  [${label}] largest: ` + deltas.slice(0, 8).map(([n, d]) => `${n} ${d > 0 ? "+" : ""}${(100 * d).toFixed(0)}`).join(", "));
+  };
+  flagPass("within band", (i) => String(rows[i]!.band), () => true);
+  // The stance pattern is the owner's choice, not content: holding it fixed shows what the units, siege and abilities themselves do.
+  flagPass("within band × stance pattern", (i) => `${rows[i]!.band}:${partyOf(i).spec.stancePattern}`, (n) => !n.startsWith("stance"));
 
   // Trips: hold rate by encounter index, band-typical roster at its band centre, skilled vs naive.
   const wins = new Map<string, number>();

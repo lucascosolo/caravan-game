@@ -18,7 +18,7 @@
  */
 import { TUNABLES } from "../../packages/content/src/index.js";
 import { coinForDelivery, coinForEncounter } from "../../apps/server/src/economy/coin.js";
-import { START_BAND, curveHold, evRow, linearHold, rebuildMixed, rebuildPlan, unitValue, weeklyFreeEarn, type TripModelInput } from "./model.js";
+import { L1_EQUILIBRIUM_BAND, START_BAND, curveHold, evRow, linearHold, rebuildMixed, rebuildPlan, unitValue, weeklyFreeEarn, type TripModelInput } from "./model.js";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -72,7 +72,7 @@ if (custom) {
   console.log("EV in Coin of 'push until k survived, then bank' — losses at rebuild value; 0.5 deaths per held encounter;");
   console.log("half of the units alive at an overrun die in that fight (de-merged), the rest are destroyed. Hold rate p1 − 0.05·(j−1).");
   console.log(header);
-  for (const band of [START_BAND, 5]) {
+  for (const band of [START_BAND, L1_EQUILIBRIUM_BAND, 5]) {
     for (let level = 1; level <= 5; level++) {
       for (const p1 of [0.6, 0.7, 0.8]) {
         printRow(`8×L${level} band ${band} p1 ${p1.toFixed(2)}`, { holdRate: linearHold(p1, 0.05), deathsPerHeld: 0.5, circle: Array(SLOTS).fill(level), band, finalFightDeathShare: 0.5 });
@@ -80,7 +80,7 @@ if (custom) {
     }
   }
   console.log("");
-  console.log("Weekly free earn (QA D3): full-week trickle + trips × gross Coin per trip, banked at the 8×L1 best-EV point, band " + START_BAND + ", decay 0.05");
+  console.log("Weekly free earn (QA D3): full-week trickle + trips × gross Coin per trip, banked at the 8×L1 best-EV point, band " + L1_EQUILIBRIUM_BAND + " (the measured 8×L1 equilibrium), decay 0.05");
   const shapes: [string, number, number][] = [
     ["low  (3 trips/h × 5 h, p1 0.60)", 15, 0.6],
     ["mid  (5 × 1 h sessions, 30 trips, p1 0.65)", 30, 0.65],

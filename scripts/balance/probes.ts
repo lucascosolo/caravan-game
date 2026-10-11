@@ -52,7 +52,7 @@ function work(t: Task): HealerRow | BreakerRow {
   }
   const tier = CONTENT.fences.find((f) => f.id === t.tierId)!;
   const counter = CONTENT.siege.find((s) => s.counters.kind === "fence" && s.counters.category === tier.category)!;
-  const m = packManifest({ units: [{ instanceId: "u0", typeId: typesUpTo("desert", 0)[1]!, mergeLevel: 1 }], traps: [], fence: { tierId: t.tierId, count: TUNABLES.FENCE_MATERIAL_BUDGET } }, () => true);
+  const m = packManifest({ units: [{ instanceId: "u0", typeId: typesUpTo("desert", 0)[1]!, mergeLevel: 1 }], traps: [], fence: { tierId: t.tierId, count: Math.min(TUNABLES.FENCE_MATERIAL_BUDGET, RING_SEGMENTS.filter((s) => s.edge !== "south").length) } }, () => true);
   if (!m.ok) throw new Error("breaker probe manifest");
   // Fence north, east and west, and the south side's two ends: the only gaps are on the far (south) side.
   const order = RING_SEGMENTS.filter((s) => s.edge !== "south").map((s) => s.index);
