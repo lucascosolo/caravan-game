@@ -132,7 +132,7 @@
             "ability": {
               "archetype": "structure_breaker",
               "displayName": "Pick Swing",
-              "description": "A full-weight swing at a fence segment for 4.5× a normal hit.",
+              "description": "A full-weight swing at a fence segment for 4.5× a normal hit — never more than half a segment in one blow.",
               "cooldown": 12000,
               "fenceDamageMult": 4608
             }

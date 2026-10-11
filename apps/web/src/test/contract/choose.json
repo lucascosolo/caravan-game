@@ -90,7 +90,7 @@
                 "ability": {
                   "cooldown": 12000,
                   "archetype": "structure_breaker",
-                  "description": "A full-weight swing at a fence segment for 4.5× a normal hit.",
+                  "description": "A full-weight swing at a fence segment for 4.5× a normal hit — never more than half a segment in one blow.",
                   "displayName": "Pick Swing",
                   "fenceDamageMult": 4608
                 },
@@ -150,8 +150,25 @@
             }
           },
           "partyId": "00000000-0000-4000-8000-000000000004",
+          "reputation": {
+            "band": {
+              "low": 1000,
+              "high": 1299,
+              "index": 3
+            },
+            "rating": 1000,
+            "gapBeyondBand": 0,
+            "gapFromCaravan": 0,
+            "sandbagEarnMultiplier": 1024
+          },
+          "candidateId": "a0000000000000000000000000000001",
+          "owner": {
+            "displayName": "contract_owner_a",
+            "authored": false,
+            "flavor": null
+          },
           "snapshot": {
-            "hash": "a000000000000000000000000000000000000000000000000000000000000001",
+            "hash": "a000000000000000000000000000000000000000000000000000000000000002",
             "slot": 0,
             "partyId": "00000000-0000-4000-8000-000000000004",
             "savedAt": "2026-10-11T12:00:00.000Z",
@@ -186,24 +203,7 @@
                   "mergeLevel": 1
                 }
               ]
-            },
-            "ownerAccountId": "00000000-0000-4000-8000-000000000005"
-          },
-          "reputation": {
-            "band": {
-              "low": 1000,
-              "high": 1299,
-              "index": 3
-            },
-            "rating": 1000,
-            "gapBeyondBand": 0,
-            "gapFromCaravan": 0,
-            "sandbagEarnMultiplier": 1024
-          },
-          "candidateId": "a0000000000000000000000000000002",
-          "owner": {
-            "displayName": "contract_owner_a",
-            "authored": false
+            }
           }
         },
         {
@@ -237,7 +237,7 @@
                   "x": 31232,
                   "y": 2560
                 },
-                "ref": "00000000-0000-4000-8000-000000000006",
+                "ref": "00000000-0000-4000-8000-000000000005",
                 "cell": {
                   "x": 30,
                   "y": 2
@@ -248,7 +248,7 @@
                 "ability": {
                   "cooldown": 12000,
                   "archetype": "structure_breaker",
-                  "description": "A full-weight swing at a fence segment for 4.5× a normal hit.",
+                  "description": "A full-weight swing at a fence segment for 4.5× a normal hit — never more than half a segment in one blow.",
                   "displayName": "Pick Swing",
                   "fenceDamageMult": 4608
                 },
@@ -270,7 +270,7 @@
                   "x": 3584,
                   "y": 512
                 },
-                "ref": "00000000-0000-4000-8000-000000000007",
+                "ref": "00000000-0000-4000-8000-000000000006",
                 "cell": {
                   "x": 3,
                   "y": 0
@@ -307,11 +307,28 @@
               "used": 1
             }
           },
-          "partyId": "00000000-0000-4000-8000-000000000008",
+          "partyId": "00000000-0000-4000-8000-000000000007",
+          "reputation": {
+            "band": {
+              "low": 1000,
+              "high": 1299,
+              "index": 3
+            },
+            "rating": 1000,
+            "gapBeyondBand": 0,
+            "gapFromCaravan": 0,
+            "sandbagEarnMultiplier": 1024
+          },
+          "candidateId": "a0000000000000000000000000000003",
+          "owner": {
+            "displayName": "contract_owner_b",
+            "authored": false,
+            "flavor": null
+          },
           "snapshot": {
-            "hash": "a000000000000000000000000000000000000000000000000000000000000003",
+            "hash": "a000000000000000000000000000000000000000000000000000000000000004",
             "slot": 0,
-            "partyId": "00000000-0000-4000-8000-000000000008",
+            "partyId": "00000000-0000-4000-8000-000000000007",
             "savedAt": "2026-10-11T12:00:01.000Z",
             "composition": {
               "v": 1,
@@ -322,7 +339,7 @@
               ],
               "units": [
                 {
-                  "ref": "00000000-0000-4000-8000-000000000007",
+                  "ref": "00000000-0000-4000-8000-000000000006",
                   "cell": {
                     "x": 3,
                     "y": 0
@@ -333,7 +350,7 @@
                   "mergeLevel": 1
                 },
                 {
-                  "ref": "00000000-0000-4000-8000-000000000006",
+                  "ref": "00000000-0000-4000-8000-000000000005",
                   "cell": {
                     "x": 30,
                     "y": 2
@@ -344,24 +361,7 @@
                   "mergeLevel": 1
                 }
               ]
-            },
-            "ownerAccountId": "00000000-0000-4000-8000-000000000009"
-          },
-          "reputation": {
-            "band": {
-              "low": 1000,
-              "high": 1299,
-              "index": 3
-            },
-            "rating": 1000,
-            "gapBeyondBand": 0,
-            "gapFromCaravan": 0,
-            "sandbagEarnMultiplier": 1024
-          },
-          "candidateId": "a0000000000000000000000000000004",
-          "owner": {
-            "displayName": "contract_owner_b",
-            "authored": false
+            }
           }
         },
         {
@@ -395,7 +395,7 @@
                   "x": 31232,
                   "y": 2560
                 },
-                "ref": "00000000-0000-4000-8000-000000000010",
+                "ref": "00000000-0000-4000-8000-000000000008",
                 "cell": {
                   "x": 30,
                   "y": 2
@@ -406,7 +406,7 @@
                 "ability": {
                   "cooldown": 12000,
                   "archetype": "structure_breaker",
-                  "description": "A full-weight swing at a fence segment for 4.5× a normal hit.",
+                  "description": "A full-weight swing at a fence segment for 4.5× a normal hit — never more than half a segment in one blow.",
                   "displayName": "Pick Swing",
                   "fenceDamageMult": 4608
                 },
@@ -428,7 +428,7 @@
                   "x": 3584,
                   "y": 512
                 },
-                "ref": "00000000-0000-4000-8000-000000000011",
+                "ref": "00000000-0000-4000-8000-000000000009",
                 "cell": {
                   "x": 3,
                   "y": 0
@@ -465,46 +465,7 @@
               "used": 1
             }
           },
-          "partyId": "00000000-0000-4000-8000-000000000012",
-          "snapshot": {
-            "hash": "a000000000000000000000000000000000000000000000000000000000000005",
-            "slot": 0,
-            "partyId": "00000000-0000-4000-8000-000000000012",
-            "savedAt": "2026-10-11T12:00:02.000Z",
-            "composition": {
-              "v": 1,
-              "siege": [
-                {
-                  "typeId": "siege.battering_wagon"
-                }
-              ],
-              "units": [
-                {
-                  "ref": "00000000-0000-4000-8000-000000000011",
-                  "cell": {
-                    "x": 3,
-                    "y": 0
-                  },
-                  "edge": "north",
-                  "stance": "nearest",
-                  "typeId": "desert.dust_rider",
-                  "mergeLevel": 1
-                },
-                {
-                  "ref": "00000000-0000-4000-8000-000000000010",
-                  "cell": {
-                    "x": 30,
-                    "y": 2
-                  },
-                  "edge": "east",
-                  "stance": "traps",
-                  "typeId": "desert.well_digger",
-                  "mergeLevel": 1
-                }
-              ]
-            },
-            "ownerAccountId": "00000000-0000-4000-8000-000000000013"
-          },
+          "partyId": "00000000-0000-4000-8000-000000000010",
           "reputation": {
             "band": {
               "low": 1000,
@@ -516,10 +477,49 @@
             "gapFromCaravan": 0,
             "sandbagEarnMultiplier": 1024
           },
-          "candidateId": "a0000000000000000000000000000006",
+          "candidateId": "a0000000000000000000000000000005",
           "owner": {
             "displayName": "contract_owner_c",
-            "authored": false
+            "authored": false,
+            "flavor": null
+          },
+          "snapshot": {
+            "hash": "a000000000000000000000000000000000000000000000000000000000000006",
+            "slot": 0,
+            "partyId": "00000000-0000-4000-8000-000000000010",
+            "savedAt": "2026-10-11T12:00:02.000Z",
+            "composition": {
+              "v": 1,
+              "siege": [
+                {
+                  "typeId": "siege.battering_wagon"
+                }
+              ],
+              "units": [
+                {
+                  "ref": "00000000-0000-4000-8000-000000000009",
+                  "cell": {
+                    "x": 3,
+                    "y": 0
+                  },
+                  "edge": "north",
+                  "stance": "nearest",
+                  "typeId": "desert.dust_rider",
+                  "mergeLevel": 1
+                },
+                {
+                  "ref": "00000000-0000-4000-8000-000000000008",
+                  "cell": {
+                    "x": 30,
+                    "y": 2
+                  },
+                  "edge": "east",
+                  "stance": "traps",
+                  "typeId": "desert.well_digger",
+                  "mergeLevel": 1
+                }
+              ]
+            }
           }
         }
       ],
@@ -531,7 +531,7 @@
         "available": false
       },
       "chosen": {
-        "candidateId": "a0000000000000000000000000000002",
+        "candidateId": "a0000000000000000000000000000001",
         "chosenAt": "2026-10-11T12:00:03.000Z"
       },
       "rules": {
@@ -606,7 +606,7 @@
             "ability": {
               "cooldown": 12000,
               "archetype": "structure_breaker",
-              "description": "A full-weight swing at a fence segment for 4.5× a normal hit.",
+              "description": "A full-weight swing at a fence segment for 4.5× a normal hit — never more than half a segment in one blow.",
               "displayName": "Pick Swing",
               "fenceDamageMult": 4608
             },
@@ -666,8 +666,25 @@
         }
       },
       "partyId": "00000000-0000-4000-8000-000000000004",
+      "reputation": {
+        "band": {
+          "low": 1000,
+          "high": 1299,
+          "index": 3
+        },
+        "rating": 1000,
+        "gapBeyondBand": 0,
+        "gapFromCaravan": 0,
+        "sandbagEarnMultiplier": 1024
+      },
+      "candidateId": "a0000000000000000000000000000001",
+      "owner": {
+        "displayName": "contract_owner_a",
+        "authored": false,
+        "flavor": null
+      },
       "snapshot": {
-        "hash": "a000000000000000000000000000000000000000000000000000000000000001",
+        "hash": "a000000000000000000000000000000000000000000000000000000000000002",
         "slot": 0,
         "partyId": "00000000-0000-4000-8000-000000000004",
         "savedAt": "2026-10-11T12:00:00.000Z",
@@ -702,24 +719,7 @@
               "mergeLevel": 1
             }
           ]
-        },
-        "ownerAccountId": "00000000-0000-4000-8000-000000000005"
-      },
-      "reputation": {
-        "band": {
-          "low": 1000,
-          "high": 1299,
-          "index": 3
-        },
-        "rating": 1000,
-        "gapBeyondBand": 0,
-        "gapFromCaravan": 0,
-        "sandbagEarnMultiplier": 1024
-      },
-      "candidateId": "a0000000000000000000000000000002",
-      "owner": {
-        "displayName": "contract_owner_a",
-        "authored": false
+        }
       }
     }
   }

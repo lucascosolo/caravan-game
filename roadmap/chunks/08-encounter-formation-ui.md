@@ -74,7 +74,7 @@ Layout constants come from chunk 07 (`GRID_WIDTH`, `PERIMETER_SEGMENTS`,
 | `GRID_VISIBILITY` | visible only during an active place/drag, fading in and out | Never persistently visible. Identical rule in chunks 09 and 17. |
 | `SHOW_AGGRO_LEASH_OVERLAY` | on by default, toggleable | Continuous circles at true radii. |
 | `SHOW_THREAT_OVERLAY` | on | Marks which entry edges this attacker will use, and which are uncovered by fence or post. Informational, never blocking. |
-| `FORMATION_PRESETS` | save and recall named arrangements | Quality of life across many encounters; must not bypass validation. |
+| `FORMATION_PRESETS` | save and recall named arrangements | Quality of life across many encounters; must not bypass validation. **Deferred post-v1 (QA D2):** a draft is re-savable and autosaved, which covers the per-encounter case. |
 | `TOUCH_TARGET_MIN` | 44px | Web-first, mobile-shaped. |
 
 ## Definition of done
@@ -91,10 +91,10 @@ Layout constants come from chunk 07 (`GRID_WIDTH`, `PERIMETER_SEGMENTS`,
 - [ ] Threat overlay showing this attacker's entry edges against current coverage.
 - [ ] Aggro and leash visualized as continuous circles per posted unit.
 - [ ] Offense and defense ratings shown separately; abilities and healer charges shown.
-- [ ] The lattice appears only during an active drag.
+- [ ] The lattice appears only during an active drag — or while a tray item is selected for tap-to-place, which counts as "being placed" (QA D5).
 - [ ] Slot caps, material budget, manifest membership, and unlock access enforced in
       the UI **and** re-validated server-side.
-- [ ] Commit → resolution → replay handoff works end to end.
+- [ ] Commit → resolution → replay handoff works end to end. **Deferred to chunk 23** (QA D1; PHASE-2 §23's definition of done now carries it): chunk 08 ships the commit and the locked state.
 - [ ] Touch-usable: drag-to-place, pinch-zoom, no hover-dependent affordances.
 
 ## QA guardrail checks for this chunk
@@ -215,3 +215,49 @@ and opens the trip with chunk 14's `createTrip` SQL (the trip route is chunk 15'
   everything in the screen has `scroll-margin-top` so focus/scroll-into-view lands below it.
 - Siege has no cell in the model; the scene draws it beside the party's first entry edge.
 - `pnpm e2e` leaves one `e2e_formation_<base36>` account per run in the e2e database.
+
+### QA round 1 (Maker, 2026-10-11) — `roadmap/qa/08-punchlist.md`, every item closed
+
+**Decisions recorded.** D1: the commit → resolution → replay handoff is **deferred to chunk
+23** (PHASE-2 §23's definition of done now carries it; this chunk ships the commit and the
+locked state). D2: `FORMATION_PRESETS` **deferred post-v1** (drafts are re-savable and now
+autosaved). D5: a tray item selected for tap-to-place counts as "being placed" — the lattice
+shows (`IsoSceneState.placing`).
+
+**What changed, where.**
+- *Payload shape (B1, N4).* Guards match the chunk 14/25 client view (owner `{displayName,
+  authored, flavor}`, `gapBeyondBand`, `authoredOutsideBand`, `authoredShare`,
+  `authoredServed`); scout cells on the lattice, unknown types refused, `chosen` must be in
+  the menu. **Contract test (D4):** `apps/server/test/contract.test.ts` →
+  `apps/web/src/test/contract/*.json` → `contract.test.ts` (see apps/web/README.md).
+- *Renderer (`src/iso`).* `gestures.ts` — the pure gesture machine (B3: a second finger
+  cancels a begun drag, then pinches). `hitTestScreen` — a ≥ 22 px circle on screen (S10).
+  `radiusEllipse` — true radii (B2). `focusCamera` — zoom to the ring on selection (S10).
+  Native non-passive wheel (S12). Drag moves rAF-coalesced; the scene keeps its nodes and
+  repositions them, rebuilding only on a visual change (S2). Circles by line style (S11),
+  dashed attacker ring (N10), PixiJS's AccessibilitySystem torn down after init (N3),
+  `window.__isoDebug` only in dev/test/`VITE_ISO_DEBUG=1` builds (N5).
+- *Trail.* `placement.ts`: `dropRefusal` = circle's `validateFormation` over the
+  hypothetical drop (S9, N6); `postReach` from `toBattlefield` + UNIT_RADIUS (B2, N11);
+  `pickerOptions` for the DOM placement picker (`PlacementPicker.tsx`, D3).
+  `trayGesture.ts`: touch drags from the tray only after a long press or a sideways move
+  (B4). `FormationScreen`: autosave (S13), commit through the shell `Modal` with a server
+  check first and the unposted / held-back / remaining lists (S6, S7), humanized issues
+  with Show buttons and flagged chips (S8), refusals with codes (S9), attacker tap → scout
+  card (S14), clear confirm (N8), shell ErrorBox (S5). `CandidatesScreen`: scouting open
+  above "Face …" (N1), countdown independent of the device clock (S4), authored facts
+  as reported (B1). `ScoutPanel` / `stats.ts`: damage per hit at merge level (S1, from
+  `ScoutUnit.damagePerHitMult` in @caravan/circle), speed with its unit (N9), strings
+  externalized (S15).
+- *Stance copy (chunk 11 QA D1).* A reserve post "holds its post and strikes only what
+  comes into attack reach until an attacker breaches the ring; then joins the fight like a
+  guard". The threat overlay counts a reserve post by its attack reach.
+- *S3* was already done by chunk 17 (Trail, Town and Party are lazy; PixiJS is not in the
+  login chunk).
+
+**Flags.** Adding `damagePerHitMult` to `ScoutUnit` changed two key-list assertions
+(`packages/circle/test/party.test.ts`, `apps/server/test/party.test.ts`); menus stored
+before it lack the field and the client guard fills content's multiplier for that level.
+The server keeps a draft only once every living unit is posted, so until then the
+autosaved arrangement lives in memory for the page load (a tab switch keeps it; a reload
+does not).

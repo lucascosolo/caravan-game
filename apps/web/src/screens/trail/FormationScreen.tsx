@@ -129,6 +129,7 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
   const [canvasDown, setCanvasDown] = useState<string | null>(null);
   const [focusAfter, setFocusAfter] = useState<Focus>(null);
   const isoRef = useRef<IsoCanvasHandle>(null);
+  const openedWith = useRef(formation);
   const noticeRef = useRef<HTMLParagraphElement>(null);
   const issuesRef = useRef<HTMLDivElement>(null);
 
@@ -399,7 +400,8 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
   // S13: autosave a moment after each edit. A refusal here is quiet (it is not an action the
   // player took): the issues are listed politely and the arrangement stays in memory.
   useEffect(() => {
-    if (!dirty || committedAt || busy) return;
+    // Only after an edit: the arrangement the screen opened with is the server's (or this page's) already.
+    if (!dirty || committedAt || busy || formation === openedWith.current) return;
     cancelAutosave();
     autosaveTimer.current = window.setTimeout(() => {
       autosaveTimer.current = null;

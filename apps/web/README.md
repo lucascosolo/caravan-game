@@ -120,3 +120,19 @@ points arrive, by inserting an `unlock_points_granted` ledger event (the project
 folds it); it reads the database URL from `E2E_DATABASE_URL`, then `TEST_DATABASE_URL`, then
 `DATABASE_URL`. `pg` is a devDependency for that insert only; the client bundle never
 touches it.
+
+The specs aim drops through `window.__isoDebug`, which exists only in dev and test builds or
+a build made with `VITE_ISO_DEBUG=1` (chunk 08 QA N5): `scripts/e2e.mjs` builds that client
+into `apps/web/dist-e2e` (ignored) and the preview serves it (`E2E_WEB_DIST`). The shipped
+`dist/` carries no hook.
+
+## The client–server contract (chunk 08 QA D4)
+
+`apps/server/test/contract.test.ts` calls every route this client reads on a real account
+and writes each body to `src/test/contract/<name>.json` (ids, hashes and timestamps renamed,
+so a rerun is byte-identical unless the server's answer changed); `src/test/contract/
+contract.test.ts` runs every file through the guard `src/test/contract/routes.ts` maps it
+to. **A new route the client reads gets a recorded call in the server test and an entry in
+`routes.ts`**; an entry of `null` (no guard yet: store, cosmetics) is skipped and listed, so
+the chunk that adds the guard turns it on. Both halves run in `pnpm test`; the server half
+also runs the guards in-process, so drift fails CI whichever package's tests run first.
