@@ -5,12 +5,14 @@ import { createPool } from "./db/pool.js";
 import { acquisitionRoutes } from "./routes/acquisition.js";
 import { authRoutes } from "./routes/auth.js";
 import { circleRoutes } from "./routes/circle.js";
+import { cosmeticRoutes } from "./routes/cosmetics.js";
 import { economyRoutes } from "./routes/economy.js";
 import { ledgerRoutes } from "./routes/ledger.js";
 import { matchmakingRoutes } from "./routes/matchmaking.js";
 import { meRoutes } from "./routes/me.js";
 import { partyRoutes } from "./routes/party.js";
 import { progressionRoutes } from "./routes/progression.js";
+import { storeRoutes } from "./routes/store.js";
 import { unlockRoutes } from "./routes/unlocks.js";
 import { AppError } from "./services/errors.js";
 
@@ -62,5 +64,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(acquisitionRoutes);
   await app.register(partyRoutes);
   await app.register(matchmakingRoutes);
+  await app.register(storeRoutes);
+  await app.register(cosmeticRoutes);
   return app;
 }

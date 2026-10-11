@@ -1490,3 +1490,57 @@ field-by-field scout comparison, whether any code can re-resolve a party after t
 reroll gate's immunity to any Coin surface, and whether chunk 15 can drive
 `createTrip → search → choose → commitFormation → enqueueChosenEncounter` without touching
 `encounter_candidates` directly.
+
+### 2026-10-11 — Chunk 20 (monetization packs, sandboxed): `not started` → `built`
+
+**Built** in worktree `agent-a23c966270f3d0f39` off `roadmap/phase-2-spec` @ `e91c082`
+(Merge chunk 14). The weekly storefront with the guardrail side real and the billing side a
+loud stub; the minimal cosmetics system from PHASE-2 §28 underneath it.
+
+- **Content** (`packages/content`): `cosmetics.ts` — 24-entry catalog across the five kinds,
+  no numeric field on any entry (asserted on load), `reviewNote` per entry; deterministic
+  weekly rotation (FNV-1a → xorshift32 Fisher–Yates over the sorted catalog, 1/2/3 ids per
+  tier) with `cosmeticOfferWeeks` as the return schedule. `packs.ts` — `packOfferForWeek`
+  (price and Coin from the registry, cosmetics from the rotation, `contents` = the exact
+  granted list, a two-member union), `weekIndexAt`, `weeklyPayCeiling`, `assertPacksValid`
+  (ceiling = sum of tiers; ratio bound). Chunk 20 tunables block, headed **"THE P2W-RELEVANT
+  NUMBER IS WEEKLY_PAY_CEILING (60,000), NOT ANY SINGLE TIER"**, with
+  `FREE_WEEKLY_EARN_ESTIMATE` 40,000 and its derivation (1.5× at the defaults).
+- **Schema** (migration 010): `pack_purchase` (UNIQUE (account, week, tier) = the limit;
+  `pack_contents_ok()` CHECK admits only coin/cosmetic entries; `backend = 'sandbox_stub'`
+  CHECK; immutable), `cosmetic_ownership` (account-level, `purchase_id NOT NULL`: no cosmetic
+  from anywhere but a pack in v1), `cosmetic_equip` (FK to ownership). No FK to or from any
+  battle-side table.
+- **Server** (`src/store/`): `storeView` (three tiers with purchase state, per-tier and
+  combined overflow forecast via chunk 16's `overflowForecast` over balance + pending
+  trickle, next week previewed, the sandbox notice, the ceiling block); `purchasePack` (one
+  transaction under the account append lock; sandbox "charge"; `appendCoinCredits` with
+  `type: "coin_purchased"` — clamped, `overflowDiscarded` recorded on the event and the row;
+  ownership rows; 23505 backstop → 409); `listCosmetics` / `equipCosmetic` / `unequipSlot`.
+  Routes `/me/store`, `/me/store/purchase`, `/me/store/purchases`, `/me/cosmetics`,
+  `/me/cosmetics/equip`, `/me/cosmetics/unequip`. `economy/coin.ts`'s `CoinCreditSpec` gained
+  an optional credit `type` (default `coin_earned`); no economy file names `coin_purchased`.
+- **Boundary**: `scripts/resolver-boundary-check.mjs` bans `cosmetic(s)` / `pack(s)` and now
+  matches a banned word as a file basename too. `packages/circle/test/no-cosmetic-field.test.ts`
+  pins at the type level (`@ts-expect-error`) and at runtime that no formation / manifest /
+  party / battlefield / resolver input can carry a cosmetic field.
+
+**Test command:** `cd apps/server && TEST_DATABASE_URL=postgres://caravan:caravan@localhost:5432/caravan_test_c20 npx vitest run`
+→ 26 files, 472 tests passing (baseline on e91c082: 24 files, 448). New: `store.test.ts` (15),
+`store-guards.test.ts` (9, including rotation sha256-compared across two separate Node
+processes and the boundary script run as a test). `packages/content` 71 (was 58),
+`packages/circle` 90 (was 86), `packages/resolver` 53. Root `pnpm typecheck`, `pnpm lint`,
+`pnpm test:boundary` clean.
+
+**Assumptions** (in the chunk file's Build notes): the purchase names the previewed week and
+the server re-derives the offer; a repeat tier is a 409, not a replay; the cosmetic grant's
+ledger record is the `coin_purchased` event's `cosmetics` payload field (no new enum value —
+`ALTER TYPE … ADD VALUE` cannot be used inside the migration transaction that would also
+need it); a returning cosmetic is not granted twice; the catalog is placeholder-named art
+for chunk 26; no web screen here.
+
+**Next:** hand to adversarial QA against GUARDRAILS §2 (try to reach `pack_purchase` or
+`cosmetic_*` from anything that feeds a resolution; try to get a third kind into
+`contents`; race the cap with a purchase against a bank), §4 (is every number the store
+shows the number the purchase records, including the combined forecast?), and the grind
+wall: `WEEKLY_PAY_CEILING` 60,000 against chunk 16's actual numbers, not the estimate.

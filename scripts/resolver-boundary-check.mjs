@@ -36,7 +36,10 @@ const ALLOWED_DEV_DEPENDENCIES = new Set([
 ]);
 
 // Anything matching these, in any import specifier inside the package, is a boundary breach.
-const FORBIDDEN_SPECIFIER = /(^|[\\/@])(apps|server|web|content|billing|entitlement|entitlements|purchase|purchases|payment|payments|stripe|store|iap|account|accounts|auth|session|sessions|node_modules|pg|postgres|fastify)([\\/]|$)/i;
+// A word matches as a path segment ("@caravan/content", "../apps/x") or as a file basename
+// ("./cosmetics.js"); chunk 20 added cosmetic(s) / pack(s) so the store's modules are
+// unreachable by name as well as by location.
+const FORBIDDEN_SPECIFIER = /(^|[\\/@])(apps|server|web|content|billing|entitlement|entitlements|purchase|purchases|payment|payments|stripe|store|iap|cosmetic|cosmetics|pack|packs|account|accounts|auth|session|sessions|node_modules|pg|postgres|fastify)([\\/]|\.(?:[cm]?[jt]s|json)$|$)/i;
 
 const findings = [];
 const fail = (msg) => findings.push(msg);

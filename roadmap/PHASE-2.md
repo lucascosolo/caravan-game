@@ -255,6 +255,11 @@ system before the storefront that sells into it.
 **Definition of done.** Equipping a skin changes nothing in any resolver input or log.
 The storefront in chunk 20 reads from this catalog and nothing else.
 
+**Status:** minimal system built in chunk 20 (2026-10-11) — catalog + deterministic rotation in
+`packages/content/src/cosmetics.ts`, account-level `cosmetic_ownership` / `cosmetic_equip`
+(migration 010), `/me/cosmetics` routes, and the type + runtime test
+`packages/circle/test/no-cosmetic-field.test.ts`. Art for each entry is chunk 26's.
+
 **QA checks.** Guardrail 2: grep every resolver input type for any field a cosmetic can
 reach. Scout a party with every banner and every skin and confirm nothing is harder to
 read.
