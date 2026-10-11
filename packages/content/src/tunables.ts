@@ -261,13 +261,23 @@ export const TUNABLES = {
   /** ×5.0 vs. fence segments only. ADDITIVE with siege, never multiplicative (chunk 12). */
   STRUCTURE_BREAKER_MULT_DEFAULT: fp(5),
   /**
-   * TUNABLE (chunk 12). One structure-breaker hit takes at most this fraction of a segment's
-   * MAX HP (×0.50), so no merge level and no siege counter lets the ability one-shot a segment
-   * of any tier. Without it the worst case — a level-5 Buffalo Bull (offense 120, merged hit
-   * 292) at ×5 with stone siege added (×5 + ×4 − 1 = ×8) — deals 2336 to a 1000-HP Stacked
-   * Stone segment; even ×5 alone (1460) one-shots it from merge level 4.
+   * TUNABLE (chunk 12 QA D2). The structure breaker's first use waits this fraction of its
+   * cooldown (×0.25 — a 12 s breaker first swings 3 s in) instead of
+   * ABILITY_FIRST_USE_DELAY_MULT: a breaker reaches its fence early, and with the full delay it
+   * rarely fired before the fence was down. FENCE_HIT_SEGMENT_CAP keeps an early swing safe.
    */
-  STRUCTURE_BREAKER_SEGMENT_CAP: fpMilli(500),
+  STRUCTURE_BREAKER_FIRST_USE_MULT: fpMilli(250),
+  /**
+   * TUNABLE (chunk 12 QA D1). THE fence-hit rule: one unit takes at most this fraction of a
+   * fence segment's MAX HP (×0.50) from it PER TICK, summed over every fence hit it lands that
+   * tick — its normal hit (buffed or not, ×SIEGE_FENCE_DAMAGE_MULT or not) and its
+   * structure-breaker ability together. So a full segment of every tier needs at least two
+   * blows from one unit, whatever the merge level, siege, buff or ability. Without it the
+   * worst ability case — a level-5 Buffalo Bull (offense 120, merged hit 292) at ×5 with
+   * stone siege added (×5 + ×4 − 1 = ×8) — deals 2336 to a 1000-HP Stacked Stone segment, and
+   * its normal siege hit alone (×4) deals 1168.
+   */
+  FENCE_HIT_SEGMENT_CAP: fpMilli(500),
 
   // ────────────────────────────────────────────────────────────────────────────────────
   // Traps / siege / fences (chunks 07 and 11 consume)

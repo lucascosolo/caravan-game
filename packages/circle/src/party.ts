@@ -42,11 +42,13 @@ import {
   FENCE_TIERS,
   TRAP_TYPES,
   TUNABLES,
+  abilityDisplay,
   getSiegeType,
   getUnitType,
   mergeStatMult,
   scaleInt,
   type Ability,
+  type AbilityDisplay,
   type AffinityCategory,
   type Fixed,
   type Millis,
@@ -352,6 +354,15 @@ export interface ScoutUnit {
   readonly attackRange: Fixed;
   readonly attackCooldown: Millis;
   readonly ability: Ability;
+  /**
+   * Chunk 12 QA S5: the ability's numbers ready to print (content `abilityDisplay`): cooldown
+   * and first use in seconds, reach in cells centre to centre (radius + unit radius, or attack
+   * range + unit radius), heal % and the heal ceiling, buff %, dash cells, the per-tick
+   * fence-hit cap. ALWAYS present on every unit `scoutUnit` builds; typed optional only so a
+   * client shape guard written before the field existed still type-checks (it strips unknown
+   * keys). A client should show these, not re-derive them from the fixed-point `ability`.
+   */
+  readonly abilityDisplay?: AbilityDisplay;
 }
 
 /** A siege piece with its counter spelled out: what it counters and which content types that is. */
@@ -414,6 +425,7 @@ export function scoutUnit(u: PartyUnit): ScoutUnit {
     attackRange: type.attackRange,
     attackCooldown: type.attackCooldown,
     ability: type.ability,
+    abilityDisplay: abilityDisplay(type.ability, type.attackRange),
   };
 }
 

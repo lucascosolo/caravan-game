@@ -24,8 +24,10 @@
  *   3. × the dealer's merge multiplier (MERGE_STAT_MULT_BY_LEVEL[mergeLevel]), floored —
  *      chunk 03 QA B1: the multiplier scales damage OUTPUT and max HP, never a rating;
  *   3b. × the dealer's self-buff multiplier (chunk 12 SELF_BUFF: FIXED_ONE + damageBonus)
- *      while its buff is in force (cast tick < tick ≤ buffEndTick), floored — every hit it deals, unit
- *      or fence; absent (×1.0, step skipped) otherwise;
+ *      while its buff is in force (cast tick < tick ≤ buffEndTick) — every hit it deals, unit
+ *      or fence. ONE FLOOR (chunk 12 QA S3): steps 3 and 3b are a single product,
+ *      floor(value × mergeMult × buffMult), never floor(floor(value × mergeMult) × buffMult)
+ *      (fixed.ts `scaleInt2`); absent (×1.0, step 3 alone) otherwise;
  *   3c. × the ABILITY multiplier, ability hits only (chunk 12: burst_radius / heavy_strike
  *      `damageMult` on a unit; structure_breaker's combined fence multiplier, which already
  *      includes siege ADDITIVELY and replaces step 4 — abilities.ts), floored. It multiplies
@@ -33,7 +35,15 @@
  *      hit already carries it;
  *   4. × the siege multiplier, fence hits only (hooks.ts `siegeFenceMult`), floored;
  *   5. minimum 1 (DAMAGE_MINIMUM): every hit that lands does at least one point, so no
- *      matchup is a stalemate by rounding and every breach terminates.
+ *      matchup is a stalemate by rounding and every breach terminates;
+ *   6. FENCE_HIT_SEGMENT_CAP (chunk 12 QA D1), fence hits only: one unit takes at most
+ *      `fenceHitCap` = max(1, floor(segment max HP × fenceHitSegmentCap)) — ×0.50 by default —
+ *      from one segment PER TICK, summed over every fence hit it lands that tick: its phase-6
+ *      hit (buffed or not, siege or not) and its phase-7 structure breaker together. A hit is
+ *      clipped to the room left (`fenceHitRoom`); a breaker with no room left this tick does
+ *      not fire (it waits — abilities.ts). So a full segment of any tier, at any merge level,
+ *      with any siege, buff or ability, needs at least two blows from one unit, on two
+ *      different ticks. Siege stays ×4; the cap, not the multiplier, prices the breach.
  * Traps skip steps 1, 3, 3b, 3c and 4 (they are not units and carry no merge level).
  *
  * ATTACK_TARGET_SELECTION: a unit hits the NEAREST living enemy unit within its reach
@@ -54,7 +64,7 @@
  * posted unit, uses the plain nearest-in-reach rule above.
  */
 import { cellDistSq, cellOf, type AffinityCategory } from "./battlefield.js";
-import { scaleInt, type Fixed } from "./fixed.js";
+import { scaleInt, scaleInt2, type Fixed } from "./fixed.js";
 import type { FenceState, SimState, UnitState } from "./state.js";
 
 /** The multiplier for damage of category `dealer` landing on a unit of category `receiver`. */
@@ -83,10 +93,32 @@ export function buffActive(state: SimState, u: UnitState): boolean {
   return state.tick <= u.buffEndTick && state.tick > u.buffEndTick - u.buffTicks;
 }
 
-/** Steps 3 and 3b: the dealer's merge multiplier, then its buff while in force. */
+/** Steps 3 and 3b: the dealer's merge multiplier, and its buff while in force — one floor (QA S3). */
 export function dealtOutput(state: SimState, dealer: UnitState, value: number): number {
-  const merged = scaleInt(value, dealer.mergeMult);
-  return buffActive(state, dealer) ? scaleInt(merged, dealer.buffMult) : merged;
+  return buffActive(state, dealer) ? scaleInt2(value, dealer.mergeMult, dealer.buffMult) : scaleInt(value, dealer.mergeMult);
+}
+
+/** Step 6: the most one unit may take from `fence` in one tick, all its fence hits summed. */
+export function fenceHitCap(state: SimState, fence: FenceState): number {
+  return atLeastOne(scaleInt(fence.maxHp, state.fenceHitSegmentCap));
+}
+
+/** Step 6: what `u` may still take from `fence` this tick (the cap less what it already took this tick). */
+export function fenceHitRoom(state: SimState, u: UnitState, fence: FenceState): number {
+  const dealt = u.fenceHitTick === state.tick && u.fenceHitIndex === fence.index ? u.fenceHitDealt : 0;
+  const cap = fenceHitCap(state, fence);
+  return cap > dealt ? cap - dealt : 0;
+}
+
+/** Step 6: land `damage` (already clipped to `fenceHitRoom`) from `u` on `fence` and count it against this tick's cap. */
+export function landFenceHit(state: SimState, u: UnitState, fence: FenceState, damage: number): void {
+  if (u.fenceHitTick !== state.tick || u.fenceHitIndex !== fence.index) {
+    u.fenceHitTick = state.tick;
+    u.fenceHitIndex = fence.index;
+    u.fenceHitDealt = 0;
+  }
+  u.fenceHitDealt += damage;
+  fence.hp = fence.hp - damage < 0 ? 0 : fence.hp - damage;
 }
 
 /** Steps 1, 2, 3, 3b of DAMAGE_ROUNDING_ORDER for unit vs unit (no minimum yet). */

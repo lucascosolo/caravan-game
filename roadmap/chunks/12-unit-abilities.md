@@ -1,6 +1,7 @@
 # Chunk 12 — Unit abilities
 
-**Depends on:** 11. **Status:** built (RESOLVER_VERSION 5; see Build notes at the end).
+**Depends on:** 11. **Status:** built — QA round 1 closed (RESOLVER_VERSION 6; see Build notes and
+"QA round 1" at the end).
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 > **Note on provenance:** abilities are an addition to PROJECT.md, agreed after the
@@ -182,10 +183,11 @@ break it.
 Code: `packages/resolver/src/abilities.ts` (phase 7; the header is the normative rule list),
 `combat.ts` (damage pipeline steps 3b/3c, `engaged` / `breachableFence` moved here from
 tick.ts), `state.ts` (`abilityFields`, `startHp`), `move.ts` (`advanceMeasured`), `posted.ts`
-(`advanceWithinLeash` exported, returns `used`), `tick.ts` (dash sweep carried into phase 3,
-keyframe `ab`), `log.ts` (`ability` events, interpolation contract), `input.ts` (two tunables,
-ability field bounds). Content: `STRUCTURE_BREAKER_SEGMENT_CAP`; the six breaker descriptions
-state the cap. Circle: `resolverTunables()` carries the two new keys (exports unchanged).
+(`advanceWithinLeash` exported, returns `used`), `tick.ts` (keyframe `ab`), `log.ts`
+(`ability` events, interpolation contract), `input.ts` (ability tunables, ability field bounds).
+Content: `FENCE_HIT_SEGMENT_CAP` and `STRUCTURE_BREAKER_FIRST_USE_MULT` (v6; v5 had a
+breaker-only `STRUCTURE_BREAKER_SEGMENT_CAP`); the six breaker descriptions state the per-tick
+rule. Circle: `resolverTunables()` carries the keys (exports unchanged).
 
 ### Rules and tie-breaks
 
@@ -194,15 +196,21 @@ state the cap. Circle: `resolverTunables()` carries the two new keys (exports un
   input/state plumbing, or reads `mergeLevel` in abilities.ts (a source-scanning test).
 - **ABILITY_COOLDOWN**: `abilityCooldownTicks = msToTicks(cooldown)`; the ability may fire
   on any tick ≥ `abilityReadyTick`; after firing on t it is `t + cooldownTicks`.
-- **ABILITY_FIRST_USE_DELAY**: initial `abilityReadyTick = floor(cooldownTicks ×
-  abilityFirstUseDelayMult / 1024)` — a full cooldown at ×1.0 (a 9 s dash first readies on
-  tick 180). The multiplier is input (`ABILITY_FIRST_USE_DELAY_MULT`, 0..×64).
+- **ABILITY_FIRST_USE_DELAY**: initial `abilityReadyTick = floor(cooldownTicks × firstUse /
+  1024)` — `abilityFirstUseDelayMult` (×1.0: a 9 s dash first readies on tick 180) for every
+  archetype but the structure breaker, which uses `structureBreakerFirstUseMult` (×0.25: a 12 s
+  breaker readies on tick 60; QA-12 D2). Both are input (0..×64).
 - **ABILITY_TRIGGER_RULE**: fires on the first tick it is ready AND its condition holds;
   otherwise it waits, already ready, re-tested every tick. Conditions are evaluated in phase 7,
   so one made satisfiable by this tick's phases 3–6 fires this tick.
 - **ABILITY_SKIPS_ZERO_HP**: a unit at 0 HP (dies in phase 8) is never a target and never
-  makes a condition true. A caster at 0 HP still fires (SIMULTANEOUS_DAMAGE) — except a dash
-  (DASH_NOT_DYING: its movement is over).
+  makes a condition true. A caster at 0 HP still fires a strike, burst, breaker or heal
+  (SIMULTANEOUS_DAMAGE).
+- **ABILITY_SKIP_VOID (QA-12 N1/N2)**: the cooldown (and a heal's charge) is spent when a firing
+  APPLIES. A decided firing that would be void by then is skipped — not logged, nothing spent,
+  still ready: a dash or self buff whose caster is at 0 HP at apply time, and a heal whose every
+  target is at 0 HP by step (b). A burst or strike whose targets died earlier in step (a) still
+  lands and is spent.
 - **ABILITY_RESOLUTION_ORDER — decide, then apply, damage first.** Every living unit in
   ascending id decides against the state at the start of phase 7 (nothing mutates while
   deciding, so one firing cannot change another's targets — an ability made satisfiable only
@@ -218,9 +226,10 @@ state the cap. Circle: `resolverTunables()` carries the two new keys (exports un
   heal — all wounded allies in reach (caster included); self buff / dash — the caster;
   structure breaker — the segment it is breaching.
 - **REACH**: burst and heal radii are `distSq ≤ (radius + unitRadius)²`, inclusive (chunk 11).
-- **Damage pipeline** (combat.ts DAMAGE_ROUNDING_ORDER): formula → affinity → merge → **3b**
-  self buff while in force → **3c** ability multiplier (ability hits only) → siege (fence
-  normal hits) → min 1, each floored. "×3.0 of a normal hit" is ×3.0 of the MERGED hit
+- **Damage pipeline** (combat.ts DAMAGE_ROUNDING_ORDER): formula → affinity → merge and **3b**
+  self buff while in force as ONE product with one floor (QA-12 S3, `scaleInt2`) → **3c**
+  ability multiplier (ability hits only) → siege (fence normal hits) → min 1 → **6** the
+  per-tick fence-hit cap (fence hits only), each other step floored. "×3.0 of a normal hit" is ×3.0 of the MERGED hit
   (QA-03 S1); no ability field scales with merge level.
 - **burst_radius / heavy_strike**: `abilityHitDamage` = the unit-hit pipeline × damageMult.
 - **heal_radius**: + floor(target maxHp × healFraction), capped at the target's
@@ -240,38 +249,48 @@ state the cap. Circle: `resolverTunables()` carries the two new keys (exports un
   Effect: `advance` by `distance` along the current route — the movement leg rule, consuming
   waypoints, stopping short of an intact breach segment; a post's dash uses LEASH_CLAMP. A slow
   does not shorten it. Never enters an intact fence or anchor cell (smoothed route + advance's
-  blocked-cell refusal; tested over a whole sealed-ring fight per tick). **DASH_SPRINGS_TRAPS**:
-  an attacker's dash polyline becomes the start of its next tick's sweep, so phase 4 of t+1
-  tests the dash path (no tunnelling; the trap fires a tick after the dash). A dash ending on a
-  core cell logs `core_reached` on the dash tick.
+  blocked-cell refusal; tested over a whole sealed-ring fight per tick). **DASH_SPRINGS_TRAPS
+  (QA-12 B1)**: an attacker's dash polyline is tested against the traps inside phase 7, right
+  after its own dash, with every phase-4 rule (`traps.ts springTraps`: swept segments, ascending
+  trap index, TRAP_SKIPS_ZERO_HP, siege nullify, spent on firing) — no tunnelling, the tick-cap
+  tick included. Only then, and only if its HP is still > 0, a dash ending on a core cell logs
+  `core_reached` on the dash tick.
 - **structure_breaker**: condition — an attacker breaching a segment it can hit now (intact,
-  HP > 0, adjacent). Posts never hit fence, so a posted breaker never fires (lopsided by
-  design). Damage = max(1, min(floor(merged × mult), floor(maxHp × segmentCap))), mult =
-  fenceDamageMult + (siegeFenceDamageMult − 1.0) when the party's siege counters the segment's
-  category, else fenceDamageMult. **SIEGE_ADDITIVE**: ×5 and ×4 → ×8, never ×20. Affinity never
-  applies to a segment.
-- **STRUCTURE_BREAKER_SEGMENT_CAP (new tunable, ×0.50 — see assumption 1):** one breaker hit
-  takes at most half the segment's max HP, so no segment of any tier is one-shot.
+  HP > 0, adjacent) with room left under FENCE_HIT_SEGMENT_CAP this tick. Posts never hit
+  fence, so a posted breaker never fires (lopsided by design). Damage = min(max(1, floor(merged ×
+  mult)), room), mult = fenceDamageMult + (siegeFenceDamageMult − 1.0) when the party's siege
+  counters the segment's category, else fenceDamageMult. **SIEGE_ADDITIVE**: ×5 and ×4 → ×8,
+  never ×20. Affinity never applies to a segment.
+- **FENCE_HIT_SEGMENT_CAP (QA-12 D1; replaces v5's breaker-only STRUCTURE_BREAKER_SEGMENT_CAP):**
+  one unit takes at most max(1, floor(maxHp × 0.50)) from one segment PER TICK, summed over all
+  its fence hits that tick — its phase-6 hit (normal, buffed, ×4 siege) and its phase-7 breaker.
+  Every full segment of every tier therefore needs at least two blows from one unit, on two
+  different ticks (several units breaching one segment each have their own allowance). Siege
+  stays ×4; the breach price (FENCE_BLOCKS_PATHING) uses the capped hit.
 - **Two profiles**: a post's ability hits use its defense rating (`rating`), like its hits.
 - **Siege has no abilities**: a siege piece with an `ability` key is refused at the input.
 - **Log**: `ability` events `{t, k, u, a, tg: [{kind: unit|fence, id, amount, hp}]}` plus
   `charges` (heal), `until` (buff), `x, y` (dash). `amount` = damage / HP restored / buff ticks
   / distance moved. Keyframes carry `ab` (ticks until ready). log.ts INTERPOLATION CONTRACT:
-  a dash is a movement leg applied after the unit's own movement phase.
-- **Input**: `abilityFirstUseDelayMult` (0..×64), `structureBreakerSegmentCap` (1..1024);
+  a dash is a movement leg applied after the unit's own movement phase; its `trap_fired` /
+  `trap_nullified` and then `core_reached` follow it in the same tick. A leash-clamped pursuit
+  step is `disengage {why: "leash", amount}` — that tick the post moves exactly `amount`
+  (QA-12 S4); `test/replica.test.ts` replays every position of the corpus from the log alone.
+- **Input**: `abilityFirstUseDelayMult` (0..×64), `structureBreakerFirstUseMult` (0..×64),
+  `fenceHitSegmentCap` (1..1024) — v5's `structureBreakerSegmentCap` is refused as unknown;
   ability fields bounded at both ends (radii/distance ≤ 64 cells, damage multipliers and the
   breaker mult ×1.0..×64, healFraction 0..1024, charges 0..1000, buff bonus 0..×64, duration
   1..60 000 ms).
 
 ### Worst cases computed (circle `test/abilities-qa.test.ts`, real content)
 
-- **Structure breaker**: uncapped worst = level-5 Buffalo Bull (offense 120 → merged 292) ×8
-  (5 + 4 − 1, stone siege) = **2336** vs Stacked Stone 1000 HP (multiplicative would be 5840);
-  ×5 alone one-shots it from level 4 (1170). Capped: every breaker × level 1–5 × siege on/off ×
-  every tier ≤ 50.0 % of the segment.
-- **Reported, not changed (chunk 11 territory):** with stone siege, a level-5 Buffalo Bull's
-  NORMAL hit is floor(292 × 4) = **1168 ≥ 1000** — it breaks a full Stacked Stone segment in
-  one blow without its ability. For chunk 37 / the orchestrator.
+- **Fence hits (v6)**: uncapped worst = level-5 Buffalo Bull (offense 120 → merged 292) ×8
+  (5 + 4 − 1, stone siege) = 2336 for its breaker and floor(292 × 4) = 1168 for its NORMAL
+  siege hit, against Stacked Stone 1000 HP. Under FENCE_HIT_SEGMENT_CAP every type × level 1–5
+  × siege on/off × every tier × {normal, buffed, normal + breaker on the same tick} is ≤ 50.0 %
+  of the segment per tick (1720 checks; resolver probe p5b_v6: 0 over). A full segment needs two
+  blows on two ticks: the level-5 Bull with stone siege now takes 500 + 500 over two ticks
+  (v5: one normal blow of 1168).
 - **Healer turtle** (all posts level 5: four content healers + four sturdiest defenders packed
   round the core, 20 Stacked Stone segments, six traps) vs 8 level-5 raiders with three siege:
   **held 0/8 approaches in `hold` and 0/8 in `guard`**. Sweep (3–8 raiders, levels 1–5, both
@@ -295,20 +314,35 @@ state the cap. Circle: `resolverTunables()` carries the two new keys (exports un
 
 ### Assumptions / decisions for QA
 
-1. **STRUCTURE_BREAKER_SEGMENT_CAP is a new rule** (a tunable, ×0.50, stated in every breaker's
-   description). The brief requires that no combination one-shots a top-tier fence; additive
-   siege alone cannot satisfy that with content's numbers (2336 vs 1000). Alternatives the
-   orchestrator may prefer: lower the breaker multipliers (≤ ×3.4 at level 5 without siege), or
-   apply the bonus to the unmerged hit (contradicts QA-03 S1).
+1. **Superseded by QA-12 D1.** v5's breaker-only STRUCTURE_BREAKER_SEGMENT_CAP became the one
+   per-unit-per-tick FENCE_HIT_SEGMENT_CAP for every fence hit (see Rules); every breaker's
+   description states it ("with its normal hit it takes at most half a segment's max HP per
+   tick").
 2. **HEAL_CEILING = start-of-battle HP.** Without it, a fresh satchel each fight healed damage
    carried in from earlier encounters (a healer circle came out of a weak encounter with MORE HP
    than it went in) — a between-encounter top-up, which healer rule 4 forbids. With it the
    attrition test is meaningful and HP is non-increasing across a trip.
-3. HEAL_VS_DAMAGE_SAME_TICK: damage first (see above); a decided heal whose target died in step
-   (a) still spends its charge (it fired against the start-of-phase state).
+3. HEAL_VS_DAMAGE_SAME_TICK: damage first (see above). Since QA-12 N2 a decided heal whose
+   every target died in step (a) is skipped and keeps its charge (ABILITY_SKIP_VOID); one with a
+   surviving target fires and the dead target gets 0.
 4. The healer heals itself (it is an ally in its own radius).
 5. Self buff and heavy strike use the same reach as normal attacks; a self buff also boosts
    fence hits.
 6. Test fixtures: chunk 10/11 tests that pin a rule tick-exactly use `quiet()` (first use ×64,
    past the cap) — 6 tests; every unit still has its ability. The qa11 literal inputs gained
    the two new tunable keys.
+
+## QA round 1 (Maker, 2026-10-11) — RESOLVER_VERSION 5 → 6 `[resolver-bump]`
+
+Punch list `roadmap/qa/12-punchlist.md`, every item `[closed]` there with its mechanism. In
+short: **B1** the dash springs its traps inside phase 7 (`traps.ts springTraps`), then
+`core_reached` only with HP > 0 (`pendingSweep` removed); **D1/S1/S2** `FENCE_HIT_SEGMENT_CAP`
+(combat.ts step 6: `fenceHitCap` / `fenceHitRoom` / `landFenceHit`, per-unit `fenceHitTick` /
+`fenceHitIndex` / `fenceHitDealt`); **D2** `STRUCTURE_BREAKER_FIRST_USE_MULT` ×0.25; **S3** merge ×
+buff in one floor (`fixed.ts scaleInt2`) and a content invariant over HP × effective DPS with
+abilities (worst step 1.6402 < 5/3); **S4** `disengage.amount` and `test/replica.test.ts`;
+**S5** content `abilityDisplay` + `ScoutUnit.abilityDisplay`, descriptions with the first-use
+line and the heal ceiling; **N1/N2** ABILITY_SKIP_VOID; **N3** attrition delta against the same
+circle with healing off; **N4** AGENTS.md. New resolver tests: `qa12.test.ts` (18),
+`replica.test.ts` (1); determinism corpus + `qa12-dash-over-trap-onto-core` /
+`qa12-dash-over-trap-tick-cap`.

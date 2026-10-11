@@ -3,7 +3,7 @@
  * validation rule, canonical ordering and serialization, the scouting view, and the
  * structural fact that nothing in this package can touch a roster.
  */
-import { FIXED_POINT_SCALE, TUNABLES, getUnitType, mergeStatMult, scaleInt } from "@caravan/content";
+import { FIXED_POINT_SCALE, TUNABLES, abilityDisplay, getUnitType, mergeStatMult, scaleInt } from "@caravan/content";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -302,6 +302,37 @@ describe("the scouting view — what a defender sees is what the owner previews"
     expect(bull.offense).toBe(type.offense);
     expect(Object.keys(bull).some((k) => /power|strength|score/i.test(k))).toBe(false);
     expect(bull.hp).toBeGreaterThan(type.hp);
+  });
+
+  it("chunk 12 QA S5: every scouted unit carries abilityDisplay — display-ready ability numbers equal to content's abilityDisplay, with exactly the documented keys", () => {
+    const view = scoutParty(resolved());
+    for (const u of view.units) {
+      const type = getUnitType(u.typeId)!;
+      expect(u.abilityDisplay, u.ref).toEqual(abilityDisplay(type.ability, type.attackRange));
+      expect(Object.keys(u.abilityDisplay!).sort()).toEqual(
+        ["archetype", "buffPercent", "buffSeconds", "charges", "cooldownSeconds", "damageMultiplier", "dashCells", "fenceHitCapPercent", "firstUseSeconds", "healCeiling", "healPercent", "reachCells"].sort(),
+      );
+      expect(u.ability.description.endsWith(` First use after ${u.abilityDisplay!.firstUseSeconds} s.`), u.ref).toBe(true);
+    }
+    // Hand-checked on the real roster: the canteen carrier and the well digger.
+    expect(abilityDisplay(getUnitType("desert.canteen_carrier")!.ability, getUnitType("desert.canteen_carrier")!.attackRange)).toMatchObject({
+      archetype: "heal_radius",
+      cooldownSeconds: "14",
+      firstUseSeconds: "14",
+      reachCells: "2.85",
+      healPercent: "10",
+      healCeiling: "start_of_fight_hp",
+      charges: 4,
+      buffPercent: null,
+    });
+    expect(abilityDisplay(getUnitType("desert.well_digger")!.ability, getUnitType("desert.well_digger")!.attackRange)).toMatchObject({
+      archetype: "structure_breaker",
+      cooldownSeconds: "12",
+      firstUseSeconds: "3",
+      reachCells: null,
+      damageMultiplier: "4.5",
+      fenceHitCapPercent: "50",
+    });
   });
 
   it("spells out every siege piece's counter: the category, the effect, and the exact fence tiers or trap types it hits", () => {

@@ -80,7 +80,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "dash",
       displayName: "Spur On",
-      description: "Surges 3.5 cells along its path.",
+      description: "Surges 3.5 cells along its path. First use after 9 s.",
       cooldown: seconds(9),
       distance: fpMilli(3500),
     },
@@ -102,7 +102,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "structure_breaker",
       displayName: "Pick Swing",
-      description: "A full-weight swing at a fence segment for 4.5× a normal hit — never more than half a segment in one blow.",
+      description: "A full-weight swing at a fence segment for 4.5× a normal hit; with its normal hit it takes at most half a segment's max HP per tick. First use after 3 s.",
       cooldown: seconds(12),
       fenceDamageMult: fpMilli(4500),
     },
@@ -124,7 +124,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "heavy_strike",
       displayName: "Long Shot",
-      description: "One aimed round at the current target for 3.5× a normal hit.",
+      description: "One aimed round at the current target for 3.5× a normal hit. First use after 15 s.",
       cooldown: seconds(15),
       damageMult: fpMilli(3500),
     },
@@ -146,7 +146,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "heal_radius",
       displayName: "Water Round",
-      description: "Restores 10% max HP to allies within 2.5 cells. Four canteens per fight.",
+      description: "Restores 10% max HP to each ally within 2.5 cells, never above the HP it started this fight with. Four canteens per fight. First use after 14 s.",
       cooldown: TUNABLES.HEAL_COOLDOWN_DEFAULT,
       radius: TUNABLES.HEAL_RADIUS_DEFAULT,
       healFraction: TUNABLES.HEAL_FRACTION_DEFAULT,
@@ -170,7 +170,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "self_buff",
       displayName: "Frenzy",
-      description: "+35% damage for 4 seconds.",
+      description: "+35% damage for 4 seconds. First use after 10 s.",
       cooldown: seconds(10),
       damageBonus: fpMilli(350),
       duration: seconds(4),
@@ -193,7 +193,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "burst_radius",
       displayName: "Satchel Charge",
-      description: "Hits every enemy within 2 cells for 1.5× a normal hit.",
+      description: "Hits every enemy within 2 cells for 1.5× a normal hit. First use after 12 s.",
       cooldown: seconds(12),
       radius: fp(2),
       damageMult: fpMilli(1500),
@@ -216,7 +216,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "structure_breaker",
       displayName: "Horn Charge",
-      description: "Rams a fence segment for 5× a normal hit — never more than half a segment in one blow.",
+      description: "Rams a fence segment for 5× a normal hit; with its normal hit it takes at most half a segment's max HP per tick. First use after 4 s.",
       cooldown: seconds(16),
       fenceDamageMult: fp(5),
     },
@@ -238,7 +238,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "heavy_strike",
       displayName: "Rope and Drag",
-      description: "Lassos the current target for 2.5× a normal hit.",
+      description: "Lassos the current target for 2.5× a normal hit. First use after 8 s.",
       cooldown: seconds(8),
       damageMult: fpMilli(2500),
     },
@@ -262,7 +262,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "self_buff",
       displayName: "Dig In",
-      description: "+25% damage for 6 seconds.",
+      description: "+25% damage for 6 seconds. First use after 11 s.",
       cooldown: seconds(11),
       damageBonus: fpMilli(250),
       duration: seconds(6),
@@ -285,7 +285,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "dash",
       displayName: "Lope",
-      description: "Surges 3 cells along its path.",
+      description: "Surges 3 cells along its path. First use after 8 s.",
       cooldown: seconds(8),
       distance: fp(3),
     },
@@ -307,7 +307,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "structure_breaker",
       displayName: "Stampede",
-      description: "Smashes a fence segment for 5× a normal hit — never more than half a segment in one blow.",
+      description: "Smashes a fence segment for 5× a normal hit; with its normal hit it takes at most half a segment's max HP per tick. First use after 4.5 s.",
       cooldown: seconds(18),
       fenceDamageMult: fp(5),
     },
@@ -329,7 +329,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "heavy_strike",
       displayName: "Bullwhip",
-      description: "Cracks the whip on the current target for 2.8× a normal hit.",
+      description: "Cracks the whip on the current target for 2.8× a normal hit. First use after 10 s.",
       cooldown: seconds(10),
       damageMult: fpMilli(2800),
     },
@@ -351,7 +351,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "heal_radius",
       displayName: "Field Dressing",
-      description: "Restores 10% max HP to allies within 2.5 cells. Four dressings per fight.",
+      description: "Restores 10% max HP to each ally within 2.5 cells, never above the HP it started this fight with. Four dressings per fight. First use after 14 s.",
       cooldown: TUNABLES.HEAL_COOLDOWN_DEFAULT,
       radius: TUNABLES.HEAL_RADIUS_DEFAULT,
       healFraction: TUNABLES.HEAL_FRACTION_DEFAULT,
@@ -375,7 +375,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "heavy_strike",
       displayName: "Big Fifty",
-      description: "One round from the big rifle for 4× a normal hit.",
+      description: "One round from the big rifle for 4× a normal hit. First use after 20 s.",
       cooldown: seconds(20),
       damageMult: fp(4),
     },
@@ -397,7 +397,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "structure_breaker",
       displayName: "Maul Work",
-      description: "Hammers a fence segment for 4× a normal hit — never more than half a segment in one blow.",
+      description: "Hammers a fence segment for 4× a normal hit; with its normal hit it takes at most half a segment's max HP per tick. First use after 3 s.",
       cooldown: seconds(12),
       fenceDamageMult: fp(4),
     },
@@ -419,7 +419,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "burst_radius",
       displayName: "Both Barrels",
-      description: "Hits every enemy within 1.5 cells for 1.8× a normal hit.",
+      description: "Hits every enemy within 1.5 cells for 1.8× a normal hit. First use after 9 s.",
       cooldown: seconds(9),
       radius: fpMilli(1500),
       damageMult: fpMilli(1800),
@@ -444,7 +444,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "self_buff",
       displayName: "Roused",
-      description: "+40% damage for 5 seconds.",
+      description: "+40% damage for 5 seconds. First use after 15 s.",
       cooldown: seconds(15),
       damageBonus: fpMilli(400),
       duration: seconds(5),
@@ -467,7 +467,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "heavy_strike",
       displayName: "Dead Rest",
-      description: "A braced shot at the current target for 3× a normal hit.",
+      description: "A braced shot at the current target for 3× a normal hit. First use after 13 s.",
       cooldown: seconds(13),
       damageMult: fp(3),
     },
@@ -489,7 +489,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "structure_breaker",
       displayName: "Double Jack",
-      description: "Drives a drill steel into a fence segment for 5.5× a normal hit — never more than half a segment in one blow.",
+      description: "Drives a drill steel into a fence segment for 5.5× a normal hit; with its normal hit it takes at most half a segment's max HP per tick. First use after 3.5 s.",
       cooldown: seconds(14),
       fenceDamageMult: fpMilli(5500),
     },
@@ -511,7 +511,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "dash",
       displayName: "Pounce",
-      description: "Surges 4 cells along its path.",
+      description: "Surges 4 cells along its path. First use after 10 s.",
       cooldown: seconds(10),
       distance: fp(4),
     },
@@ -533,7 +533,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "burst_radius",
       displayName: "Fire in the Hole",
-      description: "Hits every enemy within 2.5 cells for 2× a normal hit.",
+      description: "Hits every enemy within 2.5 cells for 2× a normal hit. First use after 16 s.",
       cooldown: seconds(16),
       radius: fpMilli(2500),
       damageMult: fp(2),
@@ -556,7 +556,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "heavy_strike",
       displayName: "Felling Cut",
-      description: "A two-handed swing at the current target for 2.6× a normal hit.",
+      description: "A two-handed swing at the current target for 2.6× a normal hit. First use after 9 s.",
       cooldown: seconds(9),
       damageMult: fpMilli(2600),
     },
@@ -578,7 +578,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "heal_radius",
       displayName: "Tincture Round",
-      description: "Restores 10% max HP to allies within 3 cells. Four doses per fight.",
+      description: "Restores 10% max HP to each ally within 3 cells, never above the HP it started this fight with. Four doses per fight. First use after 16 s.",
       cooldown: seconds(16),
       radius: fp(3),
       healFraction: TUNABLES.HEAL_FRACTION_DEFAULT,
@@ -602,7 +602,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "self_buff",
       displayName: "Balk",
-      description: "+20% damage for 8 seconds.",
+      description: "+20% damage for 8 seconds. First use after 12 s.",
       cooldown: seconds(12),
       damageBonus: fpMilli(200),
       duration: seconds(8),
@@ -627,7 +627,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "burst_radius",
       displayName: "Fan the Hammer",
-      description: "Hits every enemy within 1.5 cells for 1.4× a normal hit.",
+      description: "Hits every enemy within 1.5 cells for 1.4× a normal hit. First use after 8 s.",
       cooldown: seconds(8),
       radius: fpMilli(1500),
       damageMult: fpMilli(1400),
@@ -650,7 +650,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "heavy_strike",
       displayName: "Dead or Alive",
-      description: "A deliberate shot at the current target for 3.2× a normal hit.",
+      description: "A deliberate shot at the current target for 3.2× a normal hit. First use after 12 s.",
       cooldown: seconds(12),
       damageMult: fpMilli(3200),
     },
@@ -672,7 +672,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "dash",
       displayName: "Strike",
-      description: "Surges 2.5 cells along its path.",
+      description: "Surges 2.5 cells along its path. First use after 7 s.",
       cooldown: seconds(7),
       distance: fpMilli(2500),
     },
@@ -694,7 +694,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "structure_breaker",
       displayName: "Pry Bar",
-      description: "Levers a fence segment apart for 4× a normal hit — never more than half a segment in one blow.",
+      description: "Levers a fence segment apart for 4× a normal hit; with its normal hit it takes at most half a segment's max HP per tick. First use after 2.5 s.",
       cooldown: seconds(10),
       fenceDamageMult: fp(4),
     },
@@ -716,7 +716,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "self_buff",
       displayName: "Feeding Frenzy",
-      description: "+30% damage for 5 seconds.",
+      description: "+30% damage for 5 seconds. First use after 9 s.",
       cooldown: seconds(9),
       damageBonus: fpMilli(300),
       duration: seconds(5),
@@ -739,7 +739,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "heal_radius",
       displayName: "Miracle Tonic",
-      description: "Restores 12% max HP to allies within 2 cells. Four bottles per fight.",
+      description: "Restores 12% max HP to each ally within 2 cells, never above the HP it started this fight with. Four bottles per fight. First use after 12 s.",
       cooldown: seconds(12),
       radius: fp(2),
       healFraction: fpMilli(120),
@@ -763,7 +763,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "burst_radius",
       displayName: "Short Fuse",
-      description: "Hits every enemy within 2 cells for 1.6× a normal hit.",
+      description: "Hits every enemy within 2 cells for 1.6× a normal hit. First use after 11 s.",
       cooldown: seconds(11),
       radius: fp(2),
       damageMult: fpMilli(1600),
@@ -786,7 +786,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     ability: {
       archetype: "heavy_strike",
       displayName: "Club Down",
-      description: "A full swing at the current target for 2.4× a normal hit.",
+      description: "A full swing at the current target for 2.4× a normal hit. First use after 9 s.",
       cooldown: seconds(9),
       damageMult: fpMilli(2400),
     },

@@ -29,6 +29,8 @@
  *                                 ready AND satisfiable fires, decided in ascending id against
  *                                 the state at the start of phase 7, applied damage-first
  *                                 (every non-heal in id order, then every heal in id order).
+ *                                 An attacker's dash is tested against the traps right there,
+ *                                 with phase 4's rules (DASH_SPRINGS_TRAPS, QA-12 B1).
  *   8. death resolution         — fence destruction (hp ≤ 0 → broken; the grid is rebuilt
  *                                 and every path is recomputed next tick), then unit death
  *                                 (hp ≤ 0 → dead: `unit_died`, out of targeting; an attacker
@@ -88,7 +90,7 @@
  * lattice route breaches.
  */
 import { CORE_CENTER_CELL, cellCenter, cellKey, cellOf, isCoreCell, type Cell, type FixedPoint } from "./battlefield.js";
-import { breachableFence, engaged, hitDamage, nearestEnemyInReach, threatInReach } from "./combat.js";
+import { breachableFence, engaged, hitDamage, landFenceHit, nearestEnemyInReach, threatInReach } from "./combat.js";
 import { COST_INFINITE, ceilDiv, isqrt } from "./fixed.js";
 import { abilityPhase, fenceHitDamage, postedUnitPhase, trapTriggerPhase } from "./hooks.js";
 import { logTarget, type LogEvent } from "./log.js";
@@ -324,10 +326,7 @@ export function movementPhase(state: SimState, log: LogEvent[]): void {
     if (!u.alive) continue;
     let moved = false;
     u.breaching = -1;
-    // A phase-7 dash last tick left its polyline behind (abilities.ts DASH_SPRINGS_TRAPS): this
-    // tick's sweep continues it, so phase 4 tests the dash and this tick's step as one path.
-    u.sweep = u.pendingSweep.length > 0 ? u.pendingSweep : [{ x: u.x, y: u.y }];
-    u.pendingSweep = [];
+    u.sweep = [{ x: u.x, y: u.y }];
     if (!engaged(state, u)) moved = advance(state, u, effectiveSpeed(u));
     tickEffects(state, u, log);
     const holding = !moved;
@@ -366,8 +365,8 @@ export function attackPhase(state: SimState, log: LogEvent[]): void {
       continue;
     }
     if (fence === null) continue;
-    const damage = fenceHitDamage(state, u, fence);
-    fence.hp = fence.hp - damage < 0 ? 0 : fence.hp - damage;
+    const damage = fenceHitDamage(state, u, fence); // capped: combat.ts FENCE_HIT_SEGMENT_CAP
+    landFenceHit(state, u, fence, damage);
     u.cooldownRemaining = u.cooldownTicks;
     log.push({ t: state.tick, k: "fence_hit", u: u.id, f: fence.index, damage, hp: fence.hp });
   }

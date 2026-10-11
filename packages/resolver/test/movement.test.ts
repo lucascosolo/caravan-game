@@ -43,7 +43,7 @@ describe("fixed-timestep loop", () => {
     expect(out.tickCap).toBe(60);
     expect(out.ticks).toBe(60);
     expect(out.end).toBe("tick_cap");
-    expect(out.resolverVersion).toBe(5);
+    expect(out.resolverVersion).toBe(6);
     const full = resolve(input(battlefield(), party([unit({ ref: "a" })])));
     expect(full.tickCap).toBe(3600);
     expect(full.ticks).toBe(3600);
@@ -271,12 +271,18 @@ describe("tie-breaks and ordering", () => {
 
   it("two units reaching a segment on the same tick: hits land in id order, a segment at 0 HP takes no further hit, both re-plan through the opening", () => {
     // Identical units from the same cell arrive adjacent to segment 3 on the same tick.
-    // 40 HP vs 40 offense: a's hit (id 0) destroys it; b's would-be hit on the same tick is skipped.
-    const one = resolve(input(battlefield({ fences: ringExcept([17], 40) }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, offense: 40 }), unit({ ref: "b", cell: { x: 15, y: 0 }, offense: 40 })]), SHORT_TUNABLES));
+    // 80 HP vs 40 offense ×3 (each capped at half the segment, 40 — QA-12 D1): a (id 0) then
+    // b take it to 0; c's would-be hit on the same tick is skipped.
+    const one = resolve(input(battlefield({ fences: ringExcept([17], 80) }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, offense: 40 }), unit({ ref: "b", cell: { x: 15, y: 0 }, offense: 40 }), unit({ ref: "c", cell: { x: 15, y: 0 }, offense: 40 })]), SHORT_TUNABLES));
     expect(events(one, "fence_broken")).toHaveLength(1);
-    expect(events(one, "fence_hit")).toEqual([{ t: events(one, "fence_broken")[0]!.t, k: "fence_hit", u: 0, f: 3, damage: 40, hp: 0 }]);
+    const t1 = events(one, "fence_broken")[0]!.t;
+    expect(events(one, "fence_hit")).toEqual([
+      { t: t1, k: "fence_hit", u: 0, f: 3, damage: 40, hp: 40 },
+      { t: t1, k: "fence_hit", u: 1, f: 3, damage: 40, hp: 0 },
+    ]);
     expect(one.units.every((u) => u.reachedCoreTick > 0)).toBe(true);
     expect(one.units[0]!.reachedCoreTick).toBe(one.units[1]!.reachedCoreTick);
+    expect(one.units[2]!.reachedCoreTick).toBe(one.units[1]!.reachedCoreTick);
     // 80 HP: a then b on the same tick, in id order; the segment breaks on that tick.
     const two = resolve(input(battlefield({ fences: ringExcept([17], 80) }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, offense: 40 }), unit({ ref: "b", cell: { x: 15, y: 0 }, offense: 40 })]), SHORT_TUNABLES));
     const t = events(two, "fence_broken")[0]!.t;
@@ -398,9 +404,12 @@ describe("QA-10 round 1 regressions", () => {
       const out = resolve(input(field(gaps, hp), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), QUIET_SHORT_TUNABLES));
       return { t: out.units[0]!.reachedCoreTick, breached: events(out, "fence_hit").length > 0 };
     };
-    // A forced breach of h hits costs exactly (h − 1) cooldowns over a one-hit breach.
-    expect(timeTo([], 95).t).toBeGreaterThan(0);
-    expect(timeTo([], 95 * 5).t - timeTo([], 95).t).toBe(4 * cooldownTicks);
+    // A forced breach of h hits costs exactly (h − 2) cooldowns over a two-hit breach. (Since
+    // QA-12 D1 no full segment above 1 HP falls to one blow: a unit takes at most half of it per
+    // tick, so a 95-HP segment is three hits of 47, 47, 1 and 95 × h HP for h ≥ 2 is h hits of 95.)
+    expect(timeTo([], 95 * 2).t).toBeGreaterThan(0);
+    expect(timeTo([], 95 * 5).t - timeTo([], 95 * 2).t).toBe(3 * cooldownTicks);
+    expect(timeTo([], 95).t - timeTo([], 95 * 2).t).toBe(cooldownTicks);
     for (const gap of [5, 6, 7]) {
       const detour = timeTo([gap], 1_000_000);
       expect(detour.breached).toBe(false);
@@ -412,7 +421,7 @@ describe("QA-10 round 1 regressions", () => {
         expect(chosen.t, label).toBe(chosen.breached ? breach.t : detour.t);
         expect(chosen.t, label).toBeLessThanOrEqual(Math.min(breach.t, detour.t) + cooldownTicks);
       }
-      expect(timeTo([gap], 95).breached, `gap ${gap}: one hit beats any detour`).toBe(true);
+      expect(timeTo([gap], 1).breached, `gap ${gap}: a one-hit segment (1 HP: the per-tick cap is at least 1) beats any detour`).toBe(true);
       expect(timeTo([gap], 95 * 12).breached, `gap ${gap}: eleven cooldowns never beat the detour`).toBe(false);
     }
     // The v1 lattice-only comparison breached through a 190-HP segment with a gap two cells away

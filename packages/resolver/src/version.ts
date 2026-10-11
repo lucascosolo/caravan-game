@@ -12,6 +12,10 @@
  * target last lost, the leash clamp, traps skip 0-HP units, tighter input bounds); 5 is chunk
  * 12's abilities (phase 7: six archetypes on automatic cooldowns, decide-then-apply damage
  * first, the heal ceiling, the additive and capped structure breaker, the dash leg, the buff
- * step in the damage pipeline, two new input tunables and the ability field bounds).
+ * step in the damage pipeline, two new input tunables and the ability field bounds); 6 is
+ * chunk 12's QA round 1 (an attacker's dash springs its traps inside phase 7 before it can
+ * reach the core, one per-unit-per-tick fence-hit cap for every fence hit, the structure
+ * breaker's ×0.25 first use, one floor for merge × buff, the leash-clamped step logged,
+ * void firings skipped without spending their cooldown).
  */
-export const RESOLVER_VERSION = 5;
+export const RESOLVER_VERSION = 6;
