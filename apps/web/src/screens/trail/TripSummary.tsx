@@ -3,7 +3,7 @@
  * tab afterwards until the caravan is packed again. Everything comes from the trip status
  * (`trip.ending`, as the `trip_banked` / `trip_overrun` ledger event recorded it, and each
  * encounter's `result`); a just-made bank adds the balance its answer carried. It feeds the
- * replay (chunk 22) through each encounter's "Watch the fight" (disabled until 22 lands).
+ * replay (chunk 22) through each encounter's "Watch the fight".
  */
 import type { BankResult, TripView } from "../../api/tripTypes.ts";
 import { navigate } from "../../shell/router.tsx";

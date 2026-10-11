@@ -48,6 +48,8 @@ import {
   unequipResultShape,
 } from "./shapes.ts";
 import { bankResultShape, encounterCommitShape, pushResultShape, stakesPreviewShape, tripStartShape, tripStatusShape } from "./tripShapes.ts";
+import { replayShape } from "./replayShapes.ts";
+import type { ReplayView } from "./replayTypes.ts";
 import type { BankResult, EncounterCommitResult, PushResult, StakesPreview, TripStartResult, TripStatusView } from "./tripTypes.ts";
 import type {
   AuthResponse,
@@ -182,6 +184,9 @@ export interface Api {
   cosmetics(): Promise<CosmeticsView>;
   equipCosmetic(cosmeticId: string): Promise<EquipResult>;
   unequipCosmetic(slot: string): Promise<UnequipResult>;
+  // The replay of a resolved encounter (chunk 13 route, chunk 22 player), for either
+  // participant. 409 `not_resolved`, 410 `replay_expired`, 404 for anyone else.
+  replay(jobId: string): Promise<ReplayView>;
 }
 
 function isErrorBody(value: unknown): value is ApiErrorBody {
@@ -281,5 +286,6 @@ export function createApi(opts: ApiOptions): Api {
     cosmetics: () => request("GET", "/me/cosmetics", cosmeticsShape),
     equipCosmetic: (cosmeticId) => request("POST", "/me/cosmetics/equip", equipResultShape, { cosmeticId }),
     unequipCosmetic: (slot) => request("POST", "/me/cosmetics/unequip", unequipResultShape, { slot }),
+    replay: (jobId) => request("GET", `/me/encounters/${encodeURIComponent(jobId)}/replay`, replayShape),
   };
 }

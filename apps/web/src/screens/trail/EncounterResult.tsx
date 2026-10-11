@@ -5,13 +5,14 @@
  * (`TripEncounterView.result`). Nothing is derived here beyond turning fixed-point depth
  * into a percentage for display.
  *
- * "Watch the fight" is the hand-off to chunk 22's replay player, which is not built: the
- * button is present, disabled and labelled "replay coming", so the flow's shape is final
- * and chunk 22 only wires it (`result.jobId` is the key).
+ * "Watch the fight" is the hand-off to chunk 22's replay player (`result.jobId` is the key):
+ * it opens the player over this screen, so the trip flow is never left.
  */
 import { FIXED_ONE } from "@caravan/content";
 import { useId } from "react";
+import type { Api } from "../../api/client.ts";
 import type { TripEncounterView } from "../../api/tripTypes.ts";
+import { WatchFight } from "../replay/WatchFight.tsx";
 import { STRINGS } from "../../strings.ts";
 import { fenceLabel, trapTypeName, unitLabel } from "./tripNames.ts";
 
@@ -35,21 +36,19 @@ function Group({ heading, items, testId }: { heading: string; items: readonly st
   );
 }
 
-export function ReplayAffordance(): JSX.Element {
+export function ReplayAffordance({ jobId, encounterIndex, api }: { readonly jobId: string; readonly encounterIndex: number; readonly api?: Api }): JSX.Element {
   const noteId = useId();
   return (
     <div>
-      <button type="button" className="btn btn--block" disabled aria-describedby={noteId} data-testid="watch-fight">
-        {T.watchFight} <span className="hint">({T.replayComing})</span>
-      </button>
+      <WatchFight jobId={jobId} encounterIndex={encounterIndex} label={T.watchFight} describedBy={noteId} {...(api ? { api } : {})} />
       <p className="hint" id={noteId}>
-        {T.replayNote}
+        {T.watchFightNote}
       </p>
     </div>
   );
 }
 
-export function EncounterResult({ encounter, headingLevel = 2 }: { readonly encounter: TripEncounterView; readonly headingLevel?: 2 | 3 }): JSX.Element {
+export function EncounterResult({ encounter, headingLevel = 2, api }: { readonly encounter: TripEncounterView; readonly headingLevel?: 2 | 3; readonly api?: Api }): JSX.Element {
   const r = encounter.result;
   const pct = Math.round((encounter.depth * 100) / DEPTH_ONE);
   const Heading = headingLevel === 2 ? "h2" : "h3";
@@ -76,7 +75,7 @@ export function EncounterResult({ encounter, headingLevel = 2 }: { readonly enco
       ) : (
         <p className="hint">{T.resultUnreadable}</p>
       )}
-      <ReplayAffordance />
+      {r && <ReplayAffordance jobId={r.jobId} encounterIndex={encounter.index} {...(api ? { api } : {})} />}
     </section>
   );
 }

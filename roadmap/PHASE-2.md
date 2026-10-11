@@ -98,11 +98,93 @@ outcome the ledger recorded.
 **QA checks.** Guardrail 1: diff the renderer's displayed outcome against the ledger
 for 100 replays. Confirm no code path in the player calls into `packages/resolver`.
 
+**Status: built** (2026-10-11, chunk 22 Maker). Build notes:
+
+- **Where it lives.** `apps/web/src/screens/replay/`: `replayModel.ts` (pure: body → scene at a
+  moment, event feed, tally, keyframe seeks), `ReplayPlayer.tsx` (fetch, states, summary,
+  canvas, transport, feed, end card), `WatchFight.tsx` (the one entry point: a button that opens
+  the player in a full-viewport `Modal size="full"` over the screen it came from). API:
+  `api.replay(jobId)` → `GET /me/encounters/:jobId/replay`, guarded by `replayShape`
+  (`src/api/replayShapes.ts`, types in `replayTypes.ts`); the `log` passes through the guard
+  opaque — `readReplay` is its validator.
+- **Reader only, never the simulation.** The client imports `readReplay` from the new subpath
+  `@caravan/resolver/replay` (`packages/resolver/package.json` `exports["./replay"]` →
+  `src/replay.ts`). The package index would also have tree-shaken, but the subpath makes the
+  intent explicit. `apps/web/scripts/check-bundle.mjs` runs after every `vite build` (it is in
+  the web `build` script, so `pnpm build` and CI run it): it reads the hidden source maps and
+  FAILS the build if any `packages/resolver/src` module other than `replay.ts`, `fixed.ts`,
+  `battlefield.ts` is in a client chunk (verified: a probe import of `resolve` failed it with
+  tick.ts, combat.ts, resolve.ts … listed). Current build: `battlefield.ts, fixed.ts, replay.ts`.
+- **Renderer.** Through `apps/web/src/iso` only. Two OPTIONAL fields added to `IsoSceneState`
+  (as chunk 17 did): `replayUnits` (both sides at log positions; attackers keep the dashed ring,
+  HP bar per side, level badge, no stance/radii — the log carries neither and the player never
+  guesses) and `marks` (short-lived shape-coded markers over a trap spring, death, fence break,
+  ability, core arrival). Trail and town scenes are unchanged. `showRadii` false, no drag, so
+  the lattice never shows during a replay. Between two ticks the player lerps the reader's
+  `frame(t)` and `frame(t+1)` (presentation only).
+- **Seeking.** Scrub (native range input: touch drag, keyboard, `aria-valuetext`), previous /
+  next keyframe, skip to the end. Every position is `readReplay(log).frame(t)` (the reader seeks
+  from the nearest keyframe snapshot and interpolates forward); nothing re-simulates.
+- **Outcome = the ledger's.** The summary and the end card show the SERVER's recorded outcome
+  (`body.outcome`). `openReplay` refuses (never draws) a log whose kind / depth / endTick
+  disagree with it, labels that do not match the log, a body marked `renderable: false`, and
+  anything `readReplay` throws on (truncation, edits) — with the reason on screen.
+- **Results summary first** (PHASE-2 §22): outcome, depth with `depthExplained` and the
+  deepest raider, loot (caravan: "loot reported for the raiding party's owner"; owner: "your
+  party's loot … as reported", since chunk 19 credits it separately), the tally from the rows
+  (raiders / posted units down, fence segments broken, traps sprung, core reached). The owner
+  also sees what the feed says was credited (Coin, Reputation, ladder). The caravan's itemized
+  Coin / kills / de-merges remain chunk 23's EncounterResult directly above the button.
+- **Both viewers.** Copy per `viewer`: the caravan reads "your Well Digger 2 … the raiders' Dust
+  Rider"; the owner reads "your Dust Rider … the caravan's Well Digger", where it came in
+  (edges from the spawn rows), and that the party lost nothing. All copy in `STRINGS.replay`.
+- **Event feed.** One line per log row of kind hit / death / trap fired / trap nullified / fence
+  broken / ability (display name from `labels`, with the row's targets and amounts; a dash's
+  amount is distance, a buff's duration is the row's `until`) / core reached; newest first,
+  "Key moments" hides hits; a live region only while paused.
+- **States.** 409 `not_resolved`, 410 `replay_expired`, 404 each have their own copy; any other
+  error has Retry. **Server change:** a job that completed WITHOUT a log (the test double;
+  `job.result.replay` is null) used to answer 410 `replay_expired`, which is false. It now
+  answers 200 `renderable: false`, `log: null`, `stored: null`, `logFormat: null`,
+  `resolverVersion: null`, empty labels and `reason: "no replay log was recorded for this
+  fight"` (`NO_LOG_REASON`, routes/replay.ts). A log that existed and was pruned is still 410.
+- **Entry points.** Trail: chunk 23's "Watch the fight" in `EncounterResult` is wired (button
+  wiring only: `ReplayAffordance` takes `jobId` / `encounterIndex`, `EncounterResult` an
+  optional `api` prop; shown when the encounter has a result). Party tab: each results-feed
+  entry with a `jobId` has "Watch the fight" (owner view, with the entry's credited numbers).
+- **Mobile.** 44 px targets, the scrub is a full-width 44 px row, fits 320 px (e2e asserts no
+  sideways scroll and every control ≥ 44 px at 360 and 320); no storage of any kind.
+- **Tests.** Server contract (`apps/server/test/contract.test.ts`) now records `replay.json` and
+  `replay-owner.json` (a fresh caravan's first encounter fought by the REAL resolver, both
+  participants) and `replay-no-log.json` (a double-resolved fight); the normaliser keeps `log`
+  and `labels` in server order (positional) and the test asserts the renamed log still reads.
+  Web: `replayShapes.test.ts` (4), `replayModel.test.ts` (15: contract fight both sides, frames
+  equal the reader's, keyframe seeks, the whole 72-fight golden corpus opens / ends on its final
+  keyframe / has one feed line per moment row, truncation / edit / outcome-mismatch / labels /
+  not-renderable refusals, lerp, marks), `ReplayPlayer.test.tsx` (16: summary, scrub-to-end =
+  recorded outcome, key-moment filter, keyframe buttons, rAF playback at 4×, owner view,
+  a golden full-load overrun, no-log / unreadable / truncated / 409 / 410 / 404 / Retry, the
+  Trail and Party entry points). E2E (`apps/web/e2e/trip.spec.ts`): at encounter 1's results
+  "Watch the fight" opens the player and — the double has no log — asserts the no-log state,
+  the recorded outcome, 360 / 320 px fit, Close; then serves the recorded real-resolver body for
+  that one request (`page.route`) and plays it on the real canvas at 4×, skips to the end card.
+- **For QA.** The guardrail-1 "100 replays vs the ledger" probe: the model test drives all 72
+  goldens and the contract fight; the server-side check that `body.outcome` (the job result the
+  ledger events were written from) equals the log's ending is enforced client-side by
+  `openReplay`. Known gaps: siege pieces are not drawn (the log has no siege labels); posts show
+  no stance mark (the log does not carry stances); `TripSummary.tsx`'s header comment still says
+  the button is disabled (chunk 23 file, left for its owner). Pre-existing, not chunk 22:
+  `e2e/formation.spec.ts`'s no-purchase regex `/pay/` matches the authored party flavor "…when
+  the pay stopped." (Rail Bull Gang) whenever the seeded draw serves it.
+- **Observed results (this branch).** `pnpm typecheck` clean; `pnpm lint` and `pnpm
+  test:boundary` pass; web suite 286 tests / 26 files pass; server suite 604 passed, 1 skipped /
+  34 files (contract fixtures stable across reruns); `pnpm build` passes with the bundle check
+  ("battlefield.ts, fixed.ts, replay.ts"); `pnpm e2e` — trip.spec (with the replay steps),
+  smoke, store, town pass; formation.spec fails on the pre-existing flavor-text match above.
+
 ## 23. Trip client flow — **M**, after 15, 17, 19
 
-**Status: built, QA fixes landed** (2026-10-11; roadmap/qa/23-punchlist.md S1–S4, D1–D3, N1–N5 closed: de-merges itemized on bank, overrun and summary from contract-recorded bodies, a stale decision leads on, the e2e banks after three encounters) — replay link pending chunk 22 ("Watch the fight" is present,
-disabled, "replay coming"). Fights resolve through chunk 15's seam (test double until chunk 13;
-`CARAVAN_TEST_RESOLVER=double` for e2e). Losses on overrun shown as the server records them
+**Status: done** (2026-10-11; QA'd, roadmap/qa/23-punchlist.md S1–S4, D1–D3, N1–N5 closed: de-merges itemized on bank, overrun and summary from contract-recorded bodies, a stale decision leads on, the e2e banks after three encounters). "Watch the fight" opens chunk 22's replay player. Fights resolve with the real resolver since chunk 13 (`CARAVAN_TEST_RESOLVER=double` for predictable e2e). Losses on overrun shown as the server records them
 (`lossesApplied`, chunk 19). See ORCHESTRATION.md.
 
 **Goal.** The screens that wrap the primary gameplay screen: outfitting, candidate

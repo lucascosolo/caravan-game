@@ -14,7 +14,10 @@
  * side the viewer is on; the party version that fought), the outcome with its loot, and the
  * resolver version. A log in a format this server's reader cannot read is returned marked
  * `renderable: false` with the reason, never silently misrendered; a log the reader rejects
- * (truncated, altered) is marked the same way. A pruned log (LOG_RETENTION) is 410.
+ * (truncated, altered) is marked the same way. A pruned log (LOG_RETENTION) is 410. A fight
+ * resolved with no log at all (chunk 22: the dev/test double records none) is 200
+ * `renderable: false` with `log: null`, `stored: null`, `logFormat: null`, `resolverVersion:
+ * null`, empty labels and NO_LOG_REASON — never mistaken for an expired replay.
  */
 import { getFenceTier, getTrapType, getUnitType } from "@caravan/content";
 import { READABLE_REPLAY_FORMATS, RESOLVER_VERSION, readReplay, type ReplayLog } from "@caravan/resolver";
@@ -30,6 +33,9 @@ const JOB_ID = /^encounter:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 /** The one-sentence DEPTH_METRIC, as the UI should say it. */
 export const DEPTH_EXPLAINED = "How far the deepest raider got: the share of its straight-line distance to the core that it closed.";
 
+/** Chunk 22: why a fight resolved without a stored log (the test double) has no replay. */
+export const NO_LOG_REASON = "no replay log was recorded for this fight";
+
 const notFound = () => new AppError(404, "no_replay", "replay not found");
 
 export async function replayRoutes(app: FastifyInstance): Promise<void> {
@@ -43,8 +49,32 @@ export async function replayRoutes(app: FastifyInstance): Promise<void> {
     const viewer = input.defenderAccountId === me ? "caravan" : input.partyOwnerAccountId === me ? "party_owner" : null;
     if (viewer === null) throw notFound();
     if (job.status !== "completed") throw new AppError(409, "not_resolved", `encounter ${jobId} is ${job.status}, not resolved yet`);
+    const result = (job.result ?? {}) as { outcome?: Record<string, unknown>; replay?: unknown };
     const row = await findEncounterLog(app.db, jobId);
-    if (!row) throw new AppError(410, "replay_expired", "this replay is past its retention window");
+    if (!row) {
+      // Chunk 22: a fight resolved WITHOUT a log (the dev/test double, `CARAVAN_TEST_RESOLVER=double`,
+      // records none: its job result has no `replay` stamp) is not "expired" — it never had a
+      // replay. Answer it as not renderable, with the outcome, so the client says so truthfully.
+      // A job whose result names a stored log that is gone was pruned (LOG_RETENTION): 410.
+      if (result.replay) throw new AppError(410, "replay_expired", "this replay is past its retention window");
+      return {
+        jobId,
+        viewer,
+        tripId: input.tripId,
+        encounterIndex: input.encounterIndex,
+        resolverVersion: null,
+        currentResolverVersion: RESOLVER_VERSION,
+        logFormat: null,
+        renderable: false,
+        reason: NO_LOG_REASON,
+        outcome: result.outcome ?? null,
+        depthExplained: DEPTH_EXPLAINED,
+        party: { partyId: input.party.partyId, partyHash: input.party.hash, partySavedAt: input.party.savedAt },
+        labels: { units: [], fences: [], traps: [] },
+        stored: null,
+        log: null,
+      };
+    }
 
     const log = JSON.parse(decompressLog(row)) as ReplayLog;
     let renderable = READABLE_REPLAY_FORMATS.includes(row.log_format);
@@ -57,7 +87,6 @@ export async function replayRoutes(app: FastifyInstance): Promise<void> {
         reason = err instanceof Error ? err.message : String(err);
       }
     }
-    const result = (job.result ?? {}) as { outcome?: Record<string, unknown> };
     return {
       jobId,
       viewer,

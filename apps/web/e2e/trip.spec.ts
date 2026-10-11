@@ -9,10 +9,15 @@
  *   de-merge on the bank card, the overrun card and the push confirm → push → encounter 3
  *   (one rider left to post) → bank (the confirm restates the de-merge) → trip summary →
  *   town shows the trip-cap use spent. A banked three-encounter trip (PHASE-2 §23 DoD).
+ *   Chunk 22: at the first results, "Watch the fight" opens the replay player (the double
+ *   records no log: the not-renderable state), then once more with a recorded real-resolver
+ *   body played on the canvas.
  *
  * The account is run-unique and starts in town (scripts/e2e.mjs seeds it): trips are history
  * and never reset, so a reused account could not start from town.
  */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 
 const USERNAME = process.env["E2E_TRIP_USERNAME"] ?? "dev";
@@ -139,9 +144,56 @@ test("a full trip: outfit, ride out, three encounters (a rider dies at the secon
   await expect(r1.getByTestId("result-damaged")).toContainText("Dust Rider · Level 1 · HP 620 → 470 of 620");
   await expect(r1.getByTestId("result-traps")).toContainText("Spike Pit");
   await expect(r1.getByTestId("result-fences")).toContainText("Brush Pile #1");
-  await expect(r1.getByTestId("watch-fight")).toBeDisabled();
-  await expect(r1.getByTestId("watch-fight")).toContainText("replay coming");
   await fitsPortrait(page);
+
+  // ── chunk 22: Watch the fight. The e2e server resolves with chunk 15's test double, which
+  // records no log: the player says so plainly (never "expired", never a blank canvas), shows
+  // the server's recorded outcome, fits 360 and 320 px, and Close lands back on the results. ──
+  await r1.getByTestId("watch-fight").click();
+  const replay = page.getByRole("dialog", { name: "Encounter 1: the fight" });
+  const noLog = replay.getByTestId("replay-not-renderable");
+  await expect(noLog).toHaveAttribute("data-no-log", "true");
+  await expect(noLog).toContainText("No replay was recorded for this fight");
+  await expect(replay.getByTestId("replay-reason")).toHaveText("Reason: no replay log was recorded for this fight");
+  await expect(replay.getByTestId("replay-outcome")).toHaveText("Your caravan held.");
+  await expect(replay.getByTestId("replay-depth-explained")).toContainText("How far the deepest raider got");
+  await expect(replay.getByTestId("replay-loot")).toContainText(/Loot reported for the raiding party's owner: \d+ Coin\./);
+  await expect(replay.getByTestId("iso-canvas")).toHaveCount(0);
+  await fitsPortrait(page);
+  await page.setViewportSize({ width: 320, height: 640 });
+  await fitsPortrait(page);
+  await page.setViewportSize({ width: 360, height: 640 });
+  await replay.getByTestId("replay-close").click();
+  await expect(replay).toHaveCount(0);
+  await expect(r1.getByTestId("result-outcome")).toHaveText("The caravan held.");
+
+  // The same button with a REAL log: the e2e server's double has none, so the replay body the
+  // server suite recorded from a real-resolver fight (src/test/contract/replay.json) is served
+  // for this one request. The built client reads it with the resolver's replay reader and
+  // draws it through the iso renderer on a real canvas; play at 4×, skip to the end.
+  const recorded = JSON.parse(readFileSync(fileURLToPath(new URL("../src/test/contract/replay.json", import.meta.url)), "utf8")) as { body: { outcome: { kind: string } } };
+  await page.route("**/api/me/encounters/*/replay", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(recorded.body) }));
+  await r1.getByTestId("watch-fight").click();
+  const real = page.getByRole("dialog", { name: "Encounter 1: the fight" });
+  const player = real.getByTestId("replay-player");
+  await expect(player).toBeVisible();
+  await expect(real.getByTestId("iso-canvas")).toBeVisible();
+  await expect(real.getByTestId("replay-outcome")).toHaveText("Your caravan held.");
+  await real.getByTestId("replay-speed-4").click();
+  await real.getByTestId("replay-play").click();
+  await expect.poll(async () => Number(await real.getByTestId("replay-scrub").inputValue()), { timeout: 8_000 }).toBeGreaterThan(130);
+  await real.getByTestId("replay-play").click();
+  await expect(real.getByTestId("replay-feed")).toContainText("hit");
+  const scrubBox = await real.getByTestId("replay-scrub").boundingBox();
+  expect(scrubBox!.height).toBeGreaterThanOrEqual(43.5);
+  await real.getByTestId("replay-to-end").click();
+  await expect(real.getByTestId("replay-end-card")).toHaveAttribute("data-outcome", recorded.body.outcome.kind);
+  await expect(real.getByTestId("replay-end-card")).toContainText("Your caravan held.");
+  await page.setViewportSize({ width: 320, height: 640 });
+  await fitsPortrait(page);
+  await page.setViewportSize({ width: 360, height: 640 });
+  await real.getByTestId("replay-close").click();
+  await page.unroute("**/api/me/encounters/*/replay");
 
   // ── bank or push: every stake on screen, then push ──
   await page.getByTestId("to-decision").click();

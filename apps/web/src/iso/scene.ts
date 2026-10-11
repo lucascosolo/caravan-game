@@ -18,7 +18,7 @@
  * (types.ts); `setCamera` applies a pure camera (projection.ts); `hitTest` is pure (hit.ts).
  * Pointer handling lives in IsoCanvas.tsx so this file never sees a DOM event.
  *
- * Replay hook: entity positions are world points, not cells. A replay feeds interpolated
+ * Replay (chunk 22): `replayUnits` and `marks` in the state. Entity positions are world points, not cells. A replay feeds interpolated
  * positions straight in (`fixedToWorld` on the log's fixed-point coordinates).
  */
 import { Application, Container, Graphics, Text } from "pixi.js";
@@ -36,7 +36,7 @@ import {
   type WorldPoint,
 } from "./projection.ts";
 import { PALETTE, PLACEHOLDER_SKINS, type PlaceholderSkin, type Skin, type SkinRegistry } from "./skins.ts";
-import type { EntryEdgeName, IsoSceneState, PostEntity, StructureEntity } from "./types.ts";
+import type { EntryEdgeName, IsoSceneState, PostEntity, ReplayMarkEntity, StructureEntity } from "./types.ts";
 
 /** The lattice and the fixed features the scene draws for every place (from the resolver's geometry). */
 export interface SceneGeometry {
@@ -328,6 +328,39 @@ export class IsoScene {
     if (state.showRadii) for (const p of state.posts) this.drawRadii(g, p.pos, p, p.selected ? 0.9 : 0.5);
     // Entry-band tint for the core so the goal is readable.
     if ((geo.fixtures ?? "circle") === "circle") for (const c of geo.coreCells) g.poly(pts(cellDiamond(c))).fill({ color: PALETTE.core, alpha: 0.18 });
+    // Replay marks (chunk 22): one shape per kind of log row, fading with age.
+    for (const m of state.marks ?? []) this.drawMark(g, m);
+  }
+
+  /** A replay mark: the shape says what happened (colour is a second channel, never the only one). */
+  private drawMark(g: Graphics, m: ReplayMarkEntity): void {
+    const c = project(m.pos);
+    const alpha = Math.max(0, Math.min(1, 1 - m.age)) * 0.95;
+    const r = TILE_W * (0.35 + 0.25 * m.age);
+    switch (m.kind) {
+      case "trap":
+        g.ellipse(c.x, c.y, r, r / 2).stroke({ width: 3, color: PALETTE.trap, alpha });
+        break;
+      case "death":
+        g.moveTo(c.x - r / 2, c.y - r / 4).lineTo(c.x + r / 2, c.y + r / 4).moveTo(c.x + r / 2, c.y - r / 4).lineTo(c.x - r / 2, c.y + r / 4);
+        g.stroke({ width: 3, color: PALETTE.outlineDark, alpha });
+        break;
+      case "fence":
+        g.rect(c.x - r / 2, c.y - r / 4, r, r / 2).stroke({ width: 3, color: PALETTE.attacker, alpha });
+        break;
+      case "ability": {
+        const spikes = 5;
+        for (let i = 0; i < spikes; i++) {
+          const a = (i / spikes) * Math.PI * 2;
+          g.moveTo(c.x, c.y).lineTo(c.x + Math.cos(a) * r * 0.6, c.y + (Math.sin(a) * r * 0.6) / 2);
+        }
+        g.stroke({ width: 2, color: PALETTE.siege, alpha });
+        break;
+      }
+      case "core":
+        g.poly(pts([{ x: c.x, y: c.y - r / 2 }, { x: c.x + r, y: c.y }, { x: c.x, y: c.y + r / 2 }, { x: c.x - r, y: c.y }])).stroke({ width: 3, color: PALETTE.core, alpha });
+        break;
+    }
   }
 
   /**
@@ -461,6 +494,23 @@ export class IsoScene {
         m.position.set(0, 0);
         node.addChild(m);
         node.addChild(this.badge(String(a.mergeLevel), TILE_W * 0.22, -TILE_H * 0.55));
+        return node;
+      });
+    }
+    // Replay units (chunk 22): both sides, wherever the log puts them; HP bar from the log's HP.
+    for (const u of state.replayUnits ?? []) {
+      // HP is quantized for the node signature only, so a unit is rebuilt on a visible change, not every hit point.
+      const hpQ = Math.round(Math.max(0, Math.min(1, u.hpFraction)) * 20);
+      this.keep(seen, `replay:${u.id}`, `${u.typeId}|${u.level}|${u.side}|${hpQ}`, u.pos, 2, () => {
+        const node = new Container();
+        if (u.side === "attacker") node.addChild(this.dashedRing());
+        const m = this.marker(this.skins.unit(u.typeId, u.side), { x: 0, y: 0 }, 1, 2, false);
+        m.position.set(0, 0);
+        node.addChild(m);
+        const bar = this.hpBar(hpQ / 20, u.side === "attacker" ? PALETTE.attacker : PALETTE.defender);
+        bar.position.set(0, -TILE_H * 1.15);
+        node.addChild(bar);
+        node.addChild(this.badge(String(u.level), TILE_W * 0.22, -TILE_H * 0.55));
         return node;
       });
     }

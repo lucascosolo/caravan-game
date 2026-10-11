@@ -1,0 +1,57 @@
+{
+  "route": "GET /me/encounters/:jobId/replay (double, no log)",
+  "status": 200,
+  "body": {
+    "jobId": "encounter:00000000-0000-4000-8000-000000000001:1",
+    "viewer": "caravan",
+    "tripId": "00000000-0000-4000-8000-000000000001",
+    "encounterIndex": 1,
+    "resolverVersion": null,
+    "currentResolverVersion": 7,
+    "logFormat": null,
+    "renderable": false,
+    "reason": "no replay log was recorded for this fight",
+    "outcome": {
+      "kind": "caravan_held",
+      "loot": 141,
+      "depth": 512,
+      "units": [
+        {
+          "hp": 470,
+          "ref": "00000000-0000-4000-8000-000000000002"
+        },
+        {
+          "hp": 470,
+          "ref": "00000000-0000-4000-8000-000000000003"
+        },
+        {
+          "hp": 818,
+          "ref": "00000000-0000-4000-8000-000000000004"
+        }
+      ],
+      "fences": [
+        {
+          "hp": 0,
+          "ref": "f0"
+        }
+      ],
+      "endTick": 600,
+      "spentTraps": [
+        "t0"
+      ]
+    },
+    "depthExplained": "How far the deepest raider got: the share of its straight-line distance to the core that it closed.",
+    "party": {
+      "partyId": "00000000-0000-4000-8000-000000000005",
+      "partyHash": "a000000000000000000000000000000000000000000000000000000000000001",
+      "partySavedAt": "2026-10-11T12:00:00.000Z"
+    },
+    "labels": {
+      "units": [],
+      "fences": [],
+      "traps": []
+    },
+    "stored": null,
+    "log": null
+  }
+}
