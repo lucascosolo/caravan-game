@@ -516,3 +516,107 @@ and the QA round. For the same reason `3137656` also carries chunk 04's
 blob was built. History is not rewritten on this branch, so this note is the correction.
 Lesson: a reconstructed blob of a shared file must be built from the parent commit resolved
 at the moment of staging, and re-checked against it, not from an earlier read.
+
+### 2026-10-11 — Chunk 07 (wagon circle model): `not started` → `built`
+
+**Built.** A new pure workspace package plus its server-side persistence and validation.
+
+- `packages/circle` (`@caravan/circle`; only dependency `@caravan/content`; no I/O, clock,
+  randomness or floats — a source grep test enforces the same rules as content):
+  - `lattice.ts` — the 32×32 placement lattice; `cellCenter` is THE lattice→continuous
+    conversion (cell × `FIXED_POINT_SCALE` + half a cell), defined once for the resolver
+    to reuse; one Euclidean metric compared squared (`distSq`, `fixedSq`); the fixed 3×3
+    core at the centre (cells 14..16); the fence ring as the square of cells at Chebyshev
+    radius 4 round the core centre = exactly 32 segments, walked clockwise from the
+    north-west corner, each tagged with the edge it faces; four entry edges with 2-cell
+    bands; a BFS reachability helper for tests. Import-time assertion that the tunables
+    are coherent (`8 × radius == PERIMETER_SEGMENTS`, budget < ring, ring clear of core
+    and entry bands).
+  - `manifest.ts` — the trip-locked loadout: `packManifest` enforces `DEPLOYMENT_SLOT_CAP`,
+    `TRAP_SLOT_CAP`, `FENCE_MATERIAL_BUDGET` and the access seam, derives starting state
+    from content (unit hp = type hp × merge multiplier; fence hp = tier hp), returns every
+    issue at once, and deep-freezes the result. No add/resupply/heal function exists (a
+    test greps the exports).
+  - `formation.ts` — the per-encounter arrangement, referencing manifest entries by ref:
+    `validateFormation` checks ref existence and usability (alive / unspent / intact), no
+    duplicate refs, every living unit posted, ring positions distinct, cells on the lattice
+    and off the ring, core and entry bands, no two objects on one cell, `MIN_POST_DISTANCE`,
+    and the access seam again at the placement boundary. Gaps are never an issue;
+    `formationGaps` reports them for the UI.
+  - `attrition.ts` — `applyEncounterOutcome` is the ONLY state mover and is monotone: hp
+    down, spent only to true, unknown refs and any rise thrown as `AttritionError`.
+  - `serialize.ts` — canonical JSON (sorted keys, canonical array order, no whitespace,
+    safe integers only) for formation and manifest; strict parsers refuse unknown keys,
+    floats, bad versions and off-lattice cells.
+  - `resolverInput.ts` — `Battlefield`, the closed, flat, integer-only structure the
+    resolver consumes (positions, hp, defense × merge, aggro/leash, trap stats, entry
+    bands, core); `assertBattlefield` refuses any extra key at every level by name.
+- `packages/content/src/tunables.ts` — chunk 07 block appended: `GRID_WIDTH/HEIGHT` 32,
+  `PERIMETER_RING_RADIUS` 4, `PERIMETER_SEGMENTS` 32, `FENCE_MATERIAL_BUDGET` 24,
+  `CORE_SIZE` 3, `MIN_POST_DISTANCE` fp(1), `ENTRY_BAND_DEPTH` 2. (`DEPLOYMENT_SLOT_CAP`,
+  `TRAP_SLOT_CAP`, fence tier HP, aggro/leash defaults were already there from chunk 03.)
+- `apps/server`: migration `004_wagon_circle` — `wagon_manifest` (caravan-keyed; `packed`
+  immutable by trigger; `survivors` same shape, trigger refuses any added/removed ref, any
+  hp rise, any un-spend, any identity change; one open manifest per caravan; closed rows
+  frozen; delete/TRUNCATE refused) and `wagon_formation` (per manifest + encounter index;
+  draft re-savable, committed rows frozen and undeletable; sha256 hash column).
+  `src/circle/access.ts` — the `isUnlocked(owner, typeId)` seam, stubbed on chunk 05's
+  STARTING_NODES with TODO(chunk-05). `src/circle/service.ts` — `lockManifest`,
+  `saveFormation`, `commitFormation`, `battlefieldForEncounter`, `applyOutcome` (service
+  only, no route), `closeManifest`. `src/routes/circle.ts` — `POST/GET
+  /caravans/:id/manifest`, `PUT/GET /caravans/:id/encounters/:n/formation`, `POST
+  .../commit`; owner-only (404 otherwise); validation errors carry the issue list.
+  Registered in `app.ts` (append only).
+
+**Test command:** `pnpm --filter @caravan/circle test` — 7 files, 48 tests. `pnpm test` in
+`apps/server` against `TEST_DATABASE_URL=...caravan_test_c07` — 15 files, 195 tests
+passing (16 in `circle.test.ts`, plus the migration round-trip updated for the two new
+tables). `pnpm typecheck`, `pnpm lint`, `pnpm test:boundary` clean. Covered: manifest caps
+and budget rejected server-side; locked unit/trap/fence tier rejected by hand-crafted
+request through the seam (a desert caravan cannot pack `desert.vaquero` or
+`mountain.grizzly`); another caravan's unit instance rejected; no manifest-editing route and
+the DB refuses `packed` changes, added survivors, healing, repair, re-arm, counter rewind;
+gapped formation legal, re-arrangeable, frozen on commit (service and DB); stored snapshot
+re-canonicalizes byte-identically and hashes to the stored hash; trap spent at encounter 1
+still spent at 2 and 3 via HTTP, dead unit and destroyed segment refused, chipped segment's
+hp reaches the battlefield; four entry edges and split-across-edges; core reachable from
+every edge with a legal gapped ring; no float in model/serialization/source;
+`@ts-expect-error` and runtime tests that `Battlefield` cannot carry elevation, terrain,
+scenery, cover or an account id; the two tables have no account column.
+
+**Assumptions / decisions:**
+- Ring geometry: a square ring at Chebyshev radius 4 (cells 11..19) gives exactly the
+  brief's 32 segments; corners belong to the side their run starts on. Fence segments
+  occupy lattice cells (a blocked cell), which is what chunk 10's lattice A* needs.
+- Posts have NO stance field: the only stances the design defines are the attacking
+  party's three targeting stances (chunk 09); a posted unit's behaviour is aggro/leash.
+- Every living unit in the manifest must be posted (an unposted unit would need an
+  invented default location). Holding traps or fence material back is legal.
+- Traps and posts may not sit on the ring, the core, or an entry band; posting outside
+  the ring is allowed.
+- Unit hp and defense at pack/battlefield time are scaled by `mergeStatMult(level)`.
+- The access stub includes `fence.brush_pile` as a starting node (the brief lists 2
+  living / 1 trap / 1 siege; a caravan with no fence tier has no circle) — chunk 05 to
+  confirm. Living starters are the first two of the caravan's region roster.
+- `commitFormation` does not append `formation_committed`: chunk 02's
+  `enqueueEncounterResolution` already does, with the formation snapshot, and chunk 15
+  will call it with the committed canonical formation (its `{fences,traps,posts}` shape
+  already fits `snapshotFormation`). `applyOutcome`/`closeManifest` are services for
+  chunks 13/15; nothing here touches `caravan.state` or the trip cap.
+- `formation` is stored as jsonb (queryable); jsonb normalizes key order, so the
+  byte-compare guarantee is "canonical re-serialization of what is read equals what was
+  written, and the stored sha256 is of that text" — tested.
+- The resolver cannot import `@caravan/circle` under the chunk 21 boundary check (zero
+  deps, relative imports only). Chunk 10 will have to either vendor the handful of
+  lattice constants/`Battlefield` type or extend the allowlist deliberately; flagged.
+- `apps/server/test/migrations.test.ts` (chunk 01) had to learn the two new tables; its
+  "no table named *formation*" check became "every formation-shaped table is keyed by
+  encounter_index and carries no account/caravan column", which is the invariant it was
+  guarding (chunk 01's own schema comment allows per-encounter formations).
+- Commit `470b86a` carries the code; this log entry landed in a follow-up commit because
+  a concurrent restage of this file (`a91ce6b`) displaced the staged blob between staging
+  and commit.
+
+**Next:** hand to adversarial QA against the chunk's checklist — especially: can any path
+re-arm a trap or add to a manifest; is the budget genuinely below the ring; does anything
+treat a gap as an error; can a hand-crafted request place a locked type.
