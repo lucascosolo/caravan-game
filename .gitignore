@@ -23,6 +23,8 @@ pnpm-debug.log*
 # Test / coverage
 coverage/
 .nyc_output/
+apps/web/test-results/
+apps/web/playwright-report/
 
 # Local databases
 *.sqlite

@@ -1,0 +1,409 @@
+/*
+ * Theme (chunk 06 scaffold). Everything is a CSS variable on :root so later chunks restyle
+ * without touching components.
+ *
+ * Colour is never the only carrier of meaning (PHASE-2 §35): node states carry a word and
+ * an icon, affinities carry a shape. The accent colours are from the Okabe–Ito palette,
+ * which stays distinguishable under deuteranopia / protanopia / tritanopia.
+ */
+:root {
+  --bg: #1b1a17;
+  --bg-raised: #27251f;
+  --bg-sunken: #121110;
+  --fg: #f1e9d6;
+  --fg-muted: #b5ac98;
+  --line: #3f3b32;
+  --accent: #e69f00; /* Okabe–Ito orange: primary actions */
+  --accent-fg: #1b1a17;
+  --ok: #009e73; /* Okabe–Ito bluish green: reached */
+  --info: #56b4e9; /* Okabe–Ito sky blue: affordable */
+  --warn: #d55e00; /* Okabe–Ito vermillion: errors */
+  --locked: #7a7468;
+  --radius: 10px;
+  --tap: 44px; /* minimum touch target */
+  --tab-h: calc(56px + env(safe-area-inset-bottom, 0px));
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.35;
+  -webkit-text-size-adjust: 100%;
+}
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+a {
+  color: var(--info);
+}
+
+/* ---------- shell ---------- */
+.shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.shell__main {
+  flex: 1;
+  padding: 16px 16px calc(var(--tab-h) + 16px);
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+}
+.tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--tab-h);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  display: flex;
+  background: var(--bg-sunken);
+  border-top: 1px solid var(--line);
+  z-index: 10;
+}
+.tabbar__tab {
+  flex: 1;
+  min-height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: none;
+  border: 0;
+  color: var(--fg-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.tabbar__tab[aria-current="page"] {
+  color: var(--accent);
+  font-weight: 600;
+}
+.tabbar__glyph {
+  font-size: 20px;
+  line-height: 1;
+}
+
+/* ---------- common ---------- */
+.btn {
+  min-height: var(--tap);
+  min-width: var(--tap);
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--bg-raised);
+  cursor: pointer;
+  text-align: center;
+}
+.btn--primary {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.btn--block {
+  display: block;
+  width: 100%;
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.field {
+  display: block;
+  margin-bottom: 12px;
+}
+.field__label {
+  display: block;
+  font-size: 13px;
+  color: var(--fg-muted);
+  margin-bottom: 4px;
+}
+.field input,
+.field select {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--bg-sunken);
+}
+.hint {
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+.error {
+  border: 1px solid var(--warn);
+  border-left-width: 6px;
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin: 12px 0;
+  background: var(--bg-raised);
+}
+.error__code {
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+.notice {
+  border: 1px solid var(--ok);
+  border-left-width: 6px;
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin: 12px 0;
+  background: var(--bg-raised);
+}
+h1 {
+  font-size: 22px;
+  margin: 0 0 8px;
+}
+h2 {
+  font-size: 18px;
+  margin: 16px 0 8px;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---------- unlock webs ---------- */
+.pooltabs {
+  display: flex;
+  gap: 6px;
+  margin: 12px 0;
+}
+.pooltabs__tab {
+  flex: 1;
+  min-height: var(--tap);
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--bg-raised);
+  cursor: pointer;
+  font-size: 14px;
+}
+.pooltabs__tab[aria-selected="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.pointbox {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+  margin: 8px 0;
+}
+.pointbox__cell {
+  background: var(--bg-raised);
+  border-radius: var(--radius);
+  padding: 8px;
+  text-align: center;
+}
+.pointbox__num {
+  display: block;
+  font-size: 22px;
+  font-weight: 700;
+}
+.pointbox__lbl {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.graph {
+  position: relative;
+  margin-top: 12px;
+}
+.graph__edges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+.graph__edge {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 2;
+}
+.graph__edge--met {
+  stroke: var(--ok);
+}
+.graph__tier {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  align-items: stretch;
+  padding: 10px 0 28px;
+}
+.graph__tierlabel {
+  position: absolute;
+  left: 0;
+  top: -2px;
+  font-size: 11px;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.node {
+  position: relative;
+  flex: 1 1 0;
+  max-width: 220px;
+  min-width: 0;
+  min-height: 96px;
+  text-align: left;
+  padding: 10px;
+  border-radius: var(--radius);
+  border: 2px solid var(--locked);
+  background: var(--bg-raised);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.node--reached {
+  border-color: var(--ok);
+}
+.node--affordable {
+  border-color: var(--info);
+  border-style: dashed;
+}
+.node--locked {
+  border-style: dotted;
+  color: var(--fg-muted);
+}
+.node[aria-pressed="true"] {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+.node__name {
+  font-weight: 600;
+  font-size: 14px;
+}
+.node__cost {
+  font-size: 13px;
+}
+.node__state {
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.node__req {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+.state-icon {
+  font-family: ui-monospace, monospace;
+  font-weight: 700;
+}
+.affinity {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+.affinity svg {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+}
+
+/* bottom sheet for node details */
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--tab-h);
+  max-height: 70vh;
+  overflow: auto;
+  background: var(--bg-sunken);
+  border-top: 1px solid var(--line);
+  border-radius: 16px 16px 0 0;
+  padding: 12px 16px 20px;
+  z-index: 9;
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.5);
+}
+.sheet__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.statlist {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 8px 0;
+  font-size: 14px;
+}
+.statlist dt {
+  color: var(--fg-muted);
+}
+.statlist dd {
+  margin: 0;
+}
+.flavor {
+  font-style: italic;
+  color: var(--fg-muted);
+  font-size: 14px;
+}
+
+/* confirm dialog */
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 20;
+}
+.dialog {
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  width: 100%;
+  max-width: 420px;
+}
+.dialog__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+.dialog__actions .btn {
+  flex: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sheet {
+    animation: sheet-in 160ms ease-out;
+  }
+  @keyframes sheet-in {
+    from {
+      transform: translateY(16px);
+      opacity: 0;
+    }
+  }
+}

@@ -952,3 +952,63 @@ shape); their reproductions live in the regression files.
 
 **Next:** QA re-audit of chunk 07; the orchestrator merges this with chunk 10's
 lattice/`Battlefield` move.
+
+### 2026-10-11 — Chunk 06 (unlock web UI) + web client scaffold: `not started` → `built`
+
+**Built** in a worktree on `c977601` (`roadmap/phase-2-spec`). `apps/web` was a placeholder;
+this chunk creates the client scaffold the later client chunks (08, 17, 22, 23, 24) build
+on, then the unlock web screen on top of it.
+
+- **Scaffold decisions (settled):** Vite 7 + React 18 + TypeScript strict (`apps/web`,
+  extends `tsconfig.base.json` with `moduleResolution: Bundler`, `jsx: react-jsx`). A
+  typed `fetch` wrapper (`src/api/client.ts`) — bearer token read from in-memory session
+  state on every call, never localStorage/cookies; every non-2xx becomes an `ApiError`
+  with the server's exact `{error, message}`; a 401 drops the session. Hand-rolled hash
+  router (`src/shell/router.tsx`; four screens do not justify react-router). App shell
+  with a fixed 56px bottom tab bar (Town / Trail / Party / Webs; Town/Trail/Party are
+  placeholders), header with sign-out. Login/register screen against chunk 01's auth
+  routes (register picks a region from `REGIONS`, with the never-swapped hint). Vite
+  dev AND preview proxy `/api/*` → `CARAVAN_API_URL` (default `http://127.0.0.1:3000`),
+  prefix stripped, so no CORS and the built app sits behind one reverse-proxy rule.
+  Strings in `src/strings.ts` only; CSS-variable theme in `src/theme.css` with the
+  Okabe–Ito palette; affinity = shape + word, node state = icon + word + border style.
+  PWA manifest (portrait, standalone); service worker left to chunk 34. vitest +
+  @testing-library/react in jsdom; `@playwright/test` 1.56.1 pinned to the preinstalled
+  browsers. `@caravan/content` is imported by the client for display data (public, pure).
+- **Chunk 06 screen:** `src/screens/webs/{WebsScreen,WebGraph,NodeCard,NodeDetail,
+  PointsPanel,ConfirmDialog,AffinityIcon,catalogue}.tsx|ts`. Pool tabs for living (the
+  caravan's region) / trap / siege; whole DAG per pool laid out by tier, every node with
+  name, cost (from the node payload — per-pool curves, QA-05 D1), prerequisites by name,
+  reached/affordable/locked with the reason (missing prerequisites or points short);
+  points granted/spent/available and the next rung's distance and grant per web; scope
+  line (account vs caravan/region); bottom sheet with the full stat block on every node
+  including locked ones and the access-not-instance copy; unlock button only when the
+  server says affordable; modal confirm quoting cost/available/remainder; POST then
+  re-fetch (no optimistic update); 409 etc. shown with exact server message and code.
+  Details in the chunk file's "Build notes".
+- **Root wiring:** `pnpm typecheck` / `pnpm test` are recursive and now include the web;
+  `pnpm build` = server esbuild + `vite build`; new `pnpm dev:web`; new `pnpm e2e` =
+  `scripts/e2e.mjs` (seeds `E2E_DATABASE_URL`, starts the built server on :3917, runs the
+  Playwright smoke through vite preview, stops it). CI: build step renamed, plus
+  "Install Playwright Chromium" and "Web smoke e2e" steps after the server smoke, on the
+  same seeded test database. AGENTS.md build block updated.
+
+**Test output:** `pnpm --filter @caravan/web test` → 3 files, 9 tests passing.
+`pnpm --filter @caravan/web typecheck` and `build` clean (203 kB JS / 65 kB gzip).
+`pnpm --filter @caravan/web e2e` against a seeded `caravan_dev_c06` server: 1 passed, two
+consecutive runs (1.1s, 0.7s), then `pnpm build && pnpm e2e` end to end: 1 passed. Root
+`pnpm typecheck`, `pnpm lint`, `pnpm test:boundary` clean.
+
+**Assumptions / flags for QA:** (1) `WEB_LAYOUT` is a tier-layered layout computed from
+the authored node order, not authored coordinates — deterministic, but a deviation from
+the chunk's proposed default, recorded in the chunk file. (2) The coordinator's heads-up
+about chunk 05 QA's per-pool `costByTier` was applied (client reads `node.cost`; test
+fixtures use the per-pool curves), but commit `1fe574f` is not yet on
+`roadmap/phase-2-spec`; the screen never calls `GET /unlocks/webs`, so it is unaffected
+either way. (3) v1 has one caravan, so the first living web in `GET /me/unlocks` is the
+one shown. (4) The e2e runs the built server as the owner DB role locally; CI runs it on
+the migrated test database the smoke step already uses.
+
+**Next:** hand to adversarial QA against GUARDRAILS §3/§4 and the chunk checklist — in
+particular whether any string reads as "you get a unit", whether anything is hidden on a
+locked node, and the direct-API bypass (which chunk 05 covers server-side).
