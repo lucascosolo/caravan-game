@@ -35,6 +35,7 @@
  */
 import { fork, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import type pg from "pg";
 import { buildApp } from "../../apps/server/src/app.js";
@@ -80,7 +81,8 @@ if (process.argv.includes("--worker")) {
     profile.set(key, e);
   };
   if (process.argv.includes("--profile")) {
-    const pgMod = (await import("pg")).default;
+    // pg is the server's dependency, not the repo root's: resolve it from apps/server.
+    const pgMod = createRequire(new URL("../../apps/server/package.json", import.meta.url))("pg") as typeof import("pg");
     const orig = pgMod.Client.prototype.query as (...a: unknown[]) => Promise<unknown>;
     pgMod.Client.prototype.query = function (this: unknown, ...a: unknown[]) {
       const text = typeof a[0] === "string" ? a[0] : ((a[0] as { text?: string })?.text ?? "?");
@@ -145,6 +147,8 @@ if (!DB || !/load/i.test(new URL(DB).pathname)) {
   process.exit(2);
 }
 const BURST = num("burst", 10_000);
+/** Phase B's parties: 1 is chunk 02's "one party into many encounters" case; more spreads the burst (the party owner's account lock is per owner). */
+const BURST_PARTIES = num("burst-parties", 1);
 const TRIPS = num("trips", 500);
 const PROCESSES = num("processes", 4);
 const LOOPS = num("loops", 2);
@@ -338,11 +342,11 @@ try {
 
   // ── phase B: the 100× burst, all against ONE standing party ──
   setMode("none");
-  console.log(`\nphase B: ${BURST} encounters against ONE standing party, enqueued concurrently (48 in flight) while ${PROCESSES}×${LOOPS} workers drain`);
-  const star = owners[0]!;
-  const partyBytes = async () => (await owner.query<{ j: string }>("SELECT row_to_json(sp)::text AS j FROM standing_party sp WHERE account_id = $1", [star.accountId])).rows[0]!.j;
+  const stars = owners.slice(0, Math.min(BURST_PARTIES, owners.length));
+  console.log(`\nphase B: ${BURST} encounters against ${stars.length === 1 ? "ONE standing party" : `${stars.length} standing parties`}, enqueued concurrently (48 in flight) while ${PROCESSES}×${LOOPS} workers drain`);
+  const partyBytes = async () => (await owner.query<{ j: string }>("SELECT string_agg(row_to_json(sp)::text, '|' ORDER BY account_id) AS j FROM standing_party sp WHERE account_id = ANY($1)", [stars.map((x) => x.accountId)])).rows[0]!.j;
   const before = await partyBytes();
-  const snapshot = await snapshotStandingParty(owner, star.accountId);
+  const snapshots = await Promise.all(stars.map((x) => snapshotStandingParty(owner, x.accountId)));
   t = Date.now();
   const burstIds = await limited(Array.from({ length: BURST }, (_, i) => i), 48, async (i) => {
     const f = formations[i % formations.length]!;
@@ -352,11 +356,11 @@ try {
         encounterIndex: 1,
         defenderAccountId: f.d.accountId,
         defenderCaravanId: f.d.caravanId,
-        partyOwnerAccountId: star.accountId,
+        partyOwnerAccountId: stars[i % stars.length]!.accountId,
         formation: f.formation,
         survivors: f.survivors,
         partyLootFull: f.partyLootFull,
-        party: snapshot,
+        party: snapshots[i % stars.length]!,
       }),
     );
     return job.id;
@@ -368,7 +372,7 @@ try {
   const lb = await latency(burstIds);
   const sb = (await owner.query<{ completed: string; parked: string; attempts: string; events: string; logs: string; avg_stored: string; max_stored: string; groups: string; mixed: string }>(
     `WITH j AS (SELECT id, status, attempts FROM resolution_job WHERE id = ANY($1)),
-          l AS (SELECT l.job_id, l.stored_bytes, l.log_sha256, (r.input -> 'formation')::text || (r.input -> 'survivors')::text AS inputs
+          l AS (SELECT l.job_id, l.stored_bytes, l.log_sha256, (r.input -> 'formation')::text || (r.input -> 'survivors')::text || (r.input -> 'party')::text AS inputs
                   FROM encounter_log l JOIN resolution_job r ON r.id = l.job_id WHERE l.job_id = ANY($1)),
           g AS (SELECT inputs, count(DISTINCT log_sha256) AS shas FROM l GROUP BY inputs)
      SELECT (SELECT count(*) FROM j WHERE status = 'completed')::text AS completed, (SELECT count(*) FROM j WHERE status = 'parked')::text AS parked,
@@ -386,7 +390,7 @@ try {
   check(Number(sb.attempts) === BURST, `phase B: every job leased exactly once (${sb.attempts} leases)`);
   check(Number(sb.events) === 2 * BURST, `phase B: exactly two ledger events per job (${sb.events})`);
   check(Number(sb.logs) === BURST, `phase B: one stored log per job (${sb.logs})`);
-  check(before === after, "phase B: the standing party row is byte-identical after being served into every encounter");
+  check(before === after, `phase B: the standing party row${stars.length > 1 ? "s are" : " is"} byte-identical after being served into every encounter`);
   check(Number(sb.mixed) === 0, `phase B: identical inputs → byte-identical logs across workers and order (${sb.groups} input groups, ${sb.mixed} with more than one log)`);
   check(wb.errorCount === 0, `phase B: no worker errors${wb.errorCount ? ` (${wb.errorCount}: ${wb.errors.join(" | ")})` : ""}`);
   check(jobsPerS >= TARGET_JOBS_PER_S, `throughput target: ${jobsPerS.toFixed(0)} ≥ ${TARGET_JOBS_PER_S} resolutions/s (100× the assumed launch rate)`);
