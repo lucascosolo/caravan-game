@@ -44,13 +44,21 @@ function stateNumbers(state: SimState): unknown {
 }
 
 /**
- * QA-13 S6: the 100× loop is split per scenario AND into RUN_BATCHES batches, one `it` each, so no
- * synchronous block runs for more than a few seconds even on a loaded runner (one `it` over all 72
+ * QA-13 S6: the 100× loop is split per scenario AND into RUN_BATCHES batches, one `it` each, each
+ * starting with a macrotask yield (yieldToEventLoop), so no synchronous block runs for more than a
+ * few seconds even on a loaded runner (one `it` over all 72
  * fights × 100 blocked the worker's event loop past vitest's RPC timeout: "Timeout calling
  * onTaskUpdate", exit 1 with every test green). What is checked is unchanged: 100 resolutions of
  * every scenario, every one byte-identical to the first.
  */
 const RUNS = 100;
+/**
+ * Between tests vitest only awaits promises (microtasks), so a file of synchronous tests never
+ * lets the worker's event loop run: the reply to its "onTaskUpdate" RPC sits unread until the
+ * whole file is done, and past 60 s (a loaded runner) the RPC times out and the run exits 1 with
+ * every test green — the QA-13 S6 failure. A macrotask yield before each batch lets it through.
+ */
+const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 const RUN_BATCHES = 4;
 const reference = new Map<string, string>();
 const runBatches = scenarios().flatMap(({ name, input }) =>
@@ -58,7 +66,8 @@ const runBatches = scenarios().flatMap(({ name, input }) =>
 );
 
 describe("determinism harness: every corpus scenario resolved 100× to a byte-identical output", () => {
-  it.each(runBatches)("$name runs $from to $to", ({ name, input, from, to }) => {
+  it.each(runBatches)("$name runs $from to $to", async ({ name, input, from, to }) => {
+    await yieldToEventLoop();
     let first = reference.get(name);
     if (first === undefined) {
       first = JSON.stringify(resolve(clone(input)));
@@ -152,7 +161,8 @@ describe("determinism harness", () => {
     expect(capTickEnds, "an overrun or a wipe on the cap tick itself").toBeGreaterThanOrEqual(2);
   });
 
-  it.each(scenarios())("every state field is a safe integer after every tick: $name", ({ name, input }) => {
+  it.each(scenarios())("every state field is a safe integer after every tick: $name", async ({ name, input }) => {
+    await yieldToEventLoop();
     const state = initialState(normalizeInput(clone(input)));
     const log: LogEvent[] = [];
     const bad: string[] = [];
