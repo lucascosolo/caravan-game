@@ -123,7 +123,9 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked }: Outfit
       <button type="button" className="btn" onClick={onBack} data-testid="outfit-back">
         {T.back}
       </button>
-      <h1>{T.title}</h1>
+      <h1 id="outfit-heading" tabIndex={-1}>
+        {T.title}
+      </h1>
     </>
   );
 
@@ -296,6 +298,7 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked }: Outfit
           busy={busy}
           onCancel={() => setConfirming(false)}
           testId="outfit-dialog"
+          restoreFocusTo={() => document.getElementById("outfit-heading")}
           actions={
             <>
               <button type="button" className="btn" disabled={busy} onClick={() => setConfirming(false)}>

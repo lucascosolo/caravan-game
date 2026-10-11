@@ -195,3 +195,56 @@ describe("payload guards accept the fixtures (so the tests cannot drift from wha
     expect(() => expectShape(partyShape, { party: { ...p, rules: { ...p.rules, neverConsumed: false } } })).toThrow();
   });
 });
+
+// ── QA-17 punch list ─────────────────────────────────────────────────────────────────
+
+describe("QA-17 S6: a selected unit counts as being placed", () => {
+  it("selection carries a cell-less placement ghost (lattice + board cells) and dims units it cannot merge with", async () => {
+    const { townSceneState: build } = await import("./townScene.ts");
+    const units = [
+      { id: uid(1), typeId: "desert.dust_rider", mergeLevel: 1 },
+      { id: uid(2), typeId: "desert.dust_rider", mergeLevel: 1 },
+      { id: uid(3), typeId: "desert.well_digger", mergeLevel: 1 },
+    ];
+    const layout = layoutBoard(units);
+    const sel = build({ units, layout, selectedId: uid(1), drag: null, mineActive: true });
+    expect(sel.drag).toEqual({ kind: "unit", typeId: "desert.dust_rider", cell: null, valid: true });
+    const byId = new Map((sel.boardUnits ?? []).map((u) => [u.id, u]));
+    expect(byId.get(uid(1))).toMatchObject({ selected: true, dimmed: false });
+    expect(byId.get(uid(2))).toMatchObject({ dimmed: false });
+    expect(byId.get(uid(3))).toMatchObject({ dimmed: true });
+    expect(build({ units, layout, selectedId: null, drag: null, mineActive: true }).drag).toBeNull();
+  });
+});
+
+describe("QA-17 S1: the town opens framed on the board", () => {
+  it("at 360 px wide every board cell is at least 44 px wide on screen and the whole board is in view; the island is still reachable", async () => {
+    const { frameCamera } = await import("../../iso/IsoCanvas.tsx");
+    const { worldToCanvas, fitCamera, ZOOM_MIN, TILE_W } = await import("../../iso/projection.ts");
+    const { GRID_WIDTH, GRID_HEIGHT } = await import("@caravan/circle");
+    for (const [w, h] of [
+      [328, 243],
+      [736, 389],
+      [300, 208],
+    ] as const) {
+      const cam = frameCamera(w, h, { x: BOARD_ORIGIN.x, y: BOARD_ORIGIN.y, w: BOARD_SIDE, h: BOARD_SIDE, minCellPx: 44 });
+      expect(TILE_W * cam.zoom).toBeGreaterThanOrEqual(44);
+      if (w >= 328) {
+        for (const c of [
+          { x: BOARD_ORIGIN.x, y: BOARD_ORIGIN.y },
+          { x: BOARD_ORIGIN.x + BOARD_SIDE, y: BOARD_ORIGIN.y },
+          { x: BOARD_ORIGIN.x + BOARD_SIDE, y: BOARD_ORIGIN.y + BOARD_SIDE },
+          { x: BOARD_ORIGIN.x, y: BOARD_ORIGIN.y + BOARD_SIDE },
+        ]) {
+          const p = worldToCanvas(cam, c);
+          expect(p.x).toBeGreaterThanOrEqual(0);
+          expect(p.x).toBeLessThanOrEqual(w);
+          expect(p.y).toBeGreaterThanOrEqual(0);
+          expect(p.y).toBeLessThanOrEqual(h);
+        }
+      }
+      // Pinching out can reach the whole-island view (the zoom floor is below it).
+      expect(ZOOM_MIN).toBeLessThanOrEqual(fitCamera(w, h, GRID_WIDTH, GRID_HEIGHT).zoom);
+    }
+  });
+});

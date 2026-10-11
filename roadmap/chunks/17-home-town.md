@@ -210,9 +210,9 @@ lands in the overflow; (3) the mine is purely presentational — it renders the 
   ability, and "not stronger than the consumed ones combined". A unit in the standing
   party needs a checkbox before the confirm enables and is sent as `confirmInParty: true`.
   Server refusals (409 `caravan_on_trip`, `insufficient_coin`, …) are shown verbatim.
-- **Packed units are not offered for merging** while a manifest is open. The server does
-  not refuse that today (it checks only `caravan.state`, and packing does not move the
-  state — chunk 15 does): flagged for chunk 15/16.
+- **Packed units are not offered for merging** while a manifest is open, and the server
+  refuses them (QA-17 B1: 409 `unit_packed`, read from the open manifest itself, never from
+  `caravan.state`).
 - **Refugee timer:** a one-second display clock counts down from the server's
   `msUntilFreeRefresh` between reads; at zero the panel re-reads (GET never writes) and
   shows the server's `freeRefreshDue`, with "Take the free menu now" (`POST refresh`). A
@@ -272,3 +272,34 @@ horizontal scroll and every visible button ≥ 44px tall. The party step in the 
 
 **Not built:** the store screen (packs) — the town lists it as not built; trip start
 (chunk 15); a packs/cosmetics surface; board positions on the server.
+
+## QA round 1 fixes (2026-10-11, `roadmap/qa/17-punchlist.md`, every item closed)
+
+- **B1 (server):** `economy/merge.ts` refuses 409 `unit_packed` (body lists `packed`) for any
+  instance in an open manifest's `packed.units` / `survivors.units`, in the preview and in
+  the commit (after the caravan FOR SHARE, so packing and merging serialize). Independent of
+  `caravan.state` (D2: noted in chunk 15's file).
+- **D1 (decision, recorded here):** board positions stay client-side presentation, like a
+  camera. Stored under `caravan.viewer.town.board.<accountId>.<caravanId>`; sign-out
+  (`auth/session.tsx#resetViewerState`) removes every `caravan.viewer.*` key and every
+  registered in-memory per-viewer state. Layouts are per device: another device lays the
+  board out afresh, deterministically, in id order.
+- **S1:** the town opens framed on the 6×6 board (`IsoCanvas` `frame` prop, `frameCamera`),
+  each cell's diamond ≥ 44 px wide on screen; the zoom floor is unchanged, so the island is
+  one pinch away. (Axis pitch is ~28 px at 360 px: a 2:1 diamond 44 px TALL would need a
+  board wider than the phone; the diamond's width is the measure, with the 22 px screen hit
+  radius covering the height.)
+- **S2 / N5:** spends whose answer is lost say "could not confirm" (`town/SpendError.tsx`)
+  and keep the same `requestId` / `sequence` / `fromSequence` for "Try again"; recruit and
+  reroll re-read their quote before the modal opens.
+- **S3:** a failed re-read shows above the board with Retry. **S5:** claimed + due copy.
+  **S6:** a selected unit is "being placed": lattice and board cells show, via a cell-less
+  placement ghost from `townSceneState`. **S7:** label-height checks in the e2e.
+- **Party (S4, N3):** the feed Retry reads only the feed; an unsaved draft survives a tab
+  switch (`party/draftStore.ts`, memory only, keyed by party id, cleared on sign-out);
+  "Reload the saved party" confirms before discarding; feed outcomes are worded.
+- **Nits:** drag state only on cell change and the mine wheel keeps its angle (N1); trickle
+  wording only when pending (N2); `Modal#restoreFocusTo` with a `main` fallback (N4); copy
+  "Pack the caravan" until chunk 15 opens trips (N6); live reduced-motion and
+  `TUNABLES.MINE_WHEEL_MS_PER_TURN` (12 500 ms per turn, an integer like every tunable) (N7).
+

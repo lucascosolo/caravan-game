@@ -2081,3 +2081,47 @@ chunk 15/16 should refuse it server-side. Board positions are client-side (local
 **Next:** adversarial QA against the chunk 17 checklist (no simulation in town, never
 attackable, mine presentational, merge legibility, full board + recruit, grid visibility,
 one renderer).
+
+### 2026-10-11 — Chunk 17 (home town) QA punch list: all 17 items closed (`built`, awaiting re-audit)
+
+Fixer worked in worktree `agent-a785db2cdf2cb49c9` off `roadmap/phase-2-spec` @ `bf27918`.
+Item-by-item notes are in `roadmap/qa/17-punchlist.md`; summary in the chunk file's "QA round 1
+fixes".
+
+- **B1** (blocker): `economy/merge.ts` refuses 409 `unit_packed` for any instance in an open
+  manifest's `packed` / `survivors` units — preview and commit (after the caravan FOR SHARE),
+  independent of `caravan.state`. Server tests "B1" (incl. 6 pack-vs-merge races); D2 note
+  appended to `chunks/15-trip-loop.md`.
+- **D1**: board layout keyed `caravan.viewer.town.board.<account>.<caravan>`; sign-out runs
+  `resetViewerState()` (storage prefix + registered in-memory state, e.g. the party draft).
+- **S1–S7, N1–N7**: board framing (`IsoCanvas` `frame`), "could not confirm" + Try again with
+  the same idempotency key (recruit / reroll / claim / refresh), reload error above the
+  board, party draft kept across tabs and feed-only Retry, claimed+due copy, lattice while a
+  unit is selected, label touch heights, drag-on-cell-change, mine wheel angle kept, trickle
+  wording, feed outcome wording, Modal focus fallback, quote re-fetch, copy, live reduced
+  motion, `TUNABLES.MINE_WHEEL_MS_PER_TURN`.
+- Files outside town/party: `iso/IsoCanvas.tsx` (frame, reduced-motion listener),
+  `iso/scene.ts` (wheel angle, `setReducedMotion`, tunable), `shell/Modal.tsx`,
+  `auth/session.tsx`, `strings.ts` (town/party sections: appended keys plus in-place value
+  edits for N2/N6/S5), `packages/content/src/tunables.ts`.
+
+**Test output:** server `test/economy.test.ts` 30/30; full `pnpm test`
+(TEST_DATABASE_URL=…/caravan_test_f17): content 75, resolver 134, circle 94, web 17 files /
+138, server 28 files / 514 — all passing on the last run (two earlier full runs each had
+2–4 different failures in untouched files — `qa02-round2`, `matchmaking`, plus one
+`economy-guards` source-scan hit on a comment of mine, fixed — the job-queue ones pass alone
+3× and in the next full run; machine load average was 6–16 from parallel agents). Root
+`pnpm typecheck`, `pnpm lint`, `pnpm test:boundary` clean; `pnpm build` and the web build
+clean. `pnpm e2e` (caravan_dev_f17, E2E_PORT 3997, E2E_WEB_PORT 4297) twice: smoke ×2 and
+`town.spec.ts` pass both times; `formation.spec.ts` fails with `bad_payload` both times (the
+known QA-08 B1 menu-guard drift, owned by the chunk 08 fixer).
+
+**Probes rerun against this build** (copies retargeted to 3997/4297/caravan_dev_f17): p2 —
+packed preview and commit 409 `unit_packed`, packed instances still in the roster, state
+`in_town`; qa4 — lost recruit answer keeps the dialog ("Could not confirm…"), one Try again →
+charged 600, units +1, "had already gone through"; qa5 — full board recruit lands in the
+overflow, layout key carries account + caravan, sign-out leaves no keys (axis pitch reads
+28.1 px; the diamond width is ~50 px); qa9 — draft survives the tab switch and the feed
+Retry, 360 px layout `small: []` with labels measured.
+
+**Next:** QA re-audit of chunk 17 against the punch list.

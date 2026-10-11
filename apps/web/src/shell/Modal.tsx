@@ -3,7 +3,10 @@
  * recruit and ride-out confirms): rendered through a portal into <body>; every other body
  * child is `inert` while it is open; Tab / Shift+Tab cycle inside; Escape cancels (unless
  * busy); focus lands on the first focusable control on open and returns to the opener on
- * close; `aria-labelledby` / `aria-describedby` point at the title and body.
+ * close — or, when the opener is gone (a list re-rendered under it), to `restoreFocusTo`'s
+ * element, then to `main` (QA-17 N4, the same
+ * fallback `ConfirmDialog` has); `aria-labelledby` / `aria-describedby` point at the title
+ * and body.
  *
  * It renders only chrome: the caller supplies the body and the action buttons, so a
  * preview that is still loading, or that the server refused, is shown inside the same
@@ -21,14 +24,16 @@ export interface ModalProps {
   readonly testId?: string;
   readonly children: ReactNode;
   readonly actions: ReactNode;
+  /** Fallback focus target on close, used when the opener is no longer in the document (QA-17 N4). */
+  readonly restoreFocusTo?: () => HTMLElement | null;
 }
 
-export function Modal({ title, busy, onCancel, testId, children, actions }: ModalProps): JSX.Element {
+export function Modal({ title, busy, onCancel, testId, children, actions, restoreFocusTo }: ModalProps): JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const bodyId = useId();
-  const latest = useRef({ busy, onCancel });
-  latest.current = { busy, onCancel };
+  const latest = useRef({ busy, onCancel, restoreFocusTo });
+  latest.current = { busy, onCancel, restoreFocusTo };
 
   useEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -70,7 +75,15 @@ export function Modal({ title, busy, onCancel, testId, children, actions }: Moda
     return () => {
       document.removeEventListener("keydown", onKey, true);
       for (const el of made) el.removeAttribute("inert");
-      if (opener?.isConnected) opener.focus();
+      if (opener?.isConnected) {
+        opener.focus();
+        return;
+      }
+      const fallback = latest.current.restoreFocusTo?.() ?? document.querySelector<HTMLElement>("main");
+      if (fallback) {
+        if (!fallback.matches(FOCUSABLE) && !fallback.hasAttribute("tabindex")) fallback.setAttribute("tabindex", "-1");
+        fallback.focus();
+      }
     };
   }, []);
 
