@@ -7,32 +7,56 @@
  *     its own identical snapshot, with no lock on the party at all;
  *   - the formation the defender committed is the formation that was resolved.
  *
- * Chunk 09 widens the party snapshot with composition, stances and approach edges; chunk
- * 07 widens the formation. Both keep the shape plain JSON with integer numbers.
+ * Chunk 09: the party snapshot is the party RESOLVED against the owner's live roster and
+ * unlock web at enqueue time (@caravan/circle `Party`, canonical, integers only): every
+ * unit's instance id, type, merge level, stance, approach edge and starting cell, and
+ * every siege piece. It is a COPY — nothing on the resolution path can reach the party
+ * row or the roster through it. A party that no longer resolves (an instance it names was
+ * lost on the owner's trip or consumed by a merge) cannot be served: the enqueue throws
+ * StandingPartyInvalidError so matchmaking (chunk 14) re-scouts rather than serving a
+ * party the defender did not see. Chunk 07 widened the formation.
  */
+import { partyConfigFromJson, serializeParty, serializePartyConfig, type Issue } from "@caravan/circle";
 import type { Queryable } from "../db/pool.js";
-import type { StandingPartyRow } from "../db/types.js";
 import type { JsonObject } from "../ledger/events.js";
+import { partyHash, resolveStandingParty } from "../party/service.js";
 
 export interface StandingPartySnapshot extends JsonObject {
   ownerAccountId: string;
+  partyId: string;
+  slot: number;
   /** Owner's last edit, as stored at snapshot time (ISO). Proves which version was served. */
   savedAt: string;
-  /** TODO(chunk-09): composition, stances, approach edge. */
+  /** sha256 of the canonical stored config at snapshot time. */
+  hash: string;
+  /** The resolved @caravan/circle Party, canonical form. `partyFromJson` reads it back. */
   composition: JsonObject;
 }
 
+export class StandingPartyInvalidError extends Error {
+  constructor(
+    public readonly ownerAccountId: string,
+    public readonly issues: readonly Issue[],
+  ) {
+    super(`standing party of account ${ownerAccountId} does not resolve against its roster and cannot be served: ${issues.map((i) => i.message).join("; ")}`);
+    this.name = "StandingPartyInvalidError";
+  }
+}
+
 export async function snapshotStandingParty(db: Queryable, ownerAccountId: string): Promise<StandingPartySnapshot> {
-  const res = await db.query<StandingPartyRow & { composition?: JsonObject }>(
-    "SELECT * FROM standing_party WHERE account_id = $1",
-    [ownerAccountId],
-  );
-  const row = res.rows[0];
-  if (!row) throw new Error(`standing party for account ${ownerAccountId} not found`);
+  const r = await resolveStandingParty(db, ownerAccountId);
+  if (!r) throw new Error(`standing party for account ${ownerAccountId} not found`);
+  if (!r.result.ok) throw new StandingPartyInvalidError(ownerAccountId, r.result.issues);
+  const canonical = serializeParty(r.result.value);
   return {
-    ownerAccountId: row.account_id,
-    savedAt: row.updated_at.toISOString(),
-    composition: row.composition ?? {},
+    ownerAccountId: r.row.account_id,
+    partyId: r.row.id,
+    slot: r.row.slot,
+    savedAt: r.row.updated_at.toISOString(),
+    // jsonb normalizes key order, so the hash is of the stored config RE-canonicalized —
+    // the same text the service hashed at save time, so snapshot.hash equals the view's.
+    hash: partyHash(serializePartyConfig(partyConfigFromJson(r.row.composition))),
+    composition: JSON.parse(canonical) as JsonObject,
   };
 }
 

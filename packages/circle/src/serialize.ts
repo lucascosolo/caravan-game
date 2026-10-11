@@ -13,8 +13,21 @@
  * elevation, terrain, scenery or any other smuggled field out of a stored formation.
  */
 import { DEFAULT_DEFENSIVE_STANCE, DEFENSIVE_STANCES, FORMATION_VERSION, isDefensiveStance, normalizeFormation, oversizedIssue, type DefensiveStance, type Formation } from "./formation.js";
-import { isCell, isRingSegmentIndex, type Cell } from "./lattice.js";
+import { ENTRY_EDGES, isCell, isEntryEdge, isRingSegmentIndex, type Cell, type EntryEdge } from "./lattice.js";
 import { assertManifest, freezeManifest, type Manifest, MANIFEST_VERSION } from "./manifest.js";
+import {
+  PARTY_CONFIG_VERSION,
+  PARTY_VERSION,
+  TARGETING_STANCES,
+  assertParty,
+  freezeParty,
+  isTargetingStance,
+  normalizeParty,
+  normalizePartyConfig,
+  type Party,
+  type PartyConfig,
+  type TargetingStance,
+} from "./party.js";
 
 type Json = string | number | boolean | null | readonly Json[] | { readonly [key: string]: Json };
 
@@ -193,4 +206,92 @@ export function manifestFromJson(raw: unknown): Manifest {
     throw new ParseError((err as Error).message);
   }
   return freezeManifest(m);
+}
+
+// ── chunk 09: the standing raid party ────────────────────────────────────────────────
+// Same rules as above: sorted keys, canonical array order (normalizePartyConfig /
+// normalizeParty), integers only, a version field, STRICT parsing that refuses unknown
+// keys. The stored config and the served snapshot must both byte-compare.
+
+function expectTargetingStance(v: unknown, where: string): TargetingStance {
+  if (!isTargetingStance(v)) throw new ParseError(`${where} must be one of ${TARGETING_STANCES.join(", ")}`);
+  return v;
+}
+function expectEdge(v: unknown, where: string): EntryEdge {
+  if (!isEntryEdge(v)) throw new ParseError(`${where} must be one of ${ENTRY_EDGES.join(", ")}`);
+  return v;
+}
+
+export function serializePartyConfig(c: PartyConfig): string {
+  if (c.v !== PARTY_CONFIG_VERSION) throw new TypeError(`serializePartyConfig: version ${String(c.v)}`);
+  return canonicalJson(normalizePartyConfig(c) as unknown as Json);
+}
+
+/** Strict: unknown keys, floats, bad versions, bad enums and off-lattice cells are refused by name. */
+export function partyConfigFromJson(raw: unknown): PartyConfig {
+  const o = expectObject(raw, "party", ["v", "units", "siege"]);
+  if (o["v"] !== PARTY_CONFIG_VERSION) throw new ParseError(`party.v must be ${PARTY_CONFIG_VERSION}`);
+  const units = expectArray(o["units"], "party.units").map((u, i) => {
+    const e = expectObject(u, `party.units[${i}]`, ["ref", "stance", "edge", "cell"]);
+    return {
+      ref: expectString(e["ref"], `party.units[${i}].ref`),
+      stance: expectTargetingStance(e["stance"], `party.units[${i}].stance`),
+      edge: expectEdge(e["edge"], `party.units[${i}].edge`),
+      cell: expectCell(e["cell"], `party.units[${i}].cell`),
+    };
+  });
+  const siege = expectArray(o["siege"], "party.siege").map((s, i) => expectString(s, `party.siege[${i}]`));
+  return normalizePartyConfig({ v: PARTY_CONFIG_VERSION, units, siege });
+}
+
+export function parsePartyConfig(text: string): PartyConfig {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (err) {
+    throw new ParseError(`party config is not JSON: ${(err as Error).message}`);
+  }
+  return partyConfigFromJson(raw);
+}
+
+export function serializeParty(p: Party): string {
+  assertParty(p);
+  return canonicalJson(normalizeParty(p) as unknown as Json);
+}
+
+/** Strict decode of a served snapshot (job input / ledger payload) back into a Party. */
+export function partyFromJson(raw: unknown): Party {
+  const o = expectObject(raw, "party", ["v", "units", "siege"]);
+  if (o["v"] !== PARTY_VERSION) throw new ParseError(`party.v must be ${PARTY_VERSION}`);
+  const units = expectArray(o["units"], "party.units").map((u, i) => {
+    const e = expectObject(u, `party.units[${i}]`, ["ref", "typeId", "mergeLevel", "stance", "edge", "cell"]);
+    return {
+      ref: expectString(e["ref"], `party.units[${i}].ref`),
+      typeId: expectString(e["typeId"], `party.units[${i}].typeId`),
+      mergeLevel: expectInt(e["mergeLevel"], `party.units[${i}].mergeLevel`),
+      stance: expectTargetingStance(e["stance"], `party.units[${i}].stance`),
+      edge: expectEdge(e["edge"], `party.units[${i}].edge`),
+      cell: expectCell(e["cell"], `party.units[${i}].cell`),
+    };
+  });
+  const siege = expectArray(o["siege"], "party.siege").map((s, i) => ({
+    typeId: expectString(expectObject(s, `party.siege[${i}]`, ["typeId"])["typeId"], `party.siege[${i}].typeId`),
+  }));
+  const party = freezeParty(normalizeParty({ v: PARTY_VERSION, units, siege }));
+  try {
+    assertParty(party);
+  } catch (err) {
+    throw new ParseError((err as Error).message);
+  }
+  return party;
+}
+
+export function parseParty(text: string): Party {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (err) {
+    throw new ParseError(`party is not JSON: ${(err as Error).message}`);
+  }
+  return partyFromJson(raw);
 }

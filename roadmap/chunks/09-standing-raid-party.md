@@ -1,6 +1,6 @@
 # Chunk 09 — Standing raid party
 
-**Depends on:** 03, 05, 07. **Status:** not started.
+**Depends on:** 03, 05, 07. **Status:** built (server model, routes, feed, tests — 2026-10-11; the builder UI's visual parts are chunk 17's town screen and are listed below as deferred).
 Read `/roadmap/GUARDRAILS.md` in full first, including §0 on which way round the game runs.
 
 ## Goal
@@ -116,3 +116,55 @@ Coin and Reputation when it succeeds.
   better than any counter and would collapse the choice.
 - **Determinism:** party configuration must serialize deterministically; it is
   snapshotted per encounter and must byte-compare.
+
+## Build notes (2026-10-11)
+
+**Where it lives.** `packages/circle/src/party.ts` (pure model: `TARGETING_STANCES`,
+`PartyConfig` → `resolveParty(config, roster, isUnlocked)` → `Party`, `scoutParty`,
+`siegeCounterEntry`), party serializers in `serialize.ts`, chunk 09 issue codes in
+`issues.ts`; `apps/server/src/party/{repo,service,feed}.ts`, `routes/party.ts`
+(`GET/PUT /me/party`, `GET /me/party/feed`), migration `006_standing_party_composition`,
+the real `snapshotStandingParty` in `jobs/snapshots.ts`; tunables block in
+`packages/content/src/tunables.ts`.
+
+**Decisions and assumptions (confirm in QA):**
+- **Stored = choices only.** `standing_party.composition` is a `PartyConfig` (`{v, units:
+  [{ref, stance, edge, cell}], siege: [typeId]}`): instance ids, stances, edges, start
+  cells, siege types. No stats, HP or merge level — those are joined from the live roster on
+  every read, edit and snapshot. So a de-merge on the owner's own trip is reflected (the
+  party rides the live level) and an instance that stops existing (lost on a trip, consumed
+  by a merge) makes the party **invalid** (`unknown_ref`) at the next read/edit; `GET` reports
+  `valid: false` + issues and keeps the choices, `PUT` refuses with the same issues until the
+  ref is dropped, and `snapshotStandingParty` throws `StandingPartyInvalidError` rather than
+  serve a party nobody scouted. **No FK** from a party unit to `unit_instance` on purpose:
+  a cascade would silently trim, a restrict would block the merge/loss.
+- **Each unit carries its own edge + cell** (cell must be in that edge's band;
+  `MAX_APPROACH_EDGES` is the edge count, 4). Two units may share a start cell (units
+  overlap freely). Siege types may not repeat (`duplicate_siege`): a counter applies once.
+- **Canonical order:** units by ref (code-unit string order), siege by type id;
+  `serializePartyConfig` / `serializeParty` are sorted-key, whitespace-free, integer-only;
+  issue order follows canonical order.
+- **Stance/edge enums are enforced by the strict parser** (400 `malformed_party`, names the
+  allowed values); caps, band, duplicates, roster membership and access are validation issues
+  (400 `invalid_party` + full list). Oversized bodies get one `oversized` issue.
+- **Access:** living on each instance's caravan, siege on the account, via chunk 05's
+  `accessCheckFor`; the predicate is the union over the account's caravans (exact with one
+  caravan; with several same-region caravans it would over-approximate — tighten then).
+- **Schema:** `standing_party` now has its own `id`, a per-account `slot` (unique
+  `(account_id, slot)`), `composition` jsonb with a shape CHECK; identity immutable,
+  `updated_at` moves iff composition changes, delete refused while the account exists,
+  TRUNCATE refused. v1 uses slot 0 only (`PARTIES_PER_ACCOUNT` 1); the down migration deletes
+  other slots before restoring the account-id key.
+- **Events:** each real change appends one account-scoped `standing_party_saved`
+  (`party_saved:<partyId>:<n>`, payload: partyId, slot, saveSeq, hash, counts, edges, config).
+  A no-op save appends nothing. No cooldown exists (`PARTY_EDIT_COOLDOWN_MS` 0, asserted).
+- **Feed** = the owner's `party_served_as_encounter` events joined with the same-causation
+  `coin_earned` / `coin_transferred_to_defender` / siege `reputation_changed` /
+  `ladder_progress_gained`, plus the defender caravan's name/region/username. Newest first,
+  `before` cursor. Replays are chunk 13's (`jobId` is carried).
+- **Snapshot shape** (`job.input.party`): `{ownerAccountId, partyId, slot, savedAt, hash,
+  composition: Party}`; `partyFromJson(composition)` + `scoutParty` is the chunk 14 scout.
+- **UI items deferred** to chunk 17's town screen (this chunk is server-side): the drag
+  lattice, touch targets, the visual builder. The data for every UI bullet is in `GET
+  /me/party` (`scout` preview, both ratings with `ratingInUse`, `slotCost`, `siegeCatalog`
+  with `targetTypeIds`, `roster[].packedOnTrip/aliveOnTrip`, `rules`).

@@ -355,6 +355,33 @@ export const TUNABLES = {
   UNIT_RADIUS: fpMilli(350),
   /** TUNABLE (chunk 13, consumed from chunk 10). A full-state keyframe every 5 s (= 100 ticks) so playback can seek and truncation is detectable. */
   LOG_KEYFRAME_INTERVAL: seconds(5),
+  // Chunk 09 — the standing raid party (the PASSIVE side; GUARDRAILS §0). A template,
+  // never consumed, never loses units. Nothing here is purchasable: Coin cannot buy a
+  // bigger party, more siege slots or extra parties (GUARDRAILS §2).
+  // ────────────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * TUNABLE (chunk 09). Living units a standing party fields. Matched to DEPLOYMENT_SLOT_CAP
+   * so the two sides are comparably sized. A merged unit takes ONE slot whatever its level —
+   * slot efficiency is the entire benefit of merging (GUARDRAILS §2). A test asserts equality.
+   */
+  PARTY_SLOT_CAP: 8,
+  /** TUNABLE (chunk 09). Siege pieces a party carries, separate from unit slots. Each is a distinct counter bet. */
+  SIEGE_SLOT_CAP: 3,
+  /** Fixed by design (chunk 09). A party may split across every entry edge: all four. Must equal ENTRY_EDGES.length. */
+  MAX_APPROACH_EDGES: 4,
+  /**
+   * Fixed by design (chunk 09, PARTY_EDIT_COOLDOWN). Editing the party is free and instant.
+   * 0 means NO cooldown; a non-zero value would create a Coin sink that sells convenience,
+   * so nothing reads this as anything but a documented zero. A test asserts it is 0.
+   */
+  PARTY_EDIT_COOLDOWN_MS: 0,
+  /**
+   * TUNABLE (chunk 09). Standing parties per account in v1. The schema allows more
+   * (standing_party is keyed by its own id with a per-account slot; PHASE-2 §43 raises this);
+   * the service refuses a slot ≥ this value.
+   */
+  PARTIES_PER_ACCOUNT: 1,
 
   // ────────────────────────────────────────────────────────────────────────────────────
   // Chunk 16 — Coin economy and merge pricing. Coin buys PACE only (GUARDRAILS §2): nothing

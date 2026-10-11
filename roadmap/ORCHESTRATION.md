@@ -1290,3 +1290,94 @@ touched here — flagged as a pre-existing suite-order hazard.
 
 **Next:** hand to adversarial QA against GUARDRAILS §1/§2/§3/§4/§5 and the chunk checklist;
 re-run the grind-wall/P2W check on reroll and recruit pricing as chunk 16's QA asked.
+
+### 2026-10-11 — Chunk 09 (standing raid party): `not started` → `built`
+
+**Built** in worktree `agent-a2ac97f2ed890ce31` off `roadmap/phase-2-spec` @ `c977601`.
+The passive side, server-side: the party model, its routes, the real party snapshot and
+the results feed. Nothing else in the repo touched beyond the append-only edits listed.
+
+- **`packages/circle/src/party.ts`** (pure): `TARGETING_STANCES = nearest | traps | core`
+  (a different enum from the formation's defensive stances, on purpose); `PartyConfig` =
+  the owner's CHOICES (`{v:1, units:[{ref, stance, edge, cell}], siege:[typeId]}`, refs are
+  `unit_instance` ids, each unit its own edge + start cell in that edge's entry band, split
+  across all four allowed); `resolveParty(config, roster, isUnlocked)` joins each ref to its
+  live type/merge level and returns every issue at once (`slot_cap_units` 8, `slot_cap_siege`
+  3, `unknown_ref`, `duplicate_ref`, `duplicate_siege`, `type_locked`, `bad_stance`,
+  `bad_edge`, `bad_cell`, `cell_off_band`, `oversized`) or a deep-frozen canonical `Party`
+  (units sorted by ref, siege by type — the explicit order the resolver's tie-breaks get);
+  `scoutParty(party)` is THE scouting view, one function for the owner's preview and chunk
+  14's scout: every unit with both ratings (`ratingInUse: "offense"`, no blended number),
+  merged HP, range, cooldown, ability, stance, edge, cell and `pos = cellCenter`, every
+  siege piece with `counters`, `effect` (accelerates/bypasses), the multiplier/nullify
+  tunable and the exact fence tiers / trap types it hits; `serialize.ts` gained strict
+  `partyConfigFromJson` / `serializePartyConfig` / `partyFromJson` / `serializeParty`.
+  Import-time coherence assertions (`MAX_APPROACH_EDGES == ENTRY_EDGES.length`,
+  `PARTY_EDIT_COOLDOWN_MS == 0`). No-floats source grep covers the new file.
+- **Tunables** (`packages/content`): `PARTY_SLOT_CAP` 8 (asserted == `DEPLOYMENT_SLOT_CAP`),
+  `SIEGE_SLOT_CAP` 3, `MAX_APPROACH_EDGES` 4, `PARTY_EDIT_COOLDOWN_MS` 0 (fixed by design,
+  nothing reads it as a gate), `PARTIES_PER_ACCOUNT` 1.
+- **Migration 006**: `standing_party` gets its own `id` (PK), `slot` (unique per account —
+  the schema now allows more parties; v1 reads slot 0 only) and `composition` jsonb (shape
+  CHECK with `coalesce`, so a missing key cannot pass). Triggers: identity immutable,
+  `updated_at` moves iff composition changes (so chunk 02's `savedAt` means "which version
+  was served"; the jobs tests' manual `updated_at` edits still work), delete refused while
+  the account exists, TRUNCATE refused. **Deliberately no FK from party units to
+  `unit_instance`**: a merge or a trip loss removes the instance and the party must then read
+  as invalid, not be silently trimmed nor block the roster change. Down deletes non-zero
+  slots before restoring the account-id key.
+- **Server**: `src/party/{repo,service,feed}.ts`, `src/routes/party.ts` (registered
+  append-only in `app.ts`). `GET /me/party` → config, `valid` + issues, resolved `party`,
+  `scout` preview, `edges`, caps, `rules` (template / neverConsumed /
+  unitsMayAlsoBePackedOnTrips / stances), the roster with `inParty`, `packedOnTrip`,
+  `aliveOnTrip`, both ratings and `slotCost: 1`, and the `siegeCatalog` with `unlocked`.
+  `PUT /me/party` → free, instant, idempotent; 400 `malformed_party` from the strict parser
+  (stance/edge enums named), 400 `invalid_party` + full issue list from resolution; stores
+  the canonical config and appends one account-scoped `standing_party_saved`
+  (`party_saved:<partyId>:<saveSeq>`, counted under the account append lock). `GET
+  /me/party/feed` → `party_served_as_encounter` joined with same-causation Coin / siege
+  Reputation / siege ladder events and the defender caravan's name, region and username;
+  newest first, `before` cursor. **`snapshotStandingParty`** now resolves the party against
+  the live roster + web and freezes `{ownerAccountId, partyId, slot, savedAt, hash,
+  composition: Party}`; an unresolvable party throws `StandingPartyInvalidError` (chunk 14
+  must re-scout rather than serve a party the defender did not see).
+- **Access** reads chunk 05's `accessCheckFor`: living on each instance's caravan, siege
+  on the account (union over the account's caravans; exact with one).
+
+**Test command:** `cd apps/server && TEST_DATABASE_URL=postgres://caravan:caravan@localhost:5432/caravan_test_c09 npx vitest run`
+→ 21 files, 351 tests passing (baseline on c977601: 20 files, 326). `pnpm --filter
+@caravan/circle test` 8 files, 84 (was 64); `pnpm --filter @caravan/content test` 55;
+root `pnpm typecheck`, `pnpm lint`, `pnpm test:boundary` clean. New: `packages/circle/test/
+party.test.ts` (20) and `apps/server/test/party.test.ts` (25). Covered: fresh party valid
+and empty with caps/rules/roster/catalog; full party split across four edges, event
+account-scoped, stored canonical, re-PUT in another order a no-op; ninth unit / fourth
+siege, bad stance, bad edge, core / interior / wrong-band cells, off-lattice, duplicate
+instance and siege, another player's instance (`unknown_ref`, no hint), locked living type
+the caravan owns and locked siege by hand-crafted request, unknown siege, unknown keys /
+float cell / smuggled hp / array / wrong version, 500-unit body → one `oversized`; twenty
+alternating saves all 200 with `saveSeq` 1..20; **the load-bearing check**: one party
+served into 12 resolutions by 3 workers under a stand-in handler that annihilates it on
+half and credits Coin/Reputation/ladder on the other half — owner's `unit_instance` rows,
+`standing_party` row and `GET /me/party` byte-identical, every job holds one identical
+snapshot; editing afterwards leaves old jobs' snapshots and serves the new one; feed pages
+newest-first with defender/depth/outcome/Coin/Reputation per entry and a defender's own
+feed empty; a unit both packed and in the party: packing legal and reported, the unit
+dying in the manifest (chunk 07 `applyOutcome`) leaves roster/party/snapshot untouched and
+the party rides at full HP, deleting the instance (chunk 19's loss) makes `GET` invalid
+with `unknown_ref`, `PUT` 400, snapshot throws, dropping the ref fixes it; a de-merge is
+reflected not refused; DB guards against the app role; a source grep that `src/party`,
+`routes/party.ts` and `jobs/snapshots.ts` never write `unit_instance` or read Coin /
+purchases, and `party/repo.ts` is the only writer of `standing_party`.
+
+**Assumptions** are listed under "Build notes" in `chunks/09-standing-raid-party.md`. The
+three that matter most for QA and for chunks 14/19: (1) stored composition is choices only,
+stats/levels are joined live, so a lost instance invalidates the party and a de-merge is
+simply reflected; (2) the snapshot refuses an invalid party — chunk 14 should resolve and
+scout from the same `snapshotStandingParty` it will commit with, and handle the error by
+re-scouting; (3) siege types cannot repeat within a party. The visual builder (drag
+lattice, touch targets) is chunk 17's town screen; everything it needs is in `GET /me/party`.
+
+**Next:** hand to adversarial QA against GUARDRAILS §0/§2/§3/§4 and the chunk checklist —
+especially whether any path can reach `unit_instance` or `standing_party` from the
+resolution path, whether the preview and the scout can ever diverge, and whether the
+chunk 02 placeholder handler and chunk 14 need the invalid-party error surfaced.

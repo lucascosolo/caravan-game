@@ -113,7 +113,13 @@ export interface ResolutionJobRow {
 }
 
 export interface StandingPartyRow {
+  /** Chunk 09: the party's own id; `(account_id, slot)` is unique and v1 uses slot 0 only. */
+  id: string;
   account_id: string;
+  slot: number;
+  /** @caravan/circle PartyConfig in canonical form (the owner's choices; no stats, no HP). */
+  composition: Record<string, unknown>;
   created_at: Date;
+  /** Moves exactly when `composition` does (trigger); the job snapshot records it as `savedAt`. */
   updated_at: Date;
 }
