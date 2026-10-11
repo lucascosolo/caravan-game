@@ -1238,3 +1238,55 @@ the migrated test database the smoke step already uses.
 **Next:** hand to adversarial QA against GUARDRAILS §3/§4 and the chunk checklist — in
 particular whether any string reads as "you get a unit", whether anything is hidden on a
 locked node, and the direct-API bypass (which chunk 05 covers server-side).
+
+### 2026-10-11 — Chunk 18 (unit acquisition: refugee drip & mercenary recruit): `not started` → `built`
+
+**Built** in a worktree on top of `c977601`. New: `apps/server/src/acquisition/{refugeeMenu,
+grant,refugees,recruit,index}.ts`, `apps/server/src/routes/acquisition.ts` (registered in
+`app.ts`, append only), migration `006_refugee_menu` (one row per menu ever offered: seed,
+the pool drawn from, the offers, `generated_at_ms`, the claim), a chunk 18 block in
+`packages/content/src/tunables.ts` (`REFUGEE_REFRESH_INTERVAL_MINUTES` 90,
+`REFUGEE_OFFER_COUNT` 3, `REFUGEE_REROLL_COST_SCHEDULE` [150, 300, 600],
+`REFUGEE_OFFER_WEIGHTING`, `REFUGEE_OFFER_SEED`, `MERCENARY_COST_BASE` 600,
+`MERCENARY_COST_SCALING` "none", `UNIT_INVENTORY_CAP` 200), `RefugeeMenuRow` in
+`db/types.ts`, `test/acquisition.test.ts` (41 tests). Changed: `test/migrations.test.ts`
+(table list gains `refugee_menu`).
+
+- **Boundary.** `grantUnit` is the only INSERT into `unit_instance` in the module and calls
+  chunk 05's `hasAccess` right before it, under the account append lock, inside the
+  transaction. Both paths route through it. A hand-crafted request naming a locked node,
+  another region's unit, a trap id, or a type nobody has gets 409 `not_unlocked` with nothing
+  written — tested per case, exhaustively over every living type outside the reached set with
+  the storage cap in Coin, and against a tampered menu row offering a locked type.
+- **Refugee drip.** Seed fnv1a32(`<caravan id>:<sequence>`), xorshift32 with rejection
+  sampling, partial Fisher–Yates over the pool sorted by id; replayable from the row
+  (`replayMenu`). Free timer lazy, one menu per refresh, no stockpiling; a free refresh
+  resets the reroll window; rerolls never move the timer and are served AFTER any due free
+  refresh. Claim = the pick, no further randomness; one pick per menu; 8 concurrent claims →
+  1 instance. 50 rerolls never leave the unlocked pool; unlocking a node through
+  `/me/unlocks/spend` is what widens it. Uniformity checked over 20 000 seeds.
+- **Mercenary recruit.** Flat 600 via `spendCoin` (+ `unit_acquired` alongside, one cause),
+  every unlocked type, always: 10 back-to-back and 6 concurrent purchases succeed; optional
+  `requestId` for retry safety. Price list shows locked types as not for sale.
+- **Legibility.** Both GETs return everything before commit: offers with display names and
+  abilities, the timer, next reroll cost + schedule + affordability, recruit cost per type,
+  balance including pending trickle, inventory count/cap.
+
+**Test command:** `cd apps/server && TEST_DATABASE_URL=postgres://caravan:caravan@localhost:5432/caravan_test_c18 npx vitest run`
+— 21 files, 367 tests passing (baseline on `c977601`: 20 files, 326). `pnpm typecheck`,
+`pnpm lint`, `pnpm test:boundary` clean; `@caravan/content` 55 passing.
+
+**Assumptions made:** listed under "Build notes" in `chunks/18-unit-acquisition.md`. The ones
+QA should weigh: (1) acquisition is allowed while the caravan is on a trip (the instance joins
+the town roster, never the locked manifest); (2) a free refresh replaces an unclaimed menu
+and rerolling forfeits an unclaimed menu — the view flags both; (3) the reroll price holds at
+600 past the third reroll until the next free refresh; (4) a pool of fewer than 3 types fills
+the extra slots with replacement so a menu is always exactly 3.
+
+**Note for the orchestrator:** during one full run, `qa02-regressions.test.ts` S1/S3 failed
+after `migrations.test.ts` had rolled the schema back and forward in the same run (column-level
+grants on recreated tables); it did not reproduce in three further runs or in isolation. Not
+touched here — flagged as a pre-existing suite-order hazard.
+
+**Next:** hand to adversarial QA against GUARDRAILS §1/§2/§3/§4/§5 and the chunk checklist;
+re-run the grind-wall/P2W check on reroll and recruit pricing as chunk 16's QA asked.

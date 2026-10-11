@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import type pg from "pg";
 import type { AuthContext } from "./auth/sessions.js";
 import { createPool } from "./db/pool.js";
+import { acquisitionRoutes } from "./routes/acquisition.js";
 import { authRoutes } from "./routes/auth.js";
 import { circleRoutes } from "./routes/circle.js";
 import { economyRoutes } from "./routes/economy.js";
@@ -56,5 +57,6 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(economyRoutes);
   await app.register(circleRoutes);
   await app.register(unlockRoutes);
+  await app.register(acquisitionRoutes);
   return app;
 }
