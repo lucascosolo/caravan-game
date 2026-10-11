@@ -1,0 +1,7 @@
+{
+  "route": "POST /me/devices/revoke-others",
+  "status": 200,
+  "body": {
+    "revoked": 0
+  }
+}

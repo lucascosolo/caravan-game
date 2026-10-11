@@ -12,5 +12,7 @@ export default defineConfig({
     // host doubles that, and 20 s timed those tests out (load, not order). A hang still fails.
     testTimeout: 60_000,
     hookTimeout: 60_000,
+    // Chunk 30: the suite registers hundreds of accounts from one address; the rate-limit tests pass their own limits.
+    env: { CARAVAN_RATE_LIMITS: "off" },
   },
 });

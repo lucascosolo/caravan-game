@@ -314,10 +314,8 @@ test("a fresh account: register, the first screen, a refugee, the first trip gui
   expect(saved.party.config.units).toHaveLength(3);
   expect(saved.party.valid).toBe(true);
   // A reload reads the same server row: the guide stays finished (no browser storage involved).
+  // Chunk 30: a reload stays signed in (the server's HttpOnly device cookie); no second sign-in.
   await page.reload();
-  await page.getByLabel("Username").fill(username);
-  await page.getByLabel("Password").fill(PASSWORD);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page.getByTestId("party-screen").or(page.getByTestId("town-screen"))).toBeVisible();
   await expect(page.locator(".guide, [data-testid=onboarding-welcome]")).toHaveCount(0);
 });

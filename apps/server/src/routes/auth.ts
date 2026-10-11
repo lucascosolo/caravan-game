@@ -1,11 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { verifyPassword } from "../auth/password.js";
 import { PASSWORD_MAX } from "../config.js";
-import { issueSession, revokeSession } from "../auth/sessions.js";
-import { toAccountPublic } from "../db/types.js";
+import { clearDeviceCookie, deleteDevice, deviceIdOfSession } from "../account/device.js";
+import { revokeSession } from "../auth/sessions.js";
 import { findAccountByUsername } from "../repo/accounts.js";
 import { badRequest, unauthorized } from "../services/errors.js";
 import { normalizeUsername, registerAccount } from "../services/onboarding.js";
+import { guestSignOutRefused, sendSignedIn } from "./account.js";
 import { requireAuth } from "./require-auth.js";
 
 interface RegisterBody {
@@ -33,6 +34,7 @@ const DUMMY_PASSWORD_HASH = "scrypt$16384$8$1$AztxRESPAjZkhhOVaLdDWA$HRnJe7eRWdk
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: RegisterBody }>("/auth/register", async (req, reply) => {
+    app.rateLimiter.hit("registerPerIp", req.ip);
     const body = req.body ?? {};
     const input: Parameters<typeof registerAccount>[1] = {
       username: str(body.username, "username"),
@@ -41,17 +43,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     };
     if (body.caravanName !== undefined) input.caravanName = str(body.caravanName, "caravanName");
     const { account, caravan } = await registerAccount(app.db, input);
-    const session = await issueSession(app.db, account.id);
-    return reply.code(201).send({
-      token: session.token,
-      expiresAt: session.expiresAt.toISOString(),
-      account: toAccountPublic(account),
-      caravan,
-    });
+    return sendSignedIn(req, reply, account, { code: 201, extra: { caravan } });
   });
 
-  app.post<{ Body: LoginBody }>("/auth/login", async (req) => {
+  app.post<{ Body: LoginBody }>("/auth/login", async (req, reply) => {
+    app.rateLimiter.hit("loginPerIp", req.ip);
     const body = req.body ?? {};
+    if (typeof body.username === "string") app.rateLimiter.hit("loginPerUsername", body.username.trim().toLowerCase().slice(0, 64));
     let username: string;
     try {
       username = normalizeUsername(str(body.username, "username"));
@@ -62,18 +60,24 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (password.length > PASSWORD_MAX) throw unauthorized("invalid credentials");
     const account = await findAccountByUsername(app.db, username);
     // Always run the hash, even for an unknown username, so timing doesn't reveal existence.
-    const ok = await verifyPassword(password, account ? account.password_hash : DUMMY_PASSWORD_HASH);
+    const ok = await verifyPassword(password, account?.password_hash ?? DUMMY_PASSWORD_HASH);
     // Chunk 25 (chunk 14 QA B1): a system account — the non-player owner of an authored
     // party — has no login, whatever its password hash says. Same 401 as a wrong password.
     if (!account || !ok || account.is_system) {
       throw unauthorized("invalid credentials");
     }
-    const session = await issueSession(app.db, account.id);
-    return { token: session.token, expiresAt: session.expiresAt.toISOString(), account: toAccountPublic(account) };
+    return sendSignedIn(req, reply, account);
   });
 
-  app.post("/auth/logout", { preHandler: requireAuth }, async (req, reply) => {
-    await revokeSession(app.db, req.auth!.sessionId);
+  // Chunk 30: signing out forgets this DEVICE (its cookie and every session it issued). A guest
+  // has nothing else to get back in with, so a guest's sign-out needs `{ abandon: true }`.
+  app.post<{ Body: { abandon?: unknown } | null }>("/auth/logout", { preHandler: requireAuth }, async (req, reply) => {
+    const { account, sessionId } = req.auth!;
+    if (account.username === null && req.body?.abandon !== true) throw guestSignOutRefused();
+    const deviceId = await deviceIdOfSession(app.db, sessionId);
+    if (deviceId) await deleteDevice(app.db, account.id, deviceId);
+    else await revokeSession(app.db, sessionId);
+    clearDeviceCookie(req, reply);
     return reply.code(204).send();
   });
 }

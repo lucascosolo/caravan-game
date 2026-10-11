@@ -5,6 +5,7 @@
     "account": {
       "id": "00000000-0000-4000-8000-000000000001",
       "username": "contract_player",
+      "guest": false,
       "coinBalance": 0,
       "coinStorageCap": 50000,
       "createdAt": "2026-10-11T12:00:00.000Z"

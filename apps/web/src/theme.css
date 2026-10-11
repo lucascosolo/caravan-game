@@ -1100,3 +1100,18 @@ h2 {
   font-size: 1rem;
   margin: 0 0 0.25rem;
 }
+
+/* Chunk 30: the Account screen's destructive action. The danger is carried by the words and
+   the border weight as well as the colour (never colour alone). */
+.card--danger {
+  border-left-color: var(--warn);
+  border-left-width: 0.5rem;
+}
+.btn--danger {
+  border-color: var(--warn);
+  border-width: 2px;
+  font-weight: 600;
+}
+.btn--danger:disabled {
+  opacity: 0.6;
+}

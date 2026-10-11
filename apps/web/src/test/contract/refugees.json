@@ -7,7 +7,7 @@
       "sequence": 1,
       "origin": "free",
       "rerollsThisWindow": 0,
-      "seed": 2143061136,
+      "seed": 160765145,
       "poolTypeIds": [
         "desert.dust_rider",
         "desert.sand_sharpshooter",
@@ -26,22 +26,22 @@
         },
         {
           "slot": 1,
-          "unitTypeId": "desert.well_digger",
-          "displayName": "Well Digger",
-          "affinity": "grit",
-          "ability": {
-            "archetype": "structure_breaker",
-            "displayName": "Pick Swing"
-          }
-        },
-        {
-          "slot": 2,
           "unitTypeId": "desert.dust_rider",
           "displayName": "Dust Rider",
           "affinity": "beast",
           "ability": {
             "archetype": "dash",
             "displayName": "Spur On"
+          }
+        },
+        {
+          "slot": 2,
+          "unitTypeId": "desert.well_digger",
+          "displayName": "Well Digger",
+          "affinity": "grit",
+          "ability": {
+            "archetype": "structure_breaker",
+            "displayName": "Pick Swing"
           }
         }
       ],

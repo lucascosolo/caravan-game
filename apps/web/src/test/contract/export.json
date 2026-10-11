@@ -1,0 +1,151 @@
+{
+  "route": "GET /me/export",
+  "status": 200,
+  "body": {
+    "format": "caravan-vaults-account-export",
+    "version": 1,
+    "exportedAt": "2026-10-11T12:00:00.000Z",
+    "account": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "username": "contract_guest",
+      "guest": false,
+      "createdAt": "2026-10-11T12:00:01.000Z",
+      "linkedAt": "2026-10-11T12:00:02.000Z",
+      "coinBalance": 0,
+      "coinStorageCap": 50000
+    },
+    "accountPoolProgress": [
+      {
+        "pool": "trap",
+        "reputation": 1000,
+        "ladder_level": 0,
+        "ladder_points": 0,
+        "unlock_points_granted": 0,
+        "unlock_points_spent": 0,
+        "created_at": "2026-10-11T12:00:01.000Z",
+        "updated_at": "2026-10-11T12:00:01.000Z"
+      },
+      {
+        "pool": "siege",
+        "reputation": 1000,
+        "ladder_level": 0,
+        "ladder_points": 0,
+        "unlock_points_granted": 0,
+        "unlock_points_spent": 0,
+        "created_at": "2026-10-11T12:00:01.000Z",
+        "updated_at": "2026-10-11T12:00:01.000Z"
+      }
+    ],
+    "homeTown": {
+      "account_id": "00000000-0000-4000-8000-000000000001",
+      "created_at": "2026-10-11T12:00:01.000Z"
+    },
+    "standingParties": [
+      {
+        "account_id": "00000000-0000-4000-8000-000000000001",
+        "created_at": "2026-10-11T12:00:01.000Z",
+        "updated_at": "2026-10-11T12:00:01.000Z",
+        "id": "00000000-0000-4000-8000-000000000002",
+        "slot": 0,
+        "composition": {
+          "v": 1,
+          "siege": [],
+          "units": []
+        },
+        "save_seq": 0
+      }
+    ],
+    "onboarding": {
+      "step": "welcome",
+      "skipped_at": null,
+      "completed_at": null,
+      "updated_at": "2026-10-11T12:00:01.000Z"
+    },
+    "purchases": [],
+    "cosmetics": [],
+    "cosmeticsEquipped": [],
+    "inboxPreferences": [],
+    "devices": [
+      {
+        "id": "00000000-0000-4000-8000-000000000003",
+        "label": "Unknown device",
+        "createdAt": "2026-10-11T12:00:03.000Z",
+        "lastSeenAt": "2026-10-11T12:00:04.000Z",
+        "expiresAt": "2026-10-11T12:00:05.000Z"
+      }
+    ],
+    "caravans": [
+      {
+        "id": "00000000-0000-4000-8000-000000000004",
+        "account_id": "00000000-0000-4000-8000-000000000001",
+        "region_id": "desert",
+        "name": "Caravan",
+        "state": "in_town",
+        "created_at": "2026-10-11T12:00:01.000Z",
+        "poolProgress": [
+          {
+            "pool": "living",
+            "reputation": 1000,
+            "ladder_level": 0,
+            "ladder_points": 0,
+            "unlock_points_granted": 0,
+            "unlock_points_spent": 0,
+            "created_at": "2026-10-11T12:00:01.000Z",
+            "updated_at": "2026-10-11T12:00:01.000Z"
+          }
+        ],
+        "units": [
+          {
+            "id": "00000000-0000-4000-8000-000000000005",
+            "unit_type_id": "desert.dust_rider",
+            "merge_level": 1,
+            "created_at": "2026-10-11T12:00:01.000Z"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000006",
+            "unit_type_id": "desert.well_digger",
+            "merge_level": 1,
+            "created_at": "2026-10-11T12:00:01.000Z"
+          }
+        ],
+        "trips": [],
+        "tripEncounters": []
+      }
+    ],
+    "encounters": [],
+    "ledger": [
+      {
+        "seq": 1,
+        "event_type": "unit_acquired",
+        "caravan_id": "00000000-0000-4000-8000-000000000004",
+        "causation_id": "starting_roster:00000000-0000-4000-8000-000000000004",
+        "causation_seq": 0,
+        "resolver_version": null,
+        "payload": {
+          "source": "starting_roster",
+          "coinCost": 0,
+          "instanceId": "00000000-0000-4000-8000-000000000005",
+          "mergeLevel": 1,
+          "unitTypeId": "desert.dust_rider"
+        },
+        "occurred_at": "2026-10-11T12:00:01.000Z"
+      },
+      {
+        "seq": 2,
+        "event_type": "unit_acquired",
+        "caravan_id": "00000000-0000-4000-8000-000000000004",
+        "causation_id": "starting_roster:00000000-0000-4000-8000-000000000004",
+        "causation_seq": 1,
+        "resolver_version": null,
+        "payload": {
+          "source": "starting_roster",
+          "coinCost": 0,
+          "instanceId": "00000000-0000-4000-8000-000000000006",
+          "mergeLevel": 1,
+          "unitTypeId": "desert.well_digger"
+        },
+        "occurred_at": "2026-10-11T12:00:01.000Z"
+      }
+    ]
+  }
+}

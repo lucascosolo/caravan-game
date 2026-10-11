@@ -33,7 +33,8 @@ if (!databaseUrl) {
 }
 const port = Number(process.env.E2E_PORT ?? 3917);
 const host = "127.0.0.1";
-const env = { ...process.env, DATABASE_URL: databaseUrl, PORT: String(port), HOST: host, NODE_ENV: "test", CARAVAN_TEST_RESOLVER: "double" };
+const env = { ...process.env, DATABASE_URL: databaseUrl, PORT: String(port), HOST: host, NODE_ENV: "test", CARAVAN_TEST_RESOLVER: "double", CARAVAN_RATE_LIMITS: process.env.CARAVAN_RATE_LIMITS ?? "off" };
+// Chunk 30: the specs register many fresh accounts from one address; the limits have their own server tests.
 
 function run(cmd, args, opts = {}) {
   return new Promise((resolve) => {

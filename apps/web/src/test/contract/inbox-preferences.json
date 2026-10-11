@@ -4,30 +4,30 @@
   "body": {
     "items": [
       {
-        "key": "packs:1",
-        "category": "packs_rotated",
+        "key": "refugees:1",
+        "category": "refugees_arrived",
         "version": 1,
         "occurredAtMs": 1790000180000,
         "occurredAt": "2026-10-11T12:00:00.000Z",
         "detail": {
-          "weekIndex": 40,
-          "startsAtMs": 1790000180000,
-          "endsAtMs": 1790000240000
+          "caravanId": "00000000-0000-4000-8000-000000000001",
+          "caravanName": "Caravan",
+          "regionId": "desert",
+          "arrivedAtMs": 1790000180000,
+          "currentMenuUnclaimed": true
         },
         "unread": true
       },
       {
-        "key": "refugees:2",
-        "category": "refugees_arrived",
+        "key": "packs:2",
+        "category": "packs_rotated",
         "version": 2,
         "occurredAtMs": 1790000120000,
         "occurredAt": "2026-10-11T12:00:01.000Z",
         "detail": {
-          "caravanId": "00000000-0000-4000-8000-000000000001",
-          "caravanName": "Caravan",
-          "regionId": "desert",
-          "arrivedAtMs": 1790000120000,
-          "currentMenuUnclaimed": true
+          "weekIndex": 40,
+          "startsAtMs": 1790000120000,
+          "endsAtMs": 1790000240000
         },
         "unread": true
       },

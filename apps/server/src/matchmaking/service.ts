@@ -146,11 +146,16 @@ export function candidateView(c: Candidate): CandidateView {
  * raw `sys_outfit_*` handle. A system account the current set no longer describes reads as
  * a generic name rather than leaking its handle.
  */
-export function ownerDisplay(username: string, authored: boolean): { displayName: string; flavor: string | null } {
-  if (!authored) return { displayName: username, flavor: null };
+export function ownerDisplay(username: string | null, authored: boolean): { displayName: string; flavor: string | null } {
+  // Chunk 30: a guest's party is served like any other; until they link a username it rides under a generic name.
+  if (!authored) return { displayName: username ?? GUEST_OWNER_DISPLAY_NAME, flavor: null };
+  if (username === null) return { displayName: "Unnamed outfit", flavor: null };
   const outfit = authoredOutfitFor(username);
   return outfit ? { displayName: outfit.name, flavor: outfit.flavor } : { displayName: "Unnamed outfit", flavor: null };
 }
+
+/** Chunk 30: what a defender sees as the owner of a guest's party (no username yet). */
+export const GUEST_OWNER_DISPLAY_NAME = "Unnamed drifter";
 
 export interface EncounterCandidatesRow {
   trip_id: string;
@@ -241,7 +246,7 @@ export interface SearchOptions {
 interface PoolRow {
   party_id: string;
   owner_account_id: string;
-  username: string;
+  username: string | null;
   is_system: boolean;
   reputation: number;
 }

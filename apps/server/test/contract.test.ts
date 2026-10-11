@@ -505,6 +505,20 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     for (const name of ["inbox", "inbox-read", "inbox-preferences"]) recorded.get(name)!.body = stableInbox(recorded.get(name)!.body);
     recorded.get("inbox-strikes")!.body = { ...(recorded.get("inbox-strikes")!.body as object), window: 1 };
 
+    // Chunk 30: the account lifecycle — a guest's first launch, a reload, the Account screen, linking, devices, export, deletion.
+    const guestRes = await app.inject({ method: "POST", url: "/auth/guest", payload: { region: "desert" } });
+    const guestBody = (await record("auth-guest", "POST /auth/guest", guestRes, 201)) as { token: string };
+    const guestCookie = String(([] as unknown[]).concat(guestRes.headers["set-cookie"])[0]).split(";")[0]!;
+    await record("auth-resume", "POST /auth/resume", await app.inject({ method: "POST", url: "/auth/resume", headers: { cookie: guestCookie } }), 200);
+    const g: Player = { token: guestBody.token, accountId: "", caravanId: "", units: [] };
+    await record("account-guest", "GET /me/account", await call(g, "GET", "/me/account"), 200);
+    await record("account-link", "POST /me/account/link", await call(g, "POST", "/me/account/link", { username: "contract_guest", password: "correct horse battery" }), 200);
+    await record("account", "GET /me/account", await call(g, "GET", "/me/account"), 200);
+    await record("devices", "GET /me/devices", await call(g, "GET", "/me/devices"), 200);
+    await record("devices-revoke-others", "POST /me/devices/revoke-others", await call(g, "POST", "/me/devices/revoke-others"), 200);
+    await record("export", "GET /me/export", await call(g, "GET", "/me/export"), 200);
+    await record("account-delete", "POST /me/account/delete", await call(g, "POST", "/me/account/delete", { confirm: "delete my account", password: "correct horse battery" }), 200);
+
     // Write the fixtures (only when they changed, so a rerun leaves the tree clean).
     mkdirSync(OUT, { recursive: true });
     for (const [name, r] of recorded) {

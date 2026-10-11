@@ -120,3 +120,15 @@ GRANT EXECUTE ON FUNCTION
   encounter_log_write(text, text, integer, uuid, uuid, uuid, integer, integer, text, bytea, integer, text, text, text, text, text),
   encounter_log_prune(uuid)
 TO caravan_app;
+
+-- ---------------------------------------------------------------------------------
+-- Account erasure is one audited function (chunk 30, migration 020)
+-- ---------------------------------------------------------------------------------
+-- account_erasure_active is the guards' only exception (an erasure in progress in THIS
+-- transaction). Only account_erase() (SECURITY DEFINER) writes it, and it removes its row
+-- before returning; the app role may read it (the guards run as the invoker) but never write
+-- it, so it can never open the exception for its own UPDATE. The audit log is the owner's.
+REVOKE INSERT, UPDATE, DELETE ON TABLE account_erasure_active FROM caravan_app;
+REVOKE INSERT, UPDATE, DELETE ON TABLE account_erasure_audit FROM caravan_app;
+-- account_erase takes the caller's RAW bearer token as proof (only its hash is stored).
+GRANT EXECUTE ON FUNCTION account_erase(uuid, text) TO caravan_app;

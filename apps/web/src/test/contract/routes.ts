@@ -33,6 +33,7 @@ import {
   unequipResultShape,
 } from "../../api/shapes.ts";
 import { recentFightsShape, replayShape } from "../../api/replayShapes.ts";
+import { accountViewShape, deleteResultShape, devicesShape, exportShape, linkResultShape, revokeOthersShape } from "../../api/accountShapes.ts";
 import { inboxMarkResultShape, inboxShape, inboxStrikeLinesShape, inboxUnreadShape } from "../../api/inboxShapes.ts";
 import { onboardingChangeShape, onboardingShape } from "../../onboarding/shapes.ts";
 import { bankResultShape, encounterCommitShape, pushResultShape, stakesPreviewShape, tripCapRefusalShape, tripStartShape, tripStatusShape } from "../../api/tripShapes.ts";
@@ -101,6 +102,16 @@ export const CONTRACT_GUARDS: Readonly<Record<string, Guard<unknown> | null>> = 
   "inbox-unread": inboxUnreadShape,
   "inbox-read": inboxMarkResultShape,
   "inbox-strikes": inboxStrikeLinesShape,
+  // Chunk 30: the account lifecycle (guest first launch, reload, Account screen).
+  "auth-guest": authShape,
+  "auth-resume": authShape,
+  "account-guest": accountViewShape,
+  "account-link": linkResultShape,
+  account: accountViewShape,
+  devices: devicesShape,
+  "devices-revoke-others": revokeOthersShape,
+  export: exportShape,
+  "account-delete": deleteResultShape,
   "inbox-preferences": inboxShape,
 };
 
