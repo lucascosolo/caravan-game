@@ -642,7 +642,9 @@ describe("no path funds unlock points or mints access except the ones the design
       const code = readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
       return new RegExp(`type:\\s*["']${needle}["']`).test(code);
     }).map(rel);
-    expect(writers("unlock_points_granted")).toEqual(["progression/outcome.ts"]);
+    // chunk 25: the authored set grants the rungs a SYSTEM account's party needs (then spends them through
+    // spend.ts like anyone); never a player path, never a node reached without a purchase event.
+    expect(writers("unlock_points_granted").sort()).toEqual(["matchmaking/authored.ts", "progression/outcome.ts"]);
     expect(writers("unlock_node_purchased")).toEqual(["unlocks/spend.ts"]);
   });
 

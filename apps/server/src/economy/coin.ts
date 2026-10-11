@@ -30,6 +30,7 @@ import { coinDebitDraft } from "../ledger/coin.js";
 import type { CoinCreditEventType, CoinPayload, JsonObject, LedgerEventDraft, LedgerEventRow } from "../ledger/events.js";
 import { appendEvents, lockAccountForAppend } from "../ledger/ledger.js";
 import { conflict } from "../services/errors.js";
+import { SystemAccountCreditError } from "./systemAccount.js";
 import { TRICKLE_REASON, accrueTrickleTx, type TrickleAccrual } from "./trickle.js";
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -150,6 +151,8 @@ export interface CoinCreditSpec {
   type?: CoinCreditEventType;
 }
 
+export { SystemAccountCreditError };
+
 export interface CoinCreditResult {
   rows: LedgerEventRow[];
   /** Sum actually applied to the balance. */
@@ -181,12 +184,13 @@ export async function appendCoinCredits(
     if (c.reason === TRICKLE_REASON) throw new RangeError(`reason '${TRICKLE_REASON}' is reserved for the trickle itself`);
   }
   await lockAccountForAppend(client, input.accountId);
-  const res = await client.query<{ coin_balance: number; coin_storage_cap: number }>(
-    "SELECT coin_balance, coin_storage_cap FROM account WHERE id = $1 FOR UPDATE",
+  const res = await client.query<{ coin_balance: number; coin_storage_cap: number; is_system: boolean }>(
+    "SELECT coin_balance, coin_storage_cap, is_system FROM account WHERE id = $1 FOR UPDATE",
     [input.accountId],
   );
   const row = res.rows[0];
   if (!row) throw new Error(`account ${input.accountId} not found`);
+  if (row.is_system) throw new SystemAccountCreditError(input.accountId);
   let room = Math.max(0, row.coin_storage_cap - row.coin_balance);
   let credited = 0;
   let discarded = 0;

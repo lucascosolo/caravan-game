@@ -1,143 +1,492 @@
 /**
- * Authored cold-start parties (chunk 14's seam for PHASE-2 §25). A pool that is never
- * empty: system accounts, flagged `is_system`, each owning an ORDINARY standing party —
- * the same rows, the same resolve, the same snapshot, the same scout view as any player's.
- * Matchmaking reads the flag only to cap the authored share of a band
- * (AUTHORED_PARTY_MAX_SHARE_BP); nothing downstream of selection can tell them apart, and
- * the resolver sees the same shape (a test compares the snapshots).
+ * Authored cold-start parties (chunk 25, PHASE-2 §25; chunk 14 built the seam). A pool that
+ * is never empty: system accounts, flagged `account.is_system`, each owning an ORDINARY
+ * standing party — the same rows, the same resolve, the same snapshot, the same scout view
+ * as any player's. Matchmaking reads the flag only to retire them by ratio (band.ts:
+ * the draw-pool cap and the served-share weight); nothing downstream of selection can tell
+ * them apart, and the resolver sees the same shape (tests compare the snapshots).
  *
- * This set is deliberately small — AUTHORED_PARTIES_PER_BAND per band for the lowest
- * AUTHORED_BANDS bands, enough that a fresh database serves three distinct, fully
- * scoutable candidates from the first search. Chunk 25 grows it to twelve per band across
- * the whole range, every siege piece and every roster; here only the free starting types
- * are used, because the unlock web is the only access gate and a system account has not
- * climbed it (GUARDRAILS §3 — authored content gets no bypass either).
+ * THE SET. AUTHORED_PARTIES_PER_BAND (12) parties in every display band from the one that
+ * holds REPUTATION_FLOOR to the one that holds AUTHORED_REPUTATION_CEILING — the band list
+ * is derived from the tunables, never written down. Within a band the twelve cover every
+ * region's roster (three each), every approach-edge split (1, 2 and 4 edges, each per
+ * region), every targeting stance (three all-one-stance patterns plus a mixed one), and a
+ * siege loadout drawn from a ladder of combos that grows with the band until every piece
+ * has appeared. Size, merge level and unit tier rise with the band: band 0 is three or four
+ * unmerged starting units, the top band is eight units at level 4–5 with the region's
+ * tier-4 capstone. Every outfit has a human-readable name and one-line flavour
+ * (authoredOutfits.ts); its username is `sys_outfit_<slug>`.
  *
- * Coin lost to an authored party is destroyed, not banked (chunk 19 reads is_system for
- * that); Reputation shifts apply to the player only. The accounts cannot log in: their
- * password is a discarded random secret.
+ * NO BYPASS (GUARDRAILS §3). The unlock web is the only access gate and a system account
+ * gets no exception: every non-starting type a party fields is REACHED the ordinary way —
+ * the seed grants the ladder rungs (ledger `ladder_progress_gained` + `unlock_points_granted`,
+ * the same events a fight would append) and spends the points through `spendUnlockPoints`.
+ * A spec whose types cannot be reached within a capped ladder's points is refused at load.
+ * Ratings go through the ledger too (`reputation_changed`, chunk 14 QA S5), so a projection
+ * rebuild of a system account equals its live rows.
+ *
+ * THE OWNERS are unmistakably system: `is_system` (set at creation, before the account owns
+ * anything; migration 011 makes it permanent), login refused (routes/auth.ts), the
+ * `sys_outfit_` prefix reserved at registration, zero Coin (no credit path can reach them:
+ * economy/systemAccount.ts and the migration 011 ledger trigger). Coin lost to an authored
+ * party is destroyed, Coin it would earn is never minted (chunk 19). Reputation shifts from
+ * a fight apply to the player only.
+ *
+ * CONTENT DROPS (PHASE-2 §41). `seedAuthoredParties` is idempotent and versioned: each
+ * system account's `authored_party` row records AUTHORED_SET_VERSION and the hash of the
+ * spec it was built to; a changed spec is applied IN PLACE (rating delta through the
+ * ledger, further rungs and nodes, roster rebuilt, party re-saved). Bump the version when
+ * the set changes meaning; the hash catches every change regardless.
  */
-import { REGION_IDS, TUNABLES, type RegionId } from "@caravan/content";
-import { entryBand, type EntryEdge, type PartyConfig } from "@caravan/circle";
-import { randomBytes } from "node:crypto";
+import {
+  REGION_IDS,
+  TUNABLES,
+  SIEGE_TYPES,
+  findUnlockNode,
+  nodeCost,
+  pointsPerPoolAtLadderCap,
+  unlockWebFor,
+  type RegionId,
+  type UnlockNode,
+  type UnlockPool,
+  type UnlockWeb,
+} from "@caravan/content";
+import { TARGETING_STANCES, entryBand, type EntryEdge, type PartyConfig, type TargetingStance } from "@caravan/circle";
+import { createHash, randomBytes } from "node:crypto";
 import type pg from "pg";
 import { hashPassword } from "../auth/password.js";
-import { withTransaction } from "../db/pool.js";
+import { withTransaction, type Queryable } from "../db/pool.js";
+import type { LedgerEventDraft } from "../ledger/events.js";
+import { appendEvents, lockAccountForAppend } from "../ledger/ledger.js";
 import { saveParty } from "../party/service.js";
+import { pointsToRung, unlockPointsForRung, LADDER_CAP } from "../progression/ladder.js";
 import { createAccount, createHomeTown, createStandingParty, findAccountByUsername } from "../repo/accounts.js";
-import { createAccountPoolProgress } from "../repo/poolProgress.js";
+import { getAccountPoolProgress, getCaravanPoolProgress } from "../repo/poolProgress.js";
 import { createUnitInstance } from "../repo/unitInstances.js";
 import { createCaravanForAccount } from "../services/caravans.js";
-import { bandCentre } from "./band.js";
+import { purchasedNodeIds } from "../unlocks/access.js";
+import { spendUnlockPoints } from "../unlocks/spend.js";
+import { AUTHORED_OUTFITS, type AuthoredOutfit } from "./authoredOutfits.js";
+import { bandCentre, bandOf } from "./band.js";
 
 export const AUTHORED_USERNAME_PREFIX = "sys_outfit_";
-/** Lowest display bands that get authored parties (0 = the floor band; REPUTATION_START sits in band 3). */
-export const AUTHORED_BANDS = 4;
-export const AUTHORED_PARTIES_PER_BAND = 3;
+/** Bump when the set changes meaning (a content drop); the spec hash catches every change regardless. */
+export const AUTHORED_SET_VERSION = 2;
+export const AUTHORED_PARTIES_PER_BAND: number = TUNABLES.AUTHORED_PARTIES_PER_BAND;
+if (!Number.isInteger(AUTHORED_PARTIES_PER_BAND) || AUTHORED_PARTIES_PER_BAND < 12) throw new Error("TUNABLES.AUTHORED_PARTIES_PER_BAND must be an integer of at least 12 (PHASE-2 §25)");
+if (!Number.isInteger(TUNABLES.AUTHORED_REPUTATION_CEILING) || TUNABLES.AUTHORED_REPUTATION_CEILING < TUNABLES.REPUTATION_FLOOR) throw new Error("TUNABLES.AUTHORED_REPUTATION_CEILING must be an integer at or above REPUTATION_FLOOR");
 
-/** The two free (tier-0) living types of each region's web — what a fresh caravan can field. */
-const STARTING_TYPES: Readonly<Record<RegionId, readonly [string, string]>> = {
-  desert: ["desert.dust_rider", "desert.well_digger"],
-  high_plains: ["high_plains.homesteader", "high_plains.prairie_wolf"],
-  mountain: ["mountain.grizzly", "mountain.trapper"],
-  badlands: ["badlands.gunslinger", "badlands.bounty_hunter"],
-};
-const STARTING_SIEGE = "siege.battering_wagon";
-const STANCES = ["nearest", "traps", "core"] as const;
+/** The display bands the set covers: from the floor's band to the ceiling's, inclusive. Derived, never listed. */
+export function authoredBands(): number[] {
+  const first = bandOf(TUNABLES.REPUTATION_FLOOR).index;
+  const last = bandOf(TUNABLES.AUTHORED_REPUTATION_CEILING).index;
+  const out: number[] = [];
+  for (let b = first; b <= last; b++) out.push(b);
+  return out;
+}
+/** How many bands the set covers (chunk 14's name for it; tests loop over it). */
+export const AUTHORED_BANDS: number = authoredBands().length;
+
 const EDGES: readonly EntryEdge[] = ["north", "east", "south", "west"];
+const EDGE_SPLITS = [1, 2, 4] as const;
+export type StancePattern = TargetingStance | "mixed";
+const STANCE_PATTERNS: readonly StancePattern[] = [...TARGETING_STANCES, "mixed"];
+
+/**
+ * Siege loadouts, in rising order of what they ask of the siege web. Each must be reachable
+ * within one capped ladder (validated below). A band may use a loadout whose deepest node
+ * tier is at most `maxSiegeTier(band)`. Content, not balance; tunable in place.
+ */
+const SIEGE_LOADOUTS: readonly (readonly string[])[] = [
+  [],
+  ["siege.battering_wagon"],
+  ["siege.bridging_planks"],
+  ["siege.battering_wagon", "siege.bridging_planks"],
+  ["siege.fence_cutters"],
+  ["siege.bridging_planks", "siege.dousing_wagon"],
+  ["siege.battering_wagon", "siege.bridging_planks", "siege.fence_cutters"],
+  ["siege.fence_cutters", "siege.dousing_wagon"],
+  ["siege.battering_wagon", "siege.fence_cutters", "siege.dousing_wagon"],
+  ["siege.bridging_planks", "siege.fence_cutters", "siege.dousing_wagon"],
+  ["siege.blasting_crate"],
+  ["siege.battering_wagon", "siege.blasting_crate", "siege.bridging_planks"],
+];
 
 export interface AuthoredPartySpec {
   username: string;
+  outfit: AuthoredOutfit;
   band: number;
   /** The owner's siege Reputation. */
   rating: number;
   regionId: RegionId;
   units: { typeId: string; mergeLevel: number }[];
   siege: string[];
-  /** Stance per unit, cycling; edges per unit, split across `edgeCount` edges. */
-  edgeCount: number;
+  edgeCount: (typeof EDGE_SPLITS)[number];
+  /** Which entry edges the party uses, in unit-cycling order. */
+  edges: EntryEdge[];
+  stancePattern: StancePattern;
+  /** Non-starting nodes the owner must have reached, in purchase order, and the points they cost. */
+  livingNodes: string[];
+  livingPoints: number;
+  siegeNodes: string[];
+  siegePoints: number;
+}
+
+// ── web arithmetic (the same functions chunk 05 exposes, composed) ─────────────────────
+
+/** Every node reached once `ids` are reached: the ids plus their transitive prerequisites. */
+function closureOf(web: UnlockWeb, ids: Iterable<string>): Set<string> {
+  const out = new Set<string>();
+  const visit = (id: string): void => {
+    if (out.has(id)) return;
+    const n = findUnlockNode(web, id);
+    if (!n) throw new RangeError(`'${id}' is not a node of web '${web.id}'`);
+    out.add(id);
+    for (const r of n.requires) visit(r);
+  };
+  for (const id of ids) visit(id);
+  return out;
+}
+
+/** The non-starting nodes of a closure in an order every prerequisite precedes its dependant (tier, then id). */
+function purchaseOrder(web: UnlockWeb, closure: ReadonlySet<string>): UnlockNode[] {
+  const nodes = [...closure].map((id) => findUnlockNode(web, id)!).filter((n) => n.tier > 0);
+  nodes.sort((a, b) => a.tier - b.tier || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const reached = new Set(web.nodes.filter((n) => n.tier === 0).map((n) => n.id));
+  for (const n of nodes) {
+    for (const r of n.requires) if (!reached.has(r)) throw new Error(`web '${web.id}': '${n.id}' sorts before its prerequisite '${r}'`);
+    reached.add(n.id);
+  }
+  return nodes;
+}
+
+function pointsFor(web: UnlockWeb, nodes: readonly UnlockNode[]): number {
+  return nodes.reduce((sum, n) => sum + nodeCost(web, n), 0);
+}
+
+/** The ladder rung that first pays out at least `points` unlock points (0 when none are needed). */
+export function rungsForPoints(points: number): number {
+  if (!Number.isInteger(points) || points < 0) throw new RangeError("points must be a non-negative integer");
+  let sum = 0;
+  for (let r = 1; r <= LADDER_CAP; r++) {
+    if (sum >= points) return r - 1;
+    sum += unlockPointsForRung(r);
+  }
+  if (sum >= points) return LADDER_CAP;
+  throw new RangeError(`${points} unlock points exceed what a capped ladder grants (${sum})`);
+}
+
+// ── the set ───────────────────────────────────────────────────────────────────────────
+
+/** Deepest living-web tier a band may field: 0 at the floor, UNLOCK_WEB_TIERS in the top band. */
+export function maxLivingTier(bandOrdinal: number): number {
+  return Math.min(TUNABLES.UNLOCK_WEB_TIERS, Math.floor((bandOrdinal * (TUNABLES.UNLOCK_WEB_TIERS + 1)) / AUTHORED_BANDS));
+}
+/** Deepest siege-web tier a band may field: siege arrives faster than merged units, so early play shows every piece but the capstone. */
+export function maxSiegeTier(bandOrdinal: number): number {
+  return Math.min(TUNABLES.UNLOCK_WEB_TIERS, bandOrdinal);
+}
+/** The top merge level a band fields (its leader may be one higher): 1 at the floor, MERGE_LEVEL_MAX in the top band. */
+export function baseMergeLevel(bandOrdinal: number): number {
+  return Math.min(TUNABLES.MERGE_LEVEL_MAX, TUNABLES.MERGE_LEVEL_MIN + Math.floor((bandOrdinal * TUNABLES.MERGE_LEVEL_MAX) / AUTHORED_BANDS));
+}
+
+export function outfitSlug(name: string): string {
+  let slug = name.toLowerCase().replace(/['\u2019]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (slug.startsWith("the_")) slug = slug.slice(4);
+  const max = 32 - AUTHORED_USERNAME_PREFIX.length; // USERNAME_MAX
+  while (slug.length > max) slug = slug.slice(0, slug.lastIndexOf("_"));
+  return slug;
 }
 
 /**
- * The authored set, derived deterministically from the band layout so a content drop can
- * regenerate it. Per band: three outfits of rising size and merge level, one per stance
- * emphasis, across the four regions in turn, splitting across 1, 2 or 4 edges.
+ * The region's roster for one party: `want` distinct types no deeper than `maxTier`,
+ * preferring the deepest, rotated by `offset` so the three parties a region fields in a
+ * band differ, greedily keeping the union closure within one capped ladder's points.
+ */
+function chooseTypes(web: UnlockWeb, maxTier: number, want: number, offset: number): { types: string[]; nodes: UnlockNode[]; points: number } {
+  const budget = pointsPerPoolAtLadderCap();
+  const candidates = web.nodes.filter((n) => n.tier <= maxTier).sort((a, b) => b.tier - a.tier || (a.id < b.id ? -1 : 1));
+  const chosen: string[] = [];
+  for (let k = 0; k < candidates.length && chosen.length < want; k++) {
+    const c = candidates[(offset + k) % candidates.length]!;
+    const closure = closureOf(web, [...chosen, c.id]);
+    if (pointsFor(web, purchaseOrder(web, closure)) <= budget) chosen.push(c.id);
+  }
+  const nodes = purchaseOrder(web, closureOf(web, chosen));
+  return { types: chosen, nodes, points: pointsFor(web, nodes) };
+}
+
+let cachedSpecs: AuthoredPartySpec[] | undefined;
+
+/**
+ * The authored set, derived deterministically from the tunables and the outfit table so a
+ * content drop regenerates it. Validated on first use: every band full, every rating in
+ * its band and above the floor, every party reachable within a capped ladder per pool,
+ * usernames unique and within USERNAME_MAX, and the whole set covering every region,
+ * stance, edge split, siege piece and living type.
  */
 export function authoredPartySpecs(): AuthoredPartySpec[] {
+  if (cachedSpecs) return cachedSpecs;
+  const bands = authoredBands();
+  const perRegionPerBand = AUTHORED_PARTIES_PER_BAND / REGION_IDS.length;
+  if (!Number.isInteger(perRegionPerBand)) throw new Error("AUTHORED_PARTIES_PER_BAND must be a multiple of the region count");
   const specs: AuthoredPartySpec[] = [];
-  let n = 0;
-  for (let band = 0; band < AUTHORED_BANDS; band++) {
+  const siegeWeb = unlockWebFor("siege");
+  bands.forEach((band, ordinal) => {
     for (let i = 0; i < AUTHORED_PARTIES_PER_BAND; i++) {
-      const regionId = REGION_IDS[n % REGION_IDS.length]!;
-      const [a, b] = STARTING_TYPES[regionId];
-      const size = Math.min(TUNABLES.PARTY_SLOT_CAP, 3 + band + i); // 3..8
-      const level = Math.min(TUNABLES.MERGE_LEVEL_MAX, 1 + Math.floor((band * AUTHORED_PARTIES_PER_BAND + i) / 3)); // 1..5 over the bands
-      const units = [];
-      for (let u = 0; u < size; u++) units.push({ typeId: u % 2 === 0 ? a : b, mergeLevel: u === 0 ? level : Math.max(1, level - (u % 2)) });
+      const regionId = REGION_IDS[i % REGION_IDS.length]!;
+      const nth = Math.floor(i / REGION_IDS.length); // 0..perRegionPerBand-1: which of the region's parties in this band
+      const outfit = AUTHORED_OUTFITS[regionId][ordinal * perRegionPerBand + nth];
+      if (!outfit) throw new Error(`authoredOutfits.ts needs at least ${bands.length * perRegionPerBand} outfits for region '${regionId}'`);
+      const livingWeb = unlockWebFor("living", regionId);
+      const roster = chooseTypes(livingWeb, maxLivingTier(ordinal), 2 + Math.floor(ordinal / 2), nth + ordinal);
+      const edgeCount = EDGE_SPLITS[nth % EDGE_SPLITS.length]!;
+      // At least one unit per edge the party splits across, so a 4-edge party really comes from four sides.
+      const size = Math.min(TUNABLES.PARTY_SLOT_CAP, Math.max(edgeCount, 3 + ordinal + (i % 2)));
+      const base = baseMergeLevel(ordinal);
+      const units: { typeId: string; mergeLevel: number }[] = [];
+      for (let u = 0; u < size; u++) {
+        const level = u === 0 ? Math.min(TUNABLES.MERGE_LEVEL_MAX, base + (i % 3 === 0 ? 1 : 0)) : Math.max(TUNABLES.MERGE_LEVEL_MIN, base - (u % 2));
+        units.push({ typeId: roster.types[u % roster.types.length]!, mergeLevel: level });
+      }
+      const loadouts = SIEGE_LOADOUTS.filter((l) => l.every((id) => (findUnlockNode(siegeWeb, id)?.tier ?? Infinity) <= maxSiegeTier(ordinal)));
+      const siege = [...loadouts[(i + ordinal) % loadouts.length]!];
+      const siegeNodes = purchaseOrder(siegeWeb, closureOf(siegeWeb, siege));
+      const r = (band + i) % EDGES.length;
+      const edges = edgeCount === 4 ? [...EDGES] : edgeCount === 2 ? [EDGES[r]!, EDGES[(r + 1) % 4]!] : [EDGES[r]!];
       specs.push({
-        username: `${AUTHORED_USERNAME_PREFIX}${String(n + 1).padStart(2, "0")}`,
+        username: `${AUTHORED_USERNAME_PREFIX}${outfitSlug(outfit.name)}`,
+        outfit,
         band,
-        rating: bandCentre(band) + (i - 1) * 100,
+        rating: bandCentre(band) + (i - Math.floor(AUTHORED_PARTIES_PER_BAND / 2)) * 24,
         regionId,
         units,
-        siege: i === 0 ? [] : [STARTING_SIEGE],
-        edgeCount: [1, 2, 4][i]!,
+        siege,
+        edgeCount,
+        edges,
+        stancePattern: STANCE_PATTERNS[(i + ordinal) % STANCE_PATTERNS.length]!,
+        livingNodes: roster.nodes.map((n) => n.id),
+        livingPoints: roster.points,
+        siegeNodes: siegeNodes.map((n) => n.id),
+        siegePoints: pointsFor(siegeWeb, siegeNodes),
       });
-      n++;
     }
-  }
+  });
+  validateSpecs(specs, bands);
+  cachedSpecs = specs;
   return specs;
+}
+
+function validateSpecs(specs: readonly AuthoredPartySpec[], bands: readonly number[]): void {
+  const fail = (why: string): never => {
+    throw new Error(`authored set invalid: ${why}`);
+  };
+  const budget = pointsPerPoolAtLadderCap();
+  const names = new Set<string>();
+  for (const s of specs) {
+    if (s.username.length > 32 || names.has(s.username)) fail(`username '${s.username}' is too long or duplicated`);
+    names.add(s.username);
+    if (bandOf(s.rating).index !== s.band) fail(`${s.username}: rating ${s.rating} is outside band ${s.band}`);
+    if (s.rating < TUNABLES.REPUTATION_FLOOR) fail(`${s.username}: rating ${s.rating} is below the floor`);
+    if (s.livingPoints > budget || s.siegePoints > budget) fail(`${s.username}: needs more unlock points than a capped ladder grants`);
+    if (s.units.length < 3 || s.units.length > TUNABLES.PARTY_SLOT_CAP) fail(`${s.username}: ${s.units.length} units`);
+    if (s.siege.length > TUNABLES.SIEGE_SLOT_CAP) fail(`${s.username}: ${s.siege.length} siege pieces`);
+    for (const u of s.units) if (!u.typeId.startsWith(`${s.regionId}.`)) fail(`${s.username}: '${u.typeId}' is not of region ${s.regionId}`);
+  }
+  for (const b of bands) {
+    const inBand = specs.filter((s) => s.band === b);
+    if (inBand.length !== AUTHORED_PARTIES_PER_BAND) fail(`band ${b} has ${inBand.length} parties`);
+    for (const r of REGION_IDS) {
+      const splits = inBand.filter((s) => s.regionId === r).map((s) => s.edgeCount);
+      for (const e of EDGE_SPLITS) if (!splits.includes(e)) fail(`band ${b}, region ${r}: no ${e}-edge party`);
+    }
+    for (const p of STANCE_PATTERNS) if (!inBand.some((s) => s.stancePattern === p)) fail(`band ${b}: no '${p}' stance pattern`);
+  }
+  const allTypes = new Set(specs.flatMap((s) => s.units.map((u) => u.typeId)));
+  for (const r of REGION_IDS) for (const n of unlockWebFor("living", r).nodes) if (!allTypes.has(n.id)) fail(`living type '${n.id}' never appears`);
+  const allSiege = new Set(specs.flatMap((s) => s.siege));
+  for (const t of SIEGE_TYPES) if (!allSiege.has(t.id)) fail(`siege piece '${t.id}' never appears`);
+  const top = specs.filter((s) => s.band === bands[bands.length - 1]);
+  if (!top.some((s) => s.units.some((u) => u.mergeLevel === TUNABLES.MERGE_LEVEL_MAX))) fail("the top band fields no unit at the merge cap");
 }
 
 /** The PartyConfig for a spec over the instance ids just created (one per spec unit, in order). */
 export function authoredPartyConfig(spec: AuthoredPartySpec, instanceIds: readonly string[]): PartyConfig {
   if (instanceIds.length !== spec.units.length) throw new RangeError("one instance id per unit");
-  const edges = EDGES.slice(0, spec.edgeCount);
   return {
     v: 1,
     units: instanceIds.map((ref, i) => {
-      const edge = edges[i % edges.length]!;
+      const edge = spec.edges[i % spec.edges.length]!;
       const band = entryBand(edge);
-      // Spread along the band: every other cell, wrapping, so no two units sit in the same cell.
-      const cell = band[(i * 2 + spec.band) % band.length]!;
-      return { ref, stance: STANCES[(i + spec.band) % STANCES.length]!, edge, cell };
+      // Spread along the band with a stride; units may share a cell (they overlap freely), but spread reads better.
+      const cell = band[(i * 5 + spec.band * 3 + spec.rating) % band.length]!;
+      const stance: TargetingStance = spec.stancePattern === "mixed" ? TARGETING_STANCES[i % TARGETING_STANCES.length]! : spec.stancePattern;
+      return { ref, stance, edge, cell };
     }),
     siege: [...spec.siege],
   };
 }
 
+/** What `authored_party.spec_hash` records: everything that shapes the stored party. */
+export function specHash(spec: AuthoredPartySpec): string {
+  const shape = { v: AUTHORED_SET_VERSION, rating: spec.rating, regionId: spec.regionId, units: spec.units, siege: spec.siege, edges: spec.edges, stancePattern: spec.stancePattern, band: spec.band };
+  return createHash("sha256").update(JSON.stringify(shape), "utf8").digest("hex");
+}
+
+// ── seeding ───────────────────────────────────────────────────────────────────────────
+
 export interface SeedAuthoredResult {
+  version: number;
   created: string[];
+  updated: string[];
   existing: string[];
 }
 
 /**
- * Create every authored party that does not exist yet. Idempotent by username; each party
- * is created in its own transaction. Runs as the app role (the seed script's connection):
- * it inserts the siege progress row at the authored rating, which is an ordinary INSERT.
+ * Grant the ladder rungs that pay out `extraPoints` more unlock points than the owner has
+ * spent, for one pool, as the fights would have: one ledger event pair per rung crossed.
  */
+async function grantRungs(client: pg.PoolClient, accountId: string, pool: UnlockPool, caravanId: string | null, extraPoints: number, cause: string): Promise<void> {
+  const progress = pool === "living" ? await getCaravanPoolProgress(client, caravanId!) : await getAccountPoolProgress(client, accountId, pool);
+  if (!progress) throw new Error(`no ${pool} pool_progress for ${accountId}`);
+  const have = progress.unlock_points_granted - progress.unlock_points_spent;
+  const points = Math.max(0, extraPoints);
+  const target = rungsForPoints(progress.unlock_points_spent + points);
+  const drafts: LedgerEventDraft[] = [];
+  for (let rung = progress.ladder_level + 1; rung <= target; rung++) {
+    const scope = pool === "living" ? { accountId, caravanId: caravanId! } : { accountId };
+    drafts.push({
+      type: "ladder_progress_gained",
+      ...scope,
+      payload: { pool, pointsDelta: pointsToRung(rung) - pointsToRung(rung - 1), levelsGained: 1, levelBefore: rung - 1, levelAfter: rung, reason: "authored_set" },
+    });
+    drafts.push({ type: "unlock_points_granted", ...scope, payload: { pool, points: unlockPointsForRung(rung), rung } });
+  }
+  if (drafts.length === 0) {
+    if (have < points) throw new Error(`${accountId} ${pool}: ${points} points needed but only ${have} available and no rung left to grant`);
+    return;
+  }
+  await appendEvents(client, `${cause}:${pool}:rungs`, drafts);
+}
+
+/**
+ * Bring one system account's party to `spec`, in the caller's transaction: rating delta
+ * through the ledger, rungs and nodes as needed, a fresh roster, the party re-saved, the
+ * `authored_party` record written. Used for creation and for in-place updates alike;
+ * exported so a content-drop change can be exercised in tests.
+ */
+export async function applyAuthoredSpec(client: pg.PoolClient, spec: AuthoredPartySpec, accountId: string, caravanId: string, cause: string): Promise<void> {
+  await lockAccountForAppend(client, accountId);
+  // Rating, through the ledger (chunk 14 QA S5): the delta from where the siege rating stands now.
+  const siege = await getAccountPoolProgress(client, accountId, "siege");
+  if (!siege) throw new Error(`no siege pool_progress for ${accountId}`);
+  if (siege.reputation !== spec.rating) {
+    await appendEvents(client, `${cause}:rating`, [
+      { type: "reputation_changed", accountId, payload: { pool: "siege", delta: spec.rating - siege.reputation, reason: "authored_set", side: "party", unclamped: spec.rating - siege.reputation, floored: false } },
+    ]);
+  }
+  // Access, the ordinary way: rungs grant points, points reach nodes. Nodes already reached
+  // (an earlier version of the set) cost nothing more; only the new ones need rungs.
+  const toReach = async (pool: "living" | "siege", nodes: readonly string[]): Promise<number> => {
+    const web = pool === "living" ? unlockWebFor("living", spec.regionId) : unlockWebFor("siege");
+    const purchased = new Set(await purchasedNodeIds(client, pool, { accountId, caravanId: pool === "living" ? caravanId : null }));
+    return nodes.filter((id) => !purchased.has(id)).reduce((sum, id) => sum + nodeCost(web, findUnlockNode(web, id)!), 0);
+  };
+  await grantRungs(client, accountId, "living", caravanId, await toReach("living", spec.livingNodes), cause);
+  for (const nodeId of spec.livingNodes) await spendUnlockPoints(client, accountId, { pool: "living", nodeId, caravanId });
+  await grantRungs(client, accountId, "siege", null, await toReach("siege", spec.siegeNodes), cause);
+  for (const nodeId of spec.siegeNodes) await spendUnlockPoints(client, accountId, { pool: "siege", nodeId, caravanId: null });
+  // Roster: fresh instances for this spec; the party is saved over them, then any older instance goes.
+  const ids: string[] = [];
+  for (const u of spec.units) ids.push((await createUnitInstance(client, { caravanId, unitTypeId: u.typeId, mergeLevel: u.mergeLevel })).id);
+  const view = await saveParty(client, accountId, authoredPartyConfig(spec, ids));
+  if (!view.valid) throw new Error(`authored party ${spec.username} does not resolve: ${view.issues.map((i) => i.message).join("; ")}`);
+  await client.query("DELETE FROM unit_instance WHERE caravan_id = $1 AND NOT (id = ANY($2::uuid[]))", [caravanId, ids]);
+  await client.query(
+    `INSERT INTO authored_party (account_id, set_version, spec_hash) VALUES ($1, $2, $3)
+     ON CONFLICT (account_id) DO UPDATE SET set_version = EXCLUDED.set_version, spec_hash = EXCLUDED.spec_hash, updated_at = now()`,
+    [accountId, AUTHORED_SET_VERSION, specHash(spec)],
+  );
+}
+
+/**
+ * Create every authored party that does not exist yet and bring every existing one up to
+ * the current set (idempotent: an account whose recorded spec hash matches is left alone).
+ * Each party is created or updated in its own transaction. Runs as the app role (the seed
+ * script's connection): everything it writes goes through the ordinary services and the
+ * ledger. Refuses, rather than fixes, a `sys_outfit_` account that is not a system account.
+ */
+/**
+ * The causation id for one application of a spec to an account: deterministic from stored
+ * state (how many applications this account has seen), so a retried seed cannot re-append
+ * and a second content drop gets its own cause.
+ */
+async function nextAuthoredCause(client: pg.PoolClient, accountId: string, hash: string): Promise<string> {
+  const res = await client.query<{ n: string }>("SELECT count(DISTINCT split_part(causation_id, ':', 3))::text AS n FROM ledger_event WHERE account_id = $1 AND causation_id LIKE $2", [accountId, `authored:${accountId}:%`]);
+  return `authored:${accountId}:${res.rows[0]!.n}:${hash.slice(0, 16)}`;
+}
+
 export async function seedAuthoredParties(pool: pg.Pool): Promise<SeedAuthoredResult> {
-  const out: SeedAuthoredResult = { created: [], existing: [] };
+  const out: SeedAuthoredResult = { version: AUTHORED_SET_VERSION, created: [], updated: [], existing: [] };
+  await reassertSystemAccounts(pool);
+  // One discarded random secret per run: no system account has a usable password, and one hash is cheaper than a hundred.
+  const passwordHash = await hashPassword(randomBytes(32).toString("base64"));
   for (const spec of authoredPartySpecs()) {
-    if (await findAccountByUsername(pool, spec.username)) {
-      out.existing.push(spec.username);
+    const existing = await findAccountByUsername(pool, spec.username);
+    if (existing) {
+      if (!existing.is_system) throw new Error(`account '${spec.username}' exists but is not a system account; refusing to seed over it`);
+      const rec = await pool.query<{ spec_hash: string; set_version: number }>("SELECT spec_hash, set_version FROM authored_party WHERE account_id = $1", [existing.id]);
+      if (rec.rows[0]?.spec_hash === specHash(spec) && rec.rows[0].set_version === AUTHORED_SET_VERSION) {
+        out.existing.push(spec.username);
+        continue;
+      }
+      await withTransaction(pool, async (client) => {
+        const caravan = await client.query<{ id: string }>("SELECT id FROM caravan WHERE account_id = $1 ORDER BY created_at LIMIT 1", [existing.id]);
+        if (!caravan.rows[0]) throw new Error(`system account '${spec.username}' has no caravan`);
+        await applyAuthoredSpec(client, spec, existing.id, caravan.rows[0].id, await nextAuthoredCause(client, existing.id, specHash(spec)));
+      });
+      out.updated.push(spec.username);
       continue;
     }
-    const passwordHash = await hashPassword(randomBytes(32).toString("base64"));
     await withTransaction(pool, async (client) => {
       const account = await createAccount(client, { username: spec.username, passwordHash });
+      // Before the account owns anything: migration 011 permits this transition only now.
       await client.query("UPDATE account SET is_system = true WHERE id = $1", [account.id]);
       await createHomeTown(client, account.id);
       await createStandingParty(client, account.id);
-      await createAccountPoolProgress(client, account.id, "trap");
-      await client.query("INSERT INTO pool_progress (pool, account_id, reputation) VALUES ('siege', $1, $2)", [account.id, spec.rating]);
-      const caravan = await createCaravanForAccount(client, { accountId: account.id, regionId: spec.regionId, name: `Outfit ${spec.username.slice(AUTHORED_USERNAME_PREFIX.length)}` });
-      const ids: string[] = [];
-      for (const u of spec.units) ids.push((await createUnitInstance(client, { caravanId: caravan.id, unitTypeId: u.typeId, mergeLevel: u.mergeLevel })).id);
-      const view = await saveParty(client, account.id, authoredPartyConfig(spec, ids));
-      if (!view.valid) throw new Error(`authored party ${spec.username} does not resolve: ${view.issues.map((i) => i.message).join("; ")}`);
+      await client.query("INSERT INTO pool_progress (pool, account_id, reputation) VALUES ('trap', $1, $2), ('siege', $1, $2)", [account.id, TUNABLES.REPUTATION_START]);
+      const caravan = await createCaravanForAccount(client, { accountId: account.id, regionId: spec.regionId, name: spec.outfit.name });
+      await applyAuthoredSpec(client, spec, account.id, caravan.id, await nextAuthoredCause(client, account.id, specHash(spec)));
     });
     out.created.push(spec.username);
   }
   return out;
+}
+
+/**
+ * Chunk 14 QA B2: every `sys_outfit_` account must be a system account. One that is not
+ * (only possible if the flag was lost outside the migrations, which now refuse that) is
+ * re-flagged if the schema allows it — it only does for an account that owns nothing — and
+ * otherwise the seed refuses with the offending usernames, never silently continues.
+ */
+export async function reassertSystemAccounts(db: Queryable): Promise<string[]> {
+  const rows = await db.query<{ id: string; username: string }>("SELECT id, username FROM account WHERE username LIKE $1 AND NOT is_system", [`${AUTHORED_USERNAME_PREFIX}%`]);
+  const fixed: string[] = [];
+  const refused: string[] = [];
+  for (const r of rows.rows) {
+    try {
+      await db.query("UPDATE account SET is_system = true WHERE id = $1", [r.id]);
+      fixed.push(r.username);
+    } catch {
+      refused.push(r.username);
+    }
+  }
+  if (refused.length) throw new Error(`accounts under the '${AUTHORED_USERNAME_PREFIX}' prefix are not system accounts and cannot be re-flagged: ${refused.join(", ")}`);
+  return fixed;
+}
+
+/** The outfit behind a system username, for onboarding copy (chunk 24) and the feed. */
+export function authoredOutfitFor(username: string): AuthoredOutfit | undefined {
+  return authoredPartySpecs().find((s) => s.username === username)?.outfit;
 }

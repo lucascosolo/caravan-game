@@ -1876,3 +1876,67 @@ fix). AGENTS.md's resolver test count updated (119).
 hand-calculation, the exact-boundary tests (leash, aggro, reach, ring cell), the trap sweep
 at high speed, and whether anything in `posted.ts` / `combat.ts` reads beyond `state` and
 `log`.
+### 2026-10-11 — Chunk 25 (cold-start content: authored standing parties): `not started` → `built`
+
+**Built** in worktree `agent-ad0a505821b382d9a` off `roadmap/phase-2-spec` @ `1b8ad8a`
+(Record chunk 14 QA punch list). Grows chunk 14's 12-party seam into the full authored set
+and closes the six chunk 14 QA items assigned to this chunk (B1, B2, S4, S5, N1, N2 —
+`roadmap/qa/14-punchlist.md`, all `[closed]`).
+
+- **The set** (`apps/server/src/matchmaking/authored.ts`, names and flavour in
+  `authoredOutfits.ts`): 96 parties, 12 per display band for bands 0–7 — the band list is
+  derived from `REPUTATION_FLOOR` (100) and the new tunable `AUTHORED_REPUTATION_CEILING`
+  (2200), never listed. Per band: three parties per region, each region with a 1-, 2- and
+  4-edge split; four stance patterns (all-nearest, all-traps, all-core, mixed); a siege
+  loadout from a ladder of twelve combos gated by band. Size (3→8), merge level (1→5),
+  living tier (0→4) and siege count rise with the band. Validated on first use: every band
+  full, every rating in band and above the floor, every party reachable within one capped
+  ladder per pool, every region / stance / edge split per band, every siege piece and
+  every living type somewhere in the set, usernames unique and ≤ 32 chars, no Indigenous
+  content (test regex over the outfit table).
+- **No bypass (GUARDRAILS §3).** A system account reaches its types the ordinary way:
+  `ladder_progress_gained` + `unlock_points_granted` per rung, then `spendUnlockPoints`.
+  Ratings go through `reputation_changed` (14-S5). `verifyProjection` is `ok` for all 96.
+- **Unmistakably system.** `is_system` set at creation and permanent (migration 010
+  trigger: false→true only while the account owns no caravan and has no events; never
+  true→false — 14-N1); login 401 whatever the password (14-B1); `sys_outfit_` reserved at
+  registration (14-N2); zero Coin and **no credit path**: `appendCoinCredits`,
+  `creditPartyWin`, `creditBankedTrip` and the trickle throw `SystemAccountCreditError`
+  (`economy/systemAccount.ts`), and a `ledger_event` BEFORE INSERT trigger refuses any
+  Coin-credit row for a system account even as a hand-written insert. Chunk 19 routes
+  `is_system` owners around the credit (destroy + record), it does not catch the error.
+- **Retire by ratio, two stages.** Chunk 14's draw-pool cap stays, now with 14-S4: authored
+  parties join narrower passes by ratio only and fill the menu only at the widest pass.
+  New second stage: the authored share of the SERVED encounters in a band (chosen rows in
+  `encounter_candidates` whose centre fell in the band, most recent
+  `AUTHORED_SERVED_SHARE_WINDOW` = 40) over `AUTHORED_PARTY_MAX_SHARE_BP` scales every
+  by-ratio allowance by `AUTHORED_OVER_SHARE_WEIGHT_BP` (2500, floored) — never below what
+  fills the menu at the widest pass. Measured at search time (`authoredShare.ts`), stored on
+  the menu row (`encounter_candidates.authored_served`, immutable), replayed from it;
+  `CandidateMenuView.authoredServed` publishes it. Integer-only; tests prove it triggers
+  after two authored encounters, weights the allowance 5 → 1, and releases at 2 of 7.
+- **Content-drop hook.** `seedAuthoredParties` is idempotent and versioned:
+  `AUTHORED_SET_VERSION` + a per-spec hash in the new `authored_party` table; a changed spec
+  is applied in place (`applyAuthoredSpec`: rating delta, further rungs/nodes, roster
+  rebuilt, party re-saved, same party row). Test applies a modified spec, then the seed
+  reports it `updated` and restores it.
+- **Migration 010** (`authored_parties`): the two triggers, `authored_served` column (+
+  the stored-menu guard extended to it, + an index), `authored_party` table. **Migration
+  009 down** now refuses while system accounts exist (14-B2); the test suite's global
+  setup empties `account` before its schema reset.
+- **Files outside the chunk's own:** `routes/auth.ts` (B1, exactly as allowed),
+  `services/onboarding.ts` (N2), `economy/coin.ts` + `trickle.ts` (the credit guard),
+  `db/types.ts` (`is_system` on `AccountRow`), `test/global-setup.ts`, and a deliberately
+  minimal edit to `matchmaking/service.ts` (compute + store + replay the served share;
+  `authoredServed` on the view) — the chunk 14 fixer owns the rest of that file. Chunk 14's
+  tests updated for S4 (fresh-database menus now fill at ±600) and the 96-party seed
+  (one 60 s test timeout).
+
+**Verification (real output):** `cd apps/server && TEST_DATABASE_URL=…/caravan_test_c25
+npx vitest run` → see the Maker's report; `test/authored.test.ts` 10 tests (seed of 96
+parties ≈ 7.5 s), `matchmaking-pure.test.ts` 21. `pnpm typecheck`, `pnpm lint`,
+`pnpm test:boundary` clean.
+
+**Next:** adversarial QA of chunk 25 against GUARDRAILS §0/§1/§3 and PHASE-2 §25's checks
+(amended per 14-D3); chunk 24 (onboarding) and chunk 19 (destroy Coin lost to `is_system`
+owners) build on this.

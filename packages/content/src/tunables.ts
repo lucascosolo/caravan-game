@@ -458,6 +458,35 @@ export const TUNABLES = {
   SANDBAG_EARN_MULT_MIN: fpMilli(250),
 
   // ────────────────────────────────────────────────────────────────────────────────────
+  // Chunk 25 — authored cold-start parties (PHASE-2 §25). System-owned standing parties,
+  // the SAME object as any player's, so the pool is never empty. These numbers shape only
+  // how many exist and how often they are served; nothing here reaches the resolver.
+  // ────────────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * TUNABLE (chunk 25). The highest Reputation the authored set covers: parties exist for
+   * every display band from the one holding REPUTATION_FLOOR to the one holding this. The
+   * expected ceiling of play; raise it (and the set regenerates) if players climb past it.
+   */
+  AUTHORED_REPUTATION_CEILING: 2200,
+  /** TUNABLE (chunk 25). Authored parties per display band. PHASE-2 §25 asks for at least 12. */
+  AUTHORED_PARTIES_PER_BAND: 12,
+  /**
+   * TUNABLE (chunk 25). Retire-by-ratio, second stage: the most recent N SERVED encounters
+   * (chosen candidates in encounter_candidates) whose band centre fell in a display band
+   * are the rolling window over which that band's authored served share is measured
+   * against AUTHORED_PARTY_MAX_SHARE_BP. Counted from stored rows: deterministic, replayable.
+   */
+  AUTHORED_SERVED_SHARE_WINDOW: 40,
+  /**
+   * TUNABLE (chunk 25). When a band's authored served share is over the cap, the by-ratio
+   * authored allowance of a draw in that band is scaled by this many basis points (so 2500
+   * = a quarter of the usual allowance, floored) — never below what it takes to fill the
+   * menu at the widest pass. Releases by itself as live parties are served.
+   */
+  AUTHORED_OVER_SHARE_WEIGHT_BP: 2500,
+
+  // ────────────────────────────────────────────────────────────────────────────────────
   // Chunk 16 — Coin economy and merge pricing. Coin buys PACE only (GUARDRAILS §2): nothing
   // here reaches a stat, a resolution rule, or the merge cap. Plain integer Coin amounts.
   // ────────────────────────────────────────────────────────────────────────────────────

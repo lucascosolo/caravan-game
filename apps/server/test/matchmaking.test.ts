@@ -549,7 +549,7 @@ describe("authored fallback (PHASE-2 §25 seam)", () => {
     expect(sys.rows.every((r) => r.is_system)).toBe(true);
     const login = await app.inject({ method: "POST", url: "/auth/login", payload: { username: sys.rows[0]!.username, password: "password" } });
     expect(login.statusCode).toBe(401);
-  });
+  }, 60_000); // chunk 25: the full set is 96 parties, ~8 s to seed through the ledger
 
   it("a fresh player pushed to encounter 6 is paid in full on every candidate (QA S3); only the outside-band fallback can still be floored, and the menu says so", async () => {
     // Fresh account: living Reputation at REPUTATION_START, never set by the test. Encounter 6

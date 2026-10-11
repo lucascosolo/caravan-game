@@ -89,14 +89,51 @@ export function bandCentre(index: number): number {
   return TUNABLES.REPUTATION_FLOOR + index * BAND_SPAN + Math.floor(BAND_SPAN / 2);
 }
 
+export const AUTHORED_SERVED_SHARE_WINDOW: number = TUNABLES.AUTHORED_SERVED_SHARE_WINDOW;
+export const AUTHORED_OVER_SHARE_WEIGHT_BP: number = TUNABLES.AUTHORED_OVER_SHARE_WEIGHT_BP;
+if (!Number.isInteger(AUTHORED_SERVED_SHARE_WINDOW) || AUTHORED_SERVED_SHARE_WINDOW < 1) throw new Error("TUNABLES.AUTHORED_SERVED_SHARE_WINDOW must be a positive integer");
+if (!Number.isInteger(AUTHORED_OVER_SHARE_WEIGHT_BP) || AUTHORED_OVER_SHARE_WEIGHT_BP < 0 || AUTHORED_OVER_SHARE_WEIGHT_BP > BP_ONE) throw new Error("TUNABLES.AUTHORED_OVER_SHARE_WEIGHT_BP must be 0..10000");
+
 /**
- * AUTHORED_PARTY_MAX_SHARE: how many authored parties may join a draw that holds `live`
- * live parties: floor(live × share / (1 − share)), so authored ≤ share of the pool — but
- * never fewer than it takes to reach CANDIDATES_PER_SEARCH.
+ * Retire-by-ratio, second stage (chunk 25): the authored share of the encounters SERVED in
+ * one display band, over the most recent AUTHORED_SERVED_SHARE_WINDOW chosen candidates
+ * whose search centre fell in that band. Read from encounter_candidates at search time
+ * (matchmaking/authoredShare.ts) and stored with the menu, so the draw replays from the
+ * row. `served` ≤ window; `authored` ≤ served.
  */
-export function authoredAllowance(live: number, candidates: number = CANDIDATES_PER_SEARCH): number {
+export interface AuthoredServedShare {
+  readonly band: number;
+  readonly window: number;
+  readonly served: number;
+  readonly authored: number;
+}
+
+/** Whether a band's authored served share is over AUTHORED_PARTY_MAX_SHARE_BP. Integer compare; an empty window is never over. */
+export function authoredOverShare(share: AuthoredServedShare | null | undefined): boolean {
+  if (!share) return false;
+  if (!Number.isInteger(share.served) || !Number.isInteger(share.authored) || share.served < 0 || share.authored < 0 || share.authored > share.served) {
+    throw new RangeError("authored served share must be whole counts with authored ≤ served");
+  }
+  return share.served > 0 && share.authored * BP_ONE > share.served * AUTHORED_PARTY_MAX_SHARE_BP;
+}
+
+/**
+ * AUTHORED_PARTY_MAX_SHARE, first stage (the draw-pool cap): how many authored parties may
+ * join a draw that holds `live` live parties: floor(live × share / (1 − share)), so
+ * authored ≤ share of the pool. When the band is over its SERVED share (second stage) that
+ * allowance is scaled by AUTHORED_OVER_SHARE_WEIGHT_BP, floored — authored parties are
+ * weighted down, not switched off, and the weight lifts by itself once live parties have
+ * been served enough to bring the share back under the cap.
+ *
+ * `fill` (chunk 14 QA S4): only the WIDEST pass may let authored parties fill the menu up
+ * to `candidates`. Narrower passes widen first, with authored parties by ratio only, so
+ * live parties one step wider are preferred over authored ones in band.
+ */
+export function authoredAllowance(live: number, candidates: number = CANDIDATES_PER_SEARCH, opts: { fill?: boolean; overShare?: boolean } = {}): number {
   if (!Number.isInteger(live) || live < 0) throw new RangeError("live must be a non-negative integer");
-  const byRatio = Math.floor((live * AUTHORED_PARTY_MAX_SHARE_BP) / (BP_ONE - AUTHORED_PARTY_MAX_SHARE_BP));
+  let byRatio = Math.floor((live * AUTHORED_PARTY_MAX_SHARE_BP) / (BP_ONE - AUTHORED_PARTY_MAX_SHARE_BP));
+  if (opts.overShare) byRatio = Math.floor((byRatio * AUTHORED_OVER_SHARE_WEIGHT_BP) / BP_ONE);
+  if (opts.fill === false) return byRatio;
   return Math.max(byRatio, candidates - live, 0);
 }
 
@@ -146,6 +183,8 @@ export interface SelectionInput {
   /** Parties to skip (they did not resolve when snapshotted). Replay input. */
   readonly skipped?: ReadonlySet<string>;
   readonly count?: number;
+  /** The band's authored served share at search time (chunk 25). Replay input; absent/null = not weighted. */
+  readonly authoredServed?: AuthoredServedShare | null;
 }
 
 export interface SelectionPass {
@@ -164,6 +203,8 @@ export interface SelectionResult {
   passes: SelectionPass[];
   /** True when the menu needed authored parties from OUTSIDE the widest band. */
   usedAuthoredFallback: boolean;
+  /** Chunk 25: the band was over its authored served share, so authored allowances were weighted down. */
+  authoredWeightedDown: boolean;
 }
 
 function sortedById(entries: readonly PoolEntry[]): PoolEntry[] {
@@ -193,11 +234,16 @@ function seededTake<T>(items: T[], state: number, take: number): { picked: T[]; 
  * The draw. For each half-width in bandWidths(): the live parties in band plus up to
  * authoredAllowance(live) authored parties in band (seeded choice when more are in band)
  * form the eligible set; if it holds at least `count`, `count` are drawn from it (seeded)
- * and the search ends. If no width fills the menu, EMPTY_POOL_BEHAVIOR: everything in the
- * widest band, then authored parties outside it nearest the centre first (ties by party
- * id), until the menu is full — or until the pool runs out, in which case fewer are
- * returned and the caller reports an unservable pool. Pure and deterministic: the same
- * (pool, seed, centre, skipped) always yields the same picks, whatever order `pool` came in.
+ * and the search ends. Narrower passes admit authored parties BY RATIO ONLY (chunk 14 QA
+ * S4): a thin band widens before authored parties fill it, so a live party one step wider
+ * beats an authored one in band; only the widest pass lets authored parties fill the menu.
+ * If the band is over its authored SERVED share (`authoredServed`, chunk 25) every
+ * allowance is weighted down by AUTHORED_OVER_SHARE_WEIGHT_BP. If no width fills the menu,
+ * EMPTY_POOL_BEHAVIOR: everything in the widest band, then authored parties outside it
+ * nearest the centre first (ties by party id), until the menu is full — or until the pool
+ * runs out, in which case fewer are returned and the caller reports an unservable pool.
+ * Pure and deterministic: the same (pool, seed, centre, skipped, authoredServed) always
+ * yields the same picks, whatever order `pool` came in.
  */
 export function selectCandidates(input: SelectionInput): SelectionResult {
   const count = input.count ?? CANDIDATES_PER_SEARCH;
@@ -210,11 +256,14 @@ export function selectCandidates(input: SelectionInput): SelectionResult {
   const passes: SelectionPass[] = [];
   let state = input.seed >>> 0;
   const widths = bandWidths();
-  for (const width of widths) {
+  const overShare = authoredOverShare(input.authoredServed);
+  for (let k = 0; k < widths.length; k++) {
+    const width = widths[k]!;
+    const fill = k === widths.length - 1;
     const inBand = pool.filter((p) => Math.abs(p.rating - input.centre) <= width);
     const live = inBand.filter((p) => !p.authored);
     const authored = inBand.filter((p) => p.authored);
-    const allowed = Math.min(authored.length, authoredAllowance(live.length, count));
+    const allowed = Math.min(authored.length, authoredAllowance(live.length, count, { fill, overShare }));
     passes.push({ width, live: live.length, authoredInBand: authored.length, authoredAllowed: allowed });
     let eligible = live;
     if (allowed > 0) {
@@ -224,7 +273,7 @@ export function selectCandidates(input: SelectionInput): SelectionResult {
     }
     if (eligible.length >= count) {
       const draw = seededTake(eligible, state, count);
-      return { picks: draw.picked, bandWidthUsed: width, passes, usedAuthoredFallback: false };
+      return { picks: draw.picked, bandWidthUsed: width, passes, usedAuthoredFallback: false, authoredWeightedDown: overShare };
     }
   }
   // Fallback: the widest band in full, then authored parties beyond it, nearest first.
@@ -235,5 +284,5 @@ export function selectCandidates(input: SelectionInput): SelectionResult {
     .sort((a, b) => Math.abs(a.rating - input.centre) - Math.abs(b.rating - input.centre) || (a.partyId < b.partyId ? -1 : 1));
   const filler = outside.slice(0, Math.max(0, count - inBand.length));
   const draw = seededTake(sortedById([...inBand, ...filler]), state, count);
-  return { picks: draw.picked, bandWidthUsed: widest, passes, usedAuthoredFallback: filler.length > 0 };
+  return { picks: draw.picked, bandWidthUsed: widest, passes, usedAuthoredFallback: filler.length > 0, authoredWeightedDown: overShare };
 }

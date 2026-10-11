@@ -14,6 +14,8 @@ import { createCaravanForAccount } from "./caravans.js";
 import { badRequest, conflict } from "./errors.js";
 
 const USERNAME_RE = /^[a-z0-9_]+$/;
+/** Chunk 25 (chunk 14 QA N2): the authored system accounts' handle prefix; no player may register under it. */
+export const RESERVED_USERNAME_PREFIX = "sys_outfit_";
 
 export function normalizeUsername(raw: string): string {
   const username = raw.trim().toLowerCase();
@@ -44,6 +46,9 @@ export async function registerAccount(
   input: { username: string; password: string; regionId: string; caravanName?: string },
 ): Promise<{ account: AccountRow; caravan: CaravanRow }> {
   const username = normalizeUsername(input.username);
+  if (username.startsWith(RESERVED_USERNAME_PREFIX)) {
+    throw badRequest("reserved_username", `usernames starting with '${RESERVED_USERNAME_PREFIX}' are reserved`);
+  }
   if (
     typeof input.password !== "string" ||
     input.password.length < PASSWORD_MIN ||

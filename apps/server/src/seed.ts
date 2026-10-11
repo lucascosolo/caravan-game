@@ -38,10 +38,11 @@ for (const u of SEED_UNIT_TYPES) {
 async function main(): Promise<void> {
   const pool = createPool();
   try {
-    // Chunk 14: the authored cold-start parties (PHASE-2 §25), so a fresh database serves
-    // three scoutable candidates from the first search. Idempotent.
+    // Chunk 25: the authored cold-start parties (PHASE-2 §25), so a fresh database serves
+    // three scoutable candidates at every band from the first search. Idempotent and
+    // versioned: a changed set (a content drop) updates existing parties in place.
     const authored = await seedAuthoredParties(pool);
-    console.log(`Authored parties: ${authored.created.length} created, ${authored.existing.length} already present.`);
+    console.log(`Authored parties (set v${authored.version}): ${authored.created.length} created, ${authored.updated.length} updated, ${authored.existing.length} already current.`);
     const existing = await findAccountByUsername(pool, SEED_USERNAME);
     if (existing) {
       const caravans = await listCaravansForAccount(pool, existing.id);

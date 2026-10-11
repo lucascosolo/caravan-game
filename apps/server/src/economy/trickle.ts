@@ -28,6 +28,7 @@ import type pg from "pg";
 import { withTransaction, type Queryable } from "../db/pool.js";
 import type { CoinPayload, LedgerEventDraft } from "../ledger/events.js";
 import { appendEvents, lockAccountForAppend } from "../ledger/ledger.js";
+import { SystemAccountCreditError } from "./systemAccount.js";
 
 export const TRICKLE_REASON = "trickle";
 
@@ -171,12 +172,14 @@ export async function accrueTrickleTx(
   opts: { force?: boolean } = {},
 ): Promise<TrickleAccrual> {
   await lockAccountForAppend(client, accountId);
-  const acct = await client.query<{ coin_balance: number; coin_storage_cap: number }>(
-    "SELECT coin_balance, coin_storage_cap FROM account WHERE id = $1 FOR UPDATE",
+  const acct = await client.query<{ coin_balance: number; coin_storage_cap: number; is_system: boolean }>(
+    "SELECT coin_balance, coin_storage_cap, is_system FROM account WHERE id = $1 FOR UPDATE",
     [accountId],
   );
   const row = acct.rows[0];
   if (!row) throw new Error(`account ${accountId} not found`);
+  // Chunk 25: a system account has no mine and no trickle; nothing may mint Coin onto it.
+  if (row.is_system) throw new SystemAccountCreditError(accountId);
   const accruedFromMs = await readTrickleAccrualPoint(client, accountId);
   const calc = computeTrickle({ accruedFromMs, nowMs, balance: row.coin_balance, cap: row.coin_storage_cap });
   const write = calc.credited > 0 && (calc.shouldMaterialize || opts.force === true);

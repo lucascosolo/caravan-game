@@ -10,6 +10,8 @@ export interface AccountRow {
   coin_balance: number;
   coin_storage_cap: number;
   created_at: Date;
+  /** Chunk 14/25: a non-player owner of authored cold-start parties. Never logs in, never holds Coin. */
+  is_system: boolean;
 }
 
 export interface CaravanRow {

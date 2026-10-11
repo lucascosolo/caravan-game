@@ -13,6 +13,10 @@ export default async function setup(): Promise<void> {
   const url = resolveTestDatabaseUrl();
   const pool = createPool(url);
   try {
+    // Chunk 25: migration 009 refuses to roll back while system accounts exist (chunk 14
+    // QA B2), so a database that held authored parties from an earlier run is emptied
+    // first — DELETE, not TRUNCATE, so the schema's guards see the owner leave first.
+    if ((await pool.query("SELECT to_regclass('account') AS t")).rows[0]?.t) await pool.query("DELETE FROM account");
     await migrateReset(pool);
     await applyRoles(pool);
   } finally {

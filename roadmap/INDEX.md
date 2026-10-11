@@ -102,7 +102,7 @@ after the ladders cap. [PHASE-2.md](PHASE-2.md) specs all of that, in three grou
 | B. Replayability systems | 39–45 | Each needs a short PROJECT.md amendment first. |
 | C. The deferred list | 46–49 | Multi-caravan, prestige, recycling, campaign (research-gated). After A is `done`. |
 
-Status notes: **21** (build, CI, deploy pipeline) — `done` 2026-10-11 — verified by the live workflow runs on this branch (runs 2–5 green; run 6 red on the known chunk 16/03 ordering issue, fixed in 0b1d787). Deploy step deferred until a hosting target is chosen.
+Status notes: **21** (build, CI, deploy pipeline) — `done` 2026-10-11 — verified by the live workflow runs on this branch (runs 2–5 green; run 6 red on the known chunk 16/03 ordering issue, fixed in 0b1d787). Deploy step deferred until a hosting target is chosen. **25** (cold-start content: authored standing parties) — `built` 2026-10-11 — 96 system-owned parties across bands 0–7, served-share retirement, system-account guards; closes chunk 14 QA B1/B2/S4/S5/N1/N2. See PHASE-2.md §25 and ORCHESTRATION.md.
 
 Status for these chunks is tracked in PHASE-2.md until a chunk is assigned, at which
 point it gets its own `chunks/NN-*.md` brief and a row in the table above.
