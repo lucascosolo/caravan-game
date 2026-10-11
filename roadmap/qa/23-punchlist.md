@@ -122,3 +122,11 @@ Out of scope, noted: "Watch the fight" disabled (chunk 22); fights through the d
 13); the store fixture's calendar week did not bite in this run. Chunk 15 QA D3
 (`resolver_unavailable` start refusal) has not landed. When it does, it must skip when the inline
 test resolver is installed (ORCHESTRATION chunk 23 note), or `pnpm e2e` breaks.
+
+## Orchestrator decisions (2026-10-11)
+
+- **D1: accepted.** The Bank card and the overrun card each list their own affected units, one line per unit with its level change (for example "Dust Rider L4 → L3"), so the two choices can be compared side by side. The bank confirm restates the bank list, and the summary repeats what was applied.
+- **D2: show both.** Show where lost Coin goes (`coinGoesTo`), worded for the player ("to the raiders' owner" or "lost to the trail"). Show that a unit dying in the final fight is de-merged rather than lost. "Lost outright (alive now)" must not overstate the loss.
+- **D3: extend the e2e, do not amend the definition of done.** `trip.spec.ts` banks after three encounters. The de-merge and overrun paths are covered by web tests fed from server-generated contract fixtures (add a contract case with a death, a de-merge on bank and an overrun), not by hand-built shapes. Chunk 13 is now wired, so the e2e still uses `CARAVAN_TEST_RESOLVER=double` for predictable outcomes. The double may need a per-encounter script (for example, kill a unit at encounter 2) to produce a death the e2e can see.
+- **N5: fix.** Move the test double into `apps/server/src/dev/` so the production bundle no longer imports from `test/`. The test files import it from there. The production refusal stays.
+- Every S and N item is in scope for the fixer.
