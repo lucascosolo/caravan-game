@@ -58,6 +58,15 @@ let FROZEN_MS = 0;
 const FIXED_MS = 1_790_000_000_000;
 /** Durations measured against the database's clock: the value jitters by a few ms run to run. */
 const JITTER_KEYS = /InMs$/;
+/** Ledger sequence numbers depend on how many events earlier test files wrote to the shared database. */
+const SEQ_KEYS = /^(seq|[a-z]+Seq)$/;
+
+function collectSeqs(v: unknown, key: string, out: Set<number>): Set<number> {
+  if (typeof v === "number" && SEQ_KEYS.test(key)) out.add(v);
+  else if (Array.isArray(v)) for (const x of v) collectSeqs(x, key, out);
+  else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) collectSeqs(x, k, out);
+  return out;
+}
 
 /** Is this number an epoch-ms instant (the frozen clock ± a few years)? */
 const isEpochMs = (v: number): boolean => Number.isInteger(v) && Math.abs(v - FROZEN_MS) < 5 * 365 * 86_400_000;
@@ -93,6 +102,8 @@ function collectEpochs(v: unknown, out: Set<number>): Set<number> {
 function normalise(body: unknown): unknown {
   const epochs = [...collectEpochs(body, new Set())].sort((a, b) => a - b);
   const rank = new Map(epochs.map((v, i) => [v, FIXED_MS + i * 60_000]));
+  const seqs = [...collectSeqs(body, "", new Set())].sort((a, b) => a - b);
+  const seqRank = new Map(seqs.map((v, i) => [v, i + 1]));
   const uuids = new Map<string, string>();
   const hexes = new Map<string, string>();
   const isos = new Map<string, string>();
@@ -117,6 +128,7 @@ function normalise(body: unknown): unknown {
         return uuids.get(m)!;
       });
     }
+    if (typeof v === "number" && SEQ_KEYS.test(key) && seqRank.has(v)) return seqRank.get(v)!;
     if (typeof v === "number") return isEpochMs(v) ? rank.get(v)! : JITTER_KEYS.test(key) && v > 0 ? 1_000 : v;
     if (Array.isArray(v)) return v.map((x) => walk(x, key));
     if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x, k)]));

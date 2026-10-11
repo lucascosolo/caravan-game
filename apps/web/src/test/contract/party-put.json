@@ -99,9 +99,23 @@
             "ability": {
               "archetype": "dash",
               "displayName": "Spur On",
-              "description": "Surges 3.5 cells along its path.",
+              "description": "Surges 3.5 cells along its path. First use after 9 s.",
               "cooldown": 9000,
               "distance": 3584
+            },
+            "abilityDisplay": {
+              "archetype": "dash",
+              "cooldownSeconds": "9",
+              "firstUseSeconds": "9",
+              "reachCells": null,
+              "damageMultiplier": null,
+              "healPercent": null,
+              "healCeiling": null,
+              "charges": null,
+              "buffPercent": null,
+              "buffSeconds": null,
+              "dashCells": "3.5",
+              "fenceHitCapPercent": null
             }
           },
           {
@@ -132,9 +146,23 @@
             "ability": {
               "archetype": "structure_breaker",
               "displayName": "Pick Swing",
-              "description": "A full-weight swing at a fence segment for 4.5× a normal hit — never more than half a segment in one blow.",
+              "description": "A full-weight swing at a fence segment for 4.5× a normal hit; with its normal hit it takes at most half a segment's max HP per tick. First use after 3 s.",
               "cooldown": 12000,
               "fenceDamageMult": 4608
+            },
+            "abilityDisplay": {
+              "archetype": "structure_breaker",
+              "cooldownSeconds": "12",
+              "firstUseSeconds": "3",
+              "reachCells": null,
+              "damageMultiplier": "4.5",
+              "healPercent": null,
+              "healCeiling": null,
+              "charges": null,
+              "buffPercent": null,
+              "buffSeconds": null,
+              "dashCells": null,
+              "fenceHitCapPercent": "50"
             }
           }
         ],
