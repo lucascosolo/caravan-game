@@ -24,18 +24,18 @@
       {
         "seq": 1,
         "occurredAt": "2026-10-11T12:00:01.000Z",
-        "jobId": "encounter:00000000-0000-4000-8000-000000000002:1",
-        "encounterIndex": 1,
+        "jobId": "encounter:00000000-0000-4000-8000-000000000002:2",
+        "encounterIndex": 2,
         "outcomeKind": "caravan_held",
         "defender": {
           "username": "contract_player",
           "caravanName": "Caravan",
           "regionId": "desert"
         },
-        "coinEarned": 353,
+        "coinEarned": 476,
         "coinTransferred": 0,
         "coinDiscardedAtCap": 0,
-        "reputationDelta": -15,
+        "reputationDelta": -14,
         "ladderPointsGained": 10
       }
     ]

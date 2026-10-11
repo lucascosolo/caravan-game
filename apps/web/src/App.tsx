@@ -70,7 +70,7 @@ function Routed(): JSX.Element {
   const welcome = onboarding?.step === "welcome";
   if (welcome) screen = <WelcomeScreen api={api} />;
   return (
-    <AppShell route={route === "login" || route === "packs" || route === "cosmetics" ? "town" : route} username={session.account.username} onSignOut={() => void signOut()}>
+    <AppShell route={route === "login" || route === "packs" || route === "cosmetics" ? "town" : route} username={session.account.username} onSignOut={() => void signOut()} hideTabs={welcome}>
       {!welcome && <ShellGuide api={api} route={route} onPartySaved={() => setPartyEpoch((n) => n + 1)} />}
       <Suspense
         fallback={

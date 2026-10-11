@@ -7,7 +7,10 @@ import onboardingJson from "../test/contract/onboarding.json";
 import { onboardingShape } from "./shapes.ts";
 import { prefillParty, stepForFacts } from "./ShellGuide.tsx";
 import { ONBOARDING_STEPS } from "./steps.ts";
-import { showsAt, smallestCandidate, stepForMoment } from "./TrailGuide.tsx";
+import { pushAdvice, showsAt, smallestCandidate, stepForMoment } from "./TrailGuide.tsx";
+import type { CandidateView } from "../api/types.ts";
+import { STRINGS } from "../strings.ts";
+import { previewAfter1 } from "../test/tripFixtures.ts";
 
 describe("the guide's step model (chunk 24)", () => {
   it("maps each Trail moment of the first trip to its step", () => {
@@ -33,27 +36,64 @@ describe("the guide's step model (chunk 24)", () => {
     expect(showsAt("bank", { kind: "ended" })).toBe(false);
   });
 
-  it("moves the town steps on from the server's state only", () => {
-    expect(stepForFacts("roster", { units: 0, tripOpen: false, lastEnd: null })).toBeNull();
-    expect(stepForFacts("roster", { units: 1, tripOpen: false, lastEnd: null })).toBe("outfit");
-    expect(stepForFacts("outfit", { units: 1, tripOpen: true, lastEnd: null })).toBe("scout");
-    expect(stepForFacts("roster", { units: 1, tripOpen: true, lastEnd: null })).toBe("scout");
-    expect(stepForFacts("arrange", { units: 1, tripOpen: false, lastEnd: "overrun" })).toBe("party");
-    expect(stepForFacts("party", { units: 0, tripOpen: false, lastEnd: "banked" })).toBeNull();
+  it("moves the town steps on from the server's state only; the roster step waits for a refugee claim, not a unit (every caravan starts with some)", () => {
+    expect(stepForFacts("roster", { refugeeClaimed: false, tripOpen: false, lastEnd: null })).toBeNull();
+    expect(stepForFacts("roster", { refugeeClaimed: true, tripOpen: false, lastEnd: null })).toBe("outfit");
+    expect(stepForFacts("outfit", { refugeeClaimed: false, tripOpen: true, lastEnd: null })).toBe("scout");
+    expect(stepForFacts("roster", { refugeeClaimed: false, tripOpen: true, lastEnd: null })).toBe("scout");
+    expect(stepForFacts("arrange", { refugeeClaimed: false, tripOpen: false, lastEnd: "overrun" })).toBe("party");
+    expect(stepForFacts("party", { refugeeClaimed: false, tripOpen: false, lastEnd: "banked" })).toBeNull();
   });
 
-  it("recommends the smallest served party by the scout alone: fewest raiders, then least HP, then menu order", () => {
+  it("recommends the smallest served party by the scout alone: least total HP, then fewest siege, then fewest raiders, then menu order (QA N2)", () => {
     const [a, b, c] = [fixtureCandidate(1), fixtureCandidate(2), fixtureCandidate(3)];
-    const pick = smallestCandidate([b, c, a]);
-    expect(pick).toEqual({ index: 2, raiders: 3, hp: a.scout.units.reduce((n, u) => n + u.hp, 0) });
+    const hp = (x: CandidateView) => x.scout.units.reduce((n, u) => n + u.hp, 0);
+    const pick = smallestCandidate([b, c, a])!;
+    const all = [b, c, a];
+    const least = Math.min(...all.map(hp));
+    expect(pick.hp).toBe(least);
+    expect(hp(all[pick.index]!)).toBe(least);
     expect(smallestCandidate([])).toBeNull();
     expect(smallestCandidate([a, a])!.index).toBe(0);
   });
 
+  it("QA N2: Cougar Ridge (5 raiders, 3 siege, 6,049 HP) does not read smaller than Powder Thief (6 raiders, 2 siege, 3,673 HP); one strong raider does not win", () => {
+    const base = fixtureCandidate(1);
+    const unit = base.scout.units[0]!;
+    const siege = base.scout.siege[0];
+    const party = (hps: number[], nSiege: number): CandidateView => ({
+      ...base,
+      scout: { ...base.scout, units: hps.map((h, i) => ({ ...unit, ref: `u${i}`, hp: h })), siege: siege ? Array.from({ length: nSiege }, (_, i) => ({ ...siege, ref: `s${i}` })) : [] },
+    });
+    const cougar = party([1210, 1210, 1210, 1210, 1209], 3);
+    const powder = party([613, 612, 612, 612, 612, 612], 2);
+    expect(smallestCandidate([cougar, powder])!.index).toBe(1);
+    const oneBig = party([3000], 0);
+    const threeSmall = party([500, 500, 500], 0);
+    expect(smallestCandidate([oneBig, threeSmall])!.index).toBe(1);
+    // Equal HP: fewer siege pieces first, then fewer raiders.
+    expect(smallestCandidate([party([500, 500], 2), party([500, 500], 1)])!.index).toBe(1);
+    expect(smallestCandidate([party([500, 500], 1), party([1000], 1)])!.index).toBe(1);
+  });
+
+  it("QA D2: the bank-or-push advice reads the stakes — a 74/1100 survivor means bank, and no card ever says the trip pushes", () => {
+    const hurt = { ...previewAfter1(), units: previewAfter1().units.map((u, i) => (i === 0 ? { ...u, hp: 74, maxHp: 1100, alive: true } : u)) };
+    const a = pushAdvice(hurt);
+    expect(a.kind).toBe("bank");
+    const fine = { ...previewAfter1(), units: previewAfter1().units.map((u) => ({ ...u, hp: u.maxHp, alive: true })) };
+    expect(pushAdvice(fine).kind).toBe("push");
+    for (const s of Object.values(STRINGS.guide)) if (typeof s === "string") expect(s).not.toMatch(/pushes once/);
+  });
+
   it("pre-fills the standing party from the roster with the builder's defaults, never past the cap, never a locked type", () => {
     const view = expectShape(partyShape, partyJson.body).party;
-    // The recorded party already fields its roster: nothing to add.
-    expect(prefillParty(view)).toBeNull();
+    // A party that already fields every unlocked roster unit: nothing to add.
+    const full = { ...view, config: { ...view.config, units: prefillParty({ ...view, config: { ...view.config, units: [] } })!.units } };
+    expect(prefillParty(full)).toBeNull();
+    // The recorded party (which the starting roster, chunk 24 QA D1, outnumbers) keeps its own and adds the rest.
+    const topped = prefillParty(view)!;
+    expect(topped.units.slice(0, view.config.units.length)).toEqual(view.config.units);
+    expect(new Set(topped.units.map((u) => u.ref))).toEqual(new Set(view.roster.filter((r) => r.unlocked).map((r) => r.instanceId).slice(0, view.caps.units)));
     const empty = { ...view, config: { ...view.config, units: [] } };
     const filled = prefillParty(empty)!;
     expect(filled.units.map((u) => u.ref)).toEqual(view.roster.filter((r) => r.unlocked).map((r) => r.instanceId).slice(0, view.caps.units));

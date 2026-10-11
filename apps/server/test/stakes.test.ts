@@ -42,6 +42,7 @@ import { redactForeignAccountIds } from "../src/routes/ledger.js";
 import { applyEarnFloor, chosenEncounterTerms, mergeLevelAfterDeath, planUnitLosses, transferCausationId } from "../src/trip/stakes.js";
 import { partyLoot } from "../src/trip/loot.js";
 import { appRolePool, testPool, truncateAll, unique } from "./helpers.js";
+import { besidesStartingRoster } from "./starting-roster-helpers.js";
 import { rebuildMixed, rebuildPlan, weeklyFreeEarn } from "../../../scripts/balance/model.js";
 import { doubleHandlers, type EncounterPlan } from "../src/dev/tripDouble.js";
 
@@ -246,8 +247,9 @@ async function byCausation(causationId: string): Promise<LedgerEventRow[]> {
   return (await pool.query<LedgerEventRow>("SELECT * FROM ledger_event WHERE causation_id = $1 ORDER BY causation_seq", [causationId])).rows;
 }
 
+/** The roster this suite built: every caravan's starting roster (chunk 24 QA D1) left out. */
 async function roster(caravanId: string): Promise<{ id: string; unit_type_id: string; merge_level: number }[]> {
-  return (await pool.query("SELECT id, unit_type_id, merge_level FROM unit_instance WHERE caravan_id = $1 ORDER BY id", [caravanId])).rows;
+  return besidesStartingRoster(pool, caravanId, (await pool.query("SELECT id, unit_type_id, merge_level FROM unit_instance WHERE caravan_id = $1 ORDER BY id", [caravanId])).rows);
 }
 
 async function levelOf(id: string): Promise<number | null> {

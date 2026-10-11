@@ -513,9 +513,16 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
       // Chunk 23: commit through the trip loop, which freezes the circle (chunk 07) and queues
       // its resolution against the chosen, scouted party in one transaction; then re-read it.
       await api.commitEncounter(caravanId, encounterIndex);
-      const res = (await api.formation(caravanId, encounterIndex)).formation;
-      setSaved(res);
-      setFormation(res.formation);
+      // Chunk 24 QA S5: the fight may already have resolved and ended the trip (a fast overrun
+      // closes the manifest), so the re-read can 404. The commit stood; the Trail re-reads its
+      // own state from the server and moves on to the result or the summary.
+      try {
+        const res = (await api.formation(caravanId, encounterIndex)).formation;
+        setSaved(res);
+        setFormation(res.formation);
+      } catch (err) {
+        if (!(err instanceof ApiError) || err.status !== 404) throw err;
+      }
       localDrafts.delete(draftKey);
       setServerIssues([]);
       setAutosaveIssues([]);

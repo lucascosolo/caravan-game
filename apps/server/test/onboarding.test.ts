@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { startingRosterTypes } from "../src/acquisition/startingRoster.js";
 import { buildApp } from "../src/app.js";
 import { ONBOARDING_STEPS } from "../src/onboarding/steps.js";
 import { markOnboardingDone } from "../src/onboarding/service.js";
@@ -112,16 +113,42 @@ describe("onboarding (chunk 24)", () => {
     expect(back?.message).toMatch(/cannot move back/);
     const unknown = await expectDbError(appRole, "UPDATE account_onboarding SET step = 'raid' WHERE account_id = $1", [p.accountId]);
     expect(unknown?.code).toBe("23514");
+    await call(p.token, "POST", "/me/onboarding/advance", { step: "party" });
     await call(p.token, "POST", "/me/onboarding/advance", { step: "done" });
     const reopen = await expectDbError(appRole, "UPDATE account_onboarding SET completed_at = NULL, step = 'done' WHERE account_id = $1", [p.accountId]);
     expect(reopen).not.toBeNull();
+    // QA N1(b): nor by DELETE then a fresh INSERT at 'welcome' (the row only goes with its account).
+    const del = await expectDbError(appRole, "DELETE FROM account_onboarding WHERE account_id = $1", [p.accountId]);
+    expect(del?.message).toMatch(/may not be deleted while its account exists/);
+    expect((await call(p.token, "GET", "/me/onboarding")).json().onboarding).toMatchObject({ step: "done", completed: true });
+    const trunc = await expectDbError(pool, "TRUNCATE account_onboarding");
+    expect(trunc).not.toBeNull();
+    // Deleting the account still takes its row with it (the cascade fires once the account is gone).
+    const gone = await register();
+    await pool.query("DELETE FROM account WHERE id = $1", [gone.accountId]);
+    expect((await pool.query("SELECT 1 FROM account_onboarding WHERE account_id = $1", [gone.accountId])).rowCount).toBe(0);
+  });
+
+  it("QA N1(a): advancing to 'done' finishes the guide only from the party step; earlier it is refused (a skip is /skip)", async () => {
+    const p = await register();
+    const early = await call(p.token, "POST", "/me/onboarding/advance", { step: "done" });
+    expect(early.statusCode).toBe(409);
+    expect(early.json().error).toBe("onboarding_not_finished");
+    expect((await call(p.token, "GET", "/me/onboarding")).json().onboarding).toMatchObject({ step: "welcome", completed: false });
+    await call(p.token, "POST", "/me/onboarding/advance", { step: "free" });
+    expect((await call(p.token, "POST", "/me/onboarding/advance", { step: "done" })).statusCode).toBe(409);
+    await call(p.token, "POST", "/me/onboarding/advance", { step: "party" });
+    const fin = await call(p.token, "POST", "/me/onboarding/advance", { step: "done" });
+    expect(fin.statusCode).toBe(200);
+    expect(fin.json()).toMatchObject({ changed: true, onboarding: { step: "done", completed: true, skipped: false } });
   });
 
   it("walking every step grants nothing: Coin, units, unlock points and the ledger are untouched", async () => {
     const p = await register();
     const before = await holdings(p.accountId, p.caravanId);
     expect(before.coin).toBe(0);
-    expect(before.units).toBe(0);
+    // The starting roster is the caravan's from creation (chunk 24 QA D1); the guide adds nothing to it.
+    expect(before.units).toBe(startingRosterTypes("desert").length);
     for (const step of ONBOARDING_STEPS.slice(1)) {
       const r = await call(p.token, "POST", "/me/onboarding/advance", { step });
       expect(r.statusCode).toBe(200);
@@ -134,7 +161,18 @@ describe("onboarding (chunk 24)", () => {
 
   it("an account with no row (made before chunk 24, or a fixture marked done) reads as done", async () => {
     const p = await register();
-    await pool.query("DELETE FROM account_onboarding WHERE account_id = $1", [p.accountId]);
+    // An account from before chunk 24 has no row; the row cannot be deleted under the account
+    // (QA N1(b)), so the fixture lifts that guard for this one statement, as the owner.
+    const c = await pool.connect();
+    try {
+      await c.query("BEGIN");
+      await c.query("ALTER TABLE account_onboarding DISABLE TRIGGER account_onboarding_guard_delete");
+      await c.query("DELETE FROM account_onboarding WHERE account_id = $1", [p.accountId]);
+      await c.query("ALTER TABLE account_onboarding ENABLE TRIGGER account_onboarding_guard_delete");
+      await c.query("COMMIT");
+    } finally {
+      c.release();
+    }
     const res = (await call(p.token, "GET", "/me/onboarding")).json().onboarding;
     expect(res).toMatchObject({ step: "done", enrolled: false, completed: true, canSkip: false });
     const adv = await call(p.token, "POST", "/me/onboarding/advance", { step: "roster" });

@@ -18,7 +18,8 @@ import { packedManifest } from "../test/circleFixtures.ts";
 import authJson from "../test/contract/auth-login.json";
 import { CARAVAN_ID, fakeFetch, meResponse, type Call } from "../test/fixtures.ts";
 import { fakeApi, meWith } from "../test/townFixtures.ts";
-import { statusArranging, statusBanked, statusDecide, statusOverrun, statusPacked, withTrip } from "../test/tripFixtures.ts";
+import { previewAfter1, statusArranging, statusBanked, statusDecide, statusOverrun, statusPacked, statusVoided, withTrip } from "../test/tripFixtures.ts";
+import refugeesJson from "../test/contract/refugees.json";
 import { expectShape } from "../api/shape.ts";
 import { partyShape } from "../api/shapes.ts";
 import partyJson from "../test/contract/party.json";
@@ -43,7 +44,7 @@ function onboardingBody(step: OnboardingStep, skipped = false) {
 }
 
 /** A server that keeps the account's guide step, forward-only, as the real one does. */
-function server(start: OnboardingStep, opts: { units?: () => number } = {}) {
+function server(start: OnboardingStep, opts: { units?: () => number; claimed?: () => boolean } = {}) {
   let step = start;
   let skipped = false;
   const ff = fakeFetch({
@@ -67,6 +68,12 @@ function server(start: OnboardingStep, opts: { units?: () => number } = {}) {
       return { status: 200, body: { ...me, caravans: me.caravans.map((c) => ({ ...c, units: Array.from({ length: n }, (_, i) => ({ id: `u${i}`, caravan_id: CARAVAN_ID, unit_type_id: "desert.dust_rider", merge_level: 1 })) })) } };
     },
     [`GET /me/caravans/${CARAVAN_ID}/trip`]: () => ({ status: 200, body: withTrip(statusPacked(), null) }),
+    [`GET /me/caravans/${CARAVAN_ID}/refugees`]: () => {
+      const body = structuredClone(refugeesJson.body) as { caravanId: string; menu: { claimed: unknown } };
+      body.caravanId = CARAVAN_ID;
+      body.menu.claimed = opts.claimed?.() ? { unitTypeId: "desert.dust_rider", instanceId: "00000000-0000-4000-8000-0000000000aa", claimedAtMs: 1790000000500 } : null;
+      return { status: 200, body };
+    },
   });
   return { ...ff, step: () => step };
 }
@@ -93,6 +100,11 @@ describe("the first session (chunk 24)", () => {
     render(<App fetchImpl={s.fetch} />);
     await signIn();
     const welcome = await screen.findByTestId("onboarding-welcome");
+    // QA N7: the first screen comes before any tab, so no tab bar is drawn under it.
+    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
+    // QA N9: a plan, not a promise of a hold.
+    expect(welcome).toHaveTextContent("then bank if you are still standing");
+    expect(welcome.textContent).not.toMatch(/hold two encounters/i);
     expect(welcome).toHaveTextContent("You play defense, live");
     expect(welcome).toHaveTextContent("Your raid party works while you are away");
     expect(welcome).toHaveTextContent("Your town is never raided");
@@ -109,22 +121,27 @@ describe("the first session (chunk 24)", () => {
     expect(window.location.hash).toBe("#/town");
     expect(screen.getByTestId("town-screen")).toBeInTheDocument();
     expect(screen.getByTestId("guide-skip")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Main" })).toBeInTheDocument();
     expect(setItem).not.toHaveBeenCalled();
   });
 
-  it("moves from 'take a unit' to 'pack and ride out' only when the server's roster has one", async () => {
-    let units = 0;
-    const s = server("roster", { units: () => units });
+  it("moves from 'take a refugee' to 'pack and ride out' only when the server says a refugee was claimed — the starting roster alone does not", async () => {
+    let claimed = false;
+    // Every caravan starts with its starting roster (chunk 24 QA D1): units are there from the start.
+    const s = server("roster", { units: () => (claimed ? 3 : 2), claimed: () => claimed });
     window.history.replaceState(null, "", "#/town");
     render(<App fetchImpl={s.fetch} />);
     await signIn();
-    await screen.findByTestId("guide-roster");
-    // Another tab change re-reads the server: still no unit, still this step.
+    const card = await screen.findByTestId("guide-roster");
+    expect(card).toHaveTextContent("starting roster");
+    expect(card).not.toHaveTextContent("Your roster is empty");
+    // Another tab change re-reads the server: the starting roster is there, no claim yet, still this step.
     window.location.hash = "#/webs";
     await waitFor(() => expect(s.calls.filter((c) => c.path === "/me").length).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(s.calls.filter((c) => c.path.endsWith("/refugees")).length).toBeGreaterThanOrEqual(2));
     expect(screen.getByTestId("guide-roster")).toBeInTheDocument();
     expect(s.step()).toBe("roster");
-    units = 1; // the player took a refugee (the ordinary claim route; the guide grants nothing)
+    claimed = true; // the player took a refugee (the ordinary claim route; the guide grants nothing)
     window.location.hash = "#/town";
     await screen.findByTestId("guide-outfit");
     expect(s.step()).toBe("outfit");
@@ -166,6 +183,34 @@ describe("the first session (chunk 24)", () => {
     expect(screen.queryByTestId("onboarding-welcome")).toBeNull();
     expect(document.querySelector(".guide")).toBeNull();
   });
+
+  it("QA N6: one transient failure of the first read is retried, so a new account still sees the first screen; a 4xx is not retried", async () => {
+    let n = 0;
+    const flaky = vi.fn(async () => {
+      n++;
+      if (n === 1) throw new ApiError(503, "unavailable", "try again");
+      return { onboarding: onboardingBody("welcome") };
+    });
+    const api = fakeApi({ onboarding: flaky });
+    const Probe = (): JSX.Element => <ShellGuide api={api} route="town" />;
+    render(
+      <OnboardingProvider api={api} retryMs={[5, 5]}>
+        <Probe />
+      </OnboardingProvider>,
+    );
+    await waitFor(() => expect(flaky).toHaveBeenCalledTimes(2));
+    const refused = vi.fn(async () => {
+      throw new ApiError(401, "unauthorized", "no");
+    });
+    const api2 = fakeApi({ onboarding: refused });
+    render(
+      <OnboardingProvider api={api2} retryMs={[5, 5]}>
+        <ShellGuide api={api2} route="town" />
+      </OnboardingProvider>,
+    );
+    await new Promise((r) => setTimeout(r, 40));
+    expect(refused).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("the guided arrangement on the formation screen (chunk 24)", () => {
@@ -181,10 +226,16 @@ describe("the guided arrangement on the formation screen (chunk 24)", () => {
     const scout = fixtureEncounter(1);
     render(<FormationScreen api={api} caravanId="c1" trip={trip()} encounterIndex={1} initial={null} scout={scout} autosaveMs={3_600_000} guide={(g) => <ArrangeGuide {...g} scout={scout.scout} />} />);
     const guide = screen.getByTestId("guide-arrange");
-    expect(guide).toHaveTextContent("2 of the 3 raiders start on the North side");
+    // QA N3: number agreement, and edge names lower case mid-sentence.
+    expect(guide).toHaveTextContent("2 of the 3 raiders start on the north side");
     const user = userEvent.setup();
     expect(screen.getByTestId("guide-step-fence")).toHaveAttribute("data-done", "false");
+    // QA S4: the next step, and only it, is shown in full right under the circle; the rest are folded away.
+    expect(within(screen.getByTestId("guide-current")).getByTestId("guide-step-fence")).toBeInTheDocument();
+    expect(screen.getByTestId("guide-next-step")).toHaveTextContent("Step 1 of 5");
+    expect(screen.getByTestId("guide-all-steps")).not.toHaveAttribute("open");
     await user.click(screen.getByTestId("guide-do-fence"));
+    expect(within(screen.getByTestId("guide-current")).getByTestId("guide-step-post")).toBeInTheDocument();
     expect(screen.getByTestId("guide-step-fence")).toHaveAttribute("data-done", "true");
     expect(screen.getByTestId("budget-meter")).toHaveTextContent("6 of 20 segments placed");
     expect(screen.getByTestId("guide-step-gap")).toHaveAttribute("data-done", "true");
@@ -196,7 +247,9 @@ describe("the guided arrangement on the formation screen (chunk 24)", () => {
     expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-traps", "1");
     await user.click(screen.getByTestId("guide-do-rest"));
     expect(screen.getByTestId("budget-meter")).toHaveTextContent("20 of 20 segments placed");
-    expect(screen.getByTestId("guide-why")).toHaveTextContent("position 3");
+    // Every step done: "now scout why" opens in full.
+    expect(screen.getByTestId("guide-steps-done")).toBeInTheDocument();
+    expect(screen.getByTestId("guide-why")).toHaveTextContent("The 2 raiders from the north meet a fence with one way through, position 3");
     // Honest: no promise of a hold.
     expect(guide).toHaveTextContent("does not guarantee a hold");
     expect(guide.textContent).not.toMatch(/\b(base|camp)\b/i);
@@ -223,12 +276,67 @@ describe("after the first trip (chunk 24)", () => {
     );
     const card = await screen.findByTestId("guide-party");
     expect(advance).toHaveBeenCalledWith("party");
-    expect(card).toHaveTextContent("Your caravan was overrun");
+    // QA S3: the card leads with what happened to the player's own caravan, under its own heading;
+    // the passive side follows under a heading that says whose party meets whose caravan.
+    await waitFor(() => expect(within(card).getAllByRole("heading")[0]).toHaveTextContent("Your caravan was overrun"));
+    expect(within(card).getAllByRole("heading").map((h) => h.textContent)).toEqual(["Your caravan was overrun", "Meanwhile, your own party meets other players' caravans"]);
+    expect(card).not.toHaveTextContent("While you were out, someone else's party met a caravan");
     expect(card).toHaveTextContent("never at risk");
-    expect(card).toHaveTextContent("While you were out, someone else's party met a caravan");
+    // QA S2: what the ended trip recorded, not "what you packed is lost".
+    const losses = within(card).getByTestId("guide-overrun-losses");
+    expect(losses).toHaveTextContent("Lost outright (still standing when the caravan fell): Dust Rider · Level 1, Dust Rider · Level 1.");
+    expect(losses).toHaveTextContent("Fell in the fighting and come home a level lower (never below level 1): Dust Rider · Level 1.");
+    expect(losses).toHaveTextContent("No unbanked Coin was lost");
+    expect(card).not.toHaveTextContent("what you packed is lost");
+    // An encounter-1 overrun: no stake choice was made, so none is claimed.
+    expect(card).not.toHaveTextContent("itemized before");
+    expect(card).toHaveTextContent("The party you just faced was a standing party");
     await userEvent.setup().click(within(card).getByTestId("guide-raise-party"));
     await screen.findByTestId("guide-party-empty");
     expect(saveParty).not.toHaveBeenCalled();
+  });
+
+  it("QA S2: an overrun where nothing was still standing says so, and a later overrun names the push", async () => {
+    const base = statusOverrun();
+    const ending = { ...(base.trip!.ending as Extract<NonNullable<NonNullable<typeof base.trip>["ending"]>, { kind: "overrun" }>), encounterIndex: 2, unitsLostOutright: [], coinLost: 1000 };
+    const status = { ...base, trip: { ...base.trip!, ending } };
+    const api = fakeApi({
+      onboarding: vi.fn(async () => ({ onboarding: onboardingBody("party") })),
+      advanceOnboarding: vi.fn(async (step: OnboardingStep) => ({ onboarding: onboardingBody(step), changed: true })),
+      me: async () => meWith([]),
+      tripStatus: vi.fn(async () => status),
+    });
+    render(
+      <OnboardingProvider api={api}>
+        <ShellGuide api={api} route="town" />
+      </OnboardingProvider>,
+    );
+    const losses = await screen.findByTestId("guide-overrun-losses");
+    expect(losses).toHaveTextContent("Lost outright: none.");
+    expect(losses).toHaveTextContent("Unbanked Coin lost: 1000.");
+    expect(screen.getByTestId("guide-party")).toHaveTextContent("itemized before you chose to push");
+  });
+
+  it("QA N5: a voided first trip gets its own card, not 'the parties you just faced'", async () => {
+    const base = statusVoided();
+    const ending = { ...(base.trip!.ending as Extract<NonNullable<NonNullable<typeof base.trip>["ending"]>, { kind: "voided" }>), voidedEncounter: 1, encountersSurvived: 0 };
+    const api = fakeApi({
+      onboarding: vi.fn(async () => ({ onboarding: onboardingBody("party") })),
+      advanceOnboarding: vi.fn(async (step: OnboardingStep) => ({ onboarding: onboardingBody(step), changed: true })),
+      me: async () => meWith([]),
+      tripStatus: vi.fn(async () => ({ ...base, trip: { ...base.trip!, ending } })),
+    });
+    render(
+      <OnboardingProvider api={api}>
+        <ShellGuide api={api} route="town" />
+      </OnboardingProvider>,
+    );
+    const card = await screen.findByTestId("guide-voided");
+    expect(card).toHaveTextContent("Encounter 1 could not be resolved");
+    expect(card).toHaveTextContent("nothing was credited and nothing was lost");
+    const party = screen.getByTestId("guide-party");
+    expect(within(party).getAllByRole("heading")[0]).toHaveTextContent("Your first trip could not be resolved");
+    expect(party).not.toHaveTextContent("The parties you just faced");
   });
 
   it("a banked trip raises the party from the roster through the ordinary save", async () => {
@@ -236,6 +344,8 @@ describe("after the first trip (chunk 24)", () => {
     const empty = { ...party, config: { ...party.config, units: [] } };
     const saveParty = vi.fn(async (config: unknown) => ({ party: { ...party, config: config as typeof party.config } }));
     const onSaved = vi.fn();
+    const scrollTo = vi.fn();
+    vi.stubGlobal("scrollTo", scrollTo);
     const api = fakeApi({
       onboarding: vi.fn(async () => ({ onboarding: onboardingBody("party") })),
       advanceOnboarding: vi.fn(async (step: OnboardingStep) => ({ onboarding: onboardingBody(step), changed: true })),
@@ -257,6 +367,34 @@ describe("after the first trip (chunk 24)", () => {
     expect((saveParty.mock.calls[0]![0] as { units: { ref: string }[] }).units.map((u) => u.ref)).toEqual(party.roster.filter((r) => r.unlocked).map((r) => r.instanceId).slice(0, party.caps.units));
     expect(onSaved).toHaveBeenCalled();
     expect(window.location.hash).toBe("#/party");
+    // QA N8: the Party screen opens at its top.
+    expect(scrollTo).toHaveBeenCalledWith(0, 0);
+  });
+});
+
+describe("the bank-or-push card (chunk 24 QA D2)", () => {
+  it("reads the server's stakes: a 74/1100 survivor gets 'bank', with why; never 'this first trip pushes once'", async () => {
+    const hurt = previewAfter1();
+    const preview = { ...hurt, units: hurt.units.map((u, i) => (i === 0 ? { ...u, hp: 74, maxHp: 1100 } : u)) };
+    const api = fakeApi({ tripPreview: vi.fn(async () => preview) });
+    const { ResultGuide } = await import("./TrailGuide.tsx");
+    const enc = statusDecide().trip!.encounters[0]!;
+    render(<ResultGuide encounter={enc} deciding api={api} caravanId={CARAVAN_ID} />);
+    const advice = await screen.findByTestId("guide-advice");
+    expect(advice).toHaveAttribute("data-advice", "bank");
+    expect(advice).toHaveTextContent("is at 74 of 1100 HP");
+    expect(advice).toHaveTextContent("suggests banking");
+    expect(screen.getByTestId("guide-result")).not.toHaveTextContent("pushes once");
+  });
+
+  it("a circle in fair shape gets a suggestion to push once, with the risk named — a suggestion, not an order", async () => {
+    const api = fakeApi({ tripPreview: vi.fn(async () => previewAfter1()) });
+    const { ResultGuide } = await import("./TrailGuide.tsx");
+    render(<ResultGuide encounter={statusDecide().trip!.encounters[0]!} deciding api={api} caravanId={CARAVAN_ID} />);
+    const advice = await screen.findByTestId("guide-advice");
+    expect(advice).toHaveAttribute("data-advice", "push");
+    expect(advice).toHaveTextContent("Your call");
+    expect(advice).toHaveTextContent("Pushing risks");
   });
 });
 
@@ -300,6 +438,7 @@ describe("the guide on the Trail (chunk 24)", () => {
     expect(card).toHaveTextContent("Your caravan held");
     expect(within(screen.getByTestId("encounter-result-1")).getByTestId("result-outcome")).toHaveTextContent("The caravan held.");
     await waitFor(() => expect(g.step()).toBe("result"));
+    expect(card).not.toHaveTextContent("pushes once");
     unmount();
 
     const done = guideApi("done", { tripStatus: vi.fn(async () => statusDecide()) });

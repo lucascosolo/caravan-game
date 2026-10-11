@@ -340,7 +340,8 @@ describe("determinism", () => {
     for (const id of [defender.accountId, owner.accountId]) {
       const events = await listEventsForAccount(pool, id, { limit: 500 });
       expect(events.length).toBeGreaterThan(0);
-      for (const e of events) expect(e.causation_id).toMatch(/^(encounter:|enqueue:encounter:|test:)/);
+      // starting_roster:<caravan id>: the caravan's creation grant (chunk 24 QA D1), deterministic too.
+      for (const e of events) expect(e.causation_id).toMatch(/^(encounter:|enqueue:encounter:|test:|starting_roster:)/);
     }
   });
 });

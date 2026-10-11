@@ -16,7 +16,8 @@ import { mergeCost, performMerge, previewMerge } from "../src/economy/merge.js";
 import { accrueTrickle, peekTrickle, readTrickleAccrualPoint } from "../src/economy/trickle.js";
 import { appendEvents, listEventsForAccount } from "../src/ledger/ledger.js";
 import { verifyProjection } from "../src/ledger/projection.js";
-import { createUnitInstance, listUnitInstancesForCaravan } from "../src/repo/unitInstances.js";
+import { createUnitInstance, listUnitInstancesForCaravan as listAllUnitInstances } from "../src/repo/unitInstances.js";
+import { besidesStartingRoster, isStartingRosterEvent } from "./starting-roster-helpers.js";
 import { AppError } from "../src/services/errors.js";
 import { registerAccount } from "../src/services/onboarding.js";
 import { testPool, truncateAll, unique } from "./helpers.js";
@@ -27,6 +28,11 @@ const MS = TUNABLES.COIN_TRICKLE_MS_PER_COIN;
 const CAP = TUNABLES.COIN_STORAGE_CAP;
 const MIN_COINS = TUNABLES.TRICKLE_MATERIALIZE_MIN_COINS;
 const UNIT = "desert.dust_rider";
+
+/** The roster this suite builds: every caravan's starting roster (chunk 24 QA D1) left out. */
+async function listUnitInstancesForCaravan(db: typeof pool, caravanId: string) {
+  return besidesStartingRoster(db, caravanId, await listAllUnitInstances(db, caravanId));
+}
 
 async function fresh(prefix: string) {
   const { account, caravan } = await registerAccount(pool, { username: unique(prefix), password: "password123", regionId: "desert" });
@@ -310,7 +316,7 @@ describe("merging", () => {
     expect(err.code).toBe("insufficient_coin");
     expect(err.statusCode).toBe(409);
     expect((await listUnitInstancesForCaravan(pool, caravanId)).map((r) => r.id).sort()).toEqual([...ids].sort());
-    expect((await listEventsForAccount(pool, accountId)).filter((e) => e.event_type !== "coin_earned").length).toBe(0);
+    expect((await listEventsForAccount(pool, accountId)).filter((e) => e.event_type !== "coin_earned" && !isStartingRosterEvent(e)).length).toBe(0);
     const preview = await previewMerge(pool, { accountId, caravanId, instanceIds: ids, nowMs: t0 });
     expect(preview.affordable).toBe(false);
   });
@@ -460,7 +466,7 @@ describe("QA round 1 punch list (roadmap/qa/16-punchlist.md)", () => {
     const t0 = await readTrickleAccrualPoint(pool, accountId);
     const err = await appErr(withTransaction(pool, (c) => spendCoin(c, accountId, 250, "test_spend", t0 + 9 * MS, { causationId: "s5:too-poor" })));
     expect(err).toMatchObject({ statusCode: 409, code: "insufficient_coin" });
-    expect((await listEventsForAccount(pool, accountId)).filter((e) => e.payload["reason"] !== "test_setup")).toEqual([]);
+    expect((await listEventsForAccount(pool, accountId)).filter((e) => e.payload["reason"] !== "test_setup" && !isStartingRosterEvent(e))).toEqual([]);
     const ok = await withTransaction(pool, (c) =>
       spendCoin(c, accountId, 250, "test_spend", t0 + 10 * MS, {
         causationId: "s5:ok",

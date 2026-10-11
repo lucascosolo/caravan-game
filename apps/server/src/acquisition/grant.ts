@@ -28,7 +28,8 @@ import type { JsonObject, LedgerEventDraft } from "../ledger/events.js";
 import { AppError, badRequest, conflict } from "../services/errors.js";
 import { hasAccess, type AccessOwner } from "../unlocks/access.js";
 
-export type AcquisitionSource = "refugee" | "mercenary";
+/** "starting_roster": chunk 24 QA D1, every caravan's creation grant (startingRoster.ts). */
+export type AcquisitionSource = "refugee" | "mercenary" | "starting_roster";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
