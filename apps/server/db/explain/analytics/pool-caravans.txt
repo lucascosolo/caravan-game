@@ -1,0 +1,16 @@
+-- chunk 32: pool-caravans over the synthetic history in test/telemetry-scale.test.ts (30-day window)
+Sort
+  Sort Key: ((GREATEST('0'::numeric, floor((((pp.reputation - 100))::numeric / '300'::numeric))))::integer)
+  ->  HashAggregate
+        Group Key: (GREATEST('0'::numeric, floor((((pp.reputation - 100))::numeric / '300'::numeric))))::integer
+        ->  Hash Join
+              Hash Cond: (c.account_id = a.id)
+              ->  Hash Join
+                    Hash Cond: (pp.caravan_id = c.id)
+                    ->  Seq Scan on pool_progress pp
+                          Filter: (pool = 'living'::pool)
+                    ->  Hash
+                          ->  Seq Scan on caravan c
+              ->  Hash
+                    ->  Seq Scan on account a
+                          Filter: (NOT is_system)

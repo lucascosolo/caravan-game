@@ -1,0 +1,16 @@
+-- chunk 32: pool-parties over the synthetic history in test/telemetry-scale.test.ts (30-day window)
+GroupAggregate
+  Group Key: ((GREATEST('0'::numeric, floor((((pp.reputation - 100))::numeric / '300'::numeric))))::integer), a.is_system
+  ->  Sort
+        Sort Key: ((GREATEST('0'::numeric, floor((((pp.reputation - 100))::numeric / '300'::numeric))))::integer), a.is_system
+        ->  Hash Join
+              Hash Cond: (pp.account_id = a.id)
+              ->  Seq Scan on pool_progress pp
+                    Filter: (pool = 'siege'::pool)
+              ->  Hash
+                    ->  Hash Join
+                          Hash Cond: (a.id = sp.account_id)
+                          ->  Seq Scan on account a
+                          ->  Hash
+                                ->  Seq Scan on standing_party sp
+                                      Filter: ((slot = 0) AND (jsonb_array_length((composition -> 'units'::text)) > 0))

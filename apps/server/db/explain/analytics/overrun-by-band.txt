@@ -1,0 +1,13 @@
+-- chunk 32: overrun-by-band over the synthetic history in test/telemetry-scale.test.ts (30-day window)
+GroupAggregate
+  Group Key: ((GREATEST('0'::numeric, floor((((encounter_candidates.caravan_rating - 100))::numeric / '300'::numeric))))::integer)
+  ->  Sort
+        Sort Key: ((GREATEST('0'::numeric, floor((((encounter_candidates.caravan_rating - 100))::numeric / '300'::numeric))))::integer)
+        ->  Nested Loop
+              ->  Bitmap Heap Scan on trip_encounter te
+                    Recheck Cond: ((settled_at >= '2026-09-11 21:13:28.632+00'::timestamp with time zone) AND (settled_at < '2026-10-11 21:13:28.632+00'::timestamp with time zone))
+                    ->  Bitmap Index Scan on trip_encounter_settled_at_idx
+                          Index Cond: ((settled_at >= '2026-09-11 21:13:28.632+00'::timestamp with time zone) AND (settled_at < '2026-10-11 21:13:28.632+00'::timestamp with time zone))
+              ->  Limit
+                    ->  Index Scan using encounter_candidates_one_chosen on encounter_candidates
+                          Index Cond: ((trip_id = te.trip_id) AND (encounter_index = te.encounter_index))

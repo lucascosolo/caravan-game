@@ -117,7 +117,10 @@ describe("no battle-side, matchmaking or acquisition code reads a purchase or co
   });
 
   it("no SQL anywhere outside src/store touches the store's tables, and the store's own SQL touches only its own tables", () => {
-    const outside = walk(join(SERVER, "src")).filter((f) => !f.includes("/store/"));
+    // Chunk 32: src/analytics (the admin-only dashboard) READS pack_purchase for the purchase funnel.
+    // It is one-way: nothing in play imports it, and its only writes are its own three tables
+    // (both asserted by telemetry.test.ts), so no battle, matchmaking or acquisition path can see it.
+    const outside = walk(join(SERVER, "src")).filter((f) => !f.includes("/store/") && !f.includes("/analytics/"));
     for (const f of outside) {
       for (const { line, n } of codeLines(f)) expect(line, `${f}:${n}`).not.toMatch(/\b(FROM|INTO|UPDATE|JOIN)\s+(pack_purchase|cosmetic_ownership|cosmetic_equip)\b/i);
     }
@@ -144,7 +147,8 @@ describe("no battle-side, matchmaking or acquisition code reads a purchase or co
     expect(purchase).toMatch(/appendCoinCredits\(/);
     expect(purchase).toMatch(/type: "coin_purchased"/);
     // And coin_purchased is written nowhere else in the server.
-    const writers = walk(join(SERVER, "src")).filter((f) => !f.endsWith("ledger/events.ts") && !f.endsWith("ledger/coin.ts") && /["']coin_purchased["']/.test(readFileSync(f, "utf8")));
+    // (src/analytics names the type only to READ it: its writes are asserted by telemetry.test.ts.)
+    const writers = walk(join(SERVER, "src")).filter((f) => !f.endsWith("ledger/events.ts") && !f.endsWith("ledger/coin.ts") && !f.includes("/analytics/") && /["']coin_purchased["']/.test(readFileSync(f, "utf8")));
     expect(writers.map((f) => f.slice(SERVER.length + 1))).toEqual(["src/store/purchase.ts"]);
   });
 

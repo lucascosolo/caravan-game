@@ -105,3 +105,23 @@ GRANT EXECUTE ON FUNCTION
   resolution_job_park(text, integer, text, text),
   resolution_job_requeue(text, integer, text)
 TO caravan_app;
+
+-- ---------------------------------------------------------------------------------
+-- Chunk 32: the admin flag is read-only for the app role
+-- ---------------------------------------------------------------------------------
+-- account_admin decides who may read /admin/*. The server only ever READS it; the operator
+-- CLI (src/analytics/adminCli.ts) writes it over the owner connection. Without INSERT /
+-- UPDATE / DELETE here, no player route — and no bug in one — can grant or revoke admin.
+-- (An account's deletion still cascades: referential actions run as the table owner.)
+-- Client telemetry rows are insert-only for the app (deleted only on opt-out or cascade).
+-- Guarded by to_regclass so this script still applies to a database rolled back below 018.
+DO $$
+BEGIN
+  IF to_regclass('public.account_admin') IS NOT NULL THEN
+    REVOKE INSERT, UPDATE, DELETE ON TABLE account_admin FROM caravan_app;
+  END IF;
+  IF to_regclass('public.analytics_client_event') IS NOT NULL THEN
+    REVOKE UPDATE ON TABLE analytics_client_event FROM caravan_app;
+  END IF;
+END
+$$;

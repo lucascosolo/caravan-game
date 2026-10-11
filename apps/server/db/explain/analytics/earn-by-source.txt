@@ -1,0 +1,9 @@
+-- chunk 32: earn-by-source over the synthetic history in test/telemetry-scale.test.ts (30-day window)
+GroupAggregate
+  Group Key: ((event_type)::text), ((payload ->> 'reason'::text))
+  ->  Sort
+        Sort Key: ((event_type)::text), ((payload ->> 'reason'::text))
+        ->  Bitmap Heap Scan on ledger_event e
+              Recheck Cond: ((event_type = ANY ('{coin_earned,coin_transferred_to_party_owner,coin_purchased}'::ledger_event_type[])) AND (occurred_at >= '2026-09-11 21:13:28.632+00'::timestamp with time zone) AND (occurred_at < '2026-10-11 21:13:28.632+00'::timestamp with time zone))
+              ->  Bitmap Index Scan on ledger_event_type_time_idx
+                    Index Cond: ((event_type = ANY ('{coin_earned,coin_transferred_to_party_owner,coin_purchased}'::ledger_event_type[])) AND (occurred_at >= '2026-09-11 21:13:28.632+00'::timestamp with time zone) AND (occurred_at < '2026-10-11 21:13:28.632+00'::timestamp with time zone))

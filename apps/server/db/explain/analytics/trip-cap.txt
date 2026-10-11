@@ -1,0 +1,8 @@
+-- chunk 32: trip-cap over the synthetic history in test/telemetry-scale.test.ts (30-day window)
+Aggregate
+  ->  Sort
+        Sort Key: account_id
+        ->  Bitmap Heap Scan on ledger_event e
+              Recheck Cond: ((event_type = 'trip_started'::ledger_event_type) AND (occurred_at >= '2026-09-11 21:13:28.632+00'::timestamp with time zone) AND (occurred_at < '2026-10-11 21:13:28.632+00'::timestamp with time zone))
+              ->  Bitmap Index Scan on ledger_event_type_time_idx
+                    Index Cond: ((event_type = 'trip_started'::ledger_event_type) AND (occurred_at >= '2026-09-11 21:13:28.632+00'::timestamp with time zone) AND (occurred_at < '2026-10-11 21:13:28.632+00'::timestamp with time zone))

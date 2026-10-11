@@ -1,0 +1,9 @@
+-- chunk 32: pack-buyers over the synthetic history in test/telemetry-scale.test.ts (30-day window)
+Aggregate
+  ->  Sort
+        Sort Key: account_id
+        ->  Bitmap Heap Scan on pack_purchase p
+              Recheck Cond: ((purchased_at >= '2026-09-11 21:13:28.632+00'::timestamp with time zone) AND (purchased_at < '2026-10-11 21:13:28.632+00'::timestamp with time zone))
+              Filter: (settled_at IS NOT NULL)
+              ->  Bitmap Index Scan on pack_purchase_purchased_at_idx
+                    Index Cond: ((purchased_at >= '2026-09-11 21:13:28.632+00'::timestamp with time zone) AND (purchased_at < '2026-10-11 21:13:28.632+00'::timestamp with time zone))

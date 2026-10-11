@@ -1013,3 +1013,14 @@ h2 {
   font-size: 1rem;
   margin: 0 0 0.25rem;
 }
+
+/* ---------- chunk 32: the admin dashboard (operators only) ---------- */
+.admin-panel { margin-top: 12px; }
+.admin-table__scroll { overflow-x: auto; max-width: 100%; }
+.admin-table { border-collapse: collapse; width: 100%; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.admin-table th, .admin-table td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.admin-table th { color: var(--fg-muted); font-weight: 600; }
+.admin-rate { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.admin-rate__track { display: inline-block; width: 60px; height: 6px; background: var(--bg-sunken); border-radius: 3px; overflow: hidden; }
+.admin-rate__fill { display: block; height: 100%; background: var(--info); border-radius: 3px; }
+.admin-window select { min-height: var(--tap); }

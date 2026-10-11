@@ -29,6 +29,7 @@ const CANDIDATE_ENTRIES = [
   "src/index.ts", // HTTP server
   "src/db/migrate.ts", // `node dist/db/migrate.js up|down|reset|status`
   "src/seed.ts", // dev/staging seed
+  "src/admin.ts", // chunk 32 operator CLI: `node dist/admin.js grant|revoke|list`
   "src/worker.ts", // job-queue worker, if chunk 02 adds one as a separate process
 ];
 

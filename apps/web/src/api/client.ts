@@ -50,6 +50,8 @@ import {
 import { bankResultShape, encounterCommitShape, pushResultShape, stakesPreviewShape, tripStartShape, tripStatusShape } from "./tripShapes.ts";
 import { replayShape } from "./replayShapes.ts";
 import { inboxShape, inboxUnreadShape } from "./inboxShapes.ts";
+import { analyticsSettingsShape, dashboardShape, telemetryIngestShape } from "./telemetryShapes.ts";
+import type { AnalyticsSettings, DashboardView, TelemetryEvent, TelemetryIngestResult } from "./telemetryTypes.ts";
 import type { InboxCategoryView, InboxMarkRequest, InboxUnreadView, InboxView } from "./inboxTypes.ts";
 import { onboardingChangeShape, onboardingShape, type OnboardingChange, type OnboardingResponse } from "../onboarding/shapes.ts";
 import type { OnboardingStep } from "../onboarding/steps.ts";
@@ -201,6 +203,13 @@ export interface Api {
   onboarding(): Promise<OnboardingResponse>;
   advanceOnboarding(step: OnboardingStep): Promise<OnboardingChange>;
   skipOnboarding(): Promise<OnboardingChange>;
+  // Chunk 32: telemetry. Screen flow and crash reports only, keyed server-side by an opaque id;
+  // the opt-out is an account setting the server honours (an opted-out batch is dropped).
+  analyticsSettings(): Promise<AnalyticsSettings>;
+  setAnalyticsOptOut(optedOut: boolean): Promise<AnalyticsSettings>;
+  sendTelemetry(events: readonly TelemetryEvent[]): Promise<TelemetryIngestResult>;
+  // The admin dashboard (404 for anyone who is not an admin).
+  adminDashboard(days?: number): Promise<DashboardView>;
 }
 
 function isErrorBody(value: unknown): value is ApiErrorBody {
@@ -308,5 +317,9 @@ export function createApi(opts: ApiOptions): Api {
     onboarding: () => request("GET", "/me/onboarding", onboardingShape),
     advanceOnboarding: (step) => request("POST", "/me/onboarding/advance", onboardingChangeShape, { step }),
     skipOnboarding: () => request("POST", "/me/onboarding/skip", onboardingChangeShape),
+    analyticsSettings: () => request("GET", "/me/analytics", analyticsSettingsShape),
+    setAnalyticsOptOut: (optedOut) => request("PUT", "/me/analytics", analyticsSettingsShape, { optedOut }),
+    sendTelemetry: (events) => request("POST", "/me/telemetry", telemetryIngestShape, { events }),
+    adminDashboard: (days) => request("GET", days === undefined ? "/admin/dashboard" : `/admin/dashboard?days=${Math.trunc(days)}`, dashboardShape),
   };
 }

@@ -1,0 +1,23 @@
+-- chunk 32: grind-wall over the synthetic history in test/telemetry-scale.test.ts (30-day window)
+GroupAggregate
+  Group Key: d.decile
+  ->  Sort
+        Sort Key: d.decile
+        ->  Subquery Scan on d
+              ->  WindowAgg
+                    ->  Sort
+                          Sort Key: earn.free, earn.account_id
+                          ->  Subquery Scan on earn
+                                ->  GroupAggregate
+                                      Group Key: e_1.account_id
+                                      ->  Nested Loop Left Join
+                                            ->  Unique
+                                                  ->  Sort
+                                                        Sort Key: e_1.account_id
+                                                        ->  Bitmap Heap Scan on ledger_event e_1
+                                                              Recheck Cond: ((event_type = 'trip_started'::ledger_event_type) AND (occurred_at >= '2026-10-04 21:13:28.632+00'::timestamp with time zone) AND (occurred_at < '2026-10-11 21:13:28.632+00'::timestamp with time zone))
+                                                              ->  Bitmap Index Scan on ledger_event_type_time_idx
+                                                                    Index Cond: ((event_type = 'trip_started'::ledger_event_type) AND (occurred_at >= '2026-10-04 21:13:28.632+00'::timestamp with time zone) AND (occurred_at < '2026-10-11 21:13:28.632+00'::timestamp with time zone))
+                                            ->  Index Scan using ledger_event_account_time_idx on ledger_event e
+                                                  Index Cond: ((account_id = e_1.account_id) AND (occurred_at >= '2026-10-04 21:13:28.632+00'::timestamp with time zone) AND (occurred_at < '2026-10-11 21:13:28.632+00'::timestamp with time zone))
+                                                  Filter: (event_type = ANY ('{coin_earned,coin_transferred_to_party_owner,coin_purchased}'::ledger_event_type[]))
