@@ -384,6 +384,73 @@ export const TUNABLES = {
   PARTIES_PER_ACCOUNT: 1,
 
   // ────────────────────────────────────────────────────────────────────────────────────
+  // Chunk 14 — matchmaking & scouting. Picks WHO ATTACKS THE CARAVAN (GUARDRAILS §0):
+  // standing parties, banded by Reputation. Randomness here shapes only which candidates
+  // are OFFERED, seeded from stored state (§1). The reroll is free and time-gated; there
+  // is no Coin path in this block or anywhere on the search path (§2). Every candidate is
+  // scouted in full before the player commits (§4). Whole integers throughout.
+  // ────────────────────────────────────────────────────────────────────────────────────
+
+  /** Fixed by design (chunk 14). A search offers exactly this many candidates; the player picks one. */
+  CANDIDATES_PER_SEARCH: 3,
+  /**
+   * TUNABLE (chunk 14). Half-width of the Reputation band around the (escalated) centre on
+   * the first pass: candidates whose owner's siege Reputation is within ±this. The band
+   * SPAN (2 × width) is also the size of a display band (band k = [FLOOR + k·span, …)).
+   */
+  REPUTATION_BAND_WIDTH: 150,
+  /** TUNABLE (chunk 14). Each failed pass (fewer than CANDIDATES_PER_SEARCH eligible) widens the half-width by this. */
+  REPUTATION_BAND_WIDEN_STEP: 100,
+  /** TUNABLE (chunk 14). The widest half-width a search will use before the authored fallback. */
+  REPUTATION_BAND_WIDTH_MAX: 600,
+  /**
+   * TUNABLE (chunk 14). Searching again for the same encounter is FREE and gated only by
+   * this many seconds since the last search. NEVER purchasable: no Coin, no pack and no
+   * "skip the wait" surface may read or shorten this (GUARDRAILS §2). A test greps for it.
+   */
+  REROLL_COOLDOWN_SECONDS: 180,
+  /** Fixed by design (chunk 14). A caravan never meets its own account's party. Linked accounts (PHASE-2 §31) are excluded the same way. */
+  SELF_EXCLUDE: true,
+  /** TUNABLE (chunk 14). The last N parties this ACCOUNT committed to (any caravan, any trip) are not offered again. Enforced server-side. */
+  RECENT_OPPONENT_EXCLUSION: 5,
+  /**
+   * TUNABLE (chunk 14). Difficulty escalation: the band centre rises by this many basis
+   * points of the band SPAN (2 × REPUTATION_BAND_WIDTH) per encounter index beyond the
+   * first. 500 bp of 300 = +15 Reputation per encounter. Central to bank-or-push: pushing
+   * must mean a harder party, legibly. Tune with care.
+   */
+  DIFFICULTY_ESCALATION_BP: 500,
+  /**
+   * Fixed by design (chunk 14). When a band holds too few candidates: widen (above), then
+   * fill from AUTHORED parties (system-owned, the same object as any other party, never
+   * special-cased downstream). Never a fabricated party, never a resolver special case.
+   */
+  EMPTY_POOL_BEHAVIOR: "widen_then_authored",
+  /**
+   * Fixed by design (chunk 14). The candidate draw is seeded by FNV-1a (32-bit) over
+   * `<caravan id>:<trip id>:<encounter index>:<search sequence>` and drawn with xorshift32
+   * — integer-only, stored with the menu, so any menu ever offered can be replayed.
+   */
+  CANDIDATE_SELECTION_SEED: "fnv1a32(caravanId:tripId:encounterIndex:searchSeq)",
+  /**
+   * TUNABLE (chunk 14 / PHASE-2 §25). Authored parties retire BY RATIO: in a band holding L
+   * live parties, at most floor(L × share / (1 − share)) authored parties join the draw
+   * (so authored ≤ share of the pool), except that enough always join to reach
+   * CANDIDATES_PER_SEARCH. Basis points.
+   */
+  AUTHORED_PARTY_MAX_SHARE_BP: 3000,
+  /**
+   * TUNABLE (chunk 14 / PHASE-2 §31, chunk 04 QA D2). Sandbagging floor on Coin EARNED per
+   * encounter: when the caravan's living Reputation exceeds the party owner's siege
+   * Reputation by more than SANDBAG_EARN_GAP_START, the encounter's Coin earn is scaled by
+   * 1 − (gap − start) / REPUTATION_GAP_DIVISOR, floored at SANDBAG_EARN_MULT_MIN. Shown on
+   * every candidate before the player commits; chunk 19 applies it. Identical for every
+   * account; it reads ratings only.
+   */
+  SANDBAG_EARN_GAP_START: 300,
+  SANDBAG_EARN_MULT_MIN: fpMilli(250),
+
+  // ────────────────────────────────────────────────────────────────────────────────────
   // Chunk 16 — Coin economy and merge pricing. Coin buys PACE only (GUARDRAILS §2): nothing
   // here reaches a stat, a resolution rule, or the merge cap. Plain integer Coin amounts.
   // ────────────────────────────────────────────────────────────────────────────────────

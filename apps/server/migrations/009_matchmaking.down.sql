@@ -1,0 +1,15 @@
+DROP TRIGGER IF EXISTS encounter_candidates_guard_truncate ON encounter_candidates;
+DROP TRIGGER IF EXISTS encounter_candidates_guard_delete ON encounter_candidates;
+DROP TRIGGER IF EXISTS encounter_candidates_guard_update ON encounter_candidates;
+DROP TRIGGER IF EXISTS encounter_candidates_guard_insert ON encounter_candidates;
+DROP TABLE IF EXISTS encounter_candidates;
+DROP FUNCTION IF EXISTS encounter_candidates_guard_delete();
+DROP FUNCTION IF EXISTS encounter_candidates_guard_update();
+DROP FUNCTION IF EXISTS encounter_candidates_guard_insert();
+DROP TRIGGER IF EXISTS trip_guard_truncate ON trip;
+DROP TRIGGER IF EXISTS trip_guard_delete ON trip;
+DROP TRIGGER IF EXISTS trip_guard_update ON trip;
+DROP TABLE IF EXISTS trip;
+DROP FUNCTION IF EXISTS trip_guard_delete();
+DROP FUNCTION IF EXISTS trip_guard_update();
+ALTER TABLE account DROP COLUMN IF EXISTS is_system;

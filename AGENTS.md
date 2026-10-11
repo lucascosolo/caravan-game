@@ -148,7 +148,11 @@ Migrations are plain SQL pairs in `apps/server/migrations/NNN_name.{up,down}.sql
 `apps/server/src/db/migrate.ts`. Server routes so far: `POST /auth/register`,
 `POST /auth/login`, `POST /auth/logout`, `GET /me`, `GET /health` (bearer token auth), plus
 the ledger, progression, circle, economy and unlock routes of chunks 02–07 and 16
-(`GET /unlocks/webs`, `GET /me/unlocks`, `POST /me/unlocks/spend`).
+(`GET /unlocks/webs`, `GET /me/unlocks`, `POST /me/unlocks/spend`), the party routes of
+chunk 09 and the matchmaking routes of chunk 14 (`POST /me/caravans/:id/encounters/:n/search`,
+`GET …/candidates`, `POST …/choose`). `pnpm db:seed` also creates the authored cold-start
+parties (`src/matchmaking/authored.ts`), so a fresh database serves three scoutable
+candidates from the first search.
 
 **Web client** (`apps/web`, chunk 06 scaffold): Vite + React 18 + TypeScript strict. A
 typed `fetch` wrapper (`src/api/client.ts`) carries the bearer token from in-memory session

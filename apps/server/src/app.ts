@@ -7,6 +7,7 @@ import { authRoutes } from "./routes/auth.js";
 import { circleRoutes } from "./routes/circle.js";
 import { economyRoutes } from "./routes/economy.js";
 import { ledgerRoutes } from "./routes/ledger.js";
+import { matchmakingRoutes } from "./routes/matchmaking.js";
 import { meRoutes } from "./routes/me.js";
 import { partyRoutes } from "./routes/party.js";
 import { progressionRoutes } from "./routes/progression.js";
@@ -60,5 +61,6 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(unlockRoutes);
   await app.register(acquisitionRoutes);
   await app.register(partyRoutes);
+  await app.register(matchmakingRoutes);
   return app;
 }

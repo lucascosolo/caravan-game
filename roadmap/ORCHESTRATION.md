@@ -1415,3 +1415,78 @@ lattice, touch targets) is chunk 17's town screen; everything it needs is in `GE
 especially whether any path can reach `unit_instance` or `standing_party` from the
 resolution path, whether the preview and the scout can ever diverge, and whether the
 chunk 02 placeholder handler and chunk 14 need the invalid-party error surfaced.
+
+### 2026-10-11 — Chunk 14 (matchmaking & scouting): `not started` → `built`
+
+**Built** in worktree `agent-ab0db9580a484b2ab` off `roadmap/phase-2-spec` @ `f0a2209`
+(Merge chunk 09). Picks WHO ATTACKS THE CARAVAN at each encounter and lets the defender
+scout every candidate in full before committing. Also settles the chunk 09 QA blocker on
+party snapshots (contract recorded in the chunk file's Build notes).
+
+- **Pure core** `apps/server/src/matchmaking/band.ts`: `candidateSeed` (fnv1a32 over
+  caravan:trip:index:seq), `escalatedCentre` (+15 per encounter = 5% of the 300 span),
+  `bandWidths` (±150 → ±600 by 100), `bandOf`, `authoredAllowance` (floor(L × 0.3/0.7), never
+  fewer than needed to reach 3), `sandbagEarnMultiplier` (chunk 04 QA D2 earn floor, fixed-
+  point), `selectCandidates` (seeded Fisher–Yates over the sorted eligible pool per widening
+  pass, authored cap per pass, then authored-outside-band nearest-first fallback; takes a
+  `skipped` set so a skipped invalid party replays). Integer-only; chunk 18's xorshift32 /
+  uniformBelow are now exported and reused.
+- **Service** `matchmaking/service.ts`: `searchCandidates` (locks the trip row, requires
+  n = encounters_resolved + 1, first search immediate, later ones free after
+  `REROLL_COOLDOWN_SECONDS` on a caller-supplied `nowMs`, `409 already_chosen` once chosen;
+  excludes self + `LinkedAccountsResolver` (v1 stub, `exclusions.ts`) + the account's last 5
+  chosen parties; pool = every non-empty slot-0 party joined to owner username/`is_system`
+  and SIEGE Reputation, region never read; **snapshots each pick exactly once**, skips
+  `StandingPartyInvalidError` with the id recorded and re-draws; stores seed/centre/pool/
+  excluded/skipped/candidates), `readCandidates`, `chooseCandidate` (current menu only;
+  `stale_candidate` for a rerolled-away id; no live re-resolve), `replaySearch`,
+  `enqueueChosenEncounter` — THE CHUNK 15 SEAM: hands the chosen snapshot to
+  `enqueueEncounterResolution`'s new optional `party` input, which stores it as-is.
+- **Candidate view**: stable 32-hex id, owner {accountId, displayName, authored},
+  reputation {rating, band, gapFromCaravan, sandbagEarnMultiplier}, the frozen snapshot and
+  `scout = scoutParty(partyFromJson(snapshot.composition))`. The menu carries caravan
+  rating/band, centre, escalation applied/perEncounter/nextEncounter, passes, widened,
+  usedAuthoredFallback, the reroll gate (time only), chosen, and the rules.
+- **Routes** `routes/matchmaking.ts`: `POST /me/caravans/:id/encounters/:n/search` (201),
+  `GET …/candidates`, `POST …/choose {candidateId}`; `409 reroll_cooldown` with Retry-After.
+- **Migration 009**: `account.is_system`; `trip` (one per manifest, one open per caravan,
+  identity immutable, ended frozen, delete refused while the caravan exists);
+  `encounter_candidates` (PK trip/index/seq, immutable once inserted except the one-time
+  choose, CHECK that the chosen id was offered, partial unique index one chosen per
+  encounter, delete refused). `trips.ts` `createTrip` / `endTrip` for chunk 15.
+- **Authored cold-start seam (PHASE-2 §25)** `matchmaking/authored.ts`: 12 system accounts,
+  3 parties per band for bands 0–3, all regions/stances/edge splits on free starting types;
+  ordinary rows via `saveParty`; `pnpm db:seed` calls it (idempotent).
+- **Tunables** (chunk 14 block): CANDIDATES_PER_SEARCH 3, REPUTATION_BAND_WIDTH 150,
+  _WIDEN_STEP 100, _WIDTH_MAX 600, REROLL_COOLDOWN_SECONDS 180, SELF_EXCLUDE,
+  RECENT_OPPONENT_EXCLUSION 5, DIFFICULTY_ESCALATION_BP 500, EMPTY_POOL_BEHAVIOR,
+  CANDIDATE_SELECTION_SEED, AUTHORED_PARTY_MAX_SHARE_BP 3000, SANDBAG_EARN_GAP_START 300,
+  SANDBAG_EARN_MULT_MIN 0.25.
+
+**Test command:** `cd apps/server && TEST_DATABASE_URL=postgres://caravan:caravan@localhost:5432/caravan_test_c14 npx vitest run`
+→ 24 files, 438 tests passing (baseline on f0a2209: 22 files, 405). New:
+`test/matchmaking-pure.test.ts` (16: integer band math, escalation, widths, seed, allowance,
+earn floor, reproducible/order-independent draw, widening passes, skip set, authored fill and
+share over 500 seeds, fallback and short pool, the authored spec set, the no-Coin / no-
+availability / no-region source scan) and `test/matchmaking.test.ts` (17: exactly 3 scoutable
+candidates with every scout field, scout byte-identical to the owner's preview, cross-region
+candidates, auth/404/no_trip/wrong_encounter, reroll 409 + Retry-After + exact boundary +
+sequence, stored rows replay, self / linked / recent-5-across-trips exclusion, escalation
+across encounters 1–3, choose/idempotent/already_chosen/search-after-choose refused, owner
+edits + de-merge + loss after scouting leave `job.input.party` byte-identical to the scouted
+snapshot and its scout view, invalid party skipped at generation and recorded while an
+invalid-after-scout party is still honoured, stale_candidate, authored fallback on an empty
+band with the snapshot shape indistinguishable and system logins refused, authored cap with a
+deep live pool, DB guards against the app role). `migrations.test.ts` table list updated.
+Root `pnpm typecheck`, `pnpm lint`, `pnpm test:boundary` clean; `packages/content` 58 pass.
+
+**Assumptions** are in the chunk file's Build notes: the snapshot contract (choose never
+re-resolves; the brief's "refuse and re-scout" is replaced by skip-at-generation); +15/encounter
+reads "5% of band width" as 5% of the full span; the authored cap is a draw-pool cap, not a
+served ratio; empty parties are never served; routes under `/me/caravans/…`.
+
+**Next:** hand to adversarial QA against GUARDRAILS §1/§2/§4 and the chunk checklist — the
+field-by-field scout comparison, whether any code can re-resolve a party after the search, the
+reroll gate's immunity to any Coin surface, and whether chunk 15 can drive
+`createTrip → search → choose → commitFormation → enqueueChosenEncounter` without touching
+`encounter_candidates` directly.
