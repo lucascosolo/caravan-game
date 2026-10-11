@@ -301,6 +301,9 @@ seam shape and wired-handler test, qa02 TRUNCATE expectation (resolution_job is 
 FK-referenced: plain TRUNCATE → 0A000, CASCADE → the guard's 23514), migrations table list.
 
 **Hand-offs.**
+- **[closed — chunk 15 fixer]** loot is credited at settle (held fights only); an overrun reports loot 0
+  and pays chunk 19's transfer + party win instead (FULL_CLEAR_LOOT_SHARE removed); `full` is the chosen
+  row's band schedule, stamped as `partyLootFull`. See roadmap/qa/15-punchlist.md.
 - **Chunk 19 / QA-15 S4**: `outcome.loot` is computed and recorded, never credited. Credit it
   (capped by the owner's storage cap; nothing for an authored/system owner) in the settle
   transaction, under the job's causation id, as the chunk 09 note asks.

@@ -573,6 +573,8 @@ export async function enqueueChosenEncounter(
   encounterIndex: number,
   formation: JsonObject,
   survivors?: JsonObject,
+  /** Chunk 15 QA S4: the party owner's full loot for this encounter (the trip loop computes it from the chosen row). */
+  partyLootFull?: number,
 ): Promise<{ job: ResolutionJobRow; created: boolean; candidate: Candidate }> {
   const { trip } = await openTripFor(client, caravan, true);
   const candidate = await chosenCandidate(client, trip.id, encounterIndex);
@@ -588,6 +590,7 @@ export async function enqueueChosenEncounter(
     partyOwnerAccountId: candidate.owner.accountId,
     formation,
     ...(survivors === undefined ? {} : { survivors }),
+    ...(partyLootFull === undefined ? {} : { partyLootFull }),
     party: candidate.snapshot,
   });
   return { job, created, candidate };
