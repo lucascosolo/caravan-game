@@ -265,3 +265,28 @@ handles for a period. This can be done without storing them in clear (a keyed ha
 
 N10. **The export has no size bound.** It reads the whole ledger and every trip into memory. That is
 fine at play-test scale; note a cap or streaming for chunk 36.
+
+## Orchestrator decisions (2026-10-11)
+
+- **S2 is the top priority. It is a project-wide hole, not chunk 30's alone.**
+  - Revoke TEMPORARY on the database from `caravan_app` in `db/roles.sql`.
+  - Pin `search_path` on every guard function and every SECURITY DEFINER function, from migrations 002, 016, 020 and any others, to `pg_catalog, public, pg_temp`, with `pg_temp` last.
+  - Schema-qualify every table each of them reads.
+  - Add a test that tries the temp-table shadow attack against each guard and each definer function as `caravan_app`, and confirm it fails. The test must enumerate the functions from `pg_proc`, so a future function cannot dodge it.
+- **S1: state the real threat model; don't over-claim.** The server role issues sessions, so no database check can stop a fully compromised server from erasing an account. Keep the token check: it stops a bug from passing the wrong account id. Correct the build notes and the code comments so they claim only that. Also remove the app role's direct INSERT on `session` in favour of a definer function that issues sessions, so issuing a session is one audited path.
+- **S3:** revoke DELETE on `account` from `caravan_app`. Deletion goes only through `account_erase`.
+- **S4:**
+  - Tabs of one browser share the device. The per-device session cap is raised to 10, and resuming must not evict a session another open tab is using: reuse the device's newest live session where possible.
+  - A failed resume (5xx or network) shows a retry state, never the start screen.
+  - When a guest device cookie exists, "Start playing" and "Sign in" ask before replacing it, and say what is lost.
+- **D1:** guests see a "save your progress" prompt at the end of the first trip and on the town screen until they link. It is never blocking.
+- **D2:** "Leave this guest account" erases the account through `account_erase`, after a confirm that says so. The copy must match what happens.
+- **D3:**
+  - Add a `TRUST_PROXY` setting, off by default, that sets Fastify's trust-proxy.
+  - Move the rate limits into the tunables registry, with play-test-friendly defaults: at least 100 guest starts per hour per address, plus a per-device login limit.
+  - Note in AGENTS.md that limits are per process.
+- **D4:**
+  - The export includes every table the account owns: analytics, manifests and formations, refugee menus, the trip cap, inbox marks, its own trip menus, and replay summaries for its fights.
+  - Redaction works by structure: an id is kept only if it is the account's own (an allowlist), never matched by key name.
+  - Cap the export size with a clear error.
+- **D5 and every nit are in scope.** D5 needs an e2e that covers guest → linked → deleted, a decompressing scan of the replay logs, and the client multi-tab and failed-resume tests. Lower-priority nits may stay open if the punch list says why.
