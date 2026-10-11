@@ -2669,3 +2669,68 @@ In scope, with these cuts:
 - **Chunk 37:** the matchup sweep and the standing probes as a tool, then a tuning pass recorded in BALANCE-LOG.md. The closed alpha is the play test itself and is not built here.
 
 Out of scope for the play test: 26 (art pipeline; the iso renderer's placeholder shapes stay), 27 (audio and haptics), 31, 33, 34, 35 and 38, and all of group C. Rejected: holding the play test for art and audio. The question a play test answers is whether the loop is fun, and that can be judged with legible placeholder art. The final review may challenge any of these cuts.
+
+## 2026-10-11 — stopping point (handoff)
+
+The user asked for a stopping point. Main (`roadmap/phase-2-spec`) is consistent and pushed. At the last full run it passed typecheck, lint, test:boundary, the server suite, the web suite, determinism, build and all 8 e2e specs. The in-flight agents were told to commit their work in progress. Their branches are pushed to origin as `wip/<chunk>-<topic>`, and none of them is merged to main. Each must be reviewed and merged with the usual gates, after merging main into it first.
+
+**State on main.**
+- **Group A:** chunks 01–20 are `done`.
+- **Phase 2:**
+  - `done`: 21, 23 and 25.
+  - Built and QA'd, with their fix rounds open: 22 (replay player), 24 (onboarding) and 29 (inbox).
+  - Not on main yet: 30 (accounts), 32 (telemetry) and 36 (performance).
+- **Fights:** resolve in-process with the real resolver (RESOLVER_VERSION 8, log format v2).
+
+**The blocking problem for a play test is balance.** With the real resolver, the guided first fight held 0 of 120 times (roadmap/qa/24-punchlist.md D1). Typical rosters also hold rarely at their own band (roadmap/qa/13-punchlist.md D2). Trips with merged units have negative expected Coin (roadmap/qa/19-punchlist.md D2c). The decisions and acceptance targets are recorded in roadmap/qa/24-punchlist.md, "Orchestrator decisions". In short:
+- every caravan gets a tunable `STARTING_ROSTER`;
+- the guided first layout must hold at least 70 % of first fights;
+- skilled layouts must hold a fair share and beat naive ones;
+- trip expected value must be positive with a best bank point k ≥ 2;
+- free weekly earn must stay within the 1.5× bound.
+
+**Next, in order.**
+1. Merge the WIP branches that are complete, or finish them. Recommended order:
+   1. the test-isolation fix, which removes the order-dependent server flakes in qa02-round2, stakes and qa15-fixes;
+   2. the chunk 24 fixer, which adds the STARTING_ROSTER mechanism;
+   3. the balance pass;
+   4. then 22, 29, 30, 32 and 36 in any order.
+   
+   Migration numbers were pre-assigned: 018 telemetry, 019 accounts, 020 inbox fixer, 021 performance, 022 onboarding fixer. Renumber to contiguous on merge, as before.
+2. QA rounds for 30, 32 and 36, and for the balance pass's numbers, followed by their fixers.
+3. The final whole-game adversarial review: the guardrail probes plus PROJECT.md §21's fun checks, looping fixes until it passes. Only then is the game ready for a play test.
+
+**Known gotchas.**
+- Union-resolving merges can drop a closing brace. Commit 8679d87 fixed one in theme.css.
+- E2E specs that register fresh accounts must skip the onboarding guide through its routes.
+- Before `db:reset` of a seeded database, run `DELETE FROM account WHERE is_system` as the owner role.
+
+### WIP branches at the stopping point (all unmerged, none fully gated)
+
+| Branch | State |
+|---|---|
+| `wip/24-onboarding-fixes` | `STARTING_ROSTER` mechanism, D2, S2–S5 and N1–N9 written. Open: a fast overrun makes the formation screen's re-read after commit 404 (tolerate it and continue to the summary). Two stale e2e expectations: onboarding.spec around line 266, and town.spec:111, which should expect 2 of 36 board slots. Migration 022. |
+| `wip/22-replay-fixes` | Server labels, ledger itemization, `GET /me/encounters`, and the web S1–S8 / D1–D4 / N fixes are done. Open: trip.spec must patch the served body's jobId, allow for the one-second end-card hold, and find the reason text inside "Technical detail". Also open: the S9 frame-counter e2e and the punch-list notes. |
+| `wip/29-inbox-fixes` | All items closed. Not yet merged with main. Migration 020. |
+| `wip/30-accounts` | Server done and tested (27/27, including the guest → linked → deleted round trip). Open: web contract guards and tests, the guest-to-link e2e, build notes. Migration 019. Decision to review: the app role can call `account_erase` for any account id, so the only check on the caller is the route's authentication. |
+| `wip/32-telemetry` | Built. Open: one EXPLAIN gate (the pool-health served query does a sequential scan), and e2e not re-run. It adds `src/analytics/` to the store and economy guard exemptions (review this). Migration 018. |
+| `wip/36-performance` | Retention compaction to a summary table, the hourly retention worker, the archived replay view, a lazy-loaded replay player, a matchmaking query rewrite, the load script, and a strict resolver budget step. Open: the load script's `--profile` option, a full load run on an unloaded machine, re-writing the EXPLAIN plans, build notes. Migration 021. |
+| `wip/37-balance-sweep` | Sweep tooling only (`scripts/balance/sweep.ts`, `parallel.ts`, `first-trip.ts`); `_p*.ts` and `_explore.ts` are throwaway probes. Nothing tuned. |
+| `wip/test-isolation` (if present) | The order-dependent server test fix. |
+
+### Balance measurements so far (RESOLVER_VERSION 8, current content; from the balance agent)
+
+- A fresh account's encounter 1 is searched at Reputation 850, which is band 2, not band 0. The guided first fight held 0 of 48 times, and the best of a 72-layout search also held 0 of 48.
+- Hold share, best of the search set, desert and mountain, in percent:
+
+  | Roster | b0 | b1 | b2 | b3 | b4 | b5 | b6 | b7 |
+  |---|---|---|---|---|---|---|---|---|
+  | 5×L1 | 54 | 25 | 0 | 0 | 0 | 0 | 0 | 0 |
+  | 8×L2 | 79 | 54 | 71 | 46 | 42 | 0 | 8 | 4 |
+  | 8×L3 | 75 | 67 | 67 | 50 | 50 | 8 | 25 | 4 |
+  | 8×L4 | 83 | 83 | 83 | 67 | 54 | 29 | 50 | 25 |
+  | 8×L5 | 92 | 92 | 88 | 67 | 67 | 50 | 58 | 50 |
+
+  Naive and guided layouts hold 10–40 points less than the search, so skill matters. Band 1 is harder than band 2 for most rosters, so the authored curve is not monotone.
+- At equal size, defense loses: 3 L1 raiders beat 3 L1 posts (5 % guided, 13 % best). Raiders on the core stance reach the core in about 7 s, mostly before posts engage.
+- Levers on a 5-post case (guided / best, %): baseline 33 / 65; fence HP ×2 or ×3 33 / 65 (no effect, because runners path to gaps); trap damage ×1.5 38 / 73; raider speed ×0.7 42 / 73; post aggro +2 cells 44 / 65; raider HP ×0.7 40 / 77. The lever that matters is time-to-kill versus time-to-core: unit HP, speed and trap numbers, plus re-authoring the low bands, together with the fresh account's starting band. Fence HP is not it.

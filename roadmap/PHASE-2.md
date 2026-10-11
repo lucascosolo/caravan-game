@@ -498,7 +498,7 @@ afterward where it struck", and today nothing tells the owner to check.
 **Definition of done.** A party owner who has not opened the game learns within a
 minute that their party overran a caravan, and one tap lands on the replay.
 
-**Status: built** (2026-10-11, chunk 29 Maker) — the in-app inbox; device push deferred (below). Build notes:
+**Status: done** (2026-10-11; QA'd, roadmap/qa/29-punchlist.md S1–S4, D1–D2, N1–N9 closed: "Mark all read" sends what is on screen, a batch's version follows its late credits, long names wrap at 320 px, the read is 6 queries / ~20 ms for a 25k-strike owner with lines only for the newest 3 batches, the list ends with a pointer to the feed for what it leaves out, and the strike path is tested on the production worker with the settle hooks and the real resolver) — the in-app inbox; device push deferred (below). Build notes:
 
 - **Derived, not stored.** `apps/server/src/inbox/` (`derive.ts` pure, `service.ts` reads, `tunables.ts`).
   Items are computed on every read: **party strikes** from the ledger (`party_served_as_encounter`
@@ -515,11 +515,13 @@ minute that their party overran a caravan, and one tap lands on the replay.
   the only stored state besides `inbox_preference (account_id, category, enabled)`. Read state is UI
   state, deliberately not a ledger event. Each item has a stable KEY and an integer VERSION (strike
   batch: newest seq; refugees / trip cap: the instant; mine: one per stretch between spends, keyed
-  by the last spend's seq; packs: per week). Unread = no mark at the item's version. A strike landing
+  by the last spend's seq; packs: per week; QA S2: a strike batch's version is the newest seq among its strikes AND
+  the credits / progression they caused, so a late settle re-opens it). Unread = no mark at the item's version. A strike landing
   in an already-read batch makes the batch unread again. Marks only move forward (trigger
-  `inbox_read_forward_only`, plus `GREATEST` in the upsert); the server stores min(version the client
-  saw, current version), so a stale or inflated mark can neither hide nor pre-read a new strike; keys
-  the account's inbox is not showing are refused (400 `unknown_item`), so no arbitrary rows. CHECKs on
+  `inbox_read_forward_only`, plus `GREATEST` in the upsert; QA N3: migration 018's `inbox_read_guard_delete` refuses
+  DELETE while the account exists); the server stores min(version the client saw, current version), so a stale or
+  inflated mark can neither hide nor pre-read a new strike; keys the account's inbox is not showing are skipped and
+  listed in `ignored` (QA N4; nothing stored, so no arbitrary rows), and a key sent twice is folded (QA N2). CHECKs on
   key shape, non-negative version and known categories. Proven against `caravan_app`: decrease and key
   change refused, TRUNCATE / DISABLE TRIGGER / DROP TRIGGER denied (42501).
 - **Batching** (§29): strikes group into fixed `INBOX_STRIKE_BATCH_WINDOW_MS` (1 h, epoch-aligned)
@@ -527,7 +529,11 @@ minute that their party overran a caravan, and one tap lands on the replay.
   transferred and cap-discarded parts), Reputation and ladder totals — SQL sums over every strike in
   the window, not just the listed ones. The newest `INBOX_STRIKES_PER_ITEM` (10) are itemized, each
   with its own "Watch the fight"; the rest are counted with a pointer to the results feed. Horizon
-  14 days, at most 30 batches. All TUNABLE, in `inbox/tunables.ts` (presentation knobs, not balance —
+  14 days (from a window start, so no batch is split: QA N1), at most 30 batches; past those, `olderStrikes`
+  and a closing line point to the results feed (QA D2). QA S4: one statement picks the 30 windows (partial index
+  `ledger_event_party_served_at_idx`, migration 018) before joining their credits; only the newest
+  `INBOX_ITEMIZED_BATCHES` (3) carry lines, read by time window in one query and built by the feed's own
+  `partyFeedEntries`; an older batch fetches its lines from `GET /me/inbox/strikes/:window`. All TUNABLE, in `inbox/tunables.ts` (presentation knobs, not balance —
   same decision as chunk 02's job knobs).
 - **No identity leak.** A strike line carries exactly what the results feed shows of the defender —
   username, caravan name, region — picked field by field; not the account id (the ledger payload's
@@ -540,7 +546,8 @@ minute that their party overran a caravan, and one tap lands on the replay.
   asserts the whole screen's text has no buy / purchase / spend / deal / offer / sale / store / $ /
   hurry wording and the mine / packs cards have no buttons.
 - **Routes:** `GET /me/inbox`, `GET /me/inbox/unread` (the badge; same derivation without the
-  per-strike lines), `POST /me/inbox/read` (`{all: true}` | `{marks: [{key, version}]}`, ≤ 100),
+  per-strike lines), `GET /me/inbox/strikes/:window`, `POST /me/inbox/read` (`{marks: [{key, version}]}`, ≤ 100;
+  `{all: true}` is gone — QA S1: "Mark all read" sends the unread items on screen),
   `PUT /me/inbox/preferences` (`{preferences: {<category>: boolean}}`). Registered in `app.ts`.
 - **Client.** Header button "✉ Inbox" with the server's unread count as a text badge and in its
   accessible name (`shell/InboxButton.tsx`), polled every `INBOX_POLL_MS` (60 s, TUNABLE) while the

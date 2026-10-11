@@ -174,3 +174,68 @@ inbox.test.ts:420 still says "migration 017" (now 015).
 - **D1: closed by chunk 13's fix round.** The running server now drains the job queue in-process with the real resolver, and settles at resolution through the trip settle hooks (`apps/server/src/jobs/inProcessWorker.ts`). The fixer adds a test proving that an inbox item appears within one poll of a real resolution, without the test flag.
 - **D2: say so, never hide silently.** When batches fall past the 30th or outside the 14-day horizon, the inbox ends with one line saying older activity is in the Party results feed, with a link there. Batch counts never disagree with the feed (N1): a batch the cutoff would split is shown whole or not at all.
 - **S1–S4 and every nit are in scope.** For S1, "Mark all read" sends exactly the keys and versions the client is showing. Whatever arrived after is still unread. For S2, a batch's version moves whenever its totals change, including credits that land later. For S4, use an index matching the strike query, aggregate only the batches that will be shown, and paginate or collapse strike lines so the page stays light. N9's tests must run with the settle hooks, as production does.
+
+## Fix round (2026-10-11, chunk 29 fixer) — every item closed
+
+- **S1 closed.** `POST /me/inbox/read` takes only `{ marks: [{key, version}] }`; `{ all: true }` is now a 400.
+  "Mark all read" (InboxScreen.tsx `markAll`) sends the key and version of every unread item on screen.
+  Tests: inbox.test "QA S1" (render, a strike lands, the stale marks are sent, `unreadCount` 1);
+  InboxScreen.test "QA S1" and the mark-all case, which now expects exactly the on-screen marks.
+- **S2 closed.** A batch's version is `max(greatest(served.seq, max(sibling seq)))` over the strikes and their
+  `<job>` / `progression:<job>` / `transfer:<job>` events (service.ts `strikeWindows`). Test: inbox.test "QA S2"
+  drains without hooks, marks read, settles through the defender's trip read, and expects a higher version, unread,
+  and more Coin. The two-strike test now checks the version against the ledger's max seq over those causations.
+- **S3 closed.** `.inbox .card__line, .inbox .hint { overflow-wrap: anywhere }` (theme.css). The screen's section has
+  class `inbox`. The e2e defender caravan is now `"W".repeat(40)`, and `fitsPortrait` passes at 360 and 320 px.
+  Also fixed: the base theme.css had an unclosed `.inbox-actions {` rule. It swallowed the chunk 24 `.guide` rules
+  after it, and esbuild warned "Expected }".
+- **S4 closed.** Migration **020** (`018_inbox_strike_index`; expect renumbering on merge) adds the partial index
+  `ledger_event_party_served_at_idx ON ledger_event (account_id, occurred_at) WHERE event_type = 'party_served_as_encounter'`.
+  `strikeWindows` is one statement: it picks the newest 30 windows from the index, then joins only their strikes to their
+  credits, and returns the "older" counts. Only the newest `INBOX_ITEMIZED_BATCHES` (3, TUNABLE) carry lines. One
+  window-bounded query (`row_number() … PARTITION BY window`) fetches the lines for all of them, and they are built
+  through the feed's own code (new export `partyFeedEntries` in party/feed.ts; `listPartyFeed` uses it). An older batch
+  shows "Show the fights", which fetches `GET /me/inbox/strikes/:window`. Test: inbox.test "D2 + S4" (32 batches;
+  readInbox ≤ 7 queries, readUnread ≤ 3; lines only on the first 3; the strikes route).
+  Measured (a scratch script, not committed) on `caravan_dev_f29`: one owner with 25,000 strikes (5,000 in the last 14 days,
+  20,000 older), each with a `coin_earned` sibling, so 50,000 ledger rows. Timings are the median of 5 warm runs, called in-process:
+
+  | | before | after |
+  |---|---|---|
+  | `readInbox` (GET /me/inbox) | 94 queries, 93.5 ms, 99,447 B, 300 lines | 6 queries, 20.5 ms, 22,592 B, 30 lines |
+  | `readUnread` (badge) | 4 queries, 16.5 ms | 3 queries, 12.2 ms |
+
+  EXPLAIN ANALYZE of the windows statement, before: `Parallel Seq Scan on ledger_event … Rows Removed by Filter: 22500`
+  (per worker), then 443 lateral sibling lookups. Execution 26.0 ms. After: `Bitmap Index Scan on
+  ledger_event_party_served_at_idx (rows=5000)`, a HashAggregate down to 30 windows, then 442 lateral lookups for those
+  windows only. The older-strikes probe is an `Index Only Scan using ledger_event_party_served_at_idx` that touches 1 row
+  (it was a seq scan as an `EXISTS`). Execution 15–17 ms. The served set inside the horizon is still read once from the
+  index (5,000 rows here), so the cost is bounded by 14 days of strikes, not by the account's lifetime.
+- **D1 closed** (in chunk 13's fix round; proven here). Test: inbox.test "QA D1" builds the app with the
+  production in-process worker (`encounterWorker`, the real resolver, `TRIP_SETTLE_HOOKS`, no test flag). A
+  commit through it reaches the owner's badge well inside one 60 s poll: the whole test took about 0.5 s. The trip is
+  settled before the defender reads anything, and the item's line matches the feed. The replay route answers the
+  owner with the stored log (`renderable: true`, log not null).
+- **D2 closed.** The view has `olderStrikes: { batchesPastLimit, beforeHorizon } | null`. When it is set, the screen ends
+  with one line ("N earlier hours of strikes … are not listed here. Every strike is in the Party tab's results feed.")
+  and an "Open the results feed" button. Tests: inbox.test N1 and D2 + S4; InboxScreen.test "QA D2" and "no pointer".
+- **N1 closed.** `horizonStartMs` floors `now − horizon` to a window start. Tests: a pure test, and inbox.test "N1": three
+  strikes read at `strike2 + 14 d − 5 ms` give count 3; once the window has aged out there is no item and `beforeHorizon` is true.
+- **N2 closed.** Marks are folded by key, keeping the max of the clamped versions. Test "QA N2" asserts a 200 and one row.
+- **N3 closed.** migration 018 adds a `BEFORE DELETE` trigger `inbox_read_guard_delete`. It refuses a delete while the
+  account exists; the account cascade still removes marks. The schema-guard test checks the DELETE refusal as caravan_app,
+  that caravan_app cannot disable the trigger, and the cascade.
+- **N4 closed.** Unknown keys are skipped and listed in the response's `ignored`, and the inbox comes back fresh. Nothing is
+  stored for them. Test "QA N4"; the contract body `inbox-read.json` records `ignored: []`.
+- **N5 closed** by S4: the lines are picked by time window, never by a seq cursor. `notListed` is `count − 10`.
+- **N6 closed.** `InboxStrike.coinDiscardedAtCap` is the feed's number, and the line reads "… (353 did not fit)". Tests:
+  inbox.test "QA N6" (owner at the cap, overrun, the hooked settle; line and batch equal the feed);
+  InboxScreen.test asserts the text.
+- **N7 closed.** When the count is unknown, the badge's accessible name is just "Inbox". The badge test asserts this after a failed poll.
+- **N8 closed.** The guard refuses `defender.caravanId`, and any key matching `/accountId$/i` at any depth of a strike line,
+  in `GET /me/inbox` and `GET /me/inbox/strikes/:window`. Test: inboxShapes.test "QA N8".
+- **N9 closed.** `strike()` now drains WITH `TRIP_SETTLE_HOOKS` and asserts the trip was settled in the completion
+  transaction. The lazy path is used only by the S2 test. New tests cover the mark-all race, the horizon edge,
+  duplicate marks, cap-discarded totals, the real-resolver replay, and a 40-character name at 320 px (e2e). The
+  describe title now says "migrations 015 and 020". The contract suite records the new `inbox-strikes` body, and the
+  web contract test checks it with `inboxStrikeLinesShape`.
