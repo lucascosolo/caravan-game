@@ -150,3 +150,56 @@ This is the part most likely to be built wrong, so it is stated first.
   pathfinder treats a gap as a wall, the core defensive tradeoff is broken.
 - **No deadlock:** with no unit-unit collision, units should never jam. Confirm a
   fully-enclosed core with no gap still terminates (by breaking through or by tick cap).
+
+## QA round 1 — closed (RESOLVER_VERSION 1 → 2)
+
+`roadmap/qa/10-punchlist.md` S1–S4, N1–N3 are closed in this version; N4 is appended to
+chunk 13's file. What changed in the engine, for anyone reading replays or chunks 11–13:
+
+- **Movement is leg-parametric** (`tick.ts` MOVEMENT_LEG, `state.ts` leg fields): a unit's
+  position on a leg is `anchor + sign(d) × floor(|d| × progress / len)` per axis, never a
+  re-aim from its last rounded position, so rounding is < 1 unit off the exact line for
+  the whole leg. Smoothing accepts a leg only if it clears `losClear` with
+  `LOS_LEG_MARGIN` (2 units: a segment passing *near* a corner counts as touching all
+  three cells). Together these make a corner clip impossible by construction; the
+  landing-cell check plus an exact `losClear(prev, next)` remain as a defensive
+  stop-and-replan that the probe's `cannotHappen` counter watches. The log format is
+  unchanged; `log.ts` now states the interpolation contract (the `hold` event is
+  load-bearing).
+- **Arrival is `len − progress ≤ remaining`** (N1): a step that would land exactly on a
+  waypoint consumes it in the same tick; the magnitude-floor keeps a negative-direction
+  leg from reaching its waypoint a tick early.
+- **Breach price** (`breachCostFor`): `((hits − 1) × cooldownTicks + max(0,
+  cooldownRemaining − 1)) × speedPerTick`, clamped to `BREACH_COST_MAX`. The punch list's
+  "+ 1 recompute tick" is NOT added: the recompute after a break runs in phase 2 of the
+  next tick, before that tick's movement, so no tick is lost (the probe measures 0 extra
+  ticks for a one-hit breach). The cooldownRemaining term is exact when planned on arrival
+  and a bounded over-estimate otherwise.
+- **ROUTE_CHOICE** (`planRoute`): the lattice prices a detour in Manhattan steps while the
+  unit walks the string-pulled route, so a 2-cell sidestep through a gap "cost" 4 steps
+  (≈ 54 ticks) on the lattice and 5 ticks on foot — v1 smashed fences it could walk
+  round. When the best lattice route breaches, the best breach-free lattice route is
+  found too and the two *smoothed* routes are compared on walked length plus breach
+  price; an exact tie walks round. Which segment to breach stays the lattice's single-edge
+  comparison. Measured on the gap-5/6/7 fixtures the chosen route is the quicker one
+  everywhere except two single-HP-step cases where it is 8 and 17 ticks slower (the plan
+  aims at gap cell centres and the walk re-smooths as it goes); the test pins "within one
+  attack cooldown" and exact choices at the unambiguous ends. A later chunk could tighten
+  this by smoothing toward cell edges rather than centres; not needed for v1.
+- **Breach edges never become walls** (S3): any finite breach cost is clamped to
+  `BREACH_COST_MAX = COST_INFINITE − 1 − STEP_COST`; `COST_INFINITE` is reserved for the
+  callback's explicit "cannot breach". A* costs are plain integers, so several clamped
+  edges in a route still order correctly.
+- **Input bounds** (`INPUT_BOUNDS`, S3/S4/N3): hp ≤ 10⁶, ratings ≤ 10⁶, speeds and
+  distances ≤ 64 cells, durations ≤ 1 h, tickRate ≤ 1000, battle ≤ 1 h; `moveSpeed ≥
+  tickRate` for every mover; every post's and trap's `pos` inside its `cell`. A circle
+  test checks content's slowest unit clears the tick rate and every content magnitude sits
+  inside the bounds.
+- **Fixtures**: `cornerClipScenario()` (the reviewer's seeded `rand4`, as literals) and a
+  1e6-HP sealed ring joined the determinism corpus.
+
+Reviewer's probe (`scratchpad/qa10/probe.ts`, with its replica interpolator updated to the
+leg rule) after the fixes: `cannotHappen 0, crossedBlocked 0, maxGroundedStall 0,
+interpolation divergences 0, keyframe mismatches 0`; 45/47 breaches match the model
+tick-exactly, the other 2 are two units sharing one segment (the per-unit price does not
+model help, by design).

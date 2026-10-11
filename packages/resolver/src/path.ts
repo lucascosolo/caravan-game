@@ -13,6 +13,13 @@
  *      segment. "Walk around" vs "break through" is therefore one cost comparison. Anchors
  *      (ring corners) and cells off the lattice are never passable.
  *
+ *      COST_INFINITE is reserved for "cannot breach" (the callback's explicit answer; the
+ *      tick loop never returns it — a breakable segment is always breakable). Any finite
+ *      breach cost is clamped to BREACH_COST_MAX, so a segment whose measured breach time
+ *      overflows the sentinel stays PASSABLE BUT EXPENSIVE rather than silently becoming
+ *      a wall (QA-10 S3). Path costs accumulate in plain integers, never in a 32-bit slot,
+ *      so several clamped edges in one route still order correctly (≤ 1024 × 2³⁰ < 2⁵³).
+ *
  *      PATH_TIE_BREAK: among open cells with equal f, the one with the LOWER ROW is
  *      expanded first, then the LOWER COLUMN — i.e. the lower cell key. Neighbours are
  *      relaxed in the fixed order north, west, east, south, and a neighbour's cameFrom is
@@ -26,17 +33,40 @@
  *      and a segment that passes exactly through a cell corner is treated as touching all
  *      three cells beyond the corner. No cell touched may be blocked.
  *
+ *      With `margin` > 0 the corner rule widens: a segment that passes NEAR a corner — its
+ *      two boundary crossings less than `margin` fixed units apart, measured along either
+ *      axis, i.e. |tx − ty| ≤ margin × (|dx| + |dy|) in cross-multiplied time — is also
+ *      treated as touching all three cells. Movement follows a leg as
+ *      `anchor + sign(d) × floor(|d| × k / len)` per axis (tick.ts), so every position a unit occupies,
+ *      and every chord between two of them, lies within one fixed unit of the leg's exact
+ *      line and inside the leg's bounding box. A leg accepted with LOS_LEG_MARGIN (≥ 1; 2
+ *      for slack) therefore cannot be clipped through an intact cell's corner by that
+ *      rounding (QA-10 S2). Margin 0 is the exact rule.
+ *
  *   3. `smoothPath` — string pulling: from the unit's actual position, the lattice route
  *      is walked forward and each waypoint is the last cell centre still in line of sight
- *      before the first cell that is not (deterministic, O(n) LOS tests). Breach cells are
- *      HARD waypoints: smoothing never skips the cell adjacent to the segment, never crosses
- *      the segment, and restarts after it.
+ *      (with LOS_LEG_MARGIN) before the first cell that is not (deterministic, O(n) LOS
+ *      tests). Breach cells are HARD waypoints: smoothing never skips the cell adjacent to
+ *      the segment, never crosses the segment, and restarts after it.
  */
 import { COST_INFINITE, FIXED_POINT_SCALE } from "./fixed.js";
 import { GRID_HEIGHT, GRID_WIDTH, cellCenter, cellKey, type Cell, type Fixed, type FixedPoint } from "./battlefield.js";
 
 /** Cost of one orthogonal lattice step, in fixed-point cells (1.0). */
 export const STEP_COST = FIXED_POINT_SCALE;
+
+/**
+ * The largest breach cost one edge can carry: passable but dearer than any detour the
+ * lattice can offer (a full tour of the field is ~1024 steps ≈ 2²⁰ ≪ 2³⁰). Strictly below
+ * COST_INFINITE, which stays the callback's "cannot breach" answer.
+ */
+export const BREACH_COST_MAX = COST_INFINITE - 1 - STEP_COST;
+
+/**
+ * Line-of-sight margin (fixed units) smoothing demands of every leg, so that movement's
+ * per-axis floor rounding (< 1 unit off the exact line) can never clip a corner. See header.
+ */
+export const LOS_LEG_MARGIN = 2;
 
 /** Grid cell content for pathing. */
 export const CELL_FREE = -1;
@@ -76,8 +106,10 @@ export function findPath(grid: PathGrid, start: Cell, goal: Cell, breachCost: (f
   const goalContent = grid[goalKey] ?? CELL_ANCHOR;
   if (goalContent === CELL_ANCHOR) return null;
 
-  const g = new Int32Array(n).fill(COST_INFINITE);
-  const f = new Int32Array(n).fill(COST_INFINITE);
+  // Plain integer arrays: a route through several clamped breach edges exceeds 2³¹.
+  const g: number[] = new Array<number>(n).fill(0);
+  const f: number[] = new Array<number>(n).fill(0);
+  const seen = new Uint8Array(n); // g/f are meaningful only where seen[k] === 1
   const cameFrom = new Int32Array(n).fill(-1);
   const closed = new Uint8Array(n);
   const heap: number[] = []; // cell keys; ordered by (f, key)
@@ -124,6 +156,7 @@ export function findPath(grid: PathGrid, start: Cell, goal: Cell, breachCost: (f
 
   g[startKey] = 0;
   f[startKey] = heuristic(start.x, start.y);
+  seen[startKey] = 1;
   push(startKey);
 
   while (heap.length > 0) {
@@ -146,10 +179,11 @@ export function findPath(grid: PathGrid, start: Cell, goal: Cell, breachCost: (f
       if (content >= 0) {
         const extra = breachCost(content);
         if (extra >= COST_INFINITE) continue;
-        stepCost += extra;
+        stepCost += extra > BREACH_COST_MAX ? BREACH_COST_MAX : extra;
       }
       const ng = gc + stepCost;
-      if (ng < g[nk]!) {
+      if (seen[nk] !== 1 || ng < g[nk]!) {
+        seen[nk] = 1;
         g[nk] = ng;
         f[nk] = ng + heuristic(nx, ny);
         cameFrom[nk] = cur;
@@ -175,9 +209,11 @@ function blockedAt(grid: PathGrid, cx: number, cy: number): boolean {
 
 /**
  * Whether the straight segment a→b crosses only free cells (see header). Both endpoints
- * are continuous fixed-point positions; the walk is exact integer arithmetic.
+ * are continuous fixed-point positions; the walk is exact integer arithmetic. `margin` is
+ * the near-corner width in fixed units: 0 (the default) is the exact rule, smoothing
+ * passes LOS_LEG_MARGIN.
  */
-export function losClear(grid: PathGrid, a: FixedPoint, b: FixedPoint): boolean {
+export function losClear(grid: PathGrid, a: FixedPoint, b: FixedPoint, margin = 0): boolean {
   const S = FIXED_POINT_SCALE;
   const dx = b.x - a.x;
   const dy = b.y - a.y;
@@ -208,12 +244,20 @@ export function losClear(grid: PathGrid, a: FixedPoint, b: FixedPoint): boolean 
     } else {
       const tx = bx * ady;
       const ty = by * adx;
-      goX = tx <= ty;
-      goY = ty <= tx;
+      // |tx − ty| ≤ margin × (adx + ady): the two crossings fall within `margin` units of
+      // each other along either axis — exactly through a corner when margin is 0.
+      const gap = tx > ty ? tx - ty : ty - tx;
+      const near = gap <= margin * (adx + ady);
+      goX = near || tx <= ty;
+      goY = near || ty <= tx;
     }
     if (goX && goY) {
-      // Exactly through a corner: conservative — all three cells beyond it must be free.
+      // Through (or, with a margin, near) a corner: conservative — all three cells beyond
+      // it must be free.
       if (blockedAt(grid, cx + stepX, cy) || blockedAt(grid, cx, cy + stepY) || blockedAt(grid, cx + stepX, cy + stepY)) return false;
+      // With a margin the segment may END in one of the two orthogonal cells, before the
+      // second crossing; both were just checked, so the segment is clear.
+      if ((cx + stepX === ex && cy === ey) || (cx === ex && cy + stepY === ey)) return true;
       cx += stepX;
       cy += stepY;
     } else if (goX) {
@@ -237,8 +281,10 @@ export interface Waypoint {
 /**
  * String-pull a lattice route into continuous waypoints (see header). `from` is the unit's
  * actual position. The result never crosses a blocked cell: every consecutive pair of
- * points has line of sight, except the pair ending at a breach waypoint, which is the
- * adjacent cell → the fence cell itself.
+ * points has line of sight with LOS_LEG_MARGIN, except the pair ending at a breach
+ * waypoint, which is the adjacent cell → the fence cell itself. The first step of each
+ * free run is orthogonally adjacent to the anchor's cell and is not LOS-tested: a leg
+ * stays inside the bounding box of its endpoints, which spans only those two cells.
  */
 export function smoothPath(grid: PathGrid, from: FixedPoint, steps: readonly PathStep[]): Waypoint[] {
   const out: Waypoint[] = [];
@@ -252,7 +298,7 @@ export function smoothPath(grid: PathGrid, from: FixedPoint, steps: readonly Pat
     while (i < runEnd) {
       let last = i; // steps[i] is adjacent to the anchor's cell, always reachable
       let j = i + 1;
-      while (j < runEnd && losClear(grid, anchor, cellCenter(steps[j]!.cell))) {
+      while (j < runEnd && losClear(grid, anchor, cellCenter(steps[j]!.cell), LOS_LEG_MARGIN)) {
         last = j;
         j++;
       }

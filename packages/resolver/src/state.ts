@@ -12,6 +12,13 @@
  *   speedPerTick   = floor(moveSpeed_fixed / tickRate)            (fixed cells per tick)
  *   cooldownTicks  = max(1, floor(attackCooldown_ms × tickRate / 1000))
  * Both floor (fixed.ts rounding mode). 1.5 cells/s at 20 ticks/s → 76 (brief: 76.8).
+ * Input validation requires moveSpeed ≥ tickRate, so speedPerTick is never 0 (QA-10 S4).
+ *
+ * A LEG is the straight run from where a unit stood when its current waypoint became the
+ * head of its route (`legX`/`legY`) to that waypoint; `legLen` is its integer length and
+ * `legProgress` the distance covered so far. Movement places the unit at
+ * `leg anchor + sign(d) × floor(|d| × progress / len)` per axis (tick.ts), never by re-aiming from a
+ * rounded position, so rounding never accumulates (QA-10 S2). `legLen` −1 = no leg started.
  */
 import { CELL_ANCHOR, CELL_FREE, emptyGrid, type PathGrid, type Waypoint } from "./path.js";
 import { type Ability, type AffinityCategory, type Cell, type Fixed, type FixedPoint, type PostStance, type TrapCategory, type TrapEffect, type FenceCategory, cellCenter, cellKey } from "./battlefield.js";
@@ -66,6 +73,13 @@ export interface UnitState {
   unreachable: Target[];
   /** Remaining waypoints; waypoints[0] is the one being moved toward. */
   waypoints: Waypoint[];
+  /** The current leg's anchor (see header); meaningful while legLen ≥ 0. */
+  legX: Fixed;
+  legY: Fixed;
+  /** Integer length of the current leg from its anchor to waypoints[0], or −1 (not started). */
+  legLen: number;
+  /** Distance covered along the current leg, 0..legLen. */
+  legProgress: number;
   /** Whether phase 2 must recompute this unit's path this tick regardless of the interval. */
   pathDirty: boolean;
   /** Fence index this unit is standing adjacent to and breaking through, or −1. */
@@ -156,6 +170,10 @@ export function initialState(input: ResolveInput): SimState {
     target: null,
     unreachable: [] as Target[],
     waypoints: [] as Waypoint[],
+    legX: 0 as Fixed,
+    legY: 0 as Fixed,
+    legLen: -1,
+    legProgress: 0,
     pathDirty: true,
     breaching: -1,
     holding: false,

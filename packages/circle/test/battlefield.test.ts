@@ -199,6 +199,19 @@ describe("the battlefield is flat: no elevation, terrain or scenery can be carri
 });
 
 describe("the resolver's mirrored content shapes agree with @caravan/content (chunk 10)", () => {
+  it("QA-10 S4: every content unit type's moveSpeed clears the tick rate, and every magnitude sits inside the resolver's input bounds", async () => {
+    const content = await import("@caravan/content");
+    const resolver = await import("@caravan/resolver");
+    const speeds = content.LIVING_UNIT_TYPES.map((u) => u.moveSpeed as number);
+    expect(Math.min(...speeds), "the slowest unit would floor to 0 per tick").toBeGreaterThanOrEqual(content.TUNABLES.TICK_RATE);
+    expect(Math.max(...speeds)).toBeLessThanOrEqual(resolver.INPUT_BOUNDS.maxMoveSpeed);
+    for (const u of content.LIVING_UNIT_TYPES) {
+      expect(u.attackCooldown as number).toBeLessThanOrEqual(resolver.INPUT_BOUNDS.maxMillis);
+      expect(u.attackRange as number).toBeLessThanOrEqual(resolver.INPUT_BOUNDS.maxDistance);
+    }
+    expect(content.TUNABLES.TICK_RATE).toBeLessThanOrEqual(resolver.INPUT_BOUNDS.maxTickRate);
+  });
+
   it("fixed-point scale, affinity / fence / trap categories, ability archetypes and post stances are identical lists", async () => {
     const content = await import("@caravan/content");
     const resolver = await import("@caravan/resolver");
