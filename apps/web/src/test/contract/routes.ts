@@ -25,6 +25,12 @@ import {
   refugeeViewShape,
   spendResultShape,
   unlocksShape,
+  cosmeticsShape,
+  equipResultShape,
+  purchaseResultShape,
+  purchasesShape,
+  storeShape,
+  unequipResultShape,
 } from "../../api/shapes.ts";
 
 export const CONTRACT_GUARDS: Readonly<Record<string, Guard<unknown> | null>> = {
@@ -49,9 +55,15 @@ export const CONTRACT_GUARDS: Readonly<Record<string, Guard<unknown> | null>> = 
   "formation-put": formationShape,
   formation: formationShape,
   "formation-commit": formationShape,
-  // No client screen reads these yet (chunk 20's storefront and the cosmetics screen add their guards).
-  store: null,
-  cosmetics: null,
+  // Chunk 20's Packs and Cosmetics screens.
+  store: storeShape,
+  "store-purchase": purchaseResultShape,
+  "store-purchase-replay": purchaseResultShape,
+  "store-purchases": purchasesShape,
+  cosmetics: cosmeticsShape,
+  "cosmetics-owned": cosmeticsShape,
+  "cosmetics-equip": equipResultShape,
+  "cosmetics-unequip": unequipResultShape,
 };
 
 /** Null when `body` passes the route's guard (or the route has none); else the guard's reason. */

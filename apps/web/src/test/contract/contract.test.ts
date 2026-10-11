@@ -12,7 +12,7 @@ const recorded = Object.entries(files).map(([p, f]) => ({ name: p.replace(/^\.\/
 describe("client–server contract", () => {
   it("has recorded bodies for the client-consumed routes", () => {
     expect(recorded.length).toBeGreaterThanOrEqual(20);
-    for (const name of ["me", "unlocks", "progression", "unlocks-spend", "manifest", "formation", "formation-put", "formation-commit", "search", "candidates", "choose", "economy", "merge-preview", "refugees", "recruit", "party", "party-feed", "store", "cosmetics"]) {
+    for (const name of ["me", "unlocks", "progression", "unlocks-spend", "manifest", "formation", "formation-put", "formation-commit", "search", "candidates", "choose", "economy", "merge-preview", "refugees", "recruit", "party", "party-feed", "store", "store-purchase", "store-purchase-replay", "store-purchases", "cosmetics", "cosmetics-owned", "cosmetics-equip", "cosmetics-unequip"]) {
       expect(recorded.map((r) => r.name), name).toContain(name);
     }
   });
@@ -42,6 +42,7 @@ describe("client–server contract", () => {
     const skipped = recorded.filter((r) => CONTRACT_GUARDS[r.name] === null).map((r) => `${r.name} (${r.route})`);
     // Printed so the chunk that adds the guard sees which entries to fill in.
     console.info(`contract: skipped (no client guard yet): ${skipped.join(", ") || "none"}`);
-    expect(skipped.every((s) => /^(store|cosmetics) /.test(s))).toBe(true);
+    // Chunk 20's web screens filled in the last two (store, cosmetics): nothing is skipped now.
+    expect(skipped).toEqual([]);
   });
 });

@@ -1,0 +1,11 @@
+{
+  "route": "POST /me/cosmetics/equip",
+  "status": 200,
+  "body": {
+    "slot": "fence_style",
+    "cosmeticId": "fence_style.weathered_grey",
+    "equipped": {
+      "fence_style": "fence_style.weathered_grey"
+    }
+  }
+}

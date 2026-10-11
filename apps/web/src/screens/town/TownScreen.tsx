@@ -397,8 +397,16 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
             <p className="hint">{T.navWebsBody}</p>
           </li>
           <li className="card">
-            <div className="card__name">{T.navPacks}</div>
+            <button type="button" className="btn btn--block" onClick={() => navigate("packs")} data-testid="nav-packs">
+              {T.navPacks}
+            </button>
             <p className="hint">{T.navPacksBody}</p>
+          </li>
+          <li className="card">
+            <button type="button" className="btn btn--block" onClick={() => navigate("cosmetics")} data-testid="nav-cosmetics">
+              {T.navCosmetics}
+            </button>
+            <p className="hint">{T.navCosmeticsBody}</p>
           </li>
         </ul>
         {loaded.manifest.kind === "error" && <ErrorBox error={loaded.manifest.error} onRetry={() => void load()} />}
