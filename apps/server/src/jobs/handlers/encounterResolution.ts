@@ -8,8 +8,10 @@
  * nothing is written. The gate is a server-side flag, NOT `RESOLVER_VERSION`: chunk 10
  * shipped the resolver core at RESOLVER_VERSION 1 (movement and breaching only — no combat,
  * no end conditions, no outcome), so the version alone does not mean "an encounter can be
- * resolved". TODO(chunk-13): call @caravan/resolver on input.formation + input.party, map
- * its outcome to coin/unit/reputation events here, and flip ENCOUNTER_RESOLUTION_WIRED.
+ * resolved". TODO(chunk-13): implement trip/outcome.ts `productionEncounterResolver` over
+ * @caravan/resolver (chunk 15 built the handler around it: `makeEncounterResolutionHandler`)
+ * and flip ENCOUNTER_RESOLUTION_WIRED. Coin, unit and Reputation effects are NOT written
+ * here: the trip loop's settle step (trip/service.ts) folds the stored outcome in once.
  * Nothing else about this file changes then: the snapshotting, the events' scopes and the
  * resolver-version stamp are already in place.
  */
@@ -21,6 +23,15 @@ import { canonicalJson, type Json } from "../../ledger/events.js";
 import { appendEvents, lockCaravanForResolution } from "../../ledger/ledger.js";
 import { JOB_KIND_ENCOUNTER_RESOLUTION, JobInputConflictError, NonRetryableJobError, encounterJobId, enqueueJob, getJob } from "../queue.js";
 import { snapshotFormation, type FormationSnapshot, type StandingPartySnapshot } from "../snapshots.js";
+import { applyEncounterOutcome as applyAttritionOutcome } from "@caravan/circle";
+import {
+  attritionOf,
+  productionEncounterResolver,
+  resolveEncounter,
+  resolverInputFromJob,
+  type EncounterOutcome,
+  type EncounterResolver,
+} from "../../trip/outcome.js";
 import type { JobHandler } from "../worker.js";
 
 export interface EncounterJobInput extends JsonObject {
@@ -191,8 +202,75 @@ export const encounterResolutionHandler: JobHandler = (job) => {
       `no resolver: RESOLVER_VERSION ${RESOLVER_VERSION} is not wired into the encounter handler (chunk 13); encounter ${job.id} cannot be resolved until it is`,
     );
   }
-  return placeholderEncounterResolutionHandler(job);
+  // Chunk 15: once wired, production resolves through the trip loop's seam with the real
+  // resolver adapter (trip/outcome.ts productionEncounterResolver, chunk 13 implements it).
+  return makeEncounterResolutionHandler(productionEncounterResolver)(job);
 };
+
+/**
+ * Chunk 15 — the resolution handler over the trip loop's seam (trip/outcome.ts). PURE: it
+ * parses the job's snapshotted input (formation + the survivors it was committed against +
+ * the scouted party), runs `resolveEncounter(resolver, …)` and records the validated
+ * EncounterOutcome in the job result and in the two resolution events. The trip loop's
+ * settle step (trip/service.ts) reads `job.result.outcome` and folds it into the manifest,
+ * progression and the trip's unbanked Coin — exactly once.
+ *
+ * Production passes `productionEncounterResolver` (gated above); tests pass the
+ * deterministic double in test/trip-double.ts. The party-side event carries the party
+ * version that fought (chunk 09 QA N3: partyId, partyHash, partySavedAt from the snapshot).
+ * A malformed input or outcome is a NonRetryableJobError: retrying a pure function cannot fix it.
+ */
+export function makeEncounterResolutionHandler(resolver: EncounterResolver): JobHandler {
+  return (job) => {
+    const input = job.input as EncounterJobInput;
+    let outcome: EncounterOutcome;
+    try {
+      const resolverInput = resolverInputFromJob(job.input);
+      outcome = resolveEncounter(resolver, resolverInput);
+      // Dry-run the carry-forward fold against the survivors the formation was committed
+      // with: an outcome that heals, re-arms, rebuilds or names an unknown ref is refused
+      // HERE, before anything is recorded (no repair, no resupply — chunk 15).
+      applyAttritionOutcome(resolverInput.survivors, attritionOf(outcome));
+    } catch (err) {
+      throw new NonRetryableJobError(`encounter ${job.id}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const outcomeJson = outcome as unknown as JsonObject;
+    const events: LedgerEventDraft[] = [
+      {
+        type: "encounter_resolved",
+        accountId: input.defenderAccountId,
+        caravanId: input.defenderCaravanId,
+        resolverVersion: RESOLVER_VERSION,
+        payload: {
+          jobId: job.id,
+          tripId: input.tripId,
+          encounterIndex: input.encounterIndex,
+          partyOwnerAccountId: input.partyOwnerAccountId,
+          formation: input.formation,
+          party: input.party,
+          outcome: outcomeJson,
+        },
+      },
+      {
+        type: "party_served_as_encounter",
+        accountId: input.partyOwnerAccountId,
+        resolverVersion: RESOLVER_VERSION,
+        payload: {
+          jobId: job.id,
+          tripId: input.tripId,
+          encounterIndex: input.encounterIndex,
+          defenderAccountId: input.defenderAccountId,
+          defenderCaravanId: input.defenderCaravanId,
+          partyId: input.party.partyId,
+          partyHash: input.party.hash,
+          partySavedAt: input.party.savedAt,
+          outcome: { kind: outcome.kind, depth: outcome.depth },
+        },
+      },
+    ];
+    return { events, result: { outcome: outcomeJson, resolverVersion: RESOLVER_VERSION, resolver: resolver.name } };
+  };
+}
 
 export const DEFAULT_HANDLERS = { [JOB_KIND_ENCOUNTER_RESOLUTION]: encounterResolutionHandler } as const;
 

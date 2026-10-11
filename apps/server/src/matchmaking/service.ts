@@ -71,6 +71,7 @@ import { authoredOutfitFor } from "./authored.js";
 import { authoredServedShare } from "./authoredShare.js";
 import { noLinkedAccounts, type LinkedAccountsResolver } from "./exclusions.js";
 import { findOpenTrip, type TripRow } from "./trips.js";
+import { assertPushedPast } from "../trip/repo.js";
 
 export const notFound = (code: string, message: string) => new AppError(404, code, message);
 
@@ -419,6 +420,9 @@ export async function searchCandidates(client: pg.PoolClient, caravan: CaravanRo
   if (!Number.isInteger(opts.nowMs) || opts.nowMs < 0) throw new RangeError("nowMs must be a non-negative integer");
   const { trip, manifest } = await openTripFor(client, caravan, true);
   requireNextEncounter(manifest, encounterIndex);
+  // Chunk 15: the next attacker is served only after the player chose to PUSH past the
+  // encounter they just survived — scouting it is not a free peek before bank-or-push.
+  await assertPushedPast(client, trip.id, encounterIndex);
   if (await findChosenSearch(client, trip.id, encounterIndex)) throw conflict("already_chosen", "a candidate for this encounter is already chosen; arrange the circle against it");
   const latest = await findLatestSearch(client, trip.id, encounterIndex);
   if (latest) {

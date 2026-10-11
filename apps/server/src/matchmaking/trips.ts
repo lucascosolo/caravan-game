@@ -17,7 +17,11 @@ export interface TripRow {
   manifest_id: string;
   started_at: Date;
   ended_at: Date | null;
+  /** Chunk 15 (migration 012): how the trip ended. Null while open, and for a bare endTrip(). */
+  end_reason: TripEndReason | null;
 }
+
+export type TripEndReason = "banked" | "overrun";
 
 /**
  * Open a trip on the caravan's open manifest. Chunk 15 wraps this with the trip cap and the
@@ -42,9 +46,12 @@ export async function findTripById(db: Queryable, id: string): Promise<TripRow |
   return res.rows[0] ?? null;
 }
 
-/** Trip end. Chunk 15 decides when (and closes the manifest alongside). Idempotent. */
-export async function endTrip(client: pg.PoolClient, tripId: string): Promise<TripRow> {
-  const res = await client.query<TripRow>("UPDATE trip SET ended_at = now() WHERE id = $1 AND ended_at IS NULL RETURNING *", [tripId]);
+/**
+ * Trip end. Chunk 15 decides when (and closes the manifest alongside) and names the reason;
+ * a bare call (chunk 14's tests) leaves it null. Idempotent: an ended trip is returned as-is.
+ */
+export async function endTrip(client: pg.PoolClient, tripId: string, reason: TripEndReason | null = null): Promise<TripRow> {
+  const res = await client.query<TripRow>("UPDATE trip SET ended_at = now(), end_reason = $2 WHERE id = $1 AND ended_at IS NULL RETURNING *", [tripId, reason]);
   if (res.rows[0]) return res.rows[0];
   const existing = await findTripById(client, tripId);
   if (!existing) throw new AppError(404, "no_trip", "trip not found");

@@ -13,6 +13,7 @@ import { meRoutes } from "./routes/me.js";
 import { partyRoutes } from "./routes/party.js";
 import { progressionRoutes } from "./routes/progression.js";
 import { storeRoutes } from "./routes/store.js";
+import { tripRoutes } from "./routes/trip.js";
 import { unlockRoutes } from "./routes/unlocks.js";
 import { AppError } from "./services/errors.js";
 
@@ -66,5 +67,6 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(matchmakingRoutes);
   await app.register(storeRoutes);
   await app.register(cosmeticRoutes);
+  await app.register(tripRoutes);
   return app;
 }

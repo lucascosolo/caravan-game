@@ -76,6 +76,14 @@ export interface EncounterProgressionInput {
   caravan: { accountId: string; caravanId: string; poolsUsed: readonly Pool[] };
   /** The standing party's owner and the pools the party fielded. */
   party: { ownerAccountId: string; poolsUsed: readonly Pool[] };
+  /**
+   * Chunk 15 / chunk 25 QA S8: "skip" when the party's owner is a SYSTEM account (an authored
+   * cold-start party). Then no party-side event of any kind is derived — no Reputation, no
+   * ladder, no unlock points on the system account — while the caravan side resolves in full
+   * against the authored party's (read-only) siege rating. Omitted = "apply". The trip loop
+   * reads `account.is_system` at the outcome boundary and sets this; the resolver never sees it.
+   */
+  partySide?: "apply" | "skip";
 }
 
 export interface PoolChangeSummary {
@@ -103,6 +111,7 @@ export function validateProgressionInput(input: EncounterProgressionInput): void
   if (!ENCOUNTER_OUTCOME_KINDS.includes(input.outcome)) throw new TypeError(`unknown outcome '${String(input.outcome)}'`);
   if (!input.caravan.accountId || !input.caravan.caravanId) throw new TypeError("caravan.accountId and caravan.caravanId are required");
   if (!input.party.ownerAccountId) throw new TypeError("party.ownerAccountId is required");
+  if (input.partySide !== undefined && input.partySide !== "apply" && input.partySide !== "skip") throw new TypeError(`unknown partySide '${String(input.partySide)}'`);
   if (input.caravan.accountId === input.party.ownerAccountId) {
     throw new TypeError("a player never meets their own standing party; progression refuses a self-encounter");
   }
@@ -215,7 +224,7 @@ export function deriveProgressionEvents(snapshot: ProgressionSnapshot, input: En
   }
 
   // ── Party side ──────────────────────────────────────────────────────────────────────
-  {
+  if (input.partySide !== "skip") {
     const used = new Set(input.party.poolsUsed);
     const siege: PoolChangeSummary = { pool: "siege" };
     siege.reputation = changeReputation("party", "siege", after.party.siege); // always: the party's matchmaking rating
@@ -254,6 +263,8 @@ export function progressionInputHash(input: EncounterProgressionInput): string {
     outcome: input.outcome,
     caravan: { accountId: input.caravan.accountId, caravanId: input.caravan.caravanId, poolsUsed: [...input.caravan.poolsUsed].sort() },
     party: { ownerAccountId: input.party.ownerAccountId, poolsUsed: [...input.party.poolsUsed].sort() },
+    // Only present when skipped, so every hash written before chunk 15 is unchanged.
+    ...(input.partySide === "skip" ? { partySide: "skip" } : {}),
   };
   return createHash("sha256").update(canonicalJson(canonical)).digest("hex");
 }

@@ -1,6 +1,6 @@
 # Chunk 15 — Trip loop
 
-**Depends on:** 07, 13, 14. **Status:** not started.
+**Depends on:** 07, 13, 14. **Status:** built (fight outcome consumed through the `EncounterOutcome` seam until chunk 13; see Build notes).
 Read `/roadmap/GUARDRAILS.md` in full first, including §0 on which way round the game runs.
 
 ## Goal
@@ -180,3 +180,130 @@ between "packed" and "rode out"; (2) closing it at bank / overrun is what return
 survivors to the merge board. The `caravan_on_trip` check (chunk 16 QA S1) remains as a
 second, independent guard once this chunk sets the state.
 
+
+## Build notes (chunk 15 Maker)
+
+**Status: `built` — the fight result is consumed through ONE marked seam until chunk 13.**
+Chunk 13 (end conditions, depth-scaled loot, replay log) is not built. Everything the trip
+loop owns is built and tested; the outcome of a fight enters through
+`apps/server/src/trip/outcome.ts`:
+
+```ts
+export type EncounterOutcomeKind = "caravan_held" | "caravan_overrun" | "stalemate";
+export interface EncounterOutcome {
+  readonly kind: EncounterOutcomeKind;
+  readonly depth: number; // fixed-point 0..FIXED_ONE (1024 = reached the core; an overrun is always 1024)
+  readonly units: readonly { readonly ref: string; readonly hp: number }[];  // posted units; 0 = died
+  readonly spentTraps: readonly string[];                                      // laid traps that fired
+  readonly fences: readonly { readonly ref: string; readonly hp: number }[]; // placed segments; 0 = destroyed
+}
+export interface EncounterResolverInput { tripId; encounterIndex; formation: Formation; survivors: Manifest; party: Party }
+export interface EncounterResolver { readonly name: string; resolve(input: EncounterResolverInput): EncounterOutcome }
+export function resolveEncounter(resolver, input): EncounterOutcome // validates shape + "only what was in the fight"
+```
+
+`units / spentTraps / fences` is exactly `@caravan/circle`'s attrition outcome (`applyOutcome`).
+The job handler `makeEncounterResolutionHandler(resolver)` (jobs/handlers/encounterResolution.ts)
+is pure: it parses the job input (`resolverInputFromJob`), runs the resolver, dry-runs the
+monotone attrition fold against the committed survivors (a heal / re-arm / rebuild / unknown
+ref parks the job; nothing recorded), and writes `encounter_resolved` +
+`party_served_as_encounter` (the latter with `partyId`, `partyHash`, `partySavedAt`,
+`outcome: {kind, depth}`), with the outcome in `job.result.outcome`. **Production stays gated**:
+`ENCOUNTER_RESOLUTION_WIRED = false` (chunk 02), so `DEFAULT_HANDLERS` still parks every
+encounter job; once flipped it calls `makeEncounterResolutionHandler(productionEncounterResolver)`,
+whose body throws `TODO(chunk-13)`. **Chunk 13:** implement `productionEncounterResolver.resolve`
+as an adapter (`toBattlefield(input.survivors, input.formation)` + `input.party` → simulate → this
+shape) and flip the flag. Nothing in the trip loop changes. Tests use the deterministic double in
+`apps/server/test/trip-double.ts` (`plannedResolver` / `doubleHandlers`), registered explicitly.
+
+**Files.** `src/trip/{outcome,cap,repo,service}.ts`, `src/routes/trip.ts` (registered in
+`app.ts`), migration `012_trip_loop`, `test/trip.test.ts` + `test/trip-double.ts`. Touched:
+`jobs/handlers/encounterResolution.ts` (handler factory; the gated production path delegates to
+it), `matchmaking/trips.ts` (`end_reason`, `endTrip(client, id, reason?)`),
+`matchmaking/service.ts` (search gate, one call), `progression/outcome.ts` (`partySide: "skip"`
+option, hash unchanged when omitted), `packages/content/src/tunables.ts` (chunk 15 block:
+`TRIPS_PER_HOUR_CAP` 3, `TRIP_CAP_REGEN_MS` 20 min, `NO_REPAIR_BETWEEN_ENCOUNTERS`,
+`RESTORE_ON_TRIP_END`), `test/migrations.test.ts` (table list).
+
+**Routes** (owner-only, 404 otherwise): `GET /me/caravans/:id/trip` (status, phase, trip cap;
+settles a finished resolution lazily), `POST …/trip/start` (201), `POST …/trip/encounters/:n/commit`
+(202 new / 200 replay), `GET …/trip/preview`, `POST …/trip/push` and `POST …/trip/bank`, both
+`{ tripId, encounterIndex }` — the survived encounter the decision is about, so a stale retry
+can never decide a later encounter. Search / choose stay chunk 14's routes, arranging chunk 07's.
+
+**Migration 012.** `trip.end_reason` (`banked` | `overrun`, frozen with the trip);
+`trip_encounter` (one row per SETTLED encounter: job id, kind, `depth_fp`, `deaths`,
+`coin_accrued` = the encounter's UNBANKED Coin, owner, one-time `decision` pushed | banked;
+otherwise immutable, undeletable, inserted only after n−1 was pushed past and only on an open
+trip; overrun ⇒ 0 Coin and no decision); `trip_cap` (account-level, one GCRA timestamp
+`tat_ms`; the DB refuses any decrease — no refund path — and deletion).
+
+**How the loop runs.**
+- *Start* (one tx; lock order caravan advisory → account → caravan row → manifest): refuses
+  `not_packed` without an open manifest, `trip_open` when already out, `manifest_used`;
+  consumes one trip-cap use (`trip_cap_exhausted` 409 + Retry-After); sets `caravan.state =
+  on_trip` BEFORE `createTrip`, same tx; appends `trip_started {tripId, manifestId, startedAtMs,
+  tripCap}` under `trip:<id>:start`. Packing stays in town and never moves the state (17 D2).
+- *Commit* (`commitEncounter`): for n > 1 requires a recorded push past n−1; commits the
+  formation (chunk 07, idempotent) and calls `enqueueChosenEncounter` with the canonical
+  formation plus one extra key, `survivors` (the snapshot it was committed against), so the job
+  input alone determines the fight.
+- *Settle* (`settleEncounter`; lazy from GET status / preview / bank / push; idempotent and
+  race-safe — 10 concurrent settles → one row, one fold, one progression set): `applyOutcome`
+  (monotone; advances the counter by exactly one), chunk 04 `applyEncounterOutcome` under
+  `progression:<jobId>` (caravan: living if posts, trap if traps laid; party: siege if fielded;
+  **party side skipped for a system owner** — no event on the system account except chunk 09's
+  feed entry), `coin_accrued = coinForEncounter(n)` if survived else 0, and on an overrun:
+  `endTrip(…, "overrun")`, `closeManifest`, caravan `in_town`, `trip_overrun` with the typed
+  `TripOverrunHandoff` payload (`unbankedCoin`, `unitsAliveAtCollapse`, `unitsDiedOnTrip`,
+  `partyOwnerAccountId`, `partyOwnerAuthored`, `lossesApplied: false`). **TODO(chunk-19)** in
+  `settleLocked`: destroy / de-merge / transfer in that same transaction. No losses applied here.
+- *Push*: binding — the next party is served only after it (chunk 14's `searchCandidates` now
+  refuses 409 `decide_first` while the decision is open, so scouting is not a free peek).
+- *Bank*: only after surviving (held or stalemate); asserts the accrued sum equals
+  `coinForEncountersSurvived(n)` (preview = ledger), credits `creditBankedTrip` once under
+  `trip:<id>:bank`, records the decision, `endTrip(…, "banked")`, `closeManifest` (the refit,
+  RESTORE_ON_TRIP_END: the next manifest packs at full HP, traps restocked, fences rebuilt; the
+  bank result itemizes `restored`), caravan `in_town`, `trip_banked` under `trip:<id>:banked`.
+  A retry replays from the stored event (`replayed: true`); a concurrent double bank credits
+  once; bank racing push: exactly one wins.
+- *Preview* (`GET …/trip/preview`): unbanked Coin (total + per encounter); bank-now total with
+  chunk 16's overflow forecast; every unit from the MANIFEST (hp, maxHp, damage, alive,
+  `diedAtEncounter`, `mergeLevelOnDeath` = max(1, L−1)); `ifOverrun` (Coin lost, units lost
+  outright = alive now, units de-merged-not-destroyed = dead now); remaining / spent traps;
+  intact / destroyed fences; the next encounter (index, reward, bank total if survived, chunk 14
+  escalation applied / per encounter / harder, party arrives fresh); the last opponent's chunk 14
+  reputation block (`gapBeyondBand`, `sandbagEarnMultiplier`) beside the stakes.
+
+**Tests.** `test/trip.test.ts` (27): cap math and regen; start refusals / state / event; four
+concurrent starts → one trip, one use; cap exhausted → 409 + Retry-After, regen at +20 min, one
+use per trip regardless of encounter count; cap and trip_encounter DB guards as the app role;
+the chain 1 → 2 → 3 with attrition (a trap spent at 1 is still spent at 2 and 3, a unit dead
+at 2 stays dead and unpostable at 3, HP never rises, a spent trap is unplaceable); heal / re-arm
+resolvers park with nothing folded; search / commit refused before deciding; preview itemized;
+push binding and idempotent; stale bank refused; stalemate → bank; bank exactly once (retry +
+concurrent); refit on the next pack; a new trip's first search is immediate (reroll gate reset);
+bank guards; bank racing push ×3; overrun hand-off (no Coin, roster byte-identical); 10 racing
+settles; replay determinism (`verifyJobReplay`); production handler still parks; authored owner
+gets no progression / Coin event; source scans (no travel / route / map concepts in `src/trip`
+or the route file; `enqueueChosenEncounter` called only by the trip loop).
+
+**Assumptions / decisions for QA.**
+- The trip cap is ACCOUNT-level (a player's budget; a future second caravan must not multiply
+  it), stored as one GCRA timestamp; routes pass the wall clock, services take `nowMs`.
+- The caravan's encounter Coin does not depend on depth: depth scales the party OWNER's loot
+  (chunk 13's PARTIAL_LOOT_CURVE). Held and stalemate both accrue `coinForEncounter(n)`.
+- The sandbagging earn floor is NOT applied (chunk 19's `applyEarnFloor`, at the accrual site
+  marked TODO(chunk-19); `creditBankedTrip` would then need the per-encounter amounts). The
+  multiplier is shown in the preview's `lastOpponent.reputation` as chunk 14 computed it.
+- Dead units are banked home at full HP at their packed level; the per-death de-merge is chunk
+  19's (`restored.deMergePending` lists them). On an overrun the manifest closes and the units
+  return to the roster untouched until chunk 19 wires the losses into the same transaction.
+- No new ledger types: `trip_started`, `trip_banked`, `trip_overrun` were already in the enum
+  (`stop_resolved` stays unused). A push writes no ledger event (it moves no Coin, Reputation or
+  unit); it is recorded on `trip_encounter.decision`.
+- Chunk 04 N5 (initial progression event at registration): left as is — registration still
+  writes no initial event and the trip loop adds none.
+- The search gate in `searchCandidates` bites only when the trip loop has a row for n−1 (chunk
+  14's own tests advance the manifest counter by hand and are unaffected); the trip loop's own
+  commit path is strict, and `trip_encounter`'s insert trigger enforces order in the DB.
