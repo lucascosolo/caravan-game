@@ -505,8 +505,39 @@ describe("content drops", () => {
     // QA D3: two in-place updates later, the roster still rebuilds from the ledger: every
     // retired instance has its removal event, every new one its acquisition.
     expect(await rebuildAuthoredRoster(pool, caravan.id)).toEqual(await liveRoster(pool, caravan.id));
-    const removed = await pool.query<{ n: string }>("SELECT count(*)::text AS n FROM ledger_event WHERE caravan_id = $1 AND event_type = 'unit_lost_on_wipe' AND payload ->> 'reason' = 'authored_set_update'", [caravan.id]);
+    const removed = await pool.query<{ n: string }>("SELECT count(*)::text AS n FROM ledger_event WHERE caravan_id = $1 AND event_type = 'unit_retired' AND payload ->> 'reason' = 'authored_set_update'", [caravan.id]);
     expect(Number(removed.rows[0]!.n)).toBe(spec.units.length + 5);
+  });
+
+  it("an authored roster update retires the old instances as unit_retired — never unit_lost_on_wipe, which is a trip loss (chunk 19)", async () => {
+    const spec = authoredPartySpecs().find((s) => s.band === 2 && s.regionId === "mountain")!;
+    const account = (await findAccountByUsername(pool, spec.username))!;
+    const caravan = (await pool.query<{ id: string }>("SELECT id FROM caravan WHERE account_id = $1", [account.id])).rows[0]!;
+    const before = await liveRoster(pool, caravan.id);
+    const cause = `test:retire:${unique("r")}`;
+    await withTransaction(appRole, (c) => applyAuthoredSpec(c, { ...spec, units: [...spec.units].reverse() }, account.id, caravan.id, cause));
+    const roster = await pool.query<{ event_type: string; payload: Record<string, unknown> }>(
+      "SELECT event_type, payload FROM ledger_event WHERE causation_id = $1 AND event_type IN ('unit_retired', 'unit_lost_on_wipe') ORDER BY causation_seq",
+      [`${cause}:roster`],
+    );
+    expect(roster.rows.map((r) => r.event_type)).toEqual(before.map(() => "unit_retired"));
+    expect(roster.rows.map((r) => r.payload)).toEqual(before.map((u) => ({ unitInstanceId: u.instanceId, unitTypeId: u.unitTypeId, mergeLevel: u.mergeLevel, reason: "authored_set_update" })));
+    // Across every system caravan, after every drop this file applied: no unit_lost_on_wipe at all.
+    const wipes = await pool.query<{ n: string }>("SELECT count(*)::text AS n FROM ledger_event le JOIN account a ON a.id = le.account_id WHERE a.is_system AND le.event_type = 'unit_lost_on_wipe'");
+    expect(wipes.rows[0]!.n).toBe("0");
+    expect(await rebuildAuthoredRoster(pool, caravan.id)).toEqual(await liveRoster(pool, caravan.id));
+    // The reason is a closed set, in validateDraft and in the CHECK; the event is caravan-scoped.
+    const draft = { type: "unit_retired" as const, accountId: account.id, caravanId: caravan.id, payload: { unitInstanceId: before[0]!.instanceId, unitTypeId: before[0]!.unitTypeId, mergeLevel: 1, reason: "trip_wipe" } };
+    await expect(withTransaction(appRole, (c) => appendEvents(c, `test:retire-bad:${unique("x")}`, [draft]))).rejects.toThrow(/payload.reason/);
+    await expect(withTransaction(appRole, (c) => appendEvents(c, `test:retire-acct:${unique("x")}`, [{ ...draft, caravanId: null, payload: { ...draft.payload, reason: "authored_set_update" } }]))).rejects.toThrow(/caravan-level/);
+    const err = await expectDbError(
+      appRole,
+      "INSERT INTO ledger_event (event_type, account_id, caravan_id, causation_id, causation_seq, payload) VALUES ('unit_retired', $1, $2, $3, 0, '{\"reason\": \"trip_wipe\"}'::jsonb)",
+      [account.id, caravan.id, `test:retire-raw:${unique("x")}`],
+    );
+    expect(err?.code).toBe("23514");
+    // Restore the canonical spec so later tests see the set as seeded.
+    await withTransaction(appRole, (c) => applyAuthoredSpec(c, spec, account.id, caravan.id, `test:retire-restore:${unique("r")}`));
   });
 
   it("chunk 25 QA S2: a drop whose reached ∪ new nodes overflow one capped ladder is refused before any write — for one party, and for the whole set", async () => {

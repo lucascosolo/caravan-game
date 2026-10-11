@@ -2190,3 +2190,20 @@ vitest run` → 29 files, 525 tests passed (new `qa25-scale.test.ts` 3, `authore
 seeded (96 authored, set v3); look-alike accounts `sys_outfitx_evil` / `sys0outfit0evil`
 seeded beside them and the re-seed still runs; `migrate reset` there refuses with "nothing
 was rolled back". `INDEX.md` untouched (coordinator flips status after re-audit).
+
+### 2026-10-11 — Chunk 25 D3 follow-up: authored roster removals are `unit_retired`, not `unit_lost_on_wipe`
+
+Orchestrator decision on the D3 flag above. A content drop that rebuilds an authored
+(system) party's roster no longer reuses chunk 19's trip-loss event. New ledger event type
+**`unit_retired`** (caravan-scoped), payload `{unitInstanceId, unitTypeId, mergeLevel,
+reason}`, `reason` a closed set (`UNIT_RETIRED_REASONS` = `["authored_set_update"]`) checked
+by `validateDraft` and by the CHECK `ledger_event_unit_retired_reason`. Migration 002 edited
+in place (enum label; scope falls to `caravan` in `ledger_event_scope`) — nothing is
+deployed, but **dev DBs need `db:reset` + `db:seed`** (delete system accounts first, per S1).
+`applyAuthoredSpec` writes `unit_retired`; `rebuildAuthoredRoster` folds `unit_acquired` +
+`unit_retired`. Chunk 19's file now says: `unit_retired` is not a trip loss; only
+`unit_lost_on_wipe` counts. Tests: enum-label pin includes `unit_retired`; acquisition.test.ts
+single-writer scan pins `unit_retired` to `matchmaking/authored.ts` and asserts authored.ts
+never writes `unit_lost_on_wipe`; authored.test.ts asserts an update writes only
+`unit_retired` (exact payloads), no system account has any `unit_lost_on_wipe`, and bad
+reason / missing caravan id are refused in app code and by the DB; ledger.test.ts scope check.

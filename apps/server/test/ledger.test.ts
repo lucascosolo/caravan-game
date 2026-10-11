@@ -95,6 +95,7 @@ describe("scope split is a CHECK, not a convention", () => {
     expect((await direct("coin_earned", caravanId, { amount: 1, reason: "t" }))?.code).toBe("23514");
     expect((await direct("standing_party_saved", caravanId, {}))?.code).toBe("23514");
     expect((await direct("unit_acquired", null, { unitTypeId: "x" }))?.code).toBe("23514");
+    expect((await direct("unit_retired", null, { reason: "authored_set_update" }))?.code).toBe("23514");
     expect((await direct("trip_started", null, {}))?.code).toBe("23514");
   });
 
