@@ -49,6 +49,8 @@ import {
 } from "./shapes.ts";
 import { bankResultShape, encounterCommitShape, pushResultShape, stakesPreviewShape, tripStartShape, tripStatusShape } from "./tripShapes.ts";
 import { replayShape } from "./replayShapes.ts";
+import { onboardingChangeShape, onboardingShape, type OnboardingChange, type OnboardingResponse } from "../onboarding/shapes.ts";
+import type { OnboardingStep } from "../onboarding/steps.ts";
 import type { ReplayView } from "./replayTypes.ts";
 import type { BankResult, EncounterCommitResult, PushResult, StakesPreview, TripStartResult, TripStatusView } from "./tripTypes.ts";
 import type {
@@ -187,6 +189,11 @@ export interface Api {
   // The replay of a resolved encounter (chunk 13 route, chunk 22 player), for either
   // participant. 409 `not_resolved`, 410 `replay_expired`, 404 for anyone else.
   replay(jobId: string): Promise<ReplayView>;
+  // The first-session guide (chunk 24 routes). Account-level, forward-only; a marker of what the
+  // player has seen, never a grant. Skip is refused (409 `onboarding_first_screen`) on the first screen.
+  onboarding(): Promise<OnboardingResponse>;
+  advanceOnboarding(step: OnboardingStep): Promise<OnboardingChange>;
+  skipOnboarding(): Promise<OnboardingChange>;
 }
 
 function isErrorBody(value: unknown): value is ApiErrorBody {
@@ -287,5 +294,8 @@ export function createApi(opts: ApiOptions): Api {
     equipCosmetic: (cosmeticId) => request("POST", "/me/cosmetics/equip", equipResultShape, { cosmeticId }),
     unequipCosmetic: (slot) => request("POST", "/me/cosmetics/unequip", unequipResultShape, { slot }),
     replay: (jobId) => request("GET", `/me/encounters/${encodeURIComponent(jobId)}/replay`, replayShape),
+    onboarding: () => request("GET", "/me/onboarding", onboardingShape),
+    advanceOnboarding: (step) => request("POST", "/me/onboarding/advance", onboardingChangeShape, { step }),
+    skipOnboarding: () => request("POST", "/me/onboarding/skip", onboardingChangeShape),
   };
 }

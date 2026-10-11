@@ -54,6 +54,9 @@ export function fakeApi(over: Partial<Api> = {}): Api {
     equipCosmetic: notCalled,
     unequipCosmetic: notCalled,
     replay: notCalled,
+    onboarding: notCalled,
+    advanceOnboarding: notCalled,
+    skipOnboarding: notCalled,
     ...over,
   };
 }

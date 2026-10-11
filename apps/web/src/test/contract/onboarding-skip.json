@@ -1,0 +1,27 @@
+{
+  "route": "POST /me/onboarding/skip",
+  "status": 200,
+  "body": {
+    "onboarding": {
+      "step": "done",
+      "steps": [
+        "welcome",
+        "roster",
+        "outfit",
+        "scout",
+        "arrange",
+        "result",
+        "free",
+        "bank",
+        "party",
+        "done"
+      ],
+      "enrolled": true,
+      "completed": true,
+      "skipped": true,
+      "canSkip": false,
+      "updatedAt": "2026-10-11T12:00:00.000Z"
+    },
+    "changed": true
+  }
+}

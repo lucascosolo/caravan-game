@@ -240,6 +240,10 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     const riders = await giveUnits(p, ["desert.dust_rider", "desert.dust_rider", "desert.dust_rider"]);
 
     await record("me", "GET /me", await call(p, "GET", "/me"), 200);
+    // Chunk 24: the first-session guide (a fresh account starts at the first screen).
+    await record("onboarding", "GET /me/onboarding", await call(p, "GET", "/me/onboarding"), 200);
+    await record("onboarding-advance", "POST /me/onboarding/advance", await call(p, "POST", "/me/onboarding/advance", { step: "roster" }), 200);
+    await record("onboarding-skip", "POST /me/onboarding/skip", await call(p, "POST", "/me/onboarding/skip"), 200);
     const unlocks = (await record("unlocks", "GET /me/unlocks", await call(p, "GET", "/me/unlocks"), 200)) as { webs: { pool: string; nodes: { id: string; reached: boolean; prerequisitesMet: boolean; cost: number }[] }[] };
     await record("progression", "GET /me/progression", await call(p, "GET", "/me/progression"), 200);
 

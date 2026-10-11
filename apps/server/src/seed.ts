@@ -11,6 +11,7 @@ import { seedAuthoredParties } from "./matchmaking/authored.js";
 import { findAccountByUsername } from "./repo/accounts.js";
 import { listCaravansForAccount } from "./repo/caravans.js";
 import { createUnitInstance } from "./repo/unitInstances.js";
+import { markOnboardingDone } from "./onboarding/service.js";
 import { registerAccount } from "./services/onboarding.js";
 
 /**
@@ -58,6 +59,9 @@ async function main(): Promise<void> {
     for (const u of SEED_UNIT_TYPES) {
       await createUnitInstance(pool, { caravanId: caravan.id, ...u });
     }
+    // Chunk 24: a seeded account comes with a ready-made roster no new player has, so it is a
+    // dev / e2e fixture, not a new player: the first-session guide is marked done.
+    await markOnboardingDone(pool, account.id);
     console.log(`Seeded account '${SEED_USERNAME}' (${account.id}) with caravan '${caravan.name}' (${caravan.id}) in region '${caravan.region_id}' and ${SEED_UNIT_TYPES.length} units.`);
     console.log(`Log in with: POST /auth/login {"username":"${SEED_USERNAME}","password":"${SEED_PASSWORD}"}`);
   } finally {
