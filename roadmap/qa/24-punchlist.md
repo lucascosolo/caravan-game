@@ -282,3 +282,14 @@ guide's Finish button scrolled off above. Scroll to top on that navigation.
 N9. **"Hold two encounters, bank. About five minutes."** (welcomePlan, strings.ts:1142) is a
 promise of a hold that the strings' own header (strings.ts:1117) says the guide must not make.
 Given D1, word it as a plan: "face two encounters, then bank if you are still standing".
+
+## Orchestrator decisions (2026-10-11)
+
+- **D1: a starting roster for every caravan, and a first trip that is winnable. The balance pass is accountable for the numbers.** 0 holds in 120 guided first fights means the first session teaches only loss. That breaks §24's done criterion and the promise that the passive side is "live from minute six".
+  - **Starting roster (mechanism, chunk 24 fixer).** Every new caravan starts with a starting roster defined by a tunable `STARTING_ROSTER`: by default one level-1 unit of each of its region's starter types. The grant applies at caravan creation for every caravan, not as a tutorial-only gift, so it is part of the normal rules. It is the "starting roster" §24 already names. It grants no Coin and no unlock-web access beyond the starters every caravan already has. It goes through the ledger like any other unit grant.
+  - **First-trip difficulty (numbers, balance pass).** The balance pass tunes `STARTING_ROSTER`, `FIRST_ENCOUNTER_CENTRE_OFFSET`, the starting Reputation and the low-band authored outfits together. With the real resolver, the guided first layout must hold most guided first fights against what a fresh account is actually served (target: at least 70 %). A sensible free layout must hold encounter 2 more often than not. It must also confirm that a fresh account's first searches are served the bands intended for it.
+  - **Rejected:** a tutorial-only scripted or easier fight, which would break "nothing is simulated differently". Also rejected: a Coin grant, which §24 forbids.
+- **D2: the guide recommends from the state; it never insists on pushing.** The bank-or-push card reads the server's preview. When the circle is badly hurt (any posted unit under half HP, or the preview's risk is high), the guide recommends banking and explains why. Otherwise it suggests one push to see escalation. Remove "this first trip pushes once". The guide's flow continues to the party step after either choice.
+- **S1** is fixed on main (commit 8679d87, an unclosed CSS rule from the chunk 24/29 merge). The fixer adds a check that would catch it: a CSS parse check in the web build, or a test asserting a guide rule applies.
+- **S2–S5 and every nit are in scope.** S5: add an e2e path that ends in an overrun, using a per-encounter script in the test double. For S4, the active guide step sits next to the canvas, and "do it for me" scrolls or keeps the circle visible.
+- The "never resolves without the test flag" observation is closed. Chunk 13's fix round added the in-process worker on main after this review's base.
