@@ -78,6 +78,8 @@ export interface SessionRow {
   expires_at: Date;
   /** Chunk 30: the device this bearer session was issued to (migration 020). */
   device_id: string;
+  /** QA-30 S4: when a request last authenticated with it (refreshed at most once a minute; migration 024). */
+  last_used_at: Date;
 }
 
 /** Public shape of an account (never includes the password hash). */

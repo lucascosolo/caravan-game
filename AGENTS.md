@@ -181,7 +181,7 @@ serves three scoutable candidates at every band from the first search. Migration
 refuse to roll back while system accounts exist, and a multi-step `db:rollback N` or
 `db:reset` runs every down step in ONE transaction, so a refusal rolls back nothing. Before
 a `db:reset` (or a rollback past 011) of a seeded database, run
-`DELETE FROM account WHERE is_system` as the owner role, then `pnpm db:reset && pnpm db:seed`
+`DELETE FROM account WHERE is_system OR username IS NULL` as the owner role (migration 020 down refuses while guests or the erasure tombstone exist), then `pnpm db:reset && pnpm db:seed`
 (the test suite empties `account` itself before its reset).
 
 **Encounters resolve in the server process (chunk 13 QA S1).** `apps/server/src/index.ts` builds

@@ -949,6 +949,28 @@ export const TUNABLES = {
   /** TUNABLE (chunk 05, WEB_SHAPE). Roots (nodes with no prerequisite) per web, inclusive bounds: a "web", not a line — multiple viable paths. */
   WEB_ROOTS_MIN: 2,
   WEB_ROOTS_MAX: 3,
+
+  // Chunk 30 (QA D3) — account rate limits. Operational, not balance: nothing here enters a
+  // resolution, a price or a reward. Fixed windows, counted IN MEMORY PER SERVER PROCESS (N
+  // processes give N× these limits; a multi-instance deploy needs a shared store). Per-address
+  // keys use the client address Fastify reports (TRUST_PROXY decides whether that is a proxy).
+  // ────────────────────────────────────────────────────────────────────────────────────
+  /**
+   * TUNABLE (chunk 30 QA D3). `limit` requests per `windowMs` per key. Play-test-friendly: a play
+   * test at one venue is one NAT address, so per-address limits are generous; the per-username
+   * and per-device login limits are what stop guessing.
+   */
+  ACCOUNT_RATE_LIMITS: {
+    loginPerIp: { limit: 200, windowMs: 15 * 60_000 },
+    loginPerUsername: { limit: 10, windowMs: 15 * 60_000 },
+    loginPerDevice: { limit: 20, windowMs: 15 * 60_000 },
+    registerPerIp: { limit: 100, windowMs: 60 * 60_000 },
+    guestPerIp: { limit: 100, windowMs: 60 * 60_000 },
+    resumePerIp: { limit: 600, windowMs: 15 * 60_000 },
+    linkPerAccount: { limit: 10, windowMs: 15 * 60_000 },
+    exportPerAccount: { limit: 5, windowMs: 60 * 60_000 },
+    deletePerAccount: { limit: 10, windowMs: 15 * 60_000 },
+  },
 } as const;
 
 // Deep-frozen on export (chunk 03 QA S2): no consumer can mutate a balance value at runtime.

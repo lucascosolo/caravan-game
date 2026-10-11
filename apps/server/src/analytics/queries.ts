@@ -106,7 +106,8 @@ export interface OverrunBandRow {
  */
 const ENC_CTE = `WITH enc AS MATERIALIZED (
   SELECT te.trip_id, te.encounter_index, te.outcome_kind, j.input, j.result,
-         coalesce((SELECT a.is_system FROM account a WHERE a.id = (j.input ->> 'partyOwnerAccountId')::uuid), false) AS authored
+         -- QA-30 N1: an erased player's party (now the tombstone, a system account) is not an authored one.
+         coalesce((SELECT a.is_system AND a.id <> account_erasure_tombstone_account() FROM account a WHERE a.id = (j.input ->> 'partyOwnerAccountId')::uuid), false) AS authored
     FROM trip_encounter te
     CROSS JOIN LATERAL (SELECT input, result FROM resolution_job WHERE id = te.job_id LIMIT 1) j
    WHERE te.settled_at >= $1 AND te.settled_at < $2

@@ -46,9 +46,12 @@ export function AppShell({ route, username, onSignOut, children, hideTabs = fals
           {/* Chunk 29: the inbox, with the server's unread count. */}
           <span className="shell__headactions">
             <InboxButton route={route} />
-            <button type="button" className="btn" aria-current={route === "account" ? "page" : undefined} onClick={() => navigate("account")}>
-              {STRINGS.account.open}
-            </button>
+            {/* QA-30 N4: not on the first screen of the guide, which replaces every route. */}
+            {!hideTabs && (
+              <button type="button" className="btn" aria-current={route === "account" ? "page" : undefined} onClick={() => navigate("account")}>
+                {STRINGS.account.open}
+              </button>
+            )}
             {!guest && (
               <button type="button" className="btn" onClick={onSignOut}>
                 {STRINGS.app.signOut}
