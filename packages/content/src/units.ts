@@ -13,6 +13,17 @@
  * and HP are plain integers. Range alone decides melee vs. ranged. Every value is TUNABLE
  * and authored within the bounds in TUNABLES (tests check the bounds).
  *
+ * Reference defaults: where a value IS the registry default (TUNABLES.PER_TYPE_OVERRIDABLE_
+ * DEFAULTS — the healers' radius / fraction / charges / cooldown today), the unit references
+ * the TUNABLES key instead of re-authoring the literal, so re-tuning the default re-tunes
+ * every type that did not deliberately deviate. A test enforces this on the healers.
+ *
+ * The four healers are deliberately four different CHASSIS around the same archetype
+ * (chunk 03 QA S4): a fast melee water-runner (desert), a mounted circuit rider that rides
+ * out to the wounded (high plains, Beast), a slow wide-radius stationary dispenser
+ * (mountain), and a ranged, Powder-affinity bottle-thrower (badlands). A test asserts every
+ * unit's nearest cross-region neighbour is at a normalised stat distance of at least 0.10.
+ *
  * Theming: settlers, outlaws, frontier industry and animals only. No Indigenous
  * characters or culture — PROJECT.md §20 requires dedicated research before any such
  * content is authored, and that is out of this chunk's scope.
@@ -20,7 +31,9 @@
 import type { Ability } from "./abilities.js";
 import type { AffinityCategory } from "./affinity.js";
 import { fp, fpMilli, ms, seconds, type Fixed, type Millis } from "./fixedPoint.js";
+import { deepFreeze } from "./freeze.js";
 import type { RegionId } from "./regions.js";
+import { TUNABLES } from "./tunables.js";
 
 export interface LivingUnitType {
   readonly id: `${RegionId}.${string}`;
@@ -48,7 +61,7 @@ export interface LivingUnitType {
   readonly ability: Ability;
 }
 
-export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = [
+export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
   // ══════════════════════════════════════════ DESERT ══════════════════════════════════
   {
     id: "desert.dust_rider",
@@ -125,7 +138,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = [
     offense: 40,
     defense: 60,
     hp: 500,
-    moveSpeed: fpMilli(1600),
+    moveSpeed: fpMilli(2200),
     attackRange: fp(1),
     attackCooldown: ms(1200),
     aggroRadius: fp(3),
@@ -134,10 +147,10 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = [
       archetype: "heal_radius",
       displayName: "Water Round",
       description: "Restores 10% max HP to allies within 2.5 cells. Four canteens per fight.",
-      cooldown: seconds(14),
-      radius: fpMilli(2500),
-      healFraction: fpMilli(100),
-      charges: 4,
+      cooldown: TUNABLES.HEAL_COOLDOWN_DEFAULT,
+      radius: TUNABLES.HEAL_RADIUS_DEFAULT,
+      healFraction: TUNABLES.HEAL_FRACTION_DEFAULT,
+      charges: TUNABLES.HEAL_CHARGES_PER_BATTLE,
     },
   },
   {
@@ -325,24 +338,24 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = [
     id: "high_plains.prairie_doctor",
     regionId: "high_plains",
     displayName: "Prairie Doctor",
-    flavor: "Rides a circuit of forty miles with a black bag and a flask. Both run low.",
-    affinity: "grit",
+    flavor: "Rides a forty-mile circuit on a tall bay horse with a black bag and a flask. Both run low.",
+    affinity: "beast",
     offense: 42,
     defense: 58,
     hp: 480,
-    moveSpeed: fpMilli(1500),
-    attackRange: fp(1),
+    moveSpeed: fp(2),
+    attackRange: fpMilli(1500),
     attackCooldown: ms(1200),
-    aggroRadius: fp(3),
-    leashDistance: fpMilli(3500),
+    aggroRadius: fp(4),
+    leashDistance: fp(6),
     ability: {
       archetype: "heal_radius",
       displayName: "Field Dressing",
       description: "Restores 10% max HP to allies within 2.5 cells. Four dressings per fight.",
-      cooldown: seconds(14),
-      radius: fpMilli(2500),
-      healFraction: fpMilli(100),
-      charges: 4,
+      cooldown: TUNABLES.HEAL_COOLDOWN_DEFAULT,
+      radius: TUNABLES.HEAL_RADIUS_DEFAULT,
+      healFraction: TUNABLES.HEAL_FRACTION_DEFAULT,
+      charges: TUNABLES.HEAL_CHARGES_PER_BATTLE,
     },
   },
   {
@@ -555,21 +568,21 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = [
     flavor: "Powders, tinctures, and a sewing kit. The nearest real doctor is a week down the pass.",
     affinity: "grit",
     offense: 40,
-    defense: 66,
-    hp: 520,
-    moveSpeed: fpMilli(1200),
+    defense: 70,
+    hp: 560,
+    moveSpeed: fpMilli(900),
     attackRange: fp(1),
-    attackCooldown: ms(1300),
+    attackCooldown: ms(1400),
     aggroRadius: fpMilli(2500),
     leashDistance: fp(3),
     ability: {
       archetype: "heal_radius",
       displayName: "Tincture Round",
       description: "Restores 10% max HP to allies within 3 cells. Four doses per fight.",
-      cooldown: seconds(14),
+      cooldown: seconds(16),
       radius: fp(3),
-      healFraction: fpMilli(100),
-      charges: 4,
+      healFraction: TUNABLES.HEAL_FRACTION_DEFAULT,
+      charges: TUNABLES.HEAL_CHARGES_PER_BATTLE,
     },
   },
   {
@@ -713,15 +726,15 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = [
     id: "badlands.snake_oil_peddler",
     regionId: "badlands",
     displayName: "Snake-Oil Peddler",
-    flavor: "The tonic is mostly whiskey and camphor. Mostly whiskey works, a little.",
-    affinity: "grit",
+    flavor: "The tonic is mostly whiskey, camphor and black powder. Lit and thrown, it works on anyone.",
+    affinity: "powder",
     offense: 48,
     defense: 54,
     hp: 460,
     moveSpeed: fpMilli(1700),
-    attackRange: fp(1),
+    attackRange: fpMilli(2500),
     attackCooldown: ms(1100),
-    aggroRadius: fpMilli(3500),
+    aggroRadius: fpMilli(4500),
     leashDistance: fp(4),
     ability: {
       archetype: "heal_radius",
@@ -730,7 +743,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = [
       cooldown: seconds(12),
       radius: fp(2),
       healFraction: fpMilli(120),
-      charges: 4,
+      charges: TUNABLES.HEAL_CHARGES_PER_BATTLE,
     },
   },
   {
@@ -778,7 +791,7 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = [
       damageMult: fpMilli(2400),
     },
   },
-];
+]);
 
 export type LivingUnitTypeId = (typeof LIVING_UNIT_TYPES)[number]["id"];
 

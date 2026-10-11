@@ -11,12 +11,17 @@
  *    this ties trap classes into the affinity layer as PROJECT.md §11 asks.
  *
  * Damage is flat (TRAP_DAMAGE_MIN..MAX) and may carry one deterministic effect. Every value
- * is TUNABLE; effect magnitudes default to the chunk 11 values in TUNABLES.
+ * is TUNABLE. Effect magnitudes REFERENCE the chunk 11 defaults in TUNABLES (the keys in
+ * TUNABLES.PER_TYPE_OVERRIDABLE_DEFAULTS) rather than re-authoring them, so re-tuning the
+ * default re-tunes every trap that did not deliberately deviate; a trap that wants its own
+ * value authors a literal instead (none does yet).
  */
 import type { AffinityCategory } from "./affinity.js";
-import { fpMilli, ms, seconds, type Fixed, type Millis } from "./fixedPoint.js";
+import type { Fixed, Millis } from "./fixedPoint.js";
+import { deepFreeze } from "./freeze.js";
+import { TUNABLES } from "./tunables.js";
 
-export const TRAP_CATEGORIES = ["groundwork", "powder"] as const;
+export const TRAP_CATEGORIES = deepFreeze(["groundwork", "powder"] as const);
 export type TrapCategory = (typeof TRAP_CATEGORIES)[number];
 
 /** Deterministic status effect applied to the unit that triggers the trap. */
@@ -36,7 +41,7 @@ export interface TrapType {
   readonly effect: TrapEffect | null;
 }
 
-export const TRAP_TYPES: readonly TrapType[] = [
+export const TRAP_TYPES: readonly TrapType[] = deepFreeze([
   {
     id: "trap.spike_pit",
     displayName: "Spike Pit",
@@ -53,7 +58,7 @@ export const TRAP_TYPES: readonly TrapType[] = [
     category: "groundwork",
     affinity: "grit",
     damage: 160,
-    effect: { kind: "root", duration: ms(1500) },
+    effect: { kind: "root", duration: TUNABLES.TRAP_ROOT_DURATION_DEFAULT },
   },
   {
     id: "trap.tripwire_snare",
@@ -62,7 +67,7 @@ export const TRAP_TYPES: readonly TrapType[] = [
     category: "groundwork",
     affinity: "grit",
     damage: 60,
-    effect: { kind: "root", duration: ms(1500) },
+    effect: { kind: "root", duration: TUNABLES.TRAP_ROOT_DURATION_DEFAULT },
   },
   {
     id: "trap.caltrop_scatter",
@@ -71,7 +76,7 @@ export const TRAP_TYPES: readonly TrapType[] = [
     category: "groundwork",
     affinity: "grit",
     damage: 90,
-    effect: { kind: "slow", magnitude: fpMilli(400), duration: seconds(3) },
+    effect: { kind: "slow", magnitude: TUNABLES.TRAP_SLOW_MAGNITUDE_DEFAULT, duration: TUNABLES.TRAP_SLOW_DURATION_DEFAULT },
   },
   {
     id: "trap.powder_keg",
@@ -89,9 +94,9 @@ export const TRAP_TYPES: readonly TrapType[] = [
     category: "powder",
     affinity: "powder",
     damage: 140,
-    effect: { kind: "slow", magnitude: fpMilli(400), duration: seconds(3) },
+    effect: { kind: "slow", magnitude: TUNABLES.TRAP_SLOW_MAGNITUDE_DEFAULT, duration: TUNABLES.TRAP_SLOW_DURATION_DEFAULT },
   },
-];
+]);
 
 export type TrapTypeId = (typeof TRAP_TYPES)[number]["id"];
 

@@ -27,6 +27,27 @@ export class ContentValidationError extends Error {
 }
 
 const isInt = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n);
+
+/**
+ * Key whitelists for every content shape (chunk 03 QA S3). A field that is not on the list
+ * is rejected on load, so a proc chance, a crit chance, a variance roll or a billing flag
+ * cannot be smuggled in as extra data on ANY shape — not just abilities. Extend a list only
+ * by also extending the TypeScript interface; the two must agree.
+ */
+const UNIT_KEYS = ["id", "regionId", "displayName", "flavor", "affinity", "offense", "defense", "hp", "moveSpeed", "attackRange", "attackCooldown", "aggroRadius", "leashDistance", "ability"];
+const TRAP_KEYS = ["id", "displayName", "flavor", "category", "affinity", "damage", "effect"];
+const TRAP_EFFECT_KEYS: Readonly<Record<string, readonly string[]>> = { slow: ["kind", "magnitude", "duration"], root: ["kind", "duration"] };
+const SIEGE_KEYS = ["id", "displayName", "flavor", "counters"];
+const SIEGE_COUNTER_KEYS = ["kind", "category"];
+const FENCE_KEYS = ["id", "displayName", "flavor", "tier", "category", "segmentHp"];
+const ABILITY_KEYS = ["archetype", "displayName", "description", "cooldown", "radius", "damageMult", "healFraction", "charges", "damageBonus", "duration", "distance", "fenceDamageMult"];
+
+function unexpectedKeys(obj: object, allowed: readonly string[], where: string): string[] {
+  const set = new Set(allowed);
+  return Object.keys(obj)
+    .filter((k) => !set.has(k))
+    .map((k) => `${where}: unexpected field '${k}'`);
+}
 const isPosInt = (n: unknown): n is number => isInt(n) && n > 0;
 const isNonEmptyString = (s: unknown): s is string => typeof s === "string" && s.trim().length > 0;
 
@@ -46,6 +67,13 @@ export function validateContent(content: ContentBundle): string[] {
     problems.push(`ABILITY_ARCHETYPES has ${ABILITY_ARCHETYPES.length} entries, TUNABLES says ${TUNABLES.ABILITY_ARCHETYPE_COUNT}`);
   if (REGION_IDS.length !== TUNABLES.REGION_COUNT)
     problems.push(`REGIONS has ${REGION_IDS.length} entries, TUNABLES.REGION_COUNT is ${TUNABLES.REGION_COUNT}`);
+  if (FENCE_CATEGORIES.length !== TUNABLES.FENCE_CATEGORY_COUNT)
+    problems.push(`FENCE_CATEGORIES has ${FENCE_CATEGORIES.length} entries, TUNABLES.FENCE_CATEGORY_COUNT is ${TUNABLES.FENCE_CATEGORY_COUNT}`);
+  if (TRAP_CATEGORIES.length !== TUNABLES.TRAP_CATEGORY_COUNT)
+    problems.push(`TRAP_CATEGORIES has ${TRAP_CATEGORIES.length} entries, TUNABLES.TRAP_CATEGORY_COUNT is ${TUNABLES.TRAP_CATEGORY_COUNT}`);
+  // One siege piece per category, every category countered: the count is the sum, by construction.
+  if (TUNABLES.SIEGE_TYPES !== TUNABLES.FENCE_CATEGORY_COUNT + TUNABLES.TRAP_CATEGORY_COUNT)
+    problems.push(`TUNABLES.SIEGE_TYPES (${TUNABLES.SIEGE_TYPES}) != FENCE_CATEGORY_COUNT + TRAP_CATEGORY_COUNT (${TUNABLES.FENCE_CATEGORY_COUNT + TUNABLES.TRAP_CATEGORY_COUNT})`);
   for (const dealer of AFFINITY_CATEGORIES) {
     for (const receiver of AFFINITY_CATEGORIES) {
       const outcome = AFFINITY_MATRIX[dealer]?.[receiver];
@@ -65,6 +93,7 @@ export function validateContent(content: ContentBundle): string[] {
   for (const u of content.units) {
     const where = `unit '${String(u.id)}'`;
     dup(String(u.id));
+    problems.push(...unexpectedKeys(u, UNIT_KEYS, where));
     if (!isNonEmptyString(u.id) || !isNonEmptyString(u.displayName) || !isNonEmptyString(u.flavor))
       problems.push(`${where}: id, displayName and flavor are required`);
     if (!isRegionId(u.regionId)) problems.push(`${where}: unknown region '${String(u.regionId)}'`);
@@ -98,6 +127,7 @@ export function validateContent(content: ContentBundle): string[] {
   for (const t of content.traps) {
     const where = `trap '${String(t.id)}'`;
     dup(String(t.id));
+    problems.push(...unexpectedKeys(t, TRAP_KEYS, where));
     if (!isNonEmptyString(t.displayName) || !isNonEmptyString(t.flavor)) problems.push(`${where}: displayName and flavor are required`);
     if (!String(t.id).startsWith("trap.")) problems.push(`${where}: id must start with 'trap.'`);
     if (!isTrapCategory(t.category)) problems.push(`${where}: unknown trap category '${String(t.category)}'`);
@@ -105,6 +135,8 @@ export function validateContent(content: ContentBundle): string[] {
     if (!isInt(t.damage) || t.damage < TUNABLES.TRAP_DAMAGE_MIN || t.damage > TUNABLES.TRAP_DAMAGE_MAX)
       problems.push(`${where}: damage=${String(t.damage)} outside ${TUNABLES.TRAP_DAMAGE_MIN}..${TUNABLES.TRAP_DAMAGE_MAX}`);
     if (t.effect !== null) {
+      const effectKeys = TRAP_EFFECT_KEYS[String((t.effect as { kind: unknown }).kind)];
+      if (effectKeys) problems.push(...unexpectedKeys(t.effect, effectKeys, `${where} effect`));
       if (t.effect.kind === "slow") {
         if (!isPosInt(t.effect.magnitude) || !isPosInt(t.effect.duration)) problems.push(`${where}: slow effect needs integer magnitude and duration`);
       } else if (t.effect.kind === "root") {
@@ -122,6 +154,7 @@ export function validateContent(content: ContentBundle): string[] {
   for (const f of content.fences) {
     const where = `fence '${String(f.id)}'`;
     dup(String(f.id));
+    problems.push(...unexpectedKeys(f, FENCE_KEYS, where));
     if (!isNonEmptyString(f.displayName) || !isNonEmptyString(f.flavor)) problems.push(`${where}: displayName and flavor are required`);
     if (!String(f.id).startsWith("fence.")) problems.push(`${where}: id must start with 'fence.'`);
     if (!isFenceCategory(f.category)) problems.push(`${where}: unknown fence category '${String(f.category)}'`);
@@ -141,12 +174,15 @@ export function validateContent(content: ContentBundle): string[] {
   for (const s of content.siege) {
     const where = `siege '${String(s.id)}'`;
     dup(String(s.id));
+    problems.push(...unexpectedKeys(s, SIEGE_KEYS, where));
     if (!isNonEmptyString(s.displayName) || !isNonEmptyString(s.flavor)) problems.push(`${where}: displayName and flavor are required`);
     if (!String(s.id).startsWith("siege.")) problems.push(`${where}: id must start with 'siege.'`);
     const c = s.counters;
     if (!c) {
       problems.push(`${where}: must counter something`);
-    } else if (c.kind === "fence") {
+    } else if (typeof c !== "object") {
+      problems.push(`${where}: counters must be an object`);
+    } else if ((problems.push(...unexpectedKeys(c, SIEGE_COUNTER_KEYS, `${where} counters`)), c.kind === "fence")) {
       if (!isFenceCategory(c.category)) problems.push(`${where}: counters unknown fence category '${String(c.category)}'`);
       if (usedFenceCats.has(c.category)) problems.push(`${where}: fence category '${c.category}' is countered by more than one piece`);
       usedFenceCats.add(c.category);
@@ -202,8 +238,7 @@ function validateAbility(a: Ability | undefined, where: string): string[] {
       break;
   }
   // No stray fields: a proc chance or target roll must not be smuggled in as extra data.
-  const allowed = new Set(["archetype", "displayName", "description", "cooldown", "radius", "damageMult", "healFraction", "charges", "damageBonus", "duration", "distance", "fenceDamageMult"]);
-  for (const key of Object.keys(a)) if (!allowed.has(key)) p.push(`${where}: ability has unexpected field '${key}'`);
+  p.push(...unexpectedKeys(a, ABILITY_KEYS, `${where} ability`));
   return p;
 }
 

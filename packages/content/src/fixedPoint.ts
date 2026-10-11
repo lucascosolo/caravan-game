@@ -57,14 +57,17 @@ export function fpRatio(numerator: number, denominator: number): Fixed {
   return Math.trunc((numerator * FIXED_POINT_SCALE) / denominator) as Fixed;
 }
 
-/** Fixed × Fixed → Fixed, truncated. (a/S)·(b/S) = (a·b/S)/S. */
+/** Fixed × Fixed → Fixed, truncated. (a/S)·(b/S) = (a·b/S)/S. Every argument must be an integer. */
 export function fpMul(a: Fixed, b: Fixed): Fixed {
+  assertInteger(a, "fpMul");
+  assertInteger(b, "fpMul");
   return Math.trunc((a * b) / FIXED_POINT_SCALE) as Fixed;
 }
 
-/** Apply a fixed-point multiplier to a plain integer (e.g. damage × affinity), floored. */
+/** Apply a fixed-point multiplier to a plain integer (e.g. damage × affinity), floored. Every argument must be an integer. */
 export function scaleInt(value: number, mult: Fixed): number {
   assertInteger(value, "scaleInt");
+  assertInteger(mult, "scaleInt");
   return Math.floor((value * mult) / FIXED_POINT_SCALE);
 }
 

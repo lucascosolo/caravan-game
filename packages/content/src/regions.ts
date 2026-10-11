@@ -7,16 +7,18 @@
  * The `region` table in the database is seeded from this same list; a test asserts
  * the two stay in sync.
  */
-export const REGIONS = [
+import { deepFreeze } from "./freeze.js";
+
+export const REGIONS = deepFreeze([
   { id: "desert", displayName: "Desert" },
   { id: "high_plains", displayName: "High Plains" },
   { id: "mountain", displayName: "Mountain" },
   { id: "badlands", displayName: "Badlands" },
-] as const;
+] as const);
 
 export type RegionId = (typeof REGIONS)[number]["id"];
 
-export const REGION_IDS: readonly RegionId[] = REGIONS.map((r) => r.id);
+export const REGION_IDS: readonly RegionId[] = deepFreeze(REGIONS.map((r) => r.id));
 
 export function isRegionId(value: unknown): value is RegionId {
   return typeof value === "string" && (REGION_IDS as readonly string[]).includes(value);

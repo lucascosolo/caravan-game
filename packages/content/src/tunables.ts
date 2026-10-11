@@ -12,32 +12,89 @@
  * place the scale is defined. No float literal appears in this file or any content file;
  * a test asserts it.
  */
-import { FIXED_ONE, fp, fpMilli, ms, seconds, type Fixed, type Millis } from "./fixedPoint.js";
+import { FIXED_ONE, fp, fpMilli, fpRatio, ms, seconds, type Fixed, type Millis } from "./fixedPoint.js";
+import { deepFreeze } from "./freeze.js";
 
 /**
- * Merge-level stat curve. Index = merge level (index 0 unused; levels are 1..5).
+ * Merge-level multiplier table. Index = merge level (index 0 unused; levels are 1..5).
  * Authored as a table, not computed, so the stored values are the diffable truth.
- * Each level is ×1.6 the previous (fpMilli(1600) = 1638/1024 ≈ 1.5996), compounding:
- *   L1 1.000  L2 1.600  L3 2.560  L4 4.096  L5 6.554
+ * Each level is ×1.25 the previous (MERGE_MULT_PER_LEVEL = 1280/1024, exact), compounding:
+ *   L1 1.000  L2 1.250  L3 1.5625  L4 1.953  L5 2.441   (1024, 1280, 1600, 2000, 2500)
+ *
+ * ── SEMANTICS (chunk 03 QA round 1, item B1 — this changed; consumers read carefully) ──
+ * The multiplier applies LINEARLY to exactly the things in MERGE_MULT_APPLIES_TO below:
+ *   • "hp"            — max HP = scaleInt(type.hp, mult(level)).
+ *   • "damage_output" — each hit = scaleInt(floor(o² / (o + d)), mult(level)), i.e. the
+ *                       multiplier is applied AFTER the damage formula, to its output.
+ * It is NEVER applied to the offense or defense RATINGS that enter the formula: ratings are
+ * the unmerged type values at every merge level. It also never touches any ability field
+ * (see MERGE_MULT_SCALES_ABILITY_FIELDS): a merged unit's larger hit already carries
+ * damage-multiplier abilities, heals are a fraction of the target's (already merged) HP,
+ * and radii, distances, durations and charges are fixed. Earlier the table was ×1.6 on
+ * the ratings themselves; under o²/(o+d) that was super-linear and a net power gain.
  *
  * TUNABLE — but bounded by a guardrail, not a preference (GUARDRAILS §2): a merged unit
- * must be WEAKER than its components combined, for BOTH recipes (PROJECT.md §7):
- *   2 → 1 : S(L+1) < 2 × S(L)         ⇒ per-level multiplier < 2.0
- *   5 → 3 : 3 × S(L+1) < 5 × S(L)     ⇒ per-level multiplier < 1.667
- * The chunk brief proposed ×1.8, which satisfies the first but NOT the second (3 × 1.8 =
- * 5.4 > 5): the 5→3 recipe would have been a net power gain. ×1.6 is the default here so
- * that both recipes are slot-efficiency gains only. A test checks both bounds at every level.
- * Caveat for balancing: HP and damage both scale by this factor, so a merged unit's
- * HP × DPS product scales by its square (2.56); whether that matters depends on the
- * damage formula's sub-linearity and is for play data to settle.
+ * must be WEAKER than its components combined, for BOTH recipes (PROJECT.md §7). With the
+ * multiplier k on both HP and damage output, effective strength (HP × damage per hit)
+ * scales by k² per level, so the bounds are:
+ *   2 → 1 : k² < 2        ⇒ k < 1.414
+ *   5 → 3 : 3 k² < 5      ⇒ k² < 5/3, k < 1.291   ← THE ceiling that must never be crossed.
+ * k = 1.25 gives k² = 1.5625 < 1.667. A test computes HP × actual damage per hit for every
+ * unit type against every roster opponent (every affinity outcome, floor rounding and all)
+ * and asserts produced < spent at every level for both recipes.
  */
 const MERGE_STAT_MULT_BY_LEVEL: readonly Fixed[] = [
   0 as Fixed, // level 0 does not exist
-  FIXED_ONE, // L1 ×1.000
-  fpMilli(1600), // L2 ×1.600
-  fpMilli(2560), // L3 ×2.560
-  fpMilli(4096), // L4 ×4.096
-  fpMilli(6554), // L5 ×6.554
+  FIXED_ONE, // L1 ×1.000      (1024)
+  fpRatio(5, 4), // L2 ×1.25    (1280)
+  fpRatio(25, 16), // L3 ×1.5625 (1600)
+  fpRatio(125, 64), // L4 ×1.953  (2000)
+  fpRatio(625, 256), // L5 ×2.441  (2500)
+];
+
+/**
+ * Registry keys that are REFERENCE DEFAULTS a content type may override per type (chunk 03
+ * QA S5). Where a type's value IS the default, the content file references the key rather
+ * than re-authoring the literal, so re-tuning the default re-tunes every type that didn't
+ * deliberately deviate; a test enforces that on the healers and the trap effects. Keys not
+ * listed here are either hard bounds, counts, or global rules — never overridden per type.
+ */
+const PER_TYPE_OVERRIDABLE_DEFAULTS = [
+  "AGGRO_RADIUS_DEFAULT",
+  "LEASH_DISTANCE_DEFAULT",
+  "MOVE_SPEED_DEFAULT",
+  "ATTACK_RANGE_MELEE_DEFAULT",
+  "ATTACK_RANGE_RANGED_DEFAULT",
+  "ATTACK_COOLDOWN_DEFAULT",
+  "BURST_RADIUS_DEFAULT",
+  "HEAVY_STRIKE_MULT_DEFAULT",
+  "HEAL_RADIUS_DEFAULT",
+  "HEAL_FRACTION_DEFAULT",
+  "HEAL_COOLDOWN_DEFAULT",
+  "SELF_BUFF_DAMAGE_BONUS_DEFAULT",
+  "SELF_BUFF_DURATION_DEFAULT",
+  "DASH_DISTANCE_DEFAULT",
+  "STRUCTURE_BREAKER_MULT_DEFAULT",
+  "TRAP_SLOW_MAGNITUDE_DEFAULT",
+  "TRAP_SLOW_DURATION_DEFAULT",
+  "TRAP_ROOT_DURATION_DEFAULT",
+] as const;
+
+/**
+ * Chunk 04 — cumulative ladder points to stand on rung n (index = rung, 0..20). The
+ * authored integer form of floor(100 × n^1.5); see TUNABLES.LADDER_POINTS_TO_RUNG.
+ */
+const LADDER_POINTS_TO_RUNG: readonly number[] = [
+  0, // rung 0: the starting state
+  100, 282, 519, 800, 1118, 1469, 1852, 2262, 2700, 3162, // rungs 1–10
+  3648, 4156, 4687, 5238, 5809, 6400, 7009, 7636, 8281, 8944, // rungs 11–20
+];
+
+/** Chunk 04 — unlock points granted on first reaching rung n (index = rung, 0 unused). */
+const UNLOCK_POINTS_BY_RUNG: readonly number[] = [
+  0, // rung 0 grants nothing
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // rungs 1–10
+  2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // rungs 11–20
 ];
 
 export const TUNABLES = {
@@ -72,8 +129,12 @@ export const TUNABLES = {
   LIVING_UNITS_PER_REGION: 8,
   /** TUNABLE. Universal trap types (one node each in the trap web). */
   TRAP_TYPES: 6,
-  /** TUNABLE. Universal siege types; each counters exactly one fence or trap category. */
+  /** TUNABLE. Universal siege types; each counters exactly one fence or trap category, so this must equal FENCE_CATEGORY_COUNT + TRAP_CATEGORY_COUNT (validated on load). */
   SIEGE_TYPES: 5,
+  /** TUNABLE. Fence categories (timber / wire / stone); must equal FENCE_CATEGORIES.length. */
+  FENCE_CATEGORY_COUNT: 3,
+  /** TUNABLE. Trap categories (groundwork / powder); must equal TRAP_CATEGORIES.length. */
+  TRAP_CATEGORY_COUNT: 2,
   /** TUNABLE. Fence tiers available via the trap web (chunk 05: 4 fence-tier nodes). */
   FENCE_TIERS: 4,
   /** TUNABLE within the design's 2–4 range (PROJECT.md §11). Must equal AFFINITY_CATEGORIES.length. */
@@ -95,12 +156,42 @@ export const TUNABLES = {
   DAMAGE_FORMULA: "offense * offense / (offense + defense)",
   /** TUNABLE. Damage multiplier on a favourable affinity matchup (×1.25). Driven by how much the layer should matter vs. raw stats. */
   AFFINITY_ADVANTAGE_MULT: fpMilli(1250),
-  /** TUNABLE. Damage multiplier on an unfavourable matchup (×0.80 → 819/1024 ≈ 0.7998). */
+  /**
+   * TUNABLE. Damage multiplier on an unfavourable matchup (×0.80 → 819/1024 ≈ 0.7998).
+   * NOTE: advantage × disadvantage ≠ 1 exactly (1280 × 819 / 1024² ≈ 0.9998, and 1.25 × 0.80
+   * = 1.0 only in the decimal authoring). That is intentional: the two are independent
+   * knobs, not reciprocals, and nothing may assume a round trip cancels out.
+   */
   AFFINITY_DISADVANTAGE_MULT: fpMilli(800),
   /** Neutral multiplier is exactly ×1.0. Not a knob — it is the identity. */
   AFFINITY_NEUTRAL_MULT: FIXED_ONE,
-  /** See the table comment above. Index by merge level 1..5. */
+  /**
+   * See the table comment above. Index by merge level 1..5. Applies LINEARLY to the things
+   * in MERGE_MULT_APPLIES_TO and nothing else — never to the ratings in the formula.
+   */
   MERGE_STAT_MULT_BY_LEVEL,
+  /** The per-level step of the table above (×1.25 = 1280/1024, exact). The table is the authority; this is the authoring value. */
+  MERGE_MULT_PER_LEVEL: fpRatio(5, 4),
+  /**
+   * Fixed by design (chunk 03 QA B1). WHAT the merge multiplier applies to, as data, so the
+   * resolver (chunks 11/12) and the circle manifest (chunk 07) apply it in exactly these
+   * places: max HP, and each hit's damage AFTER the o²/(o+d) formula. Anything not listed
+   * — the offense/defense ratings, speed, range, cooldowns, aggro, leash, ability values —
+   * is the unmerged type value at every level. Tests assert the list is exactly this.
+   */
+  MERGE_MULT_APPLIES_TO: ["hp", "damage_output"],
+  /** Fixed by design (chunk 03 QA S1). No ability field scales with merge level — not multipliers, radii, fractions, durations, distances or charges. */
+  MERGE_MULT_SCALES_ABILITY_FIELDS: false,
+  /** The merge multiplier never touches these; listed so a consumer can assert it. Fixed by design. */
+  MERGE_MULT_NEVER_APPLIES_TO: ["offense", "defense", "moveSpeed", "attackRange", "attackCooldown", "aggroRadius", "leashDistance", "ability"],
+  /**
+   * Fixed by design (GUARDRAILS §2): the ceiling on the per-level multiplier squared. The
+   * 5→3 recipe demands 3 k² < 5. Expressed as a ratio so the test can read it from the
+   * registry rather than re-deriving it: the table must satisfy k² < MERGE_EFFECTIVE_CEILING.
+   */
+  MERGE_EFFECTIVE_CEILING: fpRatio(5, 3),
+  /** See PER_TYPE_OVERRIDABLE_DEFAULTS above the registry. */
+  PER_TYPE_OVERRIDABLE_DEFAULTS,
   /** Authored spread of base offense ratings across the roster; a test asserts every unit is inside it. TUNABLE. */
   BASE_OFFENSE_MIN: 40,
   BASE_OFFENSE_MAX: 120,
@@ -189,49 +280,77 @@ export const TUNABLES = {
   TRAP_SLOT_CAP: 6,
 
   // ────────────────────────────────────────────────────────────────────────────────────
-  // Chunk 16 — Coin economy and merge pricing. Coin buys PACE only (GUARDRAILS §2): nothing
-  // here reaches a stat, a resolution rule, or the merge cap. Plain integer Coin amounts.
-  // ────────────────────────────────────────────────────────────────────────────────────
-
-  /** TUNABLE (chunk 16). Coin for surviving the FIRST encounter of a trip. Later encounters escalate (below). */
-  COIN_PER_ENCOUNTER_BASE: 400,
-  /** TUNABLE (chunk 16). ×1.25 per subsequent encounter, compounding, floored each step (ties to chunk 15's escalation). */
-  COIN_ENCOUNTER_ESCALATION_MULT: fpMilli(1250),
-  /** TUNABLE (chunk 16). Flat completion bonus on a banked trip — the delivery reward. */
-  COIN_PER_BANKED_TRIP: 500,
-  /** TUNABLE (chunk 16). When your standing party overruns a caravan. Deliberately below the active path: playing pays better than not playing. */
-  COIN_PER_PARTY_WIN: 300,
-  /**
-   * TUNABLE (chunk 16). Passive trickle, 200 Coin per hour, ceasing at the storage cap.
-   * Computed lazily on read from the last accrual point (no background tick). The server
-   * accrues in whole coins every COIN_TRICKLE_MS_PER_COIN ms; the two values must agree
-   * (3_600_000 == RATE_PER_HOUR × MS_PER_COIN — a server test asserts it). Change both.
-   */
-  COIN_TRICKLE_RATE_PER_HOUR: 200,
-  COIN_TRICKLE_MS_PER_COIN: 18_000,
-  /**
-   * TUNABLE (chunk 16). Coin cost of a merge, indexed by the RESULTING level (index 0 and 1
-   * unused: nothing produces a level-1 unit). Cost is PER RESULTING UNIT, so 5→3 at the same
-   * target level costs three times 2→1. Steeply escalating — THE pacing lever.
-   */
-  MERGE_COST_BY_TARGET_LEVEL: [0, 0, 250, 900, 3_000, 9_500],
-  /** Fixed by design (chunk 16). A unit occupies one deployment slot at any merge level — the entire benefit of merging. */
-  MERGE_SLOT_COST: 1,
-  /** Fixed by design (chunk 16). Earnings above the cap are discarded, and the player is warned before the trip, never silently. */
-  COIN_OVERFLOW_BEHAVIOR: "discard_with_warning",
-
-  // ────────────────────────────────────────────────────────────────────────────────────
   // Merge recipes (PROJECT.md §7). Fixed by design; listed so the guardrail test can read them.
   // ────────────────────────────────────────────────────────────────────────────────────
   MERGE_RECIPES: [
     { spend: 2, produce: 1 },
     { spend: 5, produce: 3 },
   ],
+
+  // ────────────────────────────────────────────────────────────────────────────────────
+  // Chunk 04 — ladders and Reputation. Two SEPARATE numbers per pool (PROJECT.md §5):
+  // the permanent, use-driven ladder that grants unlock points at rungs, and the volatile
+  // Reputation rating that drives matchmaking. Neither is derived from the other. Every
+  // number here is read by apps/server/src/progression; nothing there is inline.
+  // ────────────────────────────────────────────────────────────────────────────────────
+
+  /** TUNABLE (chunk 04). Ladder depth per pool. A capped ladder earns no further progress. */
+  LADDER_RUNGS_PER_POOL: 20,
+  /**
+   * TUNABLE (chunk 04). CUMULATIVE ladder points needed to stand on rung n, indexed by rung
+   * (index 0 = rung 0 = nothing). Authored as a table, like the merge curve, so the stored
+   * integers are the diffable truth: floor(100 × n^1.5). Rung 1 = 100, rung 10 = 3162,
+   * rung 20 = 8944. Points never reset on a crossing; the ladder is monotone by construction.
+   * Must be strictly increasing with LADDER_RUNGS_PER_POOL + 1 entries (a test asserts it).
+   */
+  LADDER_POINTS_TO_RUNG,
+  /** TUNABLE (chunk 04). Ladder points for the attacking party's owner when the party overruns a caravan, per pool used (siege). */
+  LADDER_GAIN_WIN: 30,
+  /** TUNABLE (chunk 04). Ladder points for a LOST encounter, per pool used, on either side. Must be > 0 and < every win-side gain: losses still earn. */
+  LADDER_GAIN_LOSS: 10,
+  /** TUNABLE (chunk 04). The attacking party's owner's gain on a stalemate (treated as a loss for the party). */
+  LADDER_GAIN_STALEMATE: 10,
+  /** TUNABLE (chunk 04). The caravan's gain, per pool used (living, trap), when its circle repels a party — held OR stalemate (both count as the caravan prevailing). The active side's main ladder path. */
+  LADDER_GAIN_DEFENSE_HELD: 25,
+  /**
+   * TUNABLE (chunk 04). Unlock points granted the FIRST (and only) time a ladder reaches
+   * rung n, indexed by rung (index 0 unused). 1 for rungs 1–10, 2 for rungs 11–20: 30 per
+   * pool at cap, which chunk 05's NODE_COST_CURVE is sized against.
+   */
+  UNLOCK_POINTS_BY_RUNG,
+  /** TUNABLE (chunk 04). Reputation gained by the party's owner when their party overruns a caravan, before gap scaling. */
+  REPUTATION_WIN_ATTACKER: 25,
+  /** TUNABLE (chunk 04). Reputation lost by the party's owner when their party is wiped or withdraws (stalemate), before gap scaling. */
+  REPUTATION_LOSS_ATTACKER: -15,
+  /** TUNABLE (chunk 04). Reputation gained by the caravan when it holds (party wiped) or the party withdraws (stalemate), before gap scaling. */
+  REPUTATION_CARAVAN_HELD: 15,
+  /** TUNABLE (chunk 04). Reputation lost by the caravan when it is overrun, before gap scaling. */
+  REPUTATION_CARAVAN_OVERRUN: -20,
+  /** TUNABLE (chunk 04). Reputation cannot fall below this; a loss that would cross it is clamped (and recorded as clamped). */
+  REPUTATION_FLOOR: 100,
+  /**
+   * TUNABLE (chunk 04). The Elo-ish gap scaling, integer-only. For a rating gap g =
+   * opponent − self: a win is scaled by (1 + g / DIVISOR), a loss by (1 − g / DIVISOR),
+   * each clamped to [MULT_MIN, MULT_MAX]. Beating someone DIVISOR above you doubles the
+   * gain; losing to someone DIVISOR below you doubles the loss. Blunts sandbagging
+   * (PHASE-2 §28): farming far-weaker parties pays a quarter of the base gain at most.
+   */
+  REPUTATION_GAP_DIVISOR: 400,
+  REPUTATION_GAP_MULT_MIN: fpMilli(250),
+  REPUTATION_GAP_MULT_MAX: fp(2),
 } as const;
+
+// Deep-frozen on export (chunk 03 QA S2): no consumer can mutate a balance value at runtime.
+// `as const` only narrows the TYPE; this makes assignment throw in strict-mode code too.
+deepFreeze(TUNABLES);
 
 export type Tunables = typeof TUNABLES;
 
-/** Convenience: the merge multiplier for a level, throwing on an out-of-range level. */
+/**
+ * Convenience: the merge multiplier for a level, throwing on an out-of-range level.
+ * Apply it ONLY to the things in TUNABLES.MERGE_MULT_APPLIES_TO (max HP and post-formula
+ * damage output) — see the table comment.
+ */
 export function mergeStatMult(level: number): Fixed {
   if (!Number.isInteger(level) || level < TUNABLES.MERGE_LEVEL_MIN || level > TUNABLES.MERGE_LEVEL_MAX) {
     throw new RangeError(`merge level ${String(level)} is outside ${TUNABLES.MERGE_LEVEL_MIN}..${TUNABLES.MERGE_LEVEL_MAX}`);

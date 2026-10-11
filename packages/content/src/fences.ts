@@ -4,7 +4,9 @@
  * Tiers are unlock-web purchases in the trap web (chunk 05). Universal across regions.
  * All values TUNABLE; HP per tier from the chunk 07 brief.
  */
-export const FENCE_CATEGORIES = ["timber", "wire", "stone"] as const;
+import { deepFreeze } from "./freeze.js";
+
+export const FENCE_CATEGORIES = deepFreeze(["timber", "wire", "stone"] as const);
 export type FenceCategory = (typeof FENCE_CATEGORIES)[number];
 
 export interface FenceTierType {
@@ -18,7 +20,7 @@ export interface FenceTierType {
   readonly segmentHp: number;
 }
 
-export const FENCE_TIERS: readonly FenceTierType[] = [
+export const FENCE_TIERS: readonly FenceTierType[] = deepFreeze([
   {
     id: "fence.brush_pile",
     displayName: "Brush Pile",
@@ -51,7 +53,7 @@ export const FENCE_TIERS: readonly FenceTierType[] = [
     category: "stone",
     segmentHp: 1000,
   },
-];
+]);
 
 export type FenceTierId = (typeof FENCE_TIERS)[number]["id"];
 

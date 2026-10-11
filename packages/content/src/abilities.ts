@@ -5,23 +5,30 @@
  *
  * Every living-unit type has exactly one ability (TUNABLES.ABILITIES_PER_UNIT_TYPE). It
  * fires automatically the first tick its cooldown is ready AND its targeting condition is
- * satisfiable; the first use waits a full cooldown (TUNABLES.ABILITY_FIRST_USE_DELAY_RULE).
- * Merge level scales the numeric values below on the same sub-linear curve as stats and
- * never changes the archetype (GUARDRAILS §2).
+ * satisfiable; the first use waits a full cooldown (TUNABLES.ABILITY_FIRST_USE_DELAY_MULT).
+ *
+ * NO ability field scales with merge level (TUNABLES.MERGE_MULT_SCALES_ABILITY_FIELDS is
+ * false; chunk 03 QA S1). The merge multiplier applies to max HP and to post-formula
+ * damage output only, so a damage-multiplier ability (heavy strike = ×N of ONE hit) is
+ * already carried by the merged unit's larger hit; a heal is a fraction of the target's
+ * (already merged) max HP; radii, distances, durations and charges are the same at every
+ * level. A second multiplier here would be a second, hidden power curve (GUARDRAILS §2).
+ * Merge level never changes the archetype either.
  *
  * All distances are Fixed cells, all durations are Millis, all multipliers are Fixed
  * (FIXED_ONE = ×1.0). See fixedPoint.ts.
  */
 import type { Fixed, Millis } from "./fixedPoint.js";
+import { deepFreeze } from "./freeze.js";
 
-export const ABILITY_ARCHETYPES = [
+export const ABILITY_ARCHETYPES = deepFreeze([
   "burst_radius",
   "heavy_strike",
   "heal_radius",
   "self_buff",
   "dash",
   "structure_breaker",
-] as const;
+] as const);
 export type AbilityArchetype = (typeof ABILITY_ARCHETYPES)[number];
 
 interface AbilityBase {

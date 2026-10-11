@@ -36,10 +36,17 @@ describe("no floats in exported data", () => {
     expect(() => fp(1.5)).toThrow();
     expect(() => fpMilli(0.5)).toThrow();
     expect(() => fpRatio(1, 0)).toThrow();
+    // N2: every argument is checked, not just the first.
+    expect(() => fpMul(1.5 as never, fp(2))).toThrow(/fpMul/);
+    expect(() => fpMul(fp(2), 1.5 as never)).toThrow(/fpMul/);
+    expect(() => scaleInt(1.5, fp(2))).toThrow(/scaleInt/);
+    expect(() => scaleInt(100, 1.5 as never)).toThrow(/scaleInt/);
   });
 
   it("the merge table is the authored source, not a runtime computation", () => {
-    expect(TUNABLES.MERGE_STAT_MULT_BY_LEVEL).toEqual([0, 1024, 1638, 2621, 4194, 6711]);
+    // ×1.25 per level, exact in 1/1024ths (chunk 03 QA B1): 1, 1.25, 1.5625, 1.953125, 2.44140625.
+    expect(TUNABLES.MERGE_STAT_MULT_BY_LEVEL).toEqual([0, 1024, 1280, 1600, 2000, 2500]);
+    expect(TUNABLES.MERGE_MULT_PER_LEVEL).toBe(1280);
   });
 });
 

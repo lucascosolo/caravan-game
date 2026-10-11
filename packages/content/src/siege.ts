@@ -10,6 +10,7 @@
  * data below, not code branches. Siege has no stats, no abilities, and never fights units.
  */
 import type { FenceCategory } from "./fences.js";
+import { deepFreeze } from "./freeze.js";
 import type { TrapCategory } from "./traps.js";
 
 /** What a siege piece counters. Exactly one target per piece, so the bet is legible. */
@@ -24,7 +25,7 @@ export interface SiegeType {
   readonly counters: SiegeCounter;
 }
 
-export const SIEGE_TYPES: readonly SiegeType[] = [
+export const SIEGE_TYPES: readonly SiegeType[] = deepFreeze([
   {
     id: "siege.battering_wagon",
     displayName: "Battering Wagon",
@@ -55,6 +56,6 @@ export const SIEGE_TYPES: readonly SiegeType[] = [
     flavor: "A water tank on wheels, driven ahead. Wet fuses don't burn and wet pitch won't light.",
     counters: { kind: "trap", category: "powder" },
   },
-];
+]);
 
 export type SiegeTypeId = (typeof SIEGE_TYPES)[number]["id"];

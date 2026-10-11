@@ -377,3 +377,127 @@ reading what an account has paid for; try to overshoot the cap with a trickle ra
 party win racing a bank), §4 (is every number the preview shows the number the ledger
 records?), §5 (Coin account-level, roster caravan-level — the tests assert the event scopes),
 and the trickle's read-frequency independence under adversarial clocks.
+
+### 2026-10-11 — Chunk 03 (content data & tunables): QA round 1 closed (B1, S1–S7, N1–N5; N6 noted)
+
+**Closed.** All in `packages/content` except S6 (one comment in `apps/server/src/jobs/tunables.ts`)
+and S7 (new `apps/server/test/qa03-merge-cap.test.ts`). No other server file touched.
+
+- **B1 — merge multiplier semantics CHANGED (consumers: chunk 16, chunks 07/11/12).**
+  `TUNABLES.MERGE_STAT_MULT_BY_LEVEL` is now `[0, 1024, 1280, 1600, 2000, 2500]` (×1.25 per
+  level, exact; L1..L5 = 1.0, 1.25, 1.5625, 1.953, 2.441) and it applies **linearly to max
+  HP and to post-formula damage output only** — `hp = scaleInt(type.hp, mult)` and
+  `hit = scaleInt(floor(o²/(o+d)), mult)`. It is **never** applied to the offense/defense
+  ratings that enter the formula; ratings are the unmerged type values at every level.
+  Declared as data: `MERGE_MULT_APPLIES_TO: ["hp", "damage_output"]`,
+  `MERGE_MULT_NEVER_APPLIES_TO: [offense, defense, moveSpeed, attackRange, attackCooldown,
+  aggroRadius, leashDistance, ability]`, `MERGE_MULT_PER_LEVEL` (1280), and
+  `MERGE_EFFECTIVE_CEILING` (5/3: the 5→3 recipe demands k² < 5/3). Key names kept;
+  `mergeStatMult(level)` unchanged in signature (packages/circle's `scaleInt(type.hp,
+  mergeStatMult(level))` is exactly the intended HP use). `invariants.test.ts` now computes
+  effective strength = HP × actual damage per hit (floor on the formula, floor on each
+  fixed-point scale, every affinity outcome) for every unit type in both roles against every
+  roster opponent, and asserts produced < spent at every level for both recipes: 36,864
+  checks. Theoretical worst 3k²/5 = 0.9375; rounding-inclusive worst 0.982 (the roster's
+  smallest hit, o=40 vs d=120 at disadvantage = 7 damage, floors to 13/10 and 17/13 instead
+  of 1.25 at L3→L4 / L4→L5). Still strictly < 1 everywhere; the margin is pinned at < 0.99.
+- **S1** — no ability field scales with merge level: sentence removed from abilities.ts,
+  declared as `MERGE_MULT_SCALES_ABILITY_FIELDS: false`, tested.
+- **S2** — `deepFreeze` (new `freeze.ts`) on every export: CONTENT, the four type arrays,
+  TUNABLES, AFFINITY_MATRIX, REGIONS, REGION_IDS, the category/archetype lists. A test asserts
+  `isDeepFrozen` on each and that assignment / push / pop throw TypeError.
+- **S3** — key whitelists on unit, trap, trap.effect (per kind), siege, siege.counters,
+  fence, ability; a test smuggles `critChance` onto each shape and expects the exact message.
+- **S4** — healers are four chassis: Canteen Carrier = fast melee water-runner (2.2 c/s,
+  Grit); Prairie Doctor = **mounted** circuit rider (Beast, range 1.5, 2.0 c/s, aggro 4,
+  leash 6); Mountain Apothecary = slow wide-radius dispenser (0.9 c/s, def 70, radius 3, 16 s);
+  Snake-Oil Peddler = **ranged** bottle-thrower (Powder, range 2.5, aggro 4.5). Metric for the
+  new test: 8 min-max-normalised stats + one affinity dimension, Euclidean; every unit's
+  nearest cross-region neighbour must be ≥ 0.10 (roster minimum is now 0.206,
+  Shotgun Messenger ↔ Powder Thief); the healers are pairwise ≥ 0.65.
+- **S5** — traps.ts authors no effect literal (all `TUNABLES.TRAP_*_DEFAULT`); healer
+  fields equal to a default reference `TUNABLES.HEAL_*` / `HEAL_CHARGES_PER_BATTLE`.
+  `TUNABLES.PER_TYPE_OVERRIDABLE_DEFAULTS` lists the 18 reference-default keys; a source
+  test enforces the rule on traps and healers.
+- **S6** — TODO replaced with a one-line "infra knobs stay server-side" comment.
+- **S7** — server test pins `CHECK (merge_level BETWEEN 1 AND 5)` to
+  `MERGE_LEVEL_MIN/MAX` in the migration text AND the live `pg_get_constraintdef`, and
+  proves the DB refuses MAX+1 / MIN−1 and accepts both ends.
+- **N1** key name fixed. **N2** `fpMul`/`scaleInt` assert every argument (tested).
+  **N3** test: every digit in an ability description is one of that ability's authored
+  values (fixed → 2 dp, fractions → %, ms → s) and healers state their charge count.
+  **N4** `FENCE_CATEGORY_COUNT: 3`, `TRAP_CATEGORY_COUNT: 2`; validator and test assert
+  `SIEGE_TYPES` equals their sum. **N5** comment: adv × disadv ≠ 1 exactly, intentional.
+
+**BALANCE-NOTES (N6, for chunk 37 — no change now):** Grizzly is the top attacker by ~25 %;
+the five best attackers are all Beast; Blasting Crew and Buffalo Hunter are weak in both
+roles. Re-check after the B1 semantics change, since effective strength is now rating-linear
+on the formula side rather than ×1.6-compounded, and after chunk 11's affinity test.
+
+**Verification (real output):** `pnpm --filter @caravan/content test` — 2 files, 44 tests
+passing (was 34). `cd apps/server && TEST_DATABASE_URL=...caravan_test_c03 npx vitest run
+test/qa03-merge-cap.test.ts` — 1 file, 3 tests passing. `pnpm lint` — resolver lint +
+self-test pass. `pnpm test:boundary` — pass. `pnpm typecheck` — content, resolver and circle
+clean; `apps/server` fails only in the untracked, in-progress `test/circle.test.ts` (chunk 07's
+Maker: Fastify `inject` typings), which is not part of this round — `apps/server/src` and the
+new S7 test typecheck clean.
+
+**Concurrency note:** chunks 07 and 16 had uncommitted hunks in `tunables.ts` and
+`ORCHESTRATION.md` while this closed. This commit stages only this round's hunks of those two
+files (HEAD + mine), so their additions remain in the working tree for their own commits.
+`roadmap/INDEX.md` was also dirty from another Maker and was left alone — chunk 03's status
+row still reads `built`; the orchestrator moves it to `QA'd`/`done`.
+
+### 2026-10-11 — Chunk 04 (ladders & Reputation): `not started` → `built`
+
+**Built**, concurrently with chunks 07 and 16 in the same tree. New files only, plus
+append-only edits: `apps/server/src/progression/{ladder,reputation,outcome,view,index}.ts`,
+`apps/server/src/routes/progression.ts` (registered in `app.ts`), migration
+`003_unlock_grant_once.{up,down}.sql`, tests `progression-pure.test.ts` (21) and
+`progression.test.ts` (17), and a "Chunk 04" block in `packages/content/src/tunables.ts`
+(only that hunk is staged in this commit; the file carries chunks 07/16's edits too).
+
+- **Pure core.** `ladder.ts`: cumulative `LADDER_POINTS_TO_RUNG` table (floor(100·n^1.5),
+  authored integers), `advanceLadder` is monotone by construction (no subtraction exists),
+  reports rungs crossed so each is granted once; `UNLOCK_POINTS_BY_RUNG` 1×10 + 2×10 = 30.
+  `reputation.ts`: `gapScaledDelta(base, self, opponent)` — integer-only clamped linear
+  ramp ×(1 ± gap/400) in fixed-point, clamp [×0.25, ×2]; `applyFloor` at 100 records the
+  clamp. `outcome.ts`: `deriveProgressionEvents(snapshot, input)` → ordered drafts;
+  `applyEncounterOutcome(client, causationId, input)` takes both account append locks
+  (sorted) before reading, idempotent on causation id. Input: `{outcome, caravan:
+  {accountId, caravanId, poolsUsed}, party: {ownerAccountId, poolsUsed}}`.
+- **Where things land.** Caravan: living Reputation (caravan row, always — its matchmaking
+  rating), trap Reputation (account row, when fielded), living/trap ladder when fielded.
+  Party: siege Reputation (owner's account row, always — the party's matchmaking rating),
+  siege ladder when fielded. The split is in the drafts' scopes and re-checked by the
+  ledger CHECK. Storage backstop: unique index on `(pool, account, caravan, rung)` over
+  `unlock_points_granted` events.
+- **Endpoints.** `GET /me/progression` (per pool: scope, rating, level, points, next rung
+  cost and grant, unlock points granted/spent/available), `GET /me/progression/events`
+  (own history, pool filter, seq cursor), `GET /progression/rules` (public: whole curve,
+  every per-outcome number, which pool is each side's matchmaking rating).
+
+**Test command:** `cd apps/server && TEST_DATABASE_URL=postgres://caravan:caravan@localhost:5432/caravan_test_c04 npx vitest run`
+— 14 files, 177 passing, 2 failing in `migrations.test.ts`, both caused by chunk 07's
+uncommitted `004_wagon_circle` tables (`wagon_formation`, `wagon_manifest`), not by this
+chunk (003 adds an index only). Chunk 04's 38 tests cover: level never decreases over
+10 seeds × 2000 random outcomes per side and over a 100-encounter DB sequence ending in a
+40-overrun wipe streak; every rung crossed once, grants sum to 30 per pool at cap, then
+nothing; replay of the same causation appends nothing; two racing resolutions crossing the
+same rung grant once; rebuild-from-zero == live for every account touched; gap scaling pure
+and integer over a 2 × 3 × 79 × 55 sweep; loss gain > 0 and < every win gain; no mutating
+route under progression, no `SET reputation` anywhere in src, `reputation_changed` produced
+only by `progression/outcome.ts`. `pnpm lint` clean; `@caravan/content` 44 tests pass
+(tunables still float-free); server typecheck clean apart from chunk 07's in-flight
+`routes/circle.ts`.
+
+**Assumptions made:** listed under "Build notes" in `chunks/04-ladders-and-reputation.md`
+(matchmaking rating = caravan living vs. owner siege; party living units earn no ladder;
+cumulative points; stalemate = held for the caravan; gap scaling on all four deltas;
+self-encounter refused). Registration still writes no initial event (chunk 02's zero
+state stands). Chunk 13's handler is pure, so it should call `applyEncounterOutcome`
+from the completion transaction (or `deriveProgressionEvents` with state in its input);
+causation id helper `progressionCausationId(jobId)`.
+
+**Next:** hand to adversarial QA against GUARDRAILS §3/§5 and the chunk checklist —
+especially the sandbagging shape of the ramp and whether siege-as-party-rating reads right.

@@ -1,7 +1,8 @@
 /**
  * Chunk 02 tunables. Defaults from roadmap/chunks/02-ledger-and-job-queue.md.
- * TODO(chunk-03): move into the @caravan/content tunables registry once it exists; these
- * are defined here only so chunk 02 does not edit packages/content concurrently.
+ * These are server infrastructure knobs (retries, lease windows, checkpoint cadence), not
+ * balance constants: they never enter resolution, so they stay here by decision (chunk 03
+ * QA S6) rather than in the @caravan/content tunables registry.
  */
 
 /** TUNABLE. Leases taken before a job is parked for inspection. */

@@ -3,6 +3,7 @@
  * clock, no randomness, no floats (see fixedPoint.ts). Validated once at import.
  */
 export * from "./fixedPoint.js";
+export * from "./freeze.js";
 export * from "./tunables.js";
 export * from "./regions.js";
 export * from "./affinity.js";
@@ -14,18 +15,19 @@ export * from "./fences.js";
 export * from "./validate.js";
 
 import { FENCE_TIERS, type FenceTierType } from "./fences.js";
+import { deepFreeze } from "./freeze.js";
 import { SIEGE_TYPES, type SiegeType } from "./siege.js";
 import { TRAP_TYPES, type TrapType } from "./traps.js";
 import { LIVING_UNIT_TYPES, type LivingUnitType } from "./units.js";
 import { assertContentValid, type ContentBundle } from "./validate.js";
 
-/** Everything, in one diffable bundle. */
-export const CONTENT: ContentBundle = {
+/** Everything, in one diffable bundle. Deep-frozen, like every export (chunk 03 QA S2). */
+export const CONTENT: ContentBundle = deepFreeze({
   units: LIVING_UNIT_TYPES,
   traps: TRAP_TYPES,
   siege: SIEGE_TYPES,
   fences: FENCE_TIERS,
-};
+});
 
 assertContentValid(CONTENT);
 

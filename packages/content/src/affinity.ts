@@ -15,7 +15,9 @@
  * The multipliers live in TUNABLES (AFFINITY_ADVANTAGE_MULT / AFFINITY_DISADVANTAGE_MULT).
  * This file holds only the RELATIONSHIPS — categorical, legible, authored data.
  */
-export const AFFINITY_CATEGORIES = ["grit", "powder", "beast"] as const;
+import { deepFreeze } from "./freeze.js";
+
+export const AFFINITY_CATEGORIES = deepFreeze(["grit", "powder", "beast"] as const);
 export type AffinityCategory = (typeof AFFINITY_CATEGORIES)[number];
 
 export type AffinityOutcome = "advantage" | "neutral" | "disadvantage";
@@ -27,11 +29,11 @@ export type AffinityOutcome = "advantage" | "neutral" | "disadvantage";
  */
 export const AFFINITY_MATRIX: Readonly<
   Record<AffinityCategory, Readonly<Record<AffinityCategory, AffinityOutcome>>>
-> = {
+> = deepFreeze({
   grit: { grit: "neutral", powder: "advantage", beast: "disadvantage" },
   powder: { grit: "disadvantage", powder: "neutral", beast: "advantage" },
   beast: { grit: "advantage", powder: "disadvantage", beast: "neutral" },
-};
+});
 
 export function affinityOutcome(dealer: AffinityCategory, receiver: AffinityCategory): AffinityOutcome {
   return AFFINITY_MATRIX[dealer][receiver];
