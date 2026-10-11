@@ -68,3 +68,57 @@ it), auth flow. Also `pnpm lint` (resolver rules + self-test) and `pnpm typechec
 
 **Next:** hand to adversarial QA against GUARDRAILS §5 and the chunk's checklist.
 
+
+### 2026-10-11 — Chunk 03 (content data & tunables): `not started` → `built`
+
+**Built.** `packages/content` is now the full content pool plus the registry; nothing else
+in the repo touched except the server seed's placeholder unit ids and this log.
+
+- `fixedPoint.ts` — THE one scale: `FIXED_POINT_SCALE = 1024` (1/1024 cell, 1/1024 of a
+  multiplier) for every fractional quantity; durations are whole milliseconds. Authoring
+  helpers (`fp`, `fpMilli`, `fpRatio`, `seconds`, `ms`) take integers only and throw on
+  anything else, so no float literal appears in any content file.
+- `tunables.ts` — every constant from the chunk 03 brief plus the chunk 11/12 ability and
+  trap-effect defaults and chunk 07's slot caps, each commented TUNABLE (or "fixed by
+  design") with what would drive a change. Merge curve authored as a table.
+- Data: 32 living units (8 per region: desert, high plains, mountain, badlands), 6 traps,
+  5 siege pieces, 4 fence tiers, the 3×3 affinity matrix (Grit > Powder > Beast > Grit).
+  Each unit: independent offense/defense ratings, HP, speed (cells/s), range, attack
+  cooldown, aggro, leash, and exactly one ability from the six archetypes. Every type has an
+  Old West name and one-line flavour; settler / outlaw / frontier-industry / animal only.
+- `validate.ts` runs at import: counts vs. registry, dangling category refs, bounds,
+  reachability (aggro ≤ leash + range), healer charges pinned to the registry bound, no stray
+  ability fields (a smuggled `procChance` is rejected), every fence/trap category countered
+  exactly once.
+
+**Test command:** `pnpm --filter @caravan/content test` — 2 files, 34 tests passing.
+Covers: merge curve below the components-combined line for both recipes at every level;
+offense/defense not a fixed ratio (Pearson r = −0.15, ratios 0.47–2.81); no two unit types
+share a stat block; regions differ in affinity/archetype/aggro-leash profile; exactly one
+ability per type and all six archetypes used; affinity matrix complete and antisymmetric;
+every siege piece counters exactly one category and every category is countered; every
+number in the exported data is a safe integer; a source grep of `packages/content/src`
+for float literals, bare `/`, `**` and banned Math calls (verified to fire on a planted
+`1.5`). Also `pnpm typecheck` and `pnpm lint` clean repo-wide.
+
+**Assumptions / deviations made:**
+- **`MERGE_STAT_MULT_PER_LEVEL` is ×1.6, not the brief's ×1.8.** The brief's own QA check
+  asks for both recipes; ×1.8 passes 2→1 (1.8 < 2) but fails 5→3 (3 × 1.8 = 5.4 > 5), so the
+  large recipe would have been a net power gain. ×1.6 keeps both below the line
+  (1.6 < 2, 4.8 < 5). Flagged in the registry comment, with the HP×DPS-squared caveat.
+- Durations are integer milliseconds rather than fixed-point seconds, so 0.4 s survives the
+  resolver's ms → ticks conversion exactly. Still "seconds, not ticks" in the brief's sense;
+  a test asserts no key mentions ticks.
+- Trap classes are `groundwork` / `powder` and fence classes `timber` / `wire` / `stone` —
+  five categories so the brief's default of 5 siege types counters each exactly once.
+  Traps deal damage of their own affinity (groundwork → Grit, powder → Powder), which is
+  how trap classes enter the affinity layer.
+- Ranged sentries may have aggro > leash (they shoot what they notice); the validator's
+  reachability rule is `aggro ≤ leash + attackRange`.
+- Server tests were run against `caravan_test_c03`; 49–51 of 54 pass with failures moving
+  between runs in files chunk 02 / the QA-01 pass are editing concurrently
+  (`ledger`, `caravans`, `qa01-guards`). The only server file this chunk changed is
+  `src/seed.ts`, and the server typechecks.
+
+**Next:** hand to adversarial QA against GUARDRAILS §1/§2 and the chunk's checklist —
+especially the merge curve under an HP×DPS metric and whether affinity does enough work.

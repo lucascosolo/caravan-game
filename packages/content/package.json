@@ -3,14 +3,17 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Unit/trap/siege/ability data and the tunables registry (chunk 03). Chunk 01 seeds only the tunables it needs.",
+  "description": "Living-unit, trap, siege, fence and ability data plus the tunables registry (chunk 03). Pure data: no I/O, no floats, no runtime generation.",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": { ".": "./src/index.ts" },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "devDependencies": {
-    "typescript": "^5.9.3"
+    "@types/node": "^22.19.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
   }
 }

@@ -1,6 +1,6 @@
 # Chunk 03 — Content data & tunables registry
 
-**Depends on:** 01. **Status:** not started.
+**Depends on:** 01. **Status:** built.
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 ## Goal

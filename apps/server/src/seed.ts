@@ -5,7 +5,7 @@
  *
  *   pnpm db:seed
  */
-import { REGIONS } from "@caravan/content";
+import { REGIONS, isUnitTypeId } from "@caravan/content";
 import { createPool } from "./db/pool.js";
 import { findAccountByUsername } from "./repo/accounts.js";
 import { listCaravansForAccount } from "./repo/caravans.js";
@@ -16,14 +16,17 @@ export const SEED_USERNAME = "dev";
 export const SEED_PASSWORD = "devpassword";
 export const SEED_REGION = REGIONS[0].id;
 
-// Unit types come from @caravan/content in chunk 03. Until then the seed uses clearly
-// marked placeholder ids so the roster has a shape to render and merge against.
-const PLACEHOLDER_UNIT_TYPES = [
-  { unitTypeId: `placeholder.${SEED_REGION}.scout`, mergeLevel: 1 },
-  { unitTypeId: `placeholder.${SEED_REGION}.scout`, mergeLevel: 1 },
-  { unitTypeId: `placeholder.${SEED_REGION}.rifleman`, mergeLevel: 2 },
-  { unitTypeId: `placeholder.${SEED_REGION}.medic`, mergeLevel: 1 },
-];
+// Real unit type ids from @caravan/content (chunk 03). Desert roster: two scouts-equivalent
+// riders to merge, a ranged unit, and a healer — enough shape to render and merge against.
+const SEED_UNIT_TYPES = [
+  { unitTypeId: "desert.dust_rider", mergeLevel: 1 },
+  { unitTypeId: "desert.dust_rider", mergeLevel: 1 },
+  { unitTypeId: "desert.sand_sharpshooter", mergeLevel: 2 },
+  { unitTypeId: "desert.canteen_carrier", mergeLevel: 1 },
+] as const;
+for (const u of SEED_UNIT_TYPES) {
+  if (!isUnitTypeId(u.unitTypeId)) throw new Error(`seed references unknown unit type '${u.unitTypeId}'`);
+}
 
 async function main(): Promise<void> {
   const pool = createPool();
@@ -40,10 +43,10 @@ async function main(): Promise<void> {
       regionId: SEED_REGION,
       caravanName: "Dev Caravan",
     });
-    for (const u of PLACEHOLDER_UNIT_TYPES) {
+    for (const u of SEED_UNIT_TYPES) {
       await createUnitInstance(pool, { caravanId: caravan.id, ...u });
     }
-    console.log(`Seeded account '${SEED_USERNAME}' (${account.id}) with caravan '${caravan.name}' (${caravan.id}) in region '${caravan.region_id}' and ${PLACEHOLDER_UNIT_TYPES.length} placeholder units.`);
+    console.log(`Seeded account '${SEED_USERNAME}' (${account.id}) with caravan '${caravan.name}' (${caravan.id}) in region '${caravan.region_id}' and ${SEED_UNIT_TYPES.length} units.`);
     console.log(`Log in with: POST /auth/login {"username":"${SEED_USERNAME}","password":"${SEED_PASSWORD}"}`);
   } finally {
     await pool.end();
