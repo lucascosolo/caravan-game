@@ -1,0 +1,7 @@
+{
+  "route": "GET /me/inbox/unread",
+  "status": 200,
+  "body": {
+    "unreadCount": 1
+  }
+}

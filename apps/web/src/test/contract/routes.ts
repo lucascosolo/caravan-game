@@ -33,6 +33,7 @@ import {
   unequipResultShape,
 } from "../../api/shapes.ts";
 import { replayShape } from "../../api/replayShapes.ts";
+import { inboxShape, inboxUnreadShape } from "../../api/inboxShapes.ts";
 import { bankResultShape, encounterCommitShape, pushResultShape, stakesPreviewShape, tripCapRefusalShape, tripStartShape, tripStatusShape } from "../../api/tripShapes.ts";
 
 export const CONTRACT_GUARDS: Readonly<Record<string, Guard<unknown> | null>> = {
@@ -84,6 +85,11 @@ export const CONTRACT_GUARDS: Readonly<Record<string, Guard<unknown> | null>> = 
   replay: replayShape,
   "replay-owner": replayShape,
   "replay-no-log": replayShape,
+  // Chunk 29's inbox: the struck party's owner (a real-resolver strike), the badge, a mark-all, and every other category.
+  inbox: inboxShape,
+  "inbox-unread": inboxUnreadShape,
+  "inbox-read": inboxShape,
+  "inbox-preferences": inboxShape,
 };
 
 /** Null when `body` passes the route's guard (or the route has none); else the guard's reason. */

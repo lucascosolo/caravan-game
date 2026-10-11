@@ -1,0 +1,96 @@
+{
+  "route": "POST /me/inbox/read",
+  "status": 200,
+  "body": {
+    "items": [
+      {
+        "key": "strike:1",
+        "category": "party_strike",
+        "version": 1,
+        "occurredAtMs": 1790000060000,
+        "occurredAt": "2026-10-11T12:00:00.000Z",
+        "detail": {
+          "count": 2,
+          "held": 2,
+          "overran": 0,
+          "stalemate": 0,
+          "other": 0,
+          "coinEarned": 0,
+          "coinTransferred": 0,
+          "coinDiscardedAtCap": 0,
+          "reputationDelta": -15,
+          "ladderPointsGained": 10,
+          "windowStartMs": 1790000000000,
+          "windowEndMs": 1790000120000,
+          "strikes": [
+            {
+              "seq": 2,
+              "occurredAt": "2026-10-11T12:00:00.000Z",
+              "jobId": "encounter:00000000-0000-4000-8000-000000000001:1",
+              "encounterIndex": 1,
+              "outcomeKind": "caravan_held",
+              "defender": {
+                "username": "contract_viewer",
+                "caravanName": "Caravan",
+                "regionId": "desert"
+              },
+              "coinEarned": 0,
+              "coinTransferred": 0,
+              "reputationDelta": 0,
+              "ladderPointsGained": 0
+            },
+            {
+              "seq": 1,
+              "occurredAt": "2026-10-11T12:00:01.000Z",
+              "jobId": "encounter:00000000-0000-4000-8000-000000000002:1",
+              "encounterIndex": 1,
+              "outcomeKind": "caravan_held",
+              "defender": {
+                "username": "contract_player",
+                "caravanName": "Caravan",
+                "regionId": "desert"
+              },
+              "coinEarned": 0,
+              "coinTransferred": 0,
+              "reputationDelta": -15,
+              "ladderPointsGained": 10
+            }
+          ],
+          "notListed": 0
+        },
+        "unread": false
+      }
+    ],
+    "unreadCount": 0,
+    "preferences": [
+      {
+        "category": "party_strike",
+        "enabled": true,
+        "defaultEnabled": true
+      },
+      {
+        "category": "refugees_arrived",
+        "enabled": false,
+        "defaultEnabled": false
+      },
+      {
+        "category": "trip_cap_refilled",
+        "enabled": false,
+        "defaultEnabled": false
+      },
+      {
+        "category": "mine_near_cap",
+        "enabled": false,
+        "defaultEnabled": false
+      },
+      {
+        "category": "packs_rotated",
+        "enabled": false,
+        "defaultEnabled": false
+      }
+    ],
+    "strikeBatchWindowMs": 3600000,
+    "horizonMs": 1209600000,
+    "delivery": "in_app"
+  }
+}

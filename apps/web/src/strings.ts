@@ -1025,4 +1025,82 @@ export const STRINGS = {
     abilityDash: (cells: number): string => `: dashed ${cells} cells`,
     coreReached: (unit: string): string => `${unit} reached the core.`,
   },
+  // Chunk 29: the in-app inbox. Copy rules (PHASE-2 §29): say what happened, where, and what it
+  // cost or earned; never name more of the struck player than the results feed does; never nag
+  // toward spending — no item links to the store, sells a timer or suggests buying anything.
+  inbox: {
+    title: "Inbox",
+    button: "Inbox",
+    glyph: "✉",
+    buttonLabel: (unread: number): string => (unread === 0 ? "Inbox, nothing new" : `Inbox, ${unread} unread`),
+    badge: (unread: number): string => (unread > 99 ? "99+" : String(unread)),
+    intro: "What happened while you were away, newest first. What you have read is kept on the server, so it follows you to any device.",
+    noPush: "Notices appear here only: nothing is sent to your phone or browser yet.",
+    empty: "Nothing here yet. When your standing party is served into someone's trip, you will find it here.",
+    markAll: "Mark all read",
+    markRead: "Mark read",
+    unread: "New",
+    marked: "Marked read.",
+    when: (when: string): string => when,
+    // party strikes (batched per hour)
+    strikeTitle: (count: number): string => (count === 1 ? "Your party struck a caravan" : `Your party struck ${count} caravans`),
+    strikeWindow: (from: string, to: string): string => `Between ${from} and ${to}`,
+    strikeOutcomes: (overran: number, held: number, stalemate: number, other: number): string =>
+      [
+        overran > 0 ? `${overran} overrun by your party` : null,
+        held > 0 ? `${held} held out` : null,
+        stalemate > 0 ? `${stalemate} ended with neither side broken` : null,
+        other > 0 ? `${other} not fought out yet` : null,
+      ]
+        .filter((x): x is string => x !== null)
+        .join(" · "),
+    strikeEarned: (coin: number, reputation: number, ladder: number): string =>
+      `Earned ${coin} Coin · ${reputation > 0 ? "+" : ""}${reputation} Reputation · +${ladder} ladder`,
+    strikeTransferred: (coin: number): string => `Of that, ${coin} Coin was unbanked Coin the overrun caravans lost to your party.`,
+    strikeDiscarded: (coin: number): string => `${coin} Coin did not fit under your storage cap and was not credited.`,
+    strikeLine: (who: string, caravan: string, encounter: number | null): string =>
+      `vs ${who} (${caravan})${encounter === null ? "" : `, encounter ${encounter} of their trip`}`,
+    strikeOutcome: (kind: string | null): string =>
+      (kind === null
+        ? null
+        : ({
+            caravan_overrun: "Your party overran the caravan.",
+            caravan_held: "The caravan held; your party was driven off.",
+            stalemate: "Neither side broke.",
+          } as Record<string, string>)[kind]) ?? "Outcome recorded.",
+    strikeLineEarned: (coin: number, reputation: number): string => `${coin} Coin · ${reputation > 0 ? "+" : ""}${reputation} Reputation`,
+    strikeNotListed: (n: number): string => `${n} more in this hour are counted above; every one is in the Party tab's results feed.`,
+    someone: "someone",
+    watch: "Watch the fight",
+    openFeed: "Open the results feed",
+    // refugees arrived
+    refugeesTitle: "Refugees arrived",
+    refugeesBody: (caravan: string): string => `A new free refugee menu is waiting for ${caravan} in Town.`,
+    refugeesUnclaimed: "Taking it replaces the menu you have not picked from yet.",
+    openTown: "Go to Town",
+    // trip cap
+    tripCapTitle: "Trip starts are back",
+    tripCapBody: (cap: number): string => `All ${cap} trip starts are available again.`,
+    openTrail: "Go to the Trail",
+    // mine near cap
+    mineTitle: (atCap: boolean): string => (atCap ? "Your mine has stopped at the cap" : "Your mine is near your storage cap"),
+    mineBody: (balance: number, cap: number): string => `${balance} of ${cap} Coin stored. The mine adds nothing past the cap.`,
+    mineStops: (perHour: number, when: string): string => `At ${perHour} Coin an hour it reaches the cap around ${when}.`,
+    // packs rotated
+    packsTitle: "The weekly packs changed over",
+    packsBody: (from: string): string => `A new week began ${from}. The Coin in each tier is the same every week; only the cosmetics rotate.`,
+    // preferences (per-category opt-out)
+    prefsHeading: "What to show here",
+    prefsIntro: "Party strikes are on unless you turn them off; everything else is off unless you turn it on.",
+    prefsSaved: "Saved.",
+    prefDefault: (on: boolean): string => (on ? "on by default" : "off by default"),
+    category: (c: string): string =>
+      ({
+        party_strike: "Your party struck a caravan",
+        refugees_arrived: "Refugees arrived",
+        trip_cap_refilled: "Trip starts are back",
+        mine_near_cap: "Mine near its cap",
+        packs_rotated: "Weekly packs changed over",
+      })[c] ?? c,
+  },
 } as const;
