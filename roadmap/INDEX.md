@@ -89,7 +89,24 @@ building the mirror image of this game is the easiest mistake available.
 - **Chunk 19 is the last integration chunk** — it wires together the resolver, the
   trip loop, and the economy. Expect it to surface findings in all three.
 
-## Deferred — do not build
+## Phase 2 — everything after the core (chunks 21–49)
+
+Chunks 01–20 build the core loop. They do not cover onboarding, notifications,
+cosmetics as a system, art and audio, store billing, mobile packaging, telemetry,
+live-ops tooling, account lifecycle, release QA, or anything that keeps a player going
+after the ladders cap. [PHASE-2.md](PHASE-2.md) specs all of that, in three groups:
+
+| Group | Chunks | Design status |
+|---|---|---|
+| A. Missing v1 engineering | 21–38 | No design change; schedulable now. 21 starts with 01, 26 with 08, 28 before 20. |
+| B. Replayability systems | 39–45 | Each needs a short PROJECT.md amendment first. |
+| C. The deferred list | 46–49 | Multi-caravan, prestige, recycling, campaign (research-gated). After A is `done`. |
+
+Status for these chunks is tracked in PHASE-2.md until a chunk is assigned, at which
+point it gets its own `chunks/NN-*.md` brief and a row in the table above.
+
+## Deferred — do not build in Phase 1
 
 Multi-caravan, prestige/reset, duplicate recycling, campaign mode. Schema in chunk 01
-must *accommodate* multi-caravan; nothing else may anticipate these.
+must *accommodate* multi-caravan; nothing else may anticipate these. They are specced
+as group C in [PHASE-2.md](PHASE-2.md) and stay out of scope until that phase.
