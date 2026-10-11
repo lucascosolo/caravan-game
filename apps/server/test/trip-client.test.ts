@@ -113,6 +113,8 @@ describe("CARAVAN_TEST_RESOLVER (dev/test only)", () => {
   it("a production app (no flag) installs nothing", async () => {
     const plain = await buildApp({ db: appRole });
     expect(plain.inlineEncounterWorker).toBeNull();
+    expect(plain.encounterWorker).toBeNull();
+    expect(app.encounterWorker?.name).toBe("test-double");
     await plain.close();
   });
 });

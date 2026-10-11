@@ -50,7 +50,6 @@ export function goldenView(name: string, viewer: ReplayViewer = "caravan", loot 
     renderable: true,
     reason: null,
     outcome: { kind: log.outcome.kind, depth: log.outcome.depth, endTick: log.outcome.endTick, loot: log.outcome.kind === "stalemate" ? 0 : loot },
-    depthExplained: "How far the deepest raider got: the share of its straight-line distance to the core that it closed.",
     party: { partyId: "p", partyHash: "h", partySavedAt: "2026-10-11T12:00:00.000Z" },
     labels: {
       units: log.units.map((u) => ({ ...u, displayName: getUnitType(u.typeId)?.displayName ?? u.typeId, ability: getUnitType(u.typeId)?.ability.displayName ?? null })),

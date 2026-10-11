@@ -5,7 +5,7 @@
 --                           player-facing SELECT * on `account` can ever carry it. The app role
 --                           can only READ it (db/roles.sql revokes INSERT/UPDATE/DELETE): no
 --                           player route, and no bug in one, can grant it. It is set by the
---                           operator CLI (src/analytics/adminCli.ts) over the OWNER connection.
+--                           operator CLI (src/admin.ts) over the OWNER connection.
 --                           It leaves with its account (cascade).
 --   account_analytics       The opaque per-account analytics id (random, never derived from the
 --                           account id) and the account's opt-out. Created lazily. Client

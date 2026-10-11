@@ -5,8 +5,10 @@ GroupAggregate
         Sort Key: ((GREATEST('0'::numeric, floor((((pp.reputation - 100))::numeric / '300'::numeric))))::integer), a.is_system
         ->  Hash Join
               Hash Cond: (pp.account_id = a.id)
-              ->  Seq Scan on pool_progress pp
-                    Filter: (pool = 'siege'::pool)
+              ->  Bitmap Heap Scan on pool_progress pp
+                    Recheck Cond: (pool = 'siege'::pool)
+                    ->  Bitmap Index Scan on pool_progress_pool_reputation_idx
+                          Index Cond: (pool = 'siege'::pool)
               ->  Hash
                     ->  Hash Join
                           Hash Cond: (a.id = sp.account_id)

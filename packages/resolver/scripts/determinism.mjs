@@ -5,7 +5,7 @@
 // Three steps:
 //
 //   1. In-process: vitest runs test/determinism.test.ts — every corpus scenario 100× byte-
-//      identical, every scenario equal to its golden file, the corpus ≥ 50 fights with the
+//      identical (one test per scenario per batch of 25 runs, QA-13 S6), every scenario equal to its golden file, the corpus ≥ 50 fights with the
 //      coverage chunk 13 lists, every state field an integer every tick, no float in the
 //      output, input untouched.
 //   2. Cross-process: test/harness/driver.ts is bundled once with esbuild (the root dev
@@ -33,12 +33,16 @@ const GOLDEN_SUFFIX = ".golden.json";
 const PROCESS_FLAGS = [[], ["--max-old-space-size=256"], ["--max-semi-space-size=1", "--stack-size=2000"]];
 const PROCESS_ORDER = ["forward", "reverse", "rotate"];
 const RUNS_PER_PROCESS = 3;
+// QA-13 S6: a hung step fails loudly instead of hanging CI. Generous: the in-process step is
+// ~1–2 min on 4 idle cores, a driver process ~10 s.
+const VITEST_TIMEOUT_MS = 20 * 60_000;
+const DRIVER_TIMEOUT_MS = 5 * 60_000;
 
 // --- 1. in-process harness ------------------------------------------------------------
 console.log("determinism: in-process harness (vitest test/determinism.test.ts)");
-const vitest = spawnSync("pnpm", ["exec", "vitest", "run", "test/determinism.test.ts"], { cwd: pkgDir, stdio: "inherit" });
+const vitest = spawnSync("pnpm", ["exec", "vitest", "run", "test/determinism.test.ts"], { cwd: pkgDir, stdio: "inherit", timeout: VITEST_TIMEOUT_MS });
 if (vitest.status !== 0) {
-  console.error(`determinism: in-process harness FAILED (exit ${vitest.status ?? "signal"})`);
+  console.error(`determinism: in-process harness FAILED (exit ${vitest.status ?? `signal ${vitest.signal ?? "?"}${vitest.error ? `: ${vitest.error.message}` : ""}`})`);
   process.exit(1);
 }
 
@@ -59,9 +63,9 @@ try {
   });
   const outputs = [];
   for (let i = 0; i < PROCESS_FLAGS.length; i++) {
-    const run = spawnSync(process.execPath, [...PROCESS_FLAGS[i], bundle, String(RUNS_PER_PROCESS), PROCESS_ORDER[i]], { cwd: outDir, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+    const run = spawnSync(process.execPath, [...PROCESS_FLAGS[i], bundle, String(RUNS_PER_PROCESS), PROCESS_ORDER[i]], { cwd: outDir, encoding: "utf8", maxBuffer: 16 * 1024 * 1024, timeout: DRIVER_TIMEOUT_MS });
     if (run.status !== 0) {
-      console.error(`determinism: driver process ${i} FAILED (exit ${run.status ?? "signal"})\n${run.stdout}${run.stderr}`);
+      console.error(`determinism: driver process ${i} FAILED (exit ${run.status ?? `signal ${run.signal ?? "?"}${run.error ? `: ${run.error.message}` : ""}`})\n${run.stdout}${run.stderr}`);
       process.exit(1);
     }
     outputs.push(run.stdout.trim());

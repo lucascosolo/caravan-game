@@ -43,18 +43,51 @@ function stateNumbers(state: SimState): unknown {
   };
 }
 
-describe("determinism harness", () => {
-  it("resolves every corpus scenario 100× to a byte-identical output", () => {
-    for (const { name, input } of scenarios()) {
-      const first = JSON.stringify(resolve(clone(input)));
-      for (let i = 1; i < 100; i++) {
-        const again = JSON.stringify(resolve(clone(input)));
-        expect(again === first, `${name}: run ${i} diverged`).toBe(true);
-      }
+/**
+ * QA-13 S6: the 100× loop is split per scenario AND into RUN_BATCHES batches, one `it` each, each
+ * starting with a macrotask yield (yieldToEventLoop), so no synchronous block runs for more than a
+ * few seconds even on a loaded runner (one `it` over all 72
+ * fights × 100 blocked the worker's event loop past vitest's RPC timeout: "Timeout calling
+ * onTaskUpdate", exit 1 with every test green). What is checked is unchanged: 100 resolutions of
+ * every scenario, every one byte-identical to the first.
+ */
+const RUNS = 100;
+/**
+ * Between tests vitest only awaits promises (microtasks), so a file of synchronous tests never
+ * lets the worker's event loop run: the reply to its "onTaskUpdate" RPC sits unread until the
+ * whole file is done, and past 60 s (a loaded runner) the RPC times out and the run exits 1 with
+ * every test green — the QA-13 S6 failure. A macrotask yield before each batch lets it through.
+ */
+const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+const RUN_BATCHES = 4;
+const reference = new Map<string, string>();
+const runBatches = scenarios().flatMap(({ name, input }) =>
+  Array.from({ length: RUN_BATCHES }, (_, b) => ({ name, input, from: Math.floor((b * RUNS) / RUN_BATCHES), to: Math.floor(((b + 1) * RUNS) / RUN_BATCHES) })),
+);
+
+describe("determinism harness: every corpus scenario resolved 100× to a byte-identical output", () => {
+  it.each(runBatches)("$name runs $from to $to", async ({ name, input, from, to }) => {
+    await yieldToEventLoop();
+    let first = reference.get(name);
+    if (first === undefined) {
+      first = JSON.stringify(resolve(clone(input)));
+      reference.set(name, first);
       expect(first.length).toBeGreaterThan(300);
     }
-  }, 600_000);
+    for (let i = Math.max(from, 1); i < to; i++) {
+      const again = JSON.stringify(resolve(clone(input)));
+      expect(again === first, `${name}: run ${i} diverged`).toBe(true);
+    }
+  });
 
+  it("ran every scenario 100 times (every batch of every scenario)", () => {
+    expect(runBatches).toHaveLength(scenarios().length * RUN_BATCHES);
+    expect(runBatches.filter((b) => b.name === scenarios()[0]!.name).map((b) => [b.from, b.to])).toEqual([[0, 25], [25, 50], [50, 75], [75, 100]]);
+    expect(reference.size).toBe(scenarios().length);
+  });
+});
+
+describe("determinism harness", () => {
   it("every corpus scenario matches its checked-in golden log, and the golden directory holds nothing else", () => {
     if (UPDATE) mkdirSync(GOLDEN_DIR, { recursive: true });
     const names = scenarios().map((s) => s.name);
@@ -128,21 +161,20 @@ describe("determinism harness", () => {
     expect(capTickEnds, "an overrun or a wipe on the cap tick itself").toBeGreaterThanOrEqual(2);
   });
 
-  it("every state field is a safe integer after every tick, in every scenario", () => {
-    for (const { name, input } of scenarios()) {
-      const state = initialState(normalizeInput(clone(input)));
-      const log: LogEvent[] = [];
-      const bad: string[] = [];
-      nonIntegers(stateNumbers(state), `${name}@init`, bad);
-      for (; state.tick < state.tickCap; state.tick++) {
-        runTick(state, log);
-        const end = endOfTick(state);
-        nonIntegers(stateNumbers(state), `${name}@${state.tick}`, bad);
-        if (bad.length || end !== null) break;
-      }
-      nonIntegers(log, `${name}.log`, bad);
-      expect(bad).toEqual([]);
+  it.each(scenarios())("every state field is a safe integer after every tick: $name", async ({ name, input }) => {
+    await yieldToEventLoop();
+    const state = initialState(normalizeInput(clone(input)));
+    const log: LogEvent[] = [];
+    const bad: string[] = [];
+    nonIntegers(stateNumbers(state), `${name}@init`, bad);
+    for (; state.tick < state.tickCap; state.tick++) {
+      runTick(state, log);
+      const end = endOfTick(state);
+      nonIntegers(stateNumbers(state), `${name}@${state.tick}`, bad);
+      if (bad.length || end !== null) break;
     }
+    nonIntegers(log, `${name}.log`, bad);
+    expect(bad).toEqual([]);
   });
 
   it("the output carries no non-integer number and nothing that smells of an account", () => {

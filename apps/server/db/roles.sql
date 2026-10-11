@@ -107,14 +107,29 @@ GRANT EXECUTE ON FUNCTION
 TO caravan_app;
 
 -- ---------------------------------------------------------------------------------
+-- Replays are written once, by the resolution path only (QA-13 S4, migration 016)
+-- ---------------------------------------------------------------------------------
+-- encounter_log: no direct INSERT, UPDATE or DELETE for the app role. A replay is written by
+-- encounter_log_write() (fenced on the job's live lease, checked against the job by the insert
+-- guard) and leaves only through encounter_log_prune() (the retention rule, on the database
+-- clock and the constant encounter_log_retention row). Both run as the owner (SECURITY
+-- DEFINER). The retention row itself is read-only for the app.
+REVOKE INSERT, UPDATE, DELETE ON TABLE encounter_log FROM caravan_app;
+REVOKE INSERT, UPDATE, DELETE ON TABLE encounter_log_retention FROM caravan_app;
+GRANT EXECUTE ON FUNCTION
+  encounter_log_write(text, text, integer, uuid, uuid, uuid, integer, integer, text, bytea, integer, text, text, text, text, text),
+  encounter_log_prune(uuid)
+TO caravan_app;
+
+-- ---------------------------------------------------------------------------------
 -- Chunk 32: the admin flag is read-only for the app role
 -- ---------------------------------------------------------------------------------
 -- account_admin decides who may read /admin/*. The server only ever READS it; the operator
--- CLI (src/analytics/adminCli.ts) writes it over the owner connection. Without INSERT /
+-- CLI (src/admin.ts) writes it over the owner connection. Without INSERT /
 -- UPDATE / DELETE here, no player route — and no bug in one — can grant or revoke admin.
 -- (An account's deletion still cascades: referential actions run as the table owner.)
 -- Client telemetry rows are insert-only for the app (deleted only on opt-out or cascade).
--- Guarded by to_regclass so this script still applies to a database rolled back below 018.
+-- Guarded by to_regclass so this script still applies to a database rolled back below 020.
 DO $$
 BEGIN
   IF to_regclass('public.account_admin') IS NOT NULL THEN

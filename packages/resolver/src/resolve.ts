@@ -9,6 +9,7 @@
  * identical outputs — a test byte-compares the serialization across 100 runs and across
  * processes.
  */
+import type { AbilityArchetype } from "./battlefield.js";
 import { RESOLVER_VERSION } from "./version.js";
 import { endOfTick } from "./hooks.js";
 import { assertResolveInput, normalizeInput, type ResolveInput } from "./input.js";
@@ -25,6 +26,8 @@ export interface UnitSummary {
   readonly ref: string;
   readonly typeId: string;
   readonly mergeLevel: number;
+  /** Chunk 13 (v8, QA-13 S3): its ability's archetype — the replay labels carry it so an `ab` row can be checked against its caster. */
+  readonly ability: AbilityArchetype;
   readonly x: number;
   readonly y: number;
   /** HP it brought into the fight (chunk 13: the replay's tick-zero HP). */
@@ -118,6 +121,7 @@ export function resolve(rawInput: unknown): ResolveOutput {
       ref: u.ref,
       typeId: u.typeId,
       mergeLevel: u.mergeLevel,
+      ability: u.ability.archetype,
       x: u.x,
       y: u.y,
       startHp: u.startHp,

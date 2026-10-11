@@ -14,7 +14,7 @@ import { FIXED_ONE } from "@caravan/content";
 import { JOB_KIND_ENCOUNTER_RESOLUTION } from "../jobs/queue.js";
 import { makeEncounterResolutionHandler } from "../jobs/handlers/encounterResolution.js";
 import type { HandlerRegistry } from "../jobs/worker.js";
-import type { EncounterOutcomeKind, EncounterResolver, ResolvedFight } from "../trip/outcome.js";
+import type { EncounterOutcomeKind, EncounterResolver, EncounterResolverInput, ResolvedFight } from "../trip/outcome.js";
 
 export interface EncounterPlan {
   kind: EncounterOutcomeKind;
@@ -37,11 +37,17 @@ export interface EncounterPlan {
   tamper?: (o: ResolvedFight) => unknown;
 }
 
-export function plannedResolver(plans: Record<number, EncounterPlan>, fallback: EncounterPlan = { kind: "caravan_held" }): EncounterResolver {
+/**
+ * A per-encounter script read off the job input (chunk 24 QA S5): returns the plan for this
+ * fight, or null to use the index → plan table. Pure, like the rest of the double.
+ */
+export type EncounterScript = (input: EncounterResolverInput) => EncounterPlan | null;
+
+export function plannedResolver(plans: Record<number, EncounterPlan>, fallback: EncounterPlan = { kind: "caravan_held" }, script?: EncounterScript): EncounterResolver {
   return {
     name: "test-double",
     resolve(input) {
-      const plan = plans[input.encounterIndex] ?? fallback;
+      const plan = script?.(input) ?? plans[input.encounterIndex] ?? fallback;
       const hp = new Map(input.survivors.units.map((u) => [u.ref, u.hp]));
       const fenceHp = new Map(input.survivors.fences.map((f) => [f.ref, f.hp]));
       const killed = new Set(plan.kill ?? []);
@@ -60,6 +66,6 @@ export function plannedResolver(plans: Record<number, EncounterPlan>, fallback: 
   };
 }
 
-export function doubleHandlers(plans: Record<number, EncounterPlan>, fallback?: EncounterPlan): HandlerRegistry {
-  return { [JOB_KIND_ENCOUNTER_RESOLUTION]: makeEncounterResolutionHandler(plannedResolver(plans, fallback)) };
+export function doubleHandlers(plans: Record<number, EncounterPlan>, fallback?: EncounterPlan, script?: EncounterScript): HandlerRegistry {
+  return { [JOB_KIND_ENCOUNTER_RESOLUTION]: makeEncounterResolutionHandler(plannedResolver(plans, fallback, script)) };
 }

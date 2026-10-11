@@ -2,10 +2,10 @@
  * Chunk 13 — `toResolverParty` (the served standing party as the resolver sees it) and
  * `resolutionContent` (what the server hashes into every encounter job, QA-15 S3).
  */
-import { TUNABLES, getSiegeType, getUnitType, mergeStatMult, scaleInt } from "@caravan/content";
+import { CONTENT, TUNABLES, getSiegeType, getUnitType, mergeStatMult, scaleInt } from "@caravan/content";
 import { CORE_CELLS, CORE_CENTER, ENTRY_EDGES, GRID_HEIGHT, GRID_WIDTH, RING_ANCHORS, assertResolveInput, entryBand, resolve, type ResolveInput } from "@caravan/resolver";
 import { describe, expect, it } from "vitest";
-import { resolutionContent, resolverTunables, toResolverParty, type Party } from "../src/index.js";
+import { RESOLUTION_COPY_KEYS, RESOLUTION_STAT_KEYS, resolutionContent, resolverTunables, toResolverParty, type Party } from "../src/index.js";
 
 const party: Party = {
   v: 1,
@@ -54,5 +54,40 @@ describe("resolutionContent", () => {
     expect(c.tunables).toEqual(resolverTunables());
     expect(c.tunables.tickRate).toBe(TUNABLES.TICK_RATE);
     expect(JSON.stringify(c)).not.toMatch(/account|coin_balance|purchase|entitlement/i);
+  });
+});
+
+describe("resolutionContent is the stat projection, never the copy (QA-13 D3)", () => {
+  const key = (c: unknown) => JSON.stringify(c);
+  it("every key of every content type is a stat (hashed) or copy (not hashed): a new stat cannot escape the hash", () => {
+    const tables = { units: CONTENT.units, traps: CONTENT.traps, siege: CONTENT.siege, fences: CONTENT.fences } as const;
+    for (const [table, rows] of Object.entries(tables)) {
+      const stats: readonly string[] = RESOLUTION_STAT_KEYS[table as keyof typeof RESOLUTION_STAT_KEYS];
+      for (const row of rows as readonly object[]) {
+        for (const k of Object.keys(row)) expect(stats.includes(k) || RESOLUTION_COPY_KEYS.includes(k), `${table}.${k}`).toBe(true);
+      }
+    }
+    const json = key(resolutionContent());
+    for (const u of CONTENT.units) {
+      expect(json).not.toContain(u.displayName);
+      expect(json).not.toContain(u.ability.description);
+    }
+  });
+
+  it("a description-only or name-only edit leaves the projection unchanged; a stat edit changes it", () => {
+    const base = key(resolutionContent());
+    const u0 = CONTENT.units[0]!;
+    const copyEdit = {
+      ...CONTENT,
+      units: [{ ...u0, displayName: "Renamed", flavor: "New flavor", ability: { ...u0.ability, description: "Reworded.", displayName: "New name" } }, ...CONTENT.units.slice(1)],
+      traps: [{ ...CONTENT.traps[0]!, flavor: "x", displayName: "y" }, ...CONTENT.traps.slice(1)],
+    };
+    expect(key(resolutionContent(copyEdit as typeof CONTENT))).toBe(base);
+    const statEdit = { ...CONTENT, units: [{ ...u0, offense: u0.offense + 1 }, ...CONTENT.units.slice(1)] };
+    expect(key(resolutionContent(statEdit as typeof CONTENT))).not.toBe(base);
+    const abilityEdit = { ...CONTENT, units: [{ ...u0, ability: { ...u0.ability, cooldown: u0.ability.cooldown + 50 } }, ...CONTENT.units.slice(1)] };
+    expect(key(resolutionContent(abilityEdit as typeof CONTENT))).not.toBe(base);
+    const trapEdit = { ...CONTENT, traps: [{ ...CONTENT.traps[0]!, damage: CONTENT.traps[0]!.damage + 1 }, ...CONTENT.traps.slice(1)] };
+    expect(key(resolutionContent(trapEdit as typeof CONTENT))).not.toBe(base);
   });
 });

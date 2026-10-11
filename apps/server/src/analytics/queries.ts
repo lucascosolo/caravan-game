@@ -7,7 +7,7 @@
  * tables (a test greps src/ for it). Analytics can never move an outcome, a menu or a price.
  *
  * BOUNDED: every query over an event-shaped table is bounded by a time window and reads
- * through a migration-018 index (ledger_event (event_type, occurred_at) / (account_id,
+ * through a migration-020 index (ledger_event (event_type, occurred_at) / (account_id,
  * occurred_at), trip (ended_at), trip_encounter (settled_at), encounter_candidates
  * (band, chosen_at) (chunk 25's), refugee_menu (created_at), pack_purchase (purchased_at), account (created_at),
  * analytics_client_event (occurred_at) / (analytics_id, occurred_at)). The few "now" panels
@@ -449,11 +449,14 @@ export const POOL_CARAVANS_SQL = `SELECT ${bandExpr("pp.reputation", "$1", "$2")
  * authored. Walks the matchmaker's own `encounter_candidates_band_chosen_idx (band, chosen_at
  * DESC, …)` once per band — 0 … the highest band ever chosen (one backward index probe) — so
  * the window is an index range in every band and no second chosen_at index is needed.
+ * `OFFSET 0` keeps the per-band subquery from being flattened into a merge join over a full
+ * scan of encounter_candidates (what the planner chose without it).
  */
 export const POOL_SERVED_SQL = `SELECT b.band, count(*)::int AS served, count(*) FILTER (WHERE (c -> 'owner' ->> 'authored')::boolean)::int AS authored
   FROM generate_series(0, coalesce((SELECT max(band) FROM encounter_candidates WHERE chosen_at IS NOT NULL), -1)) AS b(band)
   CROSS JOIN LATERAL (SELECT candidates, chosen_candidate_id FROM encounter_candidates
-                       WHERE band = b.band AND chosen_at IS NOT NULL AND chosen_at >= $1 AND chosen_at < $2) ec
+                       WHERE band = b.band AND chosen_at IS NOT NULL AND chosen_at >= $1 AND chosen_at < $2
+                       OFFSET 0) ec
   CROSS JOIN LATERAL jsonb_array_elements(ec.candidates) c
  WHERE c ->> 'candidateId' = ec.chosen_candidate_id
  GROUP BY 1 ORDER BY 1`;

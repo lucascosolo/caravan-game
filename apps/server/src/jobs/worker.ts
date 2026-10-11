@@ -162,8 +162,8 @@ export async function runOnce(pool: pg.Pool, opts: WorkerOptions): Promise<RunOu
       await lockAccountsForAppend(client, output.events.map((d) => d.accountId));
       const drafts = await clampCoinCreditDrafts(client, output.events);
       const rows = await appendEvents(client, job.id, drafts);
-      // Chunk 13: the replay, stored with the completion (same transaction), then the retention prune.
-      if (output.encounterLog) await storeEncounterLog(client, output.encounterLog);
+      // Chunk 13: the replay, stored with the completion (same transaction, fenced on this lease), then the retention prune.
+      if (output.encounterLog) await storeEncounterLog(client, output.encounterLog, fence);
       if (opts.afterAppend) await opts.afterAppend(job, client);
       const completed = await markJobCompleted(client, job.id, output.result, fence);
       if (opts.afterCompleted) {

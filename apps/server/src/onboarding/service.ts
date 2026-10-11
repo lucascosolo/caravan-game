@@ -71,6 +71,11 @@ export async function advanceOnboarding(db: Queryable, accountId: string, step: 
   if (!isOnboardingStep(step)) throw badRequest("invalid_step", `'step' must be one of ${ONBOARDING_STEPS.join(", ")}`);
   const row = await readRow(db, accountId, true);
   if (!row || stepRank(step) <= stepRank(row.step)) return { ...toView(row), changed: false };
+  // QA N1(a): 'done' by advancing means FINISHED, so only from the last step. Anything earlier
+  // is a skip and goes through /skip (which refuses on the first screen and records it as one).
+  if (step === "done" && row.step !== "party") {
+    throw conflict("onboarding_not_finished", `the guide finishes from 'party'; from '${row.step}' use POST /me/onboarding/skip`);
+  }
   const res = await db.query<OnboardingRow>(
     `UPDATE account_onboarding SET step = $2, completed_at = CASE WHEN $2 = 'done' THEN now() ELSE NULL END, updated_at = now()
      WHERE account_id = $1 RETURNING *`,

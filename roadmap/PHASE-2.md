@@ -244,7 +244,17 @@ explain, unprompted, which side they play actively and which side is passive.
 town a "camp"? Does the player ever "attack" anything? Guardrail 3: can the tutorial grant
 a unit type outside the starting nodes?
 
-**Status: built** (2026-10-11, chunk 24 Maker). Build notes:
+**Status: QA'd, fix round 1 in** (2026-10-11, chunk 24 fixer; punch list `roadmap/qa/24-punchlist.md`, every
+item closed). `done` waits on the balance pass's D1 acceptance (the guided first fight held most of the time
+with the real resolver; today two fresh real-resolver walks were both overrun at encounter 1). Fix round 1
+supersedes two build notes below: **every caravan now starts with `TUNABLES.STARTING_ROSTER`** (granted at
+caravan creation through the ordinary ledgered grant, the region's starters only, no Coin, no backfill), so
+the refugee step teaches acquisition rather than supplying the only unit; and the bank-or-push card now
+**recommends from the server's stakes preview** instead of saying the trip pushes once. migration 019 guards
+`account_onboarding` against DELETE; the e2e double overruns an unfenced encounter 1 so the overrun path is
+walked end to end.
+
+Build notes (chunk 24 Maker):
 
 - **What the first session is.** Register (the region field now reads "Permanent: chosen once for
   this caravan and never swapped…") → **the first screen** (`onboarding/WelcomeScreen.tsx`, before
@@ -498,7 +508,7 @@ afterward where it struck", and today nothing tells the owner to check.
 **Definition of done.** A party owner who has not opened the game learns within a
 minute that their party overran a caravan, and one tap lands on the replay.
 
-**Status: built** (2026-10-11, chunk 29 Maker) — the in-app inbox; device push deferred (below). Build notes:
+**Status: done** (2026-10-11; QA'd, roadmap/qa/29-punchlist.md S1–S4, D1–D2, N1–N9 closed: "Mark all read" sends what is on screen, a batch's version follows its late credits, long names wrap at 320 px, the read is 6 queries / ~20 ms for a 25k-strike owner with lines only for the newest 3 batches, the list ends with a pointer to the feed for what it leaves out, and the strike path is tested on the production worker with the settle hooks and the real resolver) — the in-app inbox; device push deferred (below). Build notes:
 
 - **Derived, not stored.** `apps/server/src/inbox/` (`derive.ts` pure, `service.ts` reads, `tunables.ts`).
   Items are computed on every read: **party strikes** from the ledger (`party_served_as_encounter`
@@ -515,11 +525,13 @@ minute that their party overran a caravan, and one tap lands on the replay.
   the only stored state besides `inbox_preference (account_id, category, enabled)`. Read state is UI
   state, deliberately not a ledger event. Each item has a stable KEY and an integer VERSION (strike
   batch: newest seq; refugees / trip cap: the instant; mine: one per stretch between spends, keyed
-  by the last spend's seq; packs: per week). Unread = no mark at the item's version. A strike landing
+  by the last spend's seq; packs: per week; QA S2: a strike batch's version is the newest seq among its strikes AND
+  the credits / progression they caused, so a late settle re-opens it). Unread = no mark at the item's version. A strike landing
   in an already-read batch makes the batch unread again. Marks only move forward (trigger
-  `inbox_read_forward_only`, plus `GREATEST` in the upsert); the server stores min(version the client
-  saw, current version), so a stale or inflated mark can neither hide nor pre-read a new strike; keys
-  the account's inbox is not showing are refused (400 `unknown_item`), so no arbitrary rows. CHECKs on
+  `inbox_read_forward_only`, plus `GREATEST` in the upsert; QA N3: migration 018's `inbox_read_guard_delete` refuses
+  DELETE while the account exists); the server stores min(version the client saw, current version), so a stale or
+  inflated mark can neither hide nor pre-read a new strike; keys the account's inbox is not showing are skipped and
+  listed in `ignored` (QA N4; nothing stored, so no arbitrary rows), and a key sent twice is folded (QA N2). CHECKs on
   key shape, non-negative version and known categories. Proven against `caravan_app`: decrease and key
   change refused, TRUNCATE / DISABLE TRIGGER / DROP TRIGGER denied (42501).
 - **Batching** (§29): strikes group into fixed `INBOX_STRIKE_BATCH_WINDOW_MS` (1 h, epoch-aligned)
@@ -527,7 +539,11 @@ minute that their party overran a caravan, and one tap lands on the replay.
   transferred and cap-discarded parts), Reputation and ladder totals — SQL sums over every strike in
   the window, not just the listed ones. The newest `INBOX_STRIKES_PER_ITEM` (10) are itemized, each
   with its own "Watch the fight"; the rest are counted with a pointer to the results feed. Horizon
-  14 days, at most 30 batches. All TUNABLE, in `inbox/tunables.ts` (presentation knobs, not balance —
+  14 days (from a window start, so no batch is split: QA N1), at most 30 batches; past those, `olderStrikes`
+  and a closing line point to the results feed (QA D2). QA S4: one statement picks the 30 windows (partial index
+  `ledger_event_party_served_at_idx`, migration 018) before joining their credits; only the newest
+  `INBOX_ITEMIZED_BATCHES` (3) carry lines, read by time window in one query and built by the feed's own
+  `partyFeedEntries`; an older batch fetches its lines from `GET /me/inbox/strikes/:window`. All TUNABLE, in `inbox/tunables.ts` (presentation knobs, not balance —
   same decision as chunk 02's job knobs).
 - **No identity leak.** A strike line carries exactly what the results feed shows of the defender —
   username, caravan name, region — picked field by field; not the account id (the ledger payload's
@@ -540,7 +556,8 @@ minute that their party overran a caravan, and one tap lands on the replay.
   asserts the whole screen's text has no buy / purchase / spend / deal / offer / sale / store / $ /
   hurry wording and the mine / packs cards have no buttons.
 - **Routes:** `GET /me/inbox`, `GET /me/inbox/unread` (the badge; same derivation without the
-  per-strike lines), `POST /me/inbox/read` (`{all: true}` | `{marks: [{key, version}]}`, ≤ 100),
+  per-strike lines), `GET /me/inbox/strikes/:window`, `POST /me/inbox/read` (`{marks: [{key, version}]}`, ≤ 100;
+  `{all: true}` is gone — QA S1: "Mark all read" sends the unread items on screen),
   `PUT /me/inbox/preferences` (`{preferences: {<category>: boolean}}`). Registered in `app.ts`.
 - **Client.** Header button "✉ Inbox" with the server's unread count as a text badge and in its
   accessible name (`shell/InboxButton.tsx`), polled every `INBOX_POLL_MS` (60 s, TUNABLE) while the
@@ -636,8 +653,8 @@ anything about matchmaking or earnings? It must not.
 
 **Status: built** (2026-10-11, chunk 32 Maker). Build notes:
 
-- **Migration 018** (`018_telemetry`; 016 is the chunk 13 fix round's, so expect renumbering on
-  merge): `account_admin (account_id, granted_by, granted_at)` — the admin flag, one row or none per
+- **Migration 020** (`020_telemetry`; numbered 020 on merging main at 7309cae, whose 018/019 are
+  taken — renumber again on merge if needed): `account_admin (account_id, granted_by, granted_at)` — the admin flag, one row or none per
   account, kept off `account` so no `SELECT *` a player route reads can carry it;
   `account_analytics (account_id, analytics_id, opted_out)` — a RANDOM opaque id (never derived from
   the account id; immutable by trigger) and the opt-out; `analytics_client_event (analytics_id, kind,
@@ -648,9 +665,15 @@ anything about matchmaking or earnings? It must not.
   occurred_at) and (account_id, occurred_at), trip (ended_at), trip_encounter (settled_at),
   refugee_menu (created_at), pack_purchase (purchased_at), account (created_at) of players). No
   encounter_candidates (chosen_at) index: it pulled the matchmaker's served-share query off chunk
-  25's band index (qa25-scale caught it); the pool-health served query walks that band index per band.
+  25's band index (qa25-scale caught it); the pool-health served query instead walks that band
+  index once per band (`generate_series(0, max(band))` × a LATERAL subquery fenced with `OFFSET 0`,
+  so the planner keeps the per-band index range rather than a merge join over a full scan).
+- **Cascade.** account_admin and account_analytics reference account ON DELETE CASCADE, and
+  analytics_client_event references account_analytics (analytics_id) ON DELETE CASCADE, so
+  `DELETE FROM account` (main's per-file test reset, chunk 30's deletion) leaves no analytics row;
+  `telemetry.test.ts` deletes an account and checks both tables.
 - **Admin access.** `db/roles.sql` revokes INSERT/UPDATE/DELETE on `account_admin` from
-  `caravan_app` (SELECT only; guarded by `to_regclass` so the script applies below 018), so no route
+  `caravan_app` (SELECT only; guarded by `to_regclass` so the script applies below 020), so no route
   — and no bug in one — can grant admin. The flag is set by the operator CLI
   `pnpm --filter @caravan/server admin grant <username> [--by <label>] | revoke <username> | list`
   (`src/admin.ts`, built to `dist/admin.js`), which connects with `MIGRATE_DATABASE_URL` (owner).
@@ -676,7 +699,7 @@ anything about matchmaking or earnings? It must not.
   authored share in the window, and an alarm per band: `empty` below CANDIDATES_PER_SEARCH parties,
   `no_live` authored only, `authored_over_share` above AUTHORED_PARTY_MAX_SHARE_BP). Rates are basis
   points computed in TS; all integers.
-- **Bounded cost.** Every windowed query reads through a 018 index; the resolution job and the
+- **Bounded cost.** Every windowed query reads through a 020 index; the resolution job and the
   chosen menu are reached by key through `LATERAL … LIMIT 1`, and the settled-encounter CTE is
   `MATERIALIZED` (inlined, the planner walked trip_encounter's whole primary key for a free sort
   order). `test/telemetry-scale.test.ts` writes a two-year synthetic history (3 000 accounts,
@@ -745,9 +768,13 @@ anything about matchmaking or earnings? It must not.
   opt-out (kept nothing, deleted what was kept), the opaque id and cascade; ingest refusals, 413,
   429, the daily cap, the limiter's bounded memory; the screen list equals the web's; the one-way
   grep; the contract recording (`analytics`, `analytics-put`, `telemetry`, `admin-dashboard` under
-  `apps/web/src/test/contract/`, timestamps normalised). `store-guards` / `economy-guards` exempt
-  `src/analytics/` from their "no one else names pack_purchase / coin_purchased / coin_spent" greps,
-  since it only reads them (its writes are asserted). `telemetry-scale.test.ts` (4): the EXPLAIN
+  `apps/web/src/test/contract/`, timestamps normalised). **Guard-test exemptions (narrow):**
+  `store-guards` (two greps) and `economy-guards` (one grep) exempt exactly ONE file,
+  `src/analytics/queries.ts`, from "no file outside the store / economy names pack_purchase /
+  coin_purchased / coin_spent": the funnel and the spend panels must read them. The exemption is
+  safe because that file is pure SELECT — `telemetry.test.ts` asserts it contains no INSERT /
+  UPDATE / DELETE / appendEvents / appendCoinCredits / spendCoin — and because nothing in play
+  imports `src/analytics` (the one-way grep). Every other analytics file stays under the greps. `telemetry-scale.test.ts` (4): the EXPLAIN
   gate above. Web: `AdminScreen.test.tsx` (5), `telemetry/telemetry.test.tsx` (9: batching, caps, no
   message text, opt-out stop, dispose, the hook, the toggle), contract guards for the four routes.
 - **Not done here:** device / native crash reporting (chunk 34); per-number target bands (what

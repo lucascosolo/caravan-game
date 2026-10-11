@@ -21,7 +21,7 @@ export * from "./path.js";
 export * from "./log.js";
 export * from "./replay.js";
 export { resolve, type FenceSummary, type ResolveOutput, type TrapSummary, type UnitSummary } from "./resolve.js";
-export { DEPTH_SCALE, OUTCOME_KINDS, coreDistSq, endConditionFor, fightDepth, outcomeKindOf, sampleDepth, unitDepth, type EndReason, type OutcomeKind, type ResolveOutcome } from "./outcome.js";
+export { DEPTH_SCALE, OUTCOME_KINDS, RING_SPAN, coreDistCheb, coreDistSq, endConditionFor, fightDepth, outcomeKindOf, sampleDepth, sampleStoppedDash, sampleUnitDepth, unitDepth, type EndReason, type OutcomeKind, type ResolveOutcome } from "./outcome.js";
 export { type FenceState, type PostMode, type SimState, type Side, type Target, type TrapState, type UnitState, abilityFields, initialState, msToTicks, speedPerTick } from "./state.js";
 export { runTick, retargetPhase, pathPhase, movementPhase, attackPhase, deathPhase, breachCostFor, legOffset, planRoute, routeCost } from "./tick.js";
 export { fenceHitDamage, siegeFenceMult, trapTriggerPhase, postedUnitPhase, abilityPhase, endOfTick } from "./hooks.js";

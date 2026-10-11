@@ -5,12 +5,14 @@
 //   1. If @caravan/resolver has a `determinism` script, run it and propagate its exit code.
 //      Until chunk 13 lands there is no such script, and this step reports "pending" and
 //      exits 0 so the rest of CI keeps running.
-//   2. Golden-log protection. If a golden corpus exists (GOLDEN_DIR below) and a base ref is
-//      known (pull requests: GITHUB_BASE_REF; pushes: DETERMINISM_BASE_SHA from the
-//      workflow; locally: DETERMINISM_BASE_REF), any changed, added or deleted golden file
-//      fails the run UNLESS the same range also bumps RESOLVER_VERSION in
-//      packages/resolver/src, or a commit in the range carries the `[resolver-bump]` tag in
-//      its message. A silently changed replay is exactly the regression GUARDRAILS §1 bans.
+//   2. Golden-log protection (QA-13 S5; the rule is scripts/golden-gate.mjs, self-tested by
+//      scripts/golden-gate.test.mjs, which runs first). If a golden corpus exists (GOLDEN_DIR
+//      below) and a base ref is known (pull requests: GITHUB_BASE_REF; pushes:
+//      DETERMINISM_BASE_SHA from the workflow; locally: DETERMINISM_BASE_REF), a changed,
+//      deleted or renamed golden file fails the run UNLESS RESOLVER_VERSION (VERSION_FILE)
+//      INCREASED as an integer over the range — the `[resolver-bump]` tag covers only ADDED
+//      fixtures — and every added or changed golden carries the new version. A silently changed
+//      replay, or two behaviours under one version, is exactly what GUARDRAILS §1 bans.
 //
 // Chunk 13 only has to (a) add `"determinism": "..."` to packages/resolver/package.json and
 // (b) check golden logs into packages/resolver/golden/. Nothing here needs to change.
@@ -20,14 +22,23 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { BUMP_TAG, goldenGateVerdict } from "./golden-gate.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const resolverDir = path.join(repoRoot, "packages", "resolver");
 const GOLDEN_DIR = "packages/resolver/golden"; // repo-relative; chunk 13 checks logs in here
-const VERSION_FILE_GLOB = "packages/resolver/src"; // RESOLVER_VERSION lives somewhere under here
-const BUMP_TAG = "[resolver-bump]";
+const VERSION_FILE = "packages/resolver/src/version.ts"; // `export const RESOLVER_VERSION = N;`
 
 const git = (...args) => execFileSync("git", args, { cwd: repoRoot, encoding: "utf8" }).trim();
+
+// --- 0. The gate's own self-test (QA-13 S5) ----------------------------------------------
+{
+  const self = spawnSync(process.execPath, ["--test", path.join(repoRoot, "scripts", "golden-gate.test.mjs")], { cwd: repoRoot, stdio: "inherit", timeout: 60_000 });
+  if (self.status !== 0) {
+    console.error(`determinism: golden-gate self-test FAILED (exit ${self.status ?? "signal"})`);
+    process.exit(1);
+  }
+}
 
 // --- 1. Run the harness if it exists ------------------------------------------------------
 const pkg = JSON.parse(readFileSync(path.join(resolverDir, "package.json"), "utf8"));
@@ -87,22 +98,38 @@ if (changedGolden.length === 0) {
   process.exit(0);
 }
 
-const versionDiff = git("diff", "-U0", `${mergeBase}..HEAD`, "--", VERSION_FILE_GLOB);
-const versionBumped = /^[+-]\s*(export\s+)?const\s+RESOLVER_VERSION\b/m.test(versionDiff);
+const show = (rev, file) => {
+  try {
+    return git("show", `${rev}:${file}`);
+  } catch {
+    return null;
+  }
+};
+const changes = changedGolden.map((line) => {
+  const parts = line.split("\t");
+  const status = parts[0];
+  const file = parts[parts.length - 1];
+  return { status, path: file, text: status.startsWith("D") ? null : show("HEAD", file) };
+});
 const commitMessages = git("log", "--format=%B", `${mergeBase}..HEAD`);
-const tagged = commitMessages.includes(BUMP_TAG);
+const verdict = goldenGateVerdict({
+  changes,
+  baseVersionText: show(mergeBase, VERSION_FILE),
+  headVersionText: show("HEAD", VERSION_FILE),
+  tagged: commitMessages.includes(BUMP_TAG),
+});
 
 console.log(`determinism: ${changedGolden.length} golden file(s) changed since ${mergeBase.slice(0, 10)}:`);
 for (const line of changedGolden) console.log(`  ${line}`);
 
-if (versionBumped || tagged) {
-  console.log(`determinism: accepted — ${versionBumped ? "RESOLVER_VERSION changed" : `commit tagged ${BUMP_TAG}`}.`);
+if (verdict.ok) {
+  console.log(`determinism: ${verdict.summary}.`);
   process.exit(0);
 }
 
 console.error(
-  `determinism: FAILED — golden logs changed without a resolver version bump.\n` +
-    `  A changed replay must be an explicit decision (GUARDRAILS §1). Either bump RESOLVER_VERSION\n` +
-    `  under ${VERSION_FILE_GLOB} in the same change, or put '${BUMP_TAG}' in the commit message.`,
+  `determinism: FAILED — golden logs changed without a valid resolver version bump:\n  ${verdict.reasons.join("\n  ")}\n` +
+    `  A changed replay must be an explicit decision (GUARDRAILS §1): increase RESOLVER_VERSION in ${VERSION_FILE}\n` +
+    `  in the same change and regenerate the goldens (UPDATE_GOLDEN=1). '${BUMP_TAG}' covers only new fixtures.`,
 );
 process.exit(1);

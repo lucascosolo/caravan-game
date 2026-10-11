@@ -6,15 +6,11 @@
     "viewer": "caravan",
     "tripId": "00000000-0000-4000-8000-000000000001",
     "encounterIndex": 1,
-    "resolverVersion": 7,
-    "currentResolverVersion": 7,
-    "logFormat": 1,
-    "renderable": true,
-    "reason": null,
+    "currentResolverVersion": 8,
     "outcome": {
       "kind": "caravan_held",
-      "loot": 874,
-      "depth": 937,
+      "loot": 371,
+      "depth": 529,
       "units": [
         {
           "hp": 0,
@@ -56,12 +52,22 @@
         "t0"
       ]
     },
-    "depthExplained": "How far the deepest raider got: the share of its straight-line distance to the core that it closed.",
+    "depth": {
+      "scale": 1024,
+      "measuredFrom": "ring_line",
+      "lootCurve": "depth_pow_1_5",
+      "value": 529,
+      "lootShare": 380
+    },
     "party": {
       "partyId": "00000000-0000-4000-8000-000000000004",
       "partyHash": "a000000000000000000000000000000000000000000000000000000000000001",
       "partySavedAt": "2026-10-11T12:00:00.000Z"
     },
+    "resolverVersion": 8,
+    "logFormat": 2,
+    "renderable": true,
+    "reason": null,
     "labels": {
       "units": [
         {
@@ -72,6 +78,7 @@
           "level": 1,
           "maxHp": 620,
           "hp": 620,
+          "ab": 4,
           "displayName": "Dust Rider",
           "ability": "Spur On"
         },
@@ -83,6 +90,7 @@
           "level": 1,
           "maxHp": 1100,
           "hp": 1100,
+          "ab": 5,
           "displayName": "Well Digger",
           "ability": "Pick Swing"
         },
@@ -94,6 +102,7 @@
           "level": 1,
           "maxHp": 1100,
           "hp": 1100,
+          "ab": 5,
           "displayName": "Well Digger",
           "ability": "Pick Swing"
         },
@@ -105,6 +114,7 @@
           "level": 1,
           "maxHp": 1100,
           "hp": 1100,
+          "ab": 5,
           "displayName": "Well Digger",
           "ability": "Pick Swing"
         }
@@ -183,8 +193,8 @@
       ]
     },
     "stored": {
-      "rawBytes": 5006,
-      "storedBytes": 1485,
+      "rawBytes": 5033,
+      "storedBytes": 1493,
       "encoding": "gzip",
       "sha256": "a000000000000000000000000000000000000000000000000000000000000002",
       "contentHash": "a000000000000000000000000000000000000000000000000000000000000003",
@@ -192,8 +202,8 @@
     },
     "log": {
       "format": "caravan-replay",
-      "v": 1,
-      "resolverVersion": 7,
+      "v": 2,
+      "resolverVersion": 8,
       "tickRate": 20,
       "tickCap": 3600,
       "keyframeInterval": 100,
@@ -202,7 +212,7 @@
         "kind": "caravan_held",
         "end": "party_wiped",
         "endTick": 790,
-        "depth": 937,
+        "depth": 529,
         "deepestUnit": 0
       },
       "units": [
@@ -213,7 +223,8 @@
           "typeId": "desert.dust_rider",
           "level": 1,
           "maxHp": 620,
-          "hp": 620
+          "hp": 620,
+          "ab": 4
         },
         {
           "u": 1,
@@ -222,7 +233,8 @@
           "typeId": "desert.well_digger",
           "level": 1,
           "maxHp": 1100,
-          "hp": 1100
+          "hp": 1100,
+          "ab": 5
         },
         {
           "u": 2,
@@ -231,7 +243,8 @@
           "typeId": "desert.well_digger",
           "level": 1,
           "maxHp": 1100,
-          "hp": 1100
+          "hp": 1100,
+          "ab": 5
         },
         {
           "u": 3,
@@ -240,7 +253,8 @@
           "typeId": "desert.well_digger",
           "level": 1,
           "maxHp": 1100,
-          "hp": 1100
+          "hp": 1100,
+          "ab": 5
         }
       ],
       "fences": [
@@ -1529,7 +1543,7 @@
         ]
       ],
       "count": 122,
-      "check": 2247925496
+      "check": 2900256148
     }
   }
 }

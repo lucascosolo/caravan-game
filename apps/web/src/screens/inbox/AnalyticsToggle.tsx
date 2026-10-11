@@ -52,9 +52,12 @@ export function AnalyticsToggle({ api }: { readonly api: Api }): JSX.Element | n
     <div data-testid="analytics-settings" style={{ marginTop: 12 }}>
       <p className="card__name">{T.heading}</p>
       <p className="hint">{T.intro}</p>
-      <label>
-        <input type="checkbox" checked={!optedOut} disabled={busy} onChange={(e) => void change(e.currentTarget.checked)} data-testid="analytics-share" /> <span>{T.toggle}</span>
-      </label>
+      {/* .toggles gives the label a full 44px touch target, like the inbox's own preference rows. */}
+      <div className="toggles">
+        <label>
+          <input type="checkbox" checked={!optedOut} disabled={busy} onChange={(e) => void change(e.currentTarget.checked)} data-testid="analytics-share" /> <span>{T.toggle}</span>
+        </label>
+      </div>
       <p className="hint" role="status" aria-live="polite">
         {status ?? ""}
       </p>

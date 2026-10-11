@@ -3,16 +3,26 @@
  * (chunk 13 LOG_FORMAT). The log a fight produces IS the replay (GUARDRAILS §1): this file
  * only re-encodes it compactly and reads it back. Nothing here simulates.
  *
- * ── LOG_FORMAT, version 1 (REPLAY_FORMAT_VERSION) ─────────────────────────────────────
+ * ── LOG_FORMAT, version 2 (REPLAY_FORMAT_VERSION; v1 was chunk 13's first cut) ────────
  * A plain JSON-ready object (the resolver never serializes — it has no JSON; the server
  * stringifies, compresses and stores it):
- *   format "caravan-replay", v 1, resolverVersion, tickRate, tickCap, keyframeInterval
+ *   format "caravan-replay", v 2, resolverVersion, tickRate, tickCap, keyframeInterval
  *   (ticks), ticks (simulated), outcome {kind, end, endTick, depth, deepestUnit},
- *   labels: units [{u, side, ref, typeId, level, maxHp, hp}] (hp = what it brought into the
- *   fight), fences [{f, ref, segment, tierId, category, maxHp, hp}], traps [{i, ref, typeId,
- *   x, y}] — enough to draw every entity, nothing a renderer must look up to place one;
- *   events: one positional ROW per log event, [t, code, ...fields] (CODES below), in log
- *   order; count = events.length; check = FNV-1a (32-bit) over every row.
+ *   labels: units [{u, side, ref, typeId, level, maxHp, hp, ab}] (hp = what it brought into
+ *   the fight, ab = its ability's ABILITY_ARCHETYPES index), fences [{f, ref, segment, tierId,
+ *   category, maxHp, hp}], traps [{i, ref, typeId, x, y}] — enough to draw every entity,
+ *   nothing a renderer must look up to place one; events: one positional ROW per log event,
+ *   [t, code, ...fields] (CODES below), in log order; count = events.length; check = the SEAL.
+ *
+ * THE SEAL (v2, QA-13 S3): `check` is FNV-1a (32-bit) over THE WHOLE LOG — the envelope, the
+ * outcome, every unit / fence / trap label field and every row — in a fixed field order
+ * (`replaySeal`). Every object has an exact key set: an unknown key is refused, so nothing in a
+ * stored log sits outside the seal. v1's check covered the rows only (an edited typeId, level,
+ * trap position, outcome field or header number passed unseen); v1 logs are not readable here.
+ * The seal detects corruption and unsealed edits; it is not a signature (anyone can recompute
+ * FNV). AUTHENTICITY is the server's: the sha256 of the stored text is recorded in the job's
+ * immutable result at completion, and the replay route marks a log whose sha256 differs
+ * `renderable: false`. A re-sealed edit the reader can still catch, it does (NUMBERS below).
  *
  * ROWS (every field an integer except the code; −1 = "none"):
  *   s  spawn           [0, "s", u, x, y]
@@ -46,12 +56,21 @@
  * rows back into FULL keyframes (every unit, fence and trap), identical to the resolver's
  * own keyframe events, so playback can seek to any of them.
  *
+ * NUMBERS (v2, QA-13 S3 — consistency checks, not decisions: every number is still copied
+ * from a row, the reader only refuses rows that contradict each other). In log order, with HP
+ * starting at the labels': a hit (`x`), a trap firing (`tf`), a burst / heavy strike target
+ * and a structure-breaker fence target must state hp = max(0, previous − damage); a fence hit
+ * (`fh`) the same on the fence; a heal hp = previous + amount (≤ maxHp); a self buff's or a
+ * dash's own row the caster's unchanged HP; `d` only at 0 HP and `fb` only at 0 fence HP. The
+ * unit dealing a hit, a fence hit or an ability must not have died (`d`) earlier, and an
+ * `ab` row's archetype must be its caster's label `ab`.
+ *
  * TRUNCATION AND CORRUPTION (fail loudly, never misrender): keyframes fall on fixed ticks —
  * k × keyframeInterval − 1 for every k × keyframeInterval ≤ ticks, plus ticks − 1 — and the
- * last row is always the final keyframe; `count` and `check` cover every row; and while
- * reading, the reader interpolates the whole fight and compares every keyframe's positions,
- * HP, deaths, fences and traps with what the events produced. Any missing row, extra row,
- * edited number or reordered tick throws ReplayError.
+ * last row is always the final keyframe; `count` covers every row and `check` the whole log;
+ * and while reading, the reader interpolates the whole fight and compares every keyframe's
+ * positions, HP, deaths, fences and traps with what the events produced. Any missing row,
+ * extra row, unsealed edit, contradicting number or reordered tick throws ReplayError.
  *
  * THE READER MAKES NO DECISIONS. It never chooses a target, resolves a hit, decides a
  * death or picks a turn: every one of those is a row. It does two things only — copies
@@ -69,8 +88,8 @@ import type { ResolveOutput } from "./resolve.js";
 
 export const REPLAY_FORMAT = "caravan-replay" as const;
 /** Bump when the row layout changes; keep reading every version listed in READABLE_REPLAY_FORMATS. */
-export const REPLAY_FORMAT_VERSION = 1 as const;
-export const READABLE_REPLAY_FORMATS: readonly number[] = [1];
+export const REPLAY_FORMAT_VERSION = 2 as const;
+export const READABLE_REPLAY_FORMATS: readonly number[] = [2];
 
 export type ReplayRow = readonly (number | string)[];
 
@@ -83,6 +102,8 @@ export interface ReplayUnitLabel {
   readonly maxHp: number;
   /** HP brought into the fight. */
   readonly hp: number;
+  /** Its ability's ABILITY_ARCHETYPES index (v2). */
+  readonly ab: number;
 }
 export interface ReplayFenceLabel {
   readonly f: number;
@@ -151,21 +172,62 @@ function mix(h: number, v: number): number {
   return Math.imul(h ^ (v & 0xffff), FNV_PRIME) >>> 0;
 }
 
-/** FNV-1a over every row: each number as two 16-bit halves of its low 32 bits plus its high bits, each code by char code. Integer-only. */
-export function replayChecksum(rows: readonly ReplayRow[]): number {
-  let h = FNV_OFFSET;
+function mixValue(h: number, v: number | string): number {
+  if (typeof v === "string") {
+    for (let i = 0; i < v.length; i++) h = mix(h, v.charCodeAt(i));
+    return mix(h, 0xfffe);
+  }
+  h = mix(h, v);
+  h = mix(h, v >>> 16);
+  return mix(h, Math.floor(v / 4294967296));
+}
+
+function mixRows(h: number, rows: readonly ReplayRow[]): number {
   for (const row of rows) {
     h = mix(h, row.length);
-    for (const v of row) {
-      if (typeof v === "string") {
-        for (let i = 0; i < v.length; i++) h = mix(h, v.charCodeAt(i));
-        h = mix(h, 0xfffe);
-      } else {
-        h = mix(h, v);
-        h = mix(h, v >>> 16);
-        h = mix(h, Math.floor(v / 4294967296));
-      }
-    }
+    for (const v of row) h = mixValue(h, v);
+  }
+  return h;
+}
+
+/** FNV-1a over every row: each number as two 16-bit halves of its low 32 bits plus its high bits, each code by char code. Integer-only. */
+export function replayChecksum(rows: readonly ReplayRow[]): number {
+  return mixRows(FNV_OFFSET, rows);
+}
+
+/** The keys of each object in a v2 log, in SEAL order (also the exact key sets the reader accepts). */
+export const REPLAY_KEYS = {
+  envelope: ["format", "v", "resolverVersion", "tickRate", "tickCap", "keyframeInterval", "ticks", "outcome", "units", "fences", "traps", "events", "count", "check"],
+  outcome: ["kind", "end", "endTick", "depth", "deepestUnit"],
+  unit: ["u", "side", "ref", "typeId", "level", "maxHp", "hp", "ab"],
+  fence: ["f", "ref", "segment", "tierId", "category", "maxHp", "hp"],
+  trap: ["i", "ref", "typeId", "x", "y"],
+} as const;
+
+type Sealable = Omit<ReplayLog, "check">;
+
+/**
+ * THE SEAL (see header): FNV-1a over the whole log except `check` itself — every envelope
+ * field, the outcome, every label field and every row, in REPLAY_KEYS order, with each list
+ * prefixed by its length. Integer-only.
+ */
+export function replaySeal(log: Sealable): number {
+  const rec = log as unknown as Record<string, unknown>;
+  let h = FNV_OFFSET;
+  const fields = (o: Record<string, unknown>, keys: readonly string[]) => {
+    for (const k of keys) h = mixValue(h, o[k] as number | string);
+  };
+  for (const k of REPLAY_KEYS.envelope) {
+    if (k === "outcome") fields(rec.outcome as Record<string, unknown>, REPLAY_KEYS.outcome);
+    else if (k === "units" || k === "fences" || k === "traps") {
+      const list = rec[k] as readonly Record<string, unknown>[];
+      const keys = k === "units" ? REPLAY_KEYS.unit : k === "fences" ? REPLAY_KEYS.fence : REPLAY_KEYS.trap;
+      h = mix(h, list.length);
+      for (const o of list) fields(o, keys);
+    } else if (k === "events") {
+      h = mix(h, log.events.length);
+      h = mixRows(h, log.events);
+    } else if (k !== "check") h = mixValue(h, rec[k] as number | string);
   }
   return h;
 }
@@ -297,7 +359,7 @@ export function encodeReplay(out: ResolveOutput): ReplayLog {
         fail(`unknown event ${quoted((e as { k: string }).k)}`);
     }
   }
-  return {
+  const body: Sealable = {
     format: REPLAY_FORMAT,
     v: REPLAY_FORMAT_VERSION,
     resolverVersion: out.resolverVersion,
@@ -306,13 +368,13 @@ export function encodeReplay(out: ResolveOutput): ReplayLog {
     keyframeInterval: out.keyframeInterval,
     ticks: out.ticks,
     outcome: { kind: out.outcome.kind, end: out.outcome.end, endTick: out.outcome.endTick, depth: out.outcome.depth, deepestUnit: out.outcome.deepestUnit },
-    units: out.units.map((u) => ({ u: u.id, side: u.side, ref: u.ref, typeId: u.typeId, level: u.mergeLevel, maxHp: u.maxHp, hp: u.startHp })),
+    units: out.units.map((u) => ({ u: u.id, side: u.side, ref: u.ref, typeId: u.typeId, level: u.mergeLevel, maxHp: u.maxHp, hp: u.startHp, ab: ABILITY_ARCHETYPES.indexOf(u.ability) })),
     fences: out.fences.map((f) => ({ f: f.f, ref: f.ref, segment: f.segment, tierId: f.tierId, category: f.category, maxHp: f.maxHp, hp: f.startHp })),
     traps: out.traps.map((t) => ({ i: t.i, ref: t.ref, typeId: t.typeId, x: t.x, y: t.y })),
     events: rows,
     count: rows.length,
-    check: replayChecksum(rows),
   };
+  return { ...body, check: replaySeal(body) };
 }
 
 /** A label for an error message without JSON (banned here). */
@@ -363,6 +425,14 @@ function obj(v: unknown, where: string): Record<string, unknown> {
   return v as Record<string, unknown>;
 }
 
+/** An object with exactly these keys (QA-13 S3: nothing in a stored log sits outside the seal). */
+function exact(v: unknown, where: string, keys: readonly string[]): Record<string, unknown> {
+  const o = obj(v, where);
+  for (const k of Object.keys(o)) if (!keys.includes(k)) fail(`${where} has an unknown key ${quoted(k)}`);
+  for (const k of keys) if (!(k in o)) fail(`${where} is missing ${quoted(k)}`);
+  return o;
+}
+
 function arr(v: unknown, where: string): unknown[] {
   if (!Array.isArray(v)) fail(`${where} must be an array`);
   return v as unknown[];
@@ -370,16 +440,17 @@ function arr(v: unknown, where: string): unknown[] {
 
 /** Validate the envelope and labels; returns the typed log. */
 function assertReplayLog(raw: unknown): ReplayLog {
-  const o = obj(raw, "replay");
-  if (o.format !== REPLAY_FORMAT) fail(`format must be '${REPLAY_FORMAT}'`);
-  const v = int(o.v, "v", 1, 1_000_000);
+  const o0 = obj(raw, "replay");
+  if (o0.format !== REPLAY_FORMAT) fail(`format must be '${REPLAY_FORMAT}'`);
+  const v = int(o0.v, "v", 1, 1_000_000);
   if (!READABLE_REPLAY_FORMATS.includes(v)) fail(`log format v${v} is not readable by this reader (reads ${READABLE_REPLAY_FORMATS.join(", ")})`);
+  const o = exact(raw, "replay", REPLAY_KEYS.envelope);
   int(o.resolverVersion, "resolverVersion", 0, 1_000_000);
   int(o.tickRate, "tickRate", 1, 1_000_000);
   const tickCap = int(o.tickCap, "tickCap", 1, 100_000_000);
   int(o.keyframeInterval, "keyframeInterval", 1, 100_000_000);
   const ticks = int(o.ticks, "ticks", 1, tickCap);
-  const out = obj(o.outcome, "outcome");
+  const out = exact(o.outcome, "outcome", REPLAY_KEYS.outcome);
   if (!OUTCOME_KIND_LIST.includes(out.kind as OutcomeKind)) fail("outcome.kind is not one of the three end conditions");
   const kind = out.kind as OutcomeKind;
   if (out.end !== END_FOR[kind]) fail(`outcome.end must be ${END_FOR[kind]} for ${kind}`);
@@ -387,9 +458,10 @@ function assertReplayLog(raw: unknown): ReplayLog {
   if (kind === "stalemate" && ticks !== tickCap) fail("a stalemate runs the full tick cap");
   const depth = int(out.depth, "outcome.depth", 0, 1024);
   if (kind === "caravan_overrun" && depth !== 1024) fail("an overrun's depth is 1024");
+  if (kind !== "caravan_overrun" && depth === 1024) fail("depth 1024 is the core: only an overrun reaches it");
   const units = arr(o.units, "units");
   units.forEach((x, i) => {
-    const u = obj(x, `units[${i}]`);
+    const u = exact(x, `units[${i}]`, REPLAY_KEYS.unit);
     if (u.u !== i) fail(`units[${i}].u must be ${i}`);
     if (u.side !== "attacker" && u.side !== "defender") fail(`units[${i}].side`);
     str(u.ref, `units[${i}].ref`);
@@ -397,10 +469,11 @@ function assertReplayLog(raw: unknown): ReplayLog {
     int(u.level, `units[${i}].level`, 1, 1000);
     const maxHp = int(u.maxHp, `units[${i}].maxHp`, 1, 100_000_000);
     int(u.hp, `units[${i}].hp`, 1, maxHp);
+    int(u.ab, `units[${i}].ab`, 0, ABILITY_ARCHETYPES.length - 1);
   });
   int(out.deepestUnit, "outcome.deepestUnit", -1, units.length - 1);
   arr(o.fences, "fences").forEach((x, i) => {
-    const f = obj(x, `fences[${i}]`);
+    const f = exact(x, `fences[${i}]`, REPLAY_KEYS.fence);
     if (f.f !== i) fail(`fences[${i}].f must be ${i}`);
     str(f.ref, `fences[${i}].ref`);
     int(f.segment, `fences[${i}].segment`, 0, 1000);
@@ -410,7 +483,7 @@ function assertReplayLog(raw: unknown): ReplayLog {
     int(f.hp, `fences[${i}].hp`, 0, maxHp);
   });
   arr(o.traps, "traps").forEach((x, i) => {
-    const t = obj(x, `traps[${i}]`);
+    const t = exact(x, `traps[${i}]`, REPLAY_KEYS.trap);
     if (t.i !== i) fail(`traps[${i}].i must be ${i}`);
     str(t.ref, `traps[${i}].ref`);
     str(t.typeId, `traps[${i}].typeId`);
@@ -426,7 +499,7 @@ function assertReplayLog(raw: unknown): ReplayLog {
       if (k === 1 ? typeof c !== "string" : !isInt(c)) fail(`events[${i}][${k}] has the wrong type`);
     });
   });
-  if (int(o.check, "check", 0, 4294967295) !== replayChecksum(events as ReplayRow[])) fail("checksum mismatch: the log was altered or corrupted");
+  if (int(o.check, "check", 0, 4294967295) !== replaySeal(raw as ReplayLog)) fail("seal mismatch: the log was altered or corrupted");
   return raw as ReplayLog;
 }
 
@@ -610,6 +683,69 @@ function assertOutcomeMatches(log: ReplayLog, events: readonly LogEvent[]): void
   if (shown === "stalemate" && log.ticks !== log.tickCap) fail("the log stops before the cap with neither an arrival nor a wipe: truncated");
 }
 
+/**
+ * NUMBERS (see header): the rows must agree with each other, in log order. Checks only — every
+ * number the renderer uses is still copied from a row.
+ */
+function assertNumbersConsistent(log: ReplayLog, events: readonly LogEvent[]): void {
+  const hp = log.units.map((u) => u.hp);
+  const dead = log.units.map(() => false);
+  const fenceHp = log.fences.map((f) => f.hp);
+  const after = (prev: number, damage: number) => (prev - damage < 0 ? 0 : prev - damage);
+  const live = (u: number, e: LogEvent) => {
+    if (dead[u]) fail(`tick ${e.t}: unit ${u} acts (${e.k}) after its death`);
+  };
+  const lands = (u: number, damage: number, stated: number, e: LogEvent) => {
+    if (damage < 0 || stated !== after(hp[u]!, damage)) fail(`tick ${e.t}: ${e.k} on unit ${u} states hp ${stated}, but ${hp[u]} − ${damage} gives ${after(hp[u]!, damage)}`);
+    hp[u] = stated;
+  };
+  const landsFence = (f: number, damage: number, stated: number, e: LogEvent) => {
+    if (damage < 0 || stated !== after(fenceHp[f]!, damage)) fail(`tick ${e.t}: ${e.k} on fence ${f} states hp ${stated}, but ${fenceHp[f]} − ${damage} gives ${after(fenceHp[f]!, damage)}`);
+    fenceHp[f] = stated;
+  };
+  for (const e of events) {
+    switch (e.k) {
+      case "hit":
+        live(e.u, e);
+        lands(e.v, e.damage, e.hp, e);
+        break;
+      case "trap_fired":
+        lands(e.u, e.damage, e.hp, e);
+        break;
+      case "fence_hit":
+        live(e.u, e);
+        landsFence(e.f, e.damage, e.hp, e);
+        break;
+      case "fence_broken":
+        if (fenceHp[e.f] !== 0) fail(`tick ${e.t}: fence ${e.f} breaks at hp ${fenceHp[e.f]}`);
+        break;
+      case "unit_died":
+        if (hp[e.u] !== 0 || dead[e.u]) fail(`tick ${e.t}: unit ${e.u} dies at hp ${hp[e.u]}`);
+        dead[e.u] = true;
+        break;
+      case "ability": {
+        live(e.u, e);
+        if (ABILITY_ARCHETYPES[log.units[e.u]!.ab] !== e.a) fail(`tick ${e.t}: unit ${e.u} fires ${e.a}, but its ability is ${ABILITY_ARCHETYPES[log.units[e.u]!.ab]}`);
+        for (const g of e.tg) {
+          if (e.a === "burst_radius" || e.a === "heavy_strike") {
+            if (g.kind !== "unit") fail(`tick ${e.t}: ${e.a} targets a unit`);
+            lands(g.id, g.amount, g.hp, e);
+          } else if (e.a === "structure_breaker") {
+            if (g.kind !== "fence") fail(`tick ${e.t}: structure_breaker targets a fence`);
+            landsFence(g.id, g.amount, g.hp, e);
+          } else if (e.a === "heal_radius") {
+            if (g.kind !== "unit" || g.amount < 0 || g.hp !== hp[g.id]! + g.amount || g.hp > log.units[g.id]!.maxHp) fail(`tick ${e.t}: heal on unit ${g.id} states hp ${g.hp} from ${hp[g.id]} + ${g.amount}`);
+            hp[g.id] = g.hp;
+          } else if (g.kind !== "unit" || g.id !== e.u || g.hp !== hp[e.u]) fail(`tick ${e.t}: ${e.a} names its caster ${e.u} at its own hp`);
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+}
+
 /** The keyframe ticks a log of `ticks` ticks must carry (see TRUNCATION AND CORRUPTION). */
 export function expectedKeyframeTicks(ticks: number, interval: number): number[] {
   const out: number[] = [];
@@ -768,6 +904,7 @@ export function readReplay(raw: unknown): Replay {
   const spawns = events.filter((e): e is Extract<LogEvent, { k: "spawn" }> => e.k === "spawn");
   if (spawns.length !== log.units.length || spawns.some((s, i) => s.u !== i || s.t !== 0)) fail("every unit must spawn once, at tick 0, in id order");
   assertOutcomeMatches(log, events);
+  assertNumbersConsistent(log, events);
 
   const byTick: LogEvent[][] = [];
   for (let t = 0; t < log.ticks; t++) byTick.push([]);

@@ -77,8 +77,6 @@ export interface ReplayView {
   readonly renderable: boolean;
   readonly reason: string | null;
   readonly outcome: ReplayOutcomeView | null;
-  /** DEPTH_METRIC in one sentence, as the server words it. */
-  readonly depthExplained: string;
   readonly labels: ReplayLabelsView;
   /** The stored LOG_FORMAT object, untouched; null when none was recorded. */
   readonly log: unknown;

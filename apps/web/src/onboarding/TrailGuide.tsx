@@ -9,9 +9,11 @@
  * overrun.
  */
 import type { Formation, Manifest } from "@caravan/circle";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import type { Api } from "../api/client.ts";
 import type { CandidateView } from "../api/types.ts";
-import type { TripEncounterView } from "../api/tripTypes.ts";
+import type { StakesPreview, TripEncounterView } from "../api/tripTypes.ts";
+import { fenceLabel, unitLabel } from "../screens/trail/tripNames.ts";
 import type { ScoutedParty } from "../screens/trail/scoutTypes.ts";
 import { STRINGS } from "../strings.ts";
 import { applyMainFence, applyOpenGap, applyPosts, applyRestOfFence, applyTrap, arrangeStatus } from "./arrangeGuide.ts";
@@ -53,15 +55,52 @@ export function showsAt(step: OnboardingStep | null, moment: TrailMoment): boole
   return !isAfter(step, target);
 }
 
-/** The smallest of the served parties: fewest raiders, then least total HP, then menu order. A reading of the scout only. */
-export function smallestCandidate(candidates: readonly CandidateView[]): { readonly index: number; readonly raiders: number; readonly hp: number } | null {
-  let best: { index: number; raiders: number; hp: number } | null = null;
+/**
+ * The smallest of the served parties, by the scout alone (QA N2): least total HP, then fewest
+ * siege pieces (siege counters exactly the fence and trap the guide teaches), then fewest
+ * raiders, then menu order. HP first, so fielding one strong raider does not make a party read
+ * "smallest".
+ */
+export function smallestCandidate(candidates: readonly CandidateView[]): { readonly index: number; readonly raiders: number; readonly hp: number; readonly siege: number } | null {
+  let best: { index: number; raiders: number; hp: number; siege: number } | null = null;
   candidates.forEach((c, index) => {
     const raiders = c.scout.units.length;
+    const siege = c.scout.siege.length;
     const hp = c.scout.units.reduce((n, u) => n + u.hp, 0);
-    if (!best || raiders < best.raiders || (raiders === best.raiders && hp < best.hp)) best = { index, raiders, hp };
+    const b = best as { index: number; raiders: number; hp: number; siege: number } | null;
+    if (!b || hp < b.hp || (hp === b.hp && (siege < b.siege || (siege === b.siege && raiders < b.raiders)))) best = { index, raiders, hp, siege };
   });
   return best;
+}
+
+/**
+ * QA D2: the bank-or-push advice, read off the server's stakes preview. Bank when the circle is
+ * badly hurt — a packed unit still standing is under half its HP, none is standing, or every
+ * trap is spent while more fence is broken than stands. Otherwise one push is suggested, to see
+ * escalation. Advice only: the player chooses, and the guide goes on to the party either way.
+ */
+export function pushAdvice(p: StakesPreview): { readonly kind: "bank"; readonly reasons: readonly string[] } | { readonly kind: "push" } {
+  const reasons: string[] = [];
+  const alive = p.units.filter((u) => u.alive);
+  for (const u of alive) if (u.hp * 2 < u.maxHp) reasons.push(G.reasonHurt(unitLabel(u), u.hp, u.maxHp));
+  if (p.units.length > 0 && alive.length === 0) reasons.push(G.reasonNoneStanding);
+  const trapsGone = p.traps.remaining.length === 0 && p.traps.spent.length > 0;
+  const fenceGone = p.fences.destroyed.length > p.fences.intact.length;
+  if (trapsGone && fenceGone) {
+    reasons.push(G.reasonNoTrap, G.reasonFence(p.fences.destroyed.length, p.fences.intact.length));
+  }
+  return reasons.length > 0 ? { kind: "bank", reasons } : { kind: "push" };
+}
+
+export function DecideAdvice({ preview }: { preview: StakesPreview | null }): JSX.Element {
+  if (!preview) return <p className="hint">{G.decideReading}</p>;
+  const a = pushAdvice(preview);
+  const coin = preview.unbankedCoin.total;
+  return (
+    <p data-testid="guide-advice" data-advice={a.kind}>
+      {a.kind === "bank" ? G.decideAdviseBank(a.reasons.join("; "), coin) : G.decideAdvisePush(coin)}
+    </p>
+  );
 }
 
 export function SearchGuide(): JSX.Element {
@@ -80,20 +119,46 @@ export function ScoutGuide({ candidates }: { candidates: readonly CandidateView[
       <p>{G.scoutBody}</p>
       {pick && c && (
         <p data-testid="guide-scout-pick" data-index={pick.index}>
-          {G.scoutPick(c.owner.displayName, pick.raiders, pick.hp)}
+          {G.scoutPick(c.owner.displayName, pick.raiders, pick.hp, pick.siege)}
         </p>
       )}
     </GuideCard>
   );
 }
 
-export function ResultGuide({ encounter, deciding }: { encounter: TripEncounterView; deciding: boolean }): JSX.Element {
+export interface ResultGuideProps {
+  readonly encounter: TripEncounterView;
+  readonly deciding: boolean;
+  /** With these, the deciding card reads the server's stakes preview for its advice (QA D2). */
+  readonly api?: Api;
+  readonly caravanId?: string;
+}
+
+export function ResultGuide({ encounter, deciding, api, caravanId }: ResultGuideProps): JSX.Element {
   const first = encounter.index <= 1;
   const title = deciding ? (first ? G.decide1Title : G.decide2Title) : encounter.outcome === "caravan_held" ? G.heldTitle : G.stalemateTitle;
+  const [preview, setPreview] = useState<StakesPreview | null>(null);
+  const advise = deciding && first && !!api && !!caravanId;
+  useEffect(() => {
+    if (!advise) return;
+    let live = true;
+    api!.tripPreview(caravanId!).then(
+      (p) => {
+        if (live) setPreview(p);
+      },
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [advise, api, caravanId]);
   return (
     <GuideCard title={title} testId="guide-result">
       {!deciding && <p>{G.heldBody}</p>}
-      <p>{first ? G.decide1Body : G.decide2Body}</p>
+      {!deciding && <p>{G.decideIntro}</p>}
+      {deciding && first && <p>{G.decideIntro}</p>}
+      {deciding && first && advise && <DecideAdvice preview={preview} />}
+      {deciding && !first && <p>{G.decide2Body}</p>}
     </GuideCard>
   );
 }
@@ -117,9 +182,9 @@ export interface ArrangeGuideProps {
   readonly apply: (next: Formation) => void;
 }
 
-function Item({ done, title, why, action, testId }: { done: boolean; title: string; why: string; action: ReactNode; testId: string }): JSX.Element {
+function Item({ done, title, why, action, testId, current }: { done: boolean; title: string; why: string; action: ReactNode; testId: string; current?: boolean }): JSX.Element {
   return (
-    <li className="guide__item" data-testid={testId} data-done={done ? "true" : "false"}>
+    <li className="guide__item" data-testid={testId} data-done={done ? "true" : "false"} aria-current={current ? "step" : undefined}>
       <span className="guide__mark" aria-hidden="true">
         {done ? "✓" : "○"}
       </span>
@@ -134,12 +199,29 @@ function Item({ done, title, why, action, testId }: { done: boolean; title: stri
   );
 }
 
+/**
+ * QA S4: after a "do it for me" edit, bring the circle back into view so the change is seen
+ * (presentation only; jsdom and old browsers without scrollIntoView simply skip it).
+ */
+function showCircle(): void {
+  const host = typeof document !== "undefined" ? document.querySelector<HTMLElement>("[data-testid=formation-screen] [data-testid=iso-host]") : null;
+  host?.scrollIntoView?.({ block: "start", behavior: "auto" });
+}
+
 export function ArrangeGuide({ manifest, formation, scout, locked, names, apply }: ArrangeGuideProps): JSX.Element {
   const s = arrangeStatus(manifest, formation, scout);
-  const edge = T.edgeName(s.edge);
+  const edge = G.edgeWord(s.edge);
   const btn = (label: string, next: () => Formation, testId: string): ReactNode =>
     locked ? null : (
-      <button type="button" className="btn btn--block" onClick={() => apply(next())} data-testid={testId}>
+      <button
+        type="button"
+        className="btn btn--block"
+        onClick={() => {
+          apply(next());
+          showCircle();
+        }}
+        data-testid={testId}
+      >
         {label}
       </button>
     );
@@ -148,13 +230,19 @@ export function ArrangeGuide({ manifest, formation, scout, locked, names, apply 
   const trapName = s.nextTrap ? (names.get(s.nextTrap.ref) ?? T.unknownThing) : (names.get(manifest.traps[0]?.ref ?? "") ?? T.unknownThing);
   const postCell = s.nextPost?.cell ?? null;
   const trapCell = s.nextTrap?.cell ?? null;
-  return (
-    <GuideCard title={G.arrangeTitle} testId="guide-arrange">
-      <p>{G.arrangeBody(edge, s.raidersOnEdge, s.raidersTotal)}</p>
-      <ol className="guide__list">
-        <Item done={s.fenceDone} title={G.stepFence(edge)} why={G.stepFenceWhy(edge, s.gap)} action={btn(G.stepFenceDo(edge), () => applyMainFence(manifest, formation, scout), "guide-do-fence")} testId="guide-step-fence" />
-        <Item done={s.gapOpen} title={G.stepGap(s.gap)} why={G.stepGapWhy} action={btn(G.stepGapDo(s.gap), () => applyOpenGap(formation, scout), "guide-do-gap")} testId="guide-step-gap" />
+  // QA S4: the steps, in order. Only the next undone one is shown in full, directly under the
+  // circle (this card is the formation screen's slot right below the canvas); the rest are a
+  // collapsed list, so the step being taken and the circle it changes share the screen.
+  const steps: { key: string; done: boolean; node: (current: boolean) => ReactNode }[] = [
+    { key: "fence", done: s.fenceDone, node: (c) => <Item key="fence" current={c} done={s.fenceDone} title={G.stepFence(edge)} why={G.stepFenceWhy(edge, s.gap)} action={btn(G.stepFenceDo(edge), () => applyMainFence(manifest, formation, scout), "guide-do-fence")} testId="guide-step-fence" /> },
+    { key: "gap", done: s.gapOpen, node: (c) => <Item key="gap" current={c} done={s.gapOpen} title={G.stepGap(s.gap)} why={G.stepGapWhy} action={btn(G.stepGapDo(s.gap), () => applyOpenGap(formation, scout), "guide-do-gap")} testId="guide-step-gap" /> },
+    {
+      key: "post",
+      done: s.postDone && s.unposted === 0,
+      node: (c) => (
         <Item
+          key="post"
+          current={c}
           done={s.postDone && s.unposted === 0}
           title={G.stepPost(firstUnposted ?? firstUnit)}
           why={postCell ? G.stepPostWhy(postCell.x, postCell.y) : G.stepGapWhy}
@@ -165,8 +253,16 @@ export function ArrangeGuide({ manifest, formation, scout, locked, names, apply 
           }
           testId="guide-step-post"
         />
-        {s.trapAvailable ? (
+      ),
+    },
+    {
+      key: "trap",
+      done: s.trapDone,
+      node: (c) =>
+        s.trapAvailable ? (
           <Item
+            key="trap"
+            current={c}
             done={s.trapDone}
             title={G.stepTrap(trapName)}
             why={trapCell ? G.stepTrapWhy(trapCell.x, trapCell.y) : G.stepGapWhy}
@@ -174,16 +270,50 @@ export function ArrangeGuide({ manifest, formation, scout, locked, names, apply 
             testId="guide-step-trap"
           />
         ) : (
-          <li className="hint" data-testid="guide-step-trap" data-done="true">
+          <li key="trap" className="hint" data-testid="guide-step-trap" data-done="true">
             {G.stepTrapNone}
           </li>
-        )}
-        <Item done={s.fenceLeft === 0} title={G.stepRest} why={G.stepRestWhy} action={btn(G.stepRestDo, () => applyRestOfFence(manifest, formation, scout), "guide-do-rest")} testId="guide-step-rest" />
-      </ol>
+        ),
+    },
+    { key: "rest", done: s.fenceLeft === 0, node: (c) => <Item key="rest" current={c} done={s.fenceLeft === 0} title={G.stepRest} why={G.stepRestWhy} action={btn(G.stepRestDo, () => applyRestOfFence(manifest, formation, scout), "guide-do-rest")} testId="guide-step-rest" /> },
+  ];
+  const nextIdx = steps.findIndex((st) => !st.done);
+  const doneCount = steps.filter((st) => st.done).length;
+  const why = (
+    <>
       <h3 className="h3">{G.whyTitle}</h3>
       <p data-testid="guide-why">{G.why(edge, s.raidersOnEdge, s.gap)}</p>
       <p className="hint">{G.whyHonest}</p>
       <p className="hint">{G.whyCommit}</p>
+    </>
+  );
+  return (
+    <GuideCard title={G.arrangeTitle} testId="guide-arrange">
+      <p>{G.arrangeBody(edge, s.raidersOnEdge, s.raidersTotal)}</p>
+      {nextIdx >= 0 ? (
+        <>
+          <p className="hint" data-testid="guide-next-step">
+            {G.nextStep(nextIdx + 1, steps.length)}
+          </p>
+          <ol className="guide__list" start={nextIdx + 1} data-testid="guide-current">
+            {steps[nextIdx]!.node(true)}
+          </ol>
+        </>
+      ) : (
+        <p data-testid="guide-steps-done">{G.stepsDone}</p>
+      )}
+      <details className="guide__all" data-testid="guide-all-steps">
+        <summary className="btn btn--block">{G.allSteps(doneCount, steps.length)}</summary>
+        <ol className="guide__list">{steps.map((st, i) => (i === nextIdx ? null : st.node(false)))}</ol>
+      </details>
+      {nextIdx >= 0 ? (
+        <details className="guide__all">
+          <summary className="btn btn--block">{G.whyTitle}</summary>
+          {why}
+        </details>
+      ) : (
+        why
+      )}
     </GuideCard>
   );
 }

@@ -346,10 +346,14 @@ describe("R2-N2: the lease reads the wall clock, not the transaction's start", (
       await c.query("BEGIN");
       const t0 = (await c.query<{ t: Date }>("SELECT now() AS t")).rows[0]!.t; // pins the transaction's now()
       await sleep(120);
-      // Under now(): not ready yet (next_attempt_at is 60 ms after t0) and, if leased, already 70 ms into a 50 ms window.
-      const row = (await leaseNextJob(c, "w2", 50))!;
+      // Under now(): not ready yet (next_attempt_at is 60 ms after t0) and, if leased, expiring
+      // at exactly t0 + the window. Under clock_timestamp(): expiring >= 120 ms later than that.
+      // The window is a full minute (not 50 ms) so completing by hand below cannot lose the
+      // fence to a slow machine; the assertion measures the offset, not the window.
+      const WINDOW_MS = 60_000;
+      const row = (await leaseNextJob(c, "w2", WINDOW_MS))!;
       expect(row).toMatchObject({ id: "n2", attempts: 2, leased_by: "w2" });
-      expect(row.lease_expires_at!.getTime()).toBeGreaterThan(t0.getTime() + 100);
+      expect(row.lease_expires_at!.getTime()).toBeGreaterThan(t0.getTime() + WINDOW_MS + 100);
       await c.query("COMMIT");
     } finally {
       c.release();

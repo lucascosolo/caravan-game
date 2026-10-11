@@ -7,8 +7,10 @@ Sort
               Hash Cond: (c.account_id = a.id)
               ->  Hash Join
                     Hash Cond: (pp.caravan_id = c.id)
-                    ->  Seq Scan on pool_progress pp
-                          Filter: (pool = 'living'::pool)
+                    ->  Bitmap Heap Scan on pool_progress pp
+                          Recheck Cond: (pool = 'living'::pool)
+                          ->  Bitmap Index Scan on pool_progress_pool_reputation_idx
+                                Index Cond: (pool = 'living'::pool)
                     ->  Hash
                           ->  Seq Scan on caravan c
               ->  Hash

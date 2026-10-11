@@ -1,15 +1,15 @@
 {
 "scenario": "c11-hold-reach-in",
-"resolverVersion": 7,
+"resolverVersion": 8,
 "outcome": {"kind":"caravan_overrun","end":"core_overrun","endTick":180,"depth":1024,"deepestUnit":0},
 "ticks": 181,
 "units": [
-{"id":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","mergeLevel":1,"x":15872,"y":15872,"startHp":5000,"hp":4960,"maxHp":5000,"alive":true,"reachedCoreTick":180,"diedTick":-1},
-{"id":1,"side":"defender","ref":"p","typeId":"desert.well_digger","mergeLevel":1,"x":14848,"y":8704,"startHp":1100,"hp":986,"maxHp":1100,"alive":true,"reachedCoreTick":-1,"diedTick":-1}
+{"id":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","mergeLevel":1,"ability":"dash","x":15872,"y":15872,"startHp":5000,"hp":4960,"maxHp":5000,"alive":true,"reachedCoreTick":180,"diedTick":-1},
+{"id":1,"side":"defender","ref":"p","typeId":"desert.well_digger","mergeLevel":1,"ability":"heavy_strike","x":14848,"y":8704,"startHp":1100,"hp":986,"maxHp":1100,"alive":true,"reachedCoreTick":-1,"diedTick":-1}
 ],
 "fences": [],
 "traps": [],
-"replay": {"format":"caravan-replay","v":1,"resolverVersion":7,"tickRate":20,"tickCap":600,"keyframeInterval":100,"ticks":181,"outcome":{"kind":"caravan_overrun","end":"core_overrun","endTick":180,"depth":1024,"deepestUnit":0},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":5000,"hp":5000},{"u":1,"side":"defender","ref":"p","typeId":"desert.well_digger","level":1,"maxHp":1100,"hp":1100}],"fences":[],"traps":[],"count":11,"check":2897760213,"events":[
+"replay": {"format":"caravan-replay","v":2,"resolverVersion":8,"tickRate":20,"tickCap":600,"keyframeInterval":100,"ticks":181,"outcome":{"kind":"caravan_overrun","end":"core_overrun","endTick":180,"depth":1024,"deepestUnit":0},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":5000,"hp":5000,"ab":4},{"u":1,"side":"defender","ref":"p","typeId":"desert.well_digger","level":1,"maxHp":1100,"hp":1100,"ab":1}],"fences":[],"traps":[],"count":11,"check":805079020,"events":[
 [0,"s",0,15872,512],
 [0,"s",1,14848,8704],
 [0,"tg",0,0,-1],

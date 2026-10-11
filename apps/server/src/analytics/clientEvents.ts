@@ -2,7 +2,7 @@
  * Chunk 32: client telemetry — screen flow and crash reports only (PHASE-2 §32).
  *
  * Privacy, by construction:
- *   - stored under the account's opaque `analytics_id` (random, migration 018), never the
+ *   - stored under the account's opaque `analytics_id` (random, migration 020), never the
  *     account id; the client never sees either;
  *   - every field is from a closed vocabulary (screen names, crash classes) or a fixed-shape
  *     token (an 8-hex stack hash). An unknown key or value refuses the whole batch, so no

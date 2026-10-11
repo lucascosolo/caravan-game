@@ -224,3 +224,16 @@ alone, and under concurrent load.
 - **N4:** enforce the content minimum cooldown in input validation, so the size budget cannot be broken by input.
 - **N7:** no action. CI runs on a different machine from local runs, which is the second-machine check we have.
 - Every other S and N item is in scope for the fixer.
+
+## Fixer closure (round 1, RESOLVER_VERSION 7 → 8, LOG_FORMAT v2)
+
+- **S1 closed** — `jobs/inProcessWorker.ts` drains the queue in the server process (kick on commit + 1 s poll), real resolver by default via `index.ts`; the double keeps its e2e meaning; no-log fights answer `renderable: false` with the reason, not 410. Proved over HTTP on a built server (see report).
+- **S2 closed** — depth is sampled only where a raider stood alive (a trap-killed dash at its lethal trap); depth 1024 ⇔ overrun, clamped otherwise; `qa12-dash-over-trap-onto-core` is held at 853; `test/outcome.test.ts` + corpus check.
+- **S3 closed** — whole-log seal (`replaySeal`, exact key sets, `ab` labels) plus row-consistency checks in the reader; the route verifies sha256 against the row and the immutable job result, and format / version against the body; the 13 QA edits are tests in `replay.test.ts` and `trip-resolver.test.ts`.
+- **S4 closed** — migration 016: app role has no INSERT / UPDATE / DELETE; `encounter_log_write` (definer, lease-fenced) + insert guard (leased job, matching caravan / accounts / version / stamp, server clock) + delete guard (retention or cascade only) + `encounter_log_prune` (definer, constant retention row); planted row → completion fails; each proved as `caravan_app`.
+- **S5 closed** — `scripts/golden-gate.mjs`: M / D / R goldens need an integer RESOLVER_VERSION increase and every written golden must carry it; the tag only covers additions; `scripts/golden-gate.test.mjs` proves refusal and acceptance.
+- **S6 closed** — the 100× loop is one test per scenario per 25-run batch (and the integer walk per scenario), a macrotask yield before every resolver test (`test/setup-yield.ts`; splitting alone still hit the RPC timeout), the budget test times CPU not wall clock, the harness steps have timeouts; the suite run alongside `pnpm determinism` passed with both exiting 0.
+- **D1 closed** — depth measured from the ring line (Chebyshev, RING_SPAN 3 cells), 0 outside; loot curve unchanged; goldens regenerated.
+- **D2 deferred** — balance pass; no number tuned.
+- **D3 closed** — the content hash covers a whitelist of sim stats only; copy-only edits leave it unchanged (circle + server tests).
+- **N1 closed** — undecodable body → 200 `renderable: false`. **N2 closed** — parked → 409 `resolution_unavailable`. **N3 closed** — verdict cached per verified sha256; gzip response when accepted. **N4 closed** — attack cooldown ≥ 400 ms in input validation (ability cooldown floor unchanged, noted in Build notes). **N5 closed** — numbers (`depth.measuredFrom`, `lootShare`) in the API, the sentence in web strings. **N6 closed** — `PARTY_LOOT_FULL_MAX` enforced. **N7** — no action.

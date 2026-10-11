@@ -212,11 +212,50 @@ export function resolverTunables(): ResolverTunables {
 }
 
 /**
- * Chunk 13 (QA-15 S3): everything a resolution READS from content, as one plain object — the
- * unit, trap, siege and fence tables `toBattlefield` / `toResolverParty` look stats up in, and
- * the resolver tunables. The server hashes it (RESOLUTION_CONTENT_HASH), stamps the hash on
- * every encounter job at enqueue and refuses to resolve a job whose stamp differs.
+ * Chunk 13 (QA-15 S3, QA-13 D3): everything a resolution READS from content, as one plain
+ * object: the stat PROJECTION of the unit, trap, siege and fence tables that `toBattlefield` /
+ * `toResolverParty` look up, plus the resolver tunables. The server hashes it
+ * (RESOLUTION_CONTENT_HASH), stamps the hash on every encounter job at enqueue and refuses to
+ * resolve a job whose stamp differs.
+ *
+ * COPY IS NOT HASHED (D3): display names, flavor text and ability descriptions are left out, so
+ * a copy-only deploy never makes an in-flight encounter throw ContentHashMismatchError (and park,
+ * voiding the trip). The projection is a WHITELIST of the stat keys (`RESOLUTION_STAT_KEYS`); the
+ * circle test pins that every key of every content type is either in it or in
+ * `RESOLUTION_COPY_KEYS`, so a new stat can never slip past the hash unnoticed.
  */
-export function resolutionContent(): { readonly units: unknown; readonly traps: unknown; readonly siege: unknown; readonly fences: unknown; readonly tunables: ResolverTunables } {
-  return { units: CONTENT.units, traps: CONTENT.traps, siege: CONTENT.siege, fences: CONTENT.fences, tunables: resolverTunables() };
+export const RESOLUTION_STAT_KEYS = {
+  units: ["id", "affinity", "offense", "defense", "hp", "moveSpeed", "attackRange", "attackCooldown", "aggroRadius", "leashDistance", "ability"],
+  traps: ["id", "category", "affinity", "damage", "effect"],
+  siege: ["id", "counters"],
+  fences: ["id", "tier", "category", "segmentHp"],
+} as const;
+/** Player-facing copy: never read by the simulation, never hashed. `regionId` is the unit's region (its id carries it), not a stat. */
+export const RESOLUTION_COPY_KEYS: readonly string[] = ["displayName", "flavor", "description", "regionId"];
+
+type ContentTables = Pick<typeof CONTENT, "units" | "traps" | "siege" | "fences">;
+
+function project(row: object, keys: readonly string[]): Record<string, unknown> {
+  const r = row as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of keys) {
+    if (!(k in r)) continue;
+    const v = r[k];
+    if (k === "ability" && v !== null && typeof v === "object") {
+      const ability: Record<string, unknown> = {};
+      for (const [ak, av] of Object.entries(v as Record<string, unknown>)) if (!RESOLUTION_COPY_KEYS.includes(ak)) ability[ak] = av;
+      out[k] = ability;
+    } else out[k] = v;
+  }
+  return out;
+}
+
+export function resolutionContent(content: ContentTables = CONTENT): { readonly units: unknown; readonly traps: unknown; readonly siege: unknown; readonly fences: unknown; readonly tunables: ResolverTunables } {
+  return {
+    units: content.units.map((u) => project(u, RESOLUTION_STAT_KEYS.units)),
+    traps: content.traps.map((t) => project(t, RESOLUTION_STAT_KEYS.traps)),
+    siege: content.siege.map((s) => project(s, RESOLUTION_STAT_KEYS.siege)),
+    fences: content.fences.map((f) => project(f, RESOLUTION_STAT_KEYS.fences)),
+    tunables: resolverTunables(),
+  };
 }

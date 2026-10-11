@@ -6,11 +6,7 @@
     "viewer": "caravan",
     "tripId": "00000000-0000-4000-8000-000000000001",
     "encounterIndex": 1,
-    "resolverVersion": null,
-    "currentResolverVersion": 7,
-    "logFormat": null,
-    "renderable": false,
-    "reason": "no replay log was recorded for this fight",
+    "currentResolverVersion": 8,
     "outcome": {
       "kind": "caravan_held",
       "loot": 353,
@@ -40,12 +36,23 @@
         "t0"
       ]
     },
-    "depthExplained": "How far the deepest raider got: the share of its straight-line distance to the core that it closed.",
+    "depth": {
+      "scale": 1024,
+      "measuredFrom": "ring_line",
+      "lootCurve": "depth_pow_1_5",
+      "value": 512,
+      "lootShare": 362
+    },
     "party": {
       "partyId": "00000000-0000-4000-8000-000000000005",
       "partyHash": "a000000000000000000000000000000000000000000000000000000000000001",
       "partySavedAt": "2026-10-11T12:00:00.000Z"
     },
+    "resolverVersion": null,
+    "logFormat": null,
+    "renderable": false,
+    "reason": "no replay log was recorded for this fight",
+    "resolvedBy": "test-double",
     "labels": {
       "units": [],
       "fences": [],

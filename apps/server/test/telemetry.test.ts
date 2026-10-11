@@ -631,6 +631,9 @@ describe("chunk 32: analytics never feed back into play", () => {
     };
     walk(src);
     expect(hits).toEqual([]);
+    // store-guards / economy-guards exempt exactly src/analytics/queries.ts from their "nobody else names
+    // pack_purchase / coin_purchased / coin_spent" greps: that file is pure SELECT (no write verb at all).
+    expect(readFileSync(path.join(src, "analytics", "queries.ts"), "utf8")).not.toMatch(/\b(INSERT\s+INTO|UPDATE\s+[a-z_]+\s+SET|DELETE\s+FROM|appendEvents|appendCoinCredits|spendCoin)\b/);
     // And the analytics module itself never writes the ledger or any game table: its only writes are its own three tables.
     for (const f of readdirSync(path.join(src, "analytics"))) {
       const text = readFileSync(path.join(src, "analytics", f), "utf8");

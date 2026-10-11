@@ -389,11 +389,13 @@ export const TUNABLES = {
 
   /**
    * Fixed by design (chunk 13; the resolver implements it — packages/resolver/src/outcome.ts).
-   * "How far the deepest raider got: the share of its straight-line distance to the core that
-   * it closed." An integer 0..1024 (1024 = the core; an overrun is always 1024). Fence segments
-   * broken and posts killed are NOT added in (a composite cannot be previewed in one sentence).
+   * "How far the deepest raider got inside the wagon circle: the share of the distance from the
+   * ring's outer edge to the core that it closed." Measured from the ring line since resolver v8
+   * (QA-13 D1; it was from the spawn edge and saturated), 0 for a raider that never crossed it.
+   * An integer 0..1024 (1024 = the core; only an overrun reaches it). Fence segments broken and
+   * posts killed are NOT added in (a composite cannot be previewed in one sentence).
    */
-  DEPTH_METRIC: "deepest_raider_share_of_distance_to_core",
+  DEPTH_METRIC: "deepest_raider_share_of_ring_to_core_distance",
   /**
    * Fixed shape (chunk 13). The party owner's loot when the party is WIPED (the caravan held):
    * full × depth^1.5, computed integer-only as floor(full × d × isqrt(d × 1024) / 1024²) with
@@ -803,6 +805,20 @@ export const TUNABLES = {
    * it never blocks acquisition in practice. Not a balance lever.
    */
   UNIT_INVENTORY_CAP: 200,
+
+  // ── BEGIN STARTING_ROSTER (chunk 24 QA D1 mechanism; the balance pass owns the value) ──
+  /**
+   * TUNABLE (chunk 24 QA D1, PHASE-2 §24 "the starting roster"). What EVERY new caravan is
+   * granted at creation, through the ordinary acquisition grant (`grantUnit`: the access
+   * check, a level-1 instance, one `unit_acquired` event with source "starting_roster" and
+   * coinCost 0 per instance). `copiesPerStarterType` level-1 copies of each of the caravan's
+   * region's STARTING living types (the living web's tier-0 nodes, which every caravan has
+   * reached free at creation) — so it can never reach outside the starting nodes
+   * (GUARDRAILS §3), grants no Coin and no unlock point, and is the same rule for every
+   * caravan (not a tutorial gift). 0 turns it off. An integer, never negative.
+   */
+  STARTING_ROSTER: { copiesPerStarterType: 1 },
+  // ── END STARTING_ROSTER ──
 
   // ────────────────────────────────────────────────────────────────────────────────────
   // Chunk 17 — the home town's merge board. Presentation-side limits only: the board is a

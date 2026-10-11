@@ -21,9 +21,11 @@ export interface AppShellProps {
   readonly username: string;
   readonly onSignOut: () => void;
   readonly children: ReactNode;
+  /** Chunk 24 QA N7: the first screen comes before any tab, so the tab bar is not drawn under it. */
+  readonly hideTabs?: boolean;
 }
 
-export function AppShell({ route, username, onSignOut, children }: AppShellProps): JSX.Element {
+export function AppShell({ route, username, onSignOut, children, hideTabs = false }: AppShellProps): JSX.Element {
   return (
     <div className="shell">
       <main className="shell__main">
@@ -39,22 +41,24 @@ export function AppShell({ route, username, onSignOut, children }: AppShellProps
         </div>
         {children}
       </main>
-      <nav className="tabbar" aria-label="Main">
-        {TABS.map((t) => (
-          <button
-            key={t.route}
-            type="button"
-            className="tabbar__tab"
-            aria-current={route === t.route ? "page" : undefined}
-            onClick={() => navigate(t.route)}
-          >
-            <span className="tabbar__glyph" aria-hidden="true">
-              {t.glyph}
-            </span>
-            <span>{t.label}</span>
-          </button>
-        ))}
-      </nav>
+      {!hideTabs && (
+        <nav className="tabbar" aria-label="Main">
+          {TABS.map((t) => (
+            <button
+              key={t.route}
+              type="button"
+              className="tabbar__tab"
+              aria-current={route === t.route ? "page" : undefined}
+              onClick={() => navigate(t.route)}
+            >
+              <span className="tabbar__glyph" aria-hidden="true">
+                {t.glyph}
+              </span>
+              <span>{t.label}</span>
+            </button>
+          ))}
+        </nav>
+      )}
     </div>
   );
 }

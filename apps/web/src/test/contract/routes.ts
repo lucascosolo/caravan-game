@@ -33,7 +33,7 @@ import {
   unequipResultShape,
 } from "../../api/shapes.ts";
 import { replayShape } from "../../api/replayShapes.ts";
-import { inboxShape, inboxUnreadShape } from "../../api/inboxShapes.ts";
+import { inboxMarkResultShape, inboxShape, inboxStrikeLinesShape, inboxUnreadShape } from "../../api/inboxShapes.ts";
 import { analyticsSettingsShape, dashboardShape, telemetryIngestShape } from "../../api/telemetryShapes.ts";
 import { onboardingChangeShape, onboardingShape } from "../../onboarding/shapes.ts";
 import { bankResultShape, encounterCommitShape, pushResultShape, stakesPreviewShape, tripCapRefusalShape, tripStartShape, tripStatusShape } from "../../api/tripShapes.ts";
@@ -97,7 +97,8 @@ export const CONTRACT_GUARDS: Readonly<Record<string, Guard<unknown> | null>> = 
   // Chunk 29's inbox: the struck party's owner (a real-resolver strike), the badge, a mark-all, and every other category.
   inbox: inboxShape,
   "inbox-unread": inboxUnreadShape,
-  "inbox-read": inboxShape,
+  "inbox-read": inboxMarkResultShape,
+  "inbox-strikes": inboxStrikeLinesShape,
   "inbox-preferences": inboxShape,
   // Chunk 32: the usage-data setting, a telemetry batch's answer, and the admin dashboard
   // (recorded by apps/server/test/telemetry.test.ts over its seeded history).

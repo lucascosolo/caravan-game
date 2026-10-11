@@ -13,11 +13,21 @@
  * LOG_RETENTION_DAYS AND not among its caravan's newest LOG_RETENTION_MIN_PER_CARAVAN — the
  * "whichever is larger" of the two windows. The prune runs for the caravan just written to,
  * inside the same transaction; nothing ticks in the background.
+ *
+ * WRITE ONCE, BY THE RESOLUTION PATH ONLY (QA-13 S4, migration 016). The app role has no
+ * INSERT, UPDATE or DELETE on encounter_log. A row goes in through `encounter_log_write`
+ * (SECURITY DEFINER: the caller must hold the job's live lease at its attempt; the insert guard
+ * checks caravan, defender, party owner, resolver version and content hash against the job, and
+ * stamps created_at; a second write for one job is a unique violation — never DO NOTHING, so a
+ * row planted earlier can never stand in for the real log) and leaves through
+ * `encounter_log_prune` (the retention rule on the database clock, with the window read from
+ * the constant `encounter_log_retention` row, which a test pins to the tunables).
  */
 import { TUNABLES } from "@caravan/content";
 import { gunzipSync, gzipSync } from "node:zlib";
 import type pg from "pg";
 import type { Queryable } from "../db/pool.js";
+import type { LeaseFence } from "../jobs/queue.js";
 import type { EncounterLogArtifact } from "../jobs/worker.js";
 
 export const LOG_ENCODING = "gzip" as const;
@@ -51,35 +61,39 @@ export function decompressLog(row: Pick<EncounterLogRow, "encoding" | "log">): s
   return gunzipSync(row.log).toString("utf8");
 }
 
-/** Insert (idempotent on job id: a completed job's log is written once) and prune this caravan's expired logs. */
-export async function storeEncounterLog(client: pg.PoolClient, a: EncounterLogArtifact): Promise<void> {
+/**
+ * Write a completed encounter's log (once) and prune the caravan's expired logs, both through the
+ * owner's definer functions, inside the completion transaction. `fence` is the worker's lease.
+ */
+export async function storeEncounterLog(client: pg.PoolClient, a: EncounterLogArtifact, fence: LeaseFence): Promise<void> {
   const stored = compressLog(a.text);
   await client.query(
-    `INSERT INTO encounter_log (job_id, caravan_id, defender_account_id, party_owner_account_id, resolver_version, log_format, encoding, log,
-                                raw_bytes, stored_bytes, log_sha256, formation_sha256, survivors_sha256, party_sha256, content_hash)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-     ON CONFLICT (job_id) DO NOTHING`,
-    [a.jobId, a.caravanId, a.defenderAccountId, a.partyOwnerAccountId, a.resolverVersion, a.logFormat, LOG_ENCODING, stored, Buffer.byteLength(a.text, "utf8"), stored.length, a.sha256, a.formationSha256, a.survivorsSha256, a.partySha256, a.contentHash],
+    `SELECT encounter_log_write($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+    [a.jobId, fence.workerId, fence.attempts, a.caravanId, a.defenderAccountId, a.partyOwnerAccountId, a.resolverVersion, a.logFormat, LOG_ENCODING, stored, Buffer.byteLength(a.text, "utf8"), a.sha256, a.formationSha256, a.survivorsSha256, a.partySha256, a.contentHash],
   );
-  await pruneEncounterLogs(client, a.caravanId);
 }
 
 /**
- * LOG_RETENTION for one caravan: delete logs older than LOG_RETENTION_DAYS that are not among
- * the caravan's newest LOG_RETENTION_MIN_PER_CARAVAN. `asOf` defaults to the database clock.
- * Returns the number of rows removed.
+ * LOG_RETENTION for one caravan (encounter_log_prune): delete logs older than the retention
+ * days that are not among the caravan's newest N, by the database clock. Returns the number of
+ * rows removed. The window is the constant row, never a parameter.
  */
-export async function pruneEncounterLogs(db: Queryable, caravanId: string, asOf?: Date): Promise<number> {
-  const res = await db.query(
-    `DELETE FROM encounter_log l
-      WHERE l.caravan_id = $1
-        AND l.created_at < COALESCE($2::timestamptz, now()) - make_interval(days => $3::int)
-        AND l.job_id NOT IN (
-          SELECT job_id FROM encounter_log WHERE caravan_id = $1 ORDER BY created_at DESC, job_id DESC LIMIT $4::int
-        )`,
-    [caravanId, asOf ?? null, TUNABLES.LOG_RETENTION_DAYS, TUNABLES.LOG_RETENTION_MIN_PER_CARAVAN],
-  );
-  return res.rowCount ?? 0;
+export async function pruneEncounterLogs(db: Queryable, caravanId: string): Promise<number> {
+  const res = await db.query<{ n: number }>("SELECT encounter_log_prune($1) AS n", [caravanId]);
+  return res.rows[0]?.n ?? 0;
+}
+
+/** The retention row the database enforces (a test pins it to TUNABLES). */
+export async function encounterLogRetention(db: Queryable): Promise<{ days: number; minPerCaravan: number }> {
+  const res = await db.query<{ days: number; min_per_caravan: number }>("SELECT days, min_per_caravan FROM encounter_log_retention WHERE singleton");
+  const r = res.rows[0];
+  if (!r) throw new Error("encounter_log_retention is empty");
+  return { days: r.days, minPerCaravan: r.min_per_caravan };
+}
+
+/** Whether the database's retention row equals the tunables (LOG_RETENTION_DAYS, LOG_RETENTION_MIN_PER_CARAVAN). */
+export function retentionMatchesTunables(r: { days: number; minPerCaravan: number }): boolean {
+  return r.days === TUNABLES.LOG_RETENTION_DAYS && r.minPerCaravan === TUNABLES.LOG_RETENTION_MIN_PER_CARAVAN;
 }
 
 export async function findEncounterLog(db: Queryable, jobId: string): Promise<EncounterLogRow | null> {

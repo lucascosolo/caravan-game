@@ -159,6 +159,7 @@ import { abilityHitDamage, atLeastOne, breachableFence, dealtOutput, engaged, fe
 import { FIXED_ONE, scaleInt, type Fixed } from "./fixed.js";
 import type { AbilityEffectLog, LogEvent } from "./log.js";
 import { advanceMeasured } from "./move.js";
+import { sampleStoppedDash, sampleUnitDepth } from "./outcome.js";
 import { advanceWithinLeash } from "./posted.js";
 import type { SimState, UnitState } from "./state.js";
 import { springTraps } from "./traps.js";
@@ -339,10 +340,23 @@ function applyNonHeal(state: SimState, f: Firing, log: LogEvent[]): boolean {
       log.push({ t, k: "ability", u: u.id, a: "dash", tg: [unitEffect(u, used)], x: u.x, y: u.y });
       if (u.side === "attacker") {
         // DASH_SPRINGS_TRAPS: the dash path meets the traps now, then (if it survived) the core.
+        const before = log.length;
         springTraps(state, u, log);
         if (u.hp > 0 && u.reachedCoreTick < 0 && isCoreCell(cellOf({ x: u.x, y: u.y }))) {
           u.reachedCoreTick = t;
           log.push({ t, k: "core_reached", u: u.id });
+        }
+        // DEPTH_SAMPLE (outcome.ts, QA-13 S2): at the dash end if it survived its traps, else at the trap that stopped it.
+        if (u.hp > 0) sampleUnitDepth(u, u.x, u.y);
+        else {
+          for (let k = log.length - 1; k >= before; k--) {
+            const e = log[k]!;
+            if (e.k === "trap_fired" && e.u === u.id && e.hp === 0) {
+              const trap = state.traps[e.i]!;
+              sampleStoppedDash(u, trap.pos.x, trap.pos.y);
+              break;
+            }
+          }
         }
       }
       return true;

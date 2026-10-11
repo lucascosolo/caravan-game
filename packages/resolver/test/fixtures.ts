@@ -308,7 +308,7 @@ export function runToCap(raw: ResolveInput): ResolveOutput {
     ticks: state.tickCap,
     end: "tick_cap",
     outcome: { kind: "stalemate", end: "tick_cap", endTick: state.tickCap - 1, depth: 0, deepestUnit: -1 },
-    units: state.units.map((u) => ({ id: u.id, side: u.side, ref: u.ref, typeId: u.typeId, mergeLevel: u.mergeLevel, x: u.x, y: u.y, startHp: u.startHp, hp: u.hp, maxHp: u.maxHp, alive: u.alive, reachedCoreTick: u.reachedCoreTick, diedTick: u.diedTick })),
+    units: state.units.map((u) => ({ id: u.id, side: u.side, ref: u.ref, typeId: u.typeId, mergeLevel: u.mergeLevel, ability: u.ability.archetype, x: u.x, y: u.y, startHp: u.startHp, hp: u.hp, maxHp: u.maxHp, alive: u.alive, reachedCoreTick: u.reachedCoreTick, diedTick: u.diedTick })),
     fences: state.fences.map((f) => ({ f: f.index, ref: f.ref, segment: f.segment, tierId: f.tierId, category: f.category, startHp: startHp[f.index]!, hp: f.hp, maxHp: f.maxHp, intact: f.intact, brokenTick: f.brokenTick })),
     traps: state.traps.map((t) => ({ i: t.index, ref: t.ref, typeId: t.typeId, x: t.pos.x, y: t.pos.y, spent: t.spent, spentTick: t.spentTick })),
     log,
@@ -563,7 +563,7 @@ export function boundaryScenarios(): { name: string; input: ResolveInput }[] {
     // A guard whose aggro reaches a raider that stands trading blows with a far hold post: it chases to its
     // leash (the clamped step logged as `amount`), walks home, re-acquires, for all 30 s — a stalemate.
     { name: "c13-stalemate-guard-leash-oscillation", input: input(battlefield({ posts: [holdAt("h", { x: 15, y: 4 }, { hp: BIG, maxHp: BIG }), post("g", { x: 15, y: 12 }, { aggroRadius: fx(10240), leashDistance: fx(4096), hp: BIG, maxHp: BIG })] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 }, hp: BIG, attackRange: 1024 })]), SHORT_TUNABLES) },
-    // Raiders chipping a sealed 1 000 000-HP ring all fight: deep (at the ring) but never in — a stalemate with depth > 0.
+    // Raiders chipping a sealed 1 000 000-HP ring all fight: at the fence but never inside the ring line — a stalemate, depth 0 (v8, QA-13 D1).
     { name: "c13-stalemate-deep-but-not-in", input: input(battlefield({ fences: ringExcept([], BIG) }), party([unit({ ref: "a", cell: { x: 15, y: 0 } }), unit({ ref: "b", edge: "east", cell: { x: 31, y: 15 }, stance: "nearest" })]), SHORT_TUNABLES) },
     // The log-budget worst case: the full-load roster, unkillable, fighting at full intensity for the whole 180 s.
     { name: "c13-full-load-full-length", input: fullLoadFullLength() },

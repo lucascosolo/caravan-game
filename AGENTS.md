@@ -109,7 +109,16 @@ the owner role could simply disable, so the server never runs as the owner:
   re-applies `apps/server/db/roles.sql` on every run, then connects as `caravan_app` to
   prove the guards hold against the server's own role.
 
-`caravan_app` is created and granted by `apps/server/db/roles.sql` (idempotent; a role is
+**Server tests must not depend on file order:** `apps/server/test/per-file-reset.ts` starts every file
+with no accounts (so no jobs, parties, menus or ratings); create what a test needs itself and pin what a
+seeded matchmaking draw reads (ratings, authored set, owner headroom). Check: `vitest run --sequence.shuffle.files --sequence.seed=N`.
+The server suite's timeouts are 60 s per test and 60 s per hook (`apps/server/vitest.config.ts`): seeding
+the authored set takes 8–11 s and timed out at the old 20 s on a busy host.
+
+`encounter_log` (chunk 13 replays) is write-once even for the app role: no INSERT / UPDATE / DELETE
+grant; rows go in only through `encounter_log_write()` (SECURITY DEFINER, fenced on the job's
+live lease, checked against the job) and leave only through `encounter_log_prune()` (the
+retention rule, migration 016). `caravan_app` is created and granted by `apps/server/db/roles.sql` (idempotent; a role is
 cluster-level, so it is a script, not a migration). `pnpm db:migrate` and `pnpm db:reset`
 apply it after migrating; `pnpm --filter @caravan/server exec tsx src/db/migrate.ts roles`
 applies it alone (no `db:roles` script yet: `apps/server/package.json` belongs to chunk 02's
@@ -129,15 +138,15 @@ pnpm db:status               # show which migrations are applied
 pnpm --filter @caravan/server exec tsx src/db/migrate.ts roles   # caravan_app role + grants only
 pnpm db:seed                 # idempotent: the 96 authored cold-start parties (chunk 25; versioned, updates in place) + dev account dev / devpassword, region desert
 
-pnpm dev                     # Fastify on http://127.0.0.1:3000 (PORT/HOST override), tsx watch
+pnpm dev                     # Fastify on http://127.0.0.1:3000 (PORT/HOST override), tsx watch; resolves committed encounters in-process with the real resolver
 pnpm dev:web                 # Vite dev server on http://127.0.0.1:5173; /api/* proxied to the server on :3000 (CARAVAN_API_URL overrides)
 
 pnpm --filter @caravan/web typecheck | test | build   # tsc; vitest + testing-library (jsdom); vite build → apps/web/dist
 pnpm --filter @caravan/web e2e                        # Playwright smoke vs a running server (needs CARAVAN_API_URL + a seeded DB)
 pnpm e2e                     # the same, self-contained: seeds E2E_DATABASE_URL (dev, a run-unique formation account packed and ridden out, a run-unique trip account in town), starts the BUILT server on :3917 with CARAVAN_TEST_RESOLVER=double, runs the e2e, stops it (run `pnpm build` first)
 
-pnpm determinism             # resolver determinism harness (chunk 13): 72-fight corpus 100× byte-identical in-process and equal to the golden logs in packages/resolver/golden (UPDATE_GOLDEN=1 regenerates), then 3 separate Node processes (different corpus orders) compared by sha256 with each other and the goldens; refuses golden-log changes without a RESOLVER_VERSION bump
-pnpm --filter @caravan/resolver test   # the resolver alone: 204 tests in 14 files, no DB, no network, ~60 s on 4 cores (the 100× determinism harness over 72 fights is most of it)
+pnpm determinism             # resolver determinism harness (chunk 13): the golden-gate self-test (scripts/golden-gate.test.mjs), then the 72-fight corpus 100× byte-identical in-process (one test per scenario per 25-run batch) and equal to the golden logs in packages/resolver/golden (UPDATE_GOLDEN=1 regenerates), then 3 separate Node processes (different corpus orders) compared by sha256 with each other and the goldens; with a base ref (DETERMINISM_BASE_REF locally) it refuses a changed/deleted golden unless RESOLVER_VERSION increased as an integer and every changed golden carries it (`[resolver-bump]` covers only new fixtures)
+pnpm --filter @caravan/resolver test   # the resolver alone: 576 tests in 15 files (288 of them the 100× harness in 25-run batches), no DB, no network, ~70 s on 4 cores
 pnpm test:boundary           # resolver dependency-boundary check (zero deps, imports stay inside packages/resolver/src)
 pnpm build                   # esbuild → apps/server/dist (index.js, db/migrate.js, seed.js); workspace packages inlined, npm deps external; then vite build → apps/web/dist
 pnpm start                   # run the built server: node apps/server/dist/index.js
@@ -154,7 +163,10 @@ chunk 09, the matchmaking routes of chunk 14 (`POST /me/caravans/:id/encounters/
 `GET …/candidates`, `POST …/choose`), the trip loop of chunk 15 (`GET /me/caravans/:id/trip`,
 `POST …/trip/start`, `POST …/trip/encounters/:n/commit`, `GET …/trip/preview`, `POST …/trip/push`
 and `…/trip/bank` with `{tripId, encounterIndex}`) and chunk 13's replay
-(`GET /me/encounters/:jobId/replay`, for the caravan's player and the party's owner) and chunk 24's
+(`GET /me/encounters/:jobId/replay`, for the caravan's player and the party's owner: 409
+`not_resolved` while resolving, 409 `resolution_unavailable` once parked, 410 once pruned,
+otherwise 200 with `renderable` — false, with a reason, for a log that fails its sha256 / reader
+check or for a fight resolved without a tick log) and chunk 24's
 first-session guide (`GET /me/onboarding`, `POST /me/onboarding/advance {step}`, `POST /me/onboarding/skip`;
 account-level, forward-only, grants nothing; `pnpm db:seed` marks its pre-equipped accounts' guide done) and chunk 32's telemetry (`GET/PUT /me/analytics {optedOut}`, `POST /me/telemetry` screen flow + crash reports, and the admin-only `GET /admin/dashboard` — 404 for non-admins; grant with `pnpm --filter @caravan/server admin grant <username>`, which uses MIGRATE_DATABASE_URL). `pnpm db:seed` also creates the authored cold-start
 parties (`src/matchmaking/authored.ts`, chunk 25: 12 per Reputation band, bands 0–7, owned
@@ -166,17 +178,21 @@ a `db:reset` (or a rollback past 011) of a seeded database, run
 `DELETE FROM account WHERE is_system` as the owner role, then `pnpm db:reset && pnpm db:seed`
 (the test suite empties `account` itself before its reset).
 
-**`CARAVAN_TEST_RESOLVER=double` (dev / test only, chunk 23).** Until chunk 13 wires the real
-resolver, production encounter jobs park (`ENCOUNTER_RESOLUTION_WIRED = false`), so no trip can
-get past its first commit on a running server. Setting `CARAVAN_TEST_RESOLVER=double` installs
-chunk 15's deterministic test double (`apps/server/test/trip-double.ts`, via
-`src/dev/testResolver.ts`) as the resolver and runs the job worker in-process shortly after each
-`POST …/trip/encounters/:n/commit`: every encounter is held, each posted unit loses 150 HP, at
-encounter 1 the first laid trap fires and every placed fence segment breaks. The server REFUSES
-TO START with the flag set and `NODE_ENV=production`, and any value other than `double` is
-refused. `pnpm e2e` sets it (with `NODE_ENV=test`); `pnpm smoke` and CI's smoke run do not.
-Chunk 13 replaces the double with the real resolver and this flag is then only for predictable
-e2e outcomes. Example: `CARAVAN_TEST_RESOLVER=double pnpm dev`.
+**Encounters resolve in the server process (chunk 13 QA S1).** `apps/server/src/index.ts` builds
+the app with `encounterWorker: true`: `jobs/inProcessWorker.ts` drains the job queue in-process
+with the REAL resolver (`DEFAULT_HANDLERS`), kicked by every `POST …/trip/encounters/:n/commit`
+and polled every second (retries, expired leases, jobs committed through another process). Any
+number of server processes may run it (the queue's lease and completion fence make concurrent
+workers safe). Tests build apps without it and call `drain` themselves.
+
+**`CARAVAN_TEST_RESOLVER=double` (dev / test only, chunk 23).** Swaps chunk 15's deterministic
+test double (`apps/server/src/dev/tripDouble.ts`, via `src/dev/testResolver.ts`) in for the real
+resolver in that in-process worker, for predictable e2e outcomes: every encounter is held, each
+posted unit loses 150 HP, at encounter 1 the first laid trap fires and every placed fence segment
+breaks. The double writes no tick log, so its fights' replays answer `renderable: false` with the
+reason. The server REFUSES TO START with the flag set and `NODE_ENV=production`, and any value
+other than `double` is refused. `pnpm e2e` sets it (with `NODE_ENV=test`); `pnpm smoke` and CI's
+smoke run do not. Example: `CARAVAN_TEST_RESOLVER=double pnpm dev`.
 
 **Web client** (`apps/web`, chunk 06 scaffold): Vite + React 18 + TypeScript strict. A
 typed `fetch` wrapper (`src/api/client.ts`) carries the bearer token from in-memory session

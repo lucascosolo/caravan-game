@@ -16,6 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { drawForSequence, drawRefugeeMenu, fnv1a32, menuSeed, replayMenu, rerollCost, REFUGEE_REFRESH_INTERVAL_MS } from "../src/acquisition/refugeeMenu.js";
 import { claimRefugee, refreshRefugees, rerollRefugees, viewRefugees } from "../src/acquisition/refugees.js";
 import { recruitMercenary, viewRecruit } from "../src/acquisition/recruit.js";
+import { startingRosterTypes } from "../src/acquisition/startingRoster.js";
 import { buildApp } from "../src/app.js";
 import { withTransaction } from "../src/db/pool.js";
 import type { RefugeeMenuRow } from "../src/db/types.js";
@@ -99,9 +100,16 @@ async function menuRows(caravanId: string): Promise<RefugeeMenuRow[]> {
   return (await pool.query<RefugeeMenuRow>("SELECT * FROM refugee_menu WHERE caravan_id = $1 ORDER BY sequence", [caravanId])).rows;
 }
 
+/**
+ * The acquisitions by the paths under test: every caravan's creation grant (chunk 24 QA D1,
+ * source "starting_roster") is left out here and tested in starting-roster.test.ts.
+ */
 async function unitAcquiredEvents(accountId: string) {
-  return (await listEventsForAccount(pool, accountId, { limit: 500 })).filter((e) => e.event_type === "unit_acquired");
+  return (await listEventsForAccount(pool, accountId, { limit: 500 })).filter((e) => e.event_type === "unit_acquired" && (e.payload as { source?: string }).source !== "starting_roster");
 }
+
+/** Chunk 24 QA D1: how many instances of `typeId` a fresh caravan of `region` already holds. */
+const started = (typeId: string, region: Region = "desert"): number => startingRosterTypes(region).filter((t) => t === typeId).length;
 
 async function spentEvents(accountId: string) {
   return (await listEventsForAccount(pool, accountId, { limit: 500 })).filter((e) => e.event_type === "coin_spent");
@@ -311,7 +319,7 @@ describe("refugee drip: menu, timer, claim", () => {
     expect(results.filter((r) => r.replayed)).toHaveLength(7);
     const ids = new Set(results.map((r) => r.acquired.instanceId));
     expect(ids.size).toBe(1);
-    expect((await listUnitInstancesForCaravan(pool, p.caravanId)).filter((r) => r.unit_type_id === pick)).toHaveLength(1);
+    expect((await listUnitInstancesForCaravan(pool, p.caravanId)).filter((r) => r.unit_type_id === pick)).toHaveLength(1 + started(pick));
     expect(await unitAcquiredEvents(p.accountId)).toHaveLength(1);
     expect((await verifyProjection(pool, p.accountId)).ok).toBe(true);
   });
@@ -564,7 +572,7 @@ describe("mercenary recruit: exact pick, Coin, guaranteed, always available", ()
     }
     const race = await Promise.all(Array.from({ length: 6 }, () => recruitMercenary(pool, { ...owner(p), unitTypeId: "desert.dust_rider", requestId: randomUUID() })));
     expect(race.every((r) => !r.replayed)).toBe(true);
-    expect((await listUnitInstancesForCaravan(pool, p.caravanId)).filter((r) => r.unit_type_id === "desert.dust_rider")).toHaveLength(16);
+    expect((await listUnitInstancesForCaravan(pool, p.caravanId)).filter((r) => r.unit_type_id === "desert.dust_rider")).toHaveLength(16 + started("desert.dust_rider"));
     expect((await readCoinBalance(pool, p.accountId)).balance).toBe(0);
     expect(await spentEvents(p.accountId)).toHaveLength(16);
   });
@@ -758,7 +766,7 @@ describe("storage guard, ownership, split, and the on-trip caravan", () => {
       const res = await call(b, method, url, payload);
       expect(res.statusCode, url).toBe(404);
     }
-    expect((await listUnitInstancesForCaravan(pool, a.caravanId)).length).toBe(0);
+    expect((await listUnitInstancesForCaravan(pool, a.caravanId)).length).toBe(startingRosterTypes("desert").length);
     expect(await menuRows(a.caravanId)).toHaveLength(0);
     const bad = await call(b, "GET", "/me/caravans/not-a-uuid/recruit");
     expect(bad.statusCode).toBe(400);
@@ -837,9 +845,11 @@ describe("generous acquisition: rebuilding a wiped level-3 unit from zero (the w
     const l2b = (await merge([ids[2]!, ids[3]!])).json().producedInstanceIds[0] as string;
     const l3 = await merge([l2a, l2b]);
     expect(l3.statusCode, l3.body).toBe(200);
-    const roster = await listUnitInstancesForCaravan(pool, p.caravanId);
+    // Besides the starting roster (chunk 24 QA D1), one unit: the level 3.
+    const roster = (await listUnitInstancesForCaravan(pool, p.caravanId)).filter((r) => r.merge_level > 1);
     expect(roster).toHaveLength(1);
     expect(roster[0]!.merge_level).toBe(3);
+    expect(await listUnitInstancesForCaravan(pool, p.caravanId)).toHaveLength(1 + startingRosterTypes("desert").length);
     expect((await readCoinBalance(pool, p.accountId)).balance).toBe(0);
   });
 });
@@ -940,7 +950,7 @@ describe("QA round 1 punch list (roadmap/qa/18-punchlist.md): the reviewer's pro
     const c2 = await claimRefugee(pool, { ...owner(p), unitTypeId: pick, sequence: 1, nowMs: t0 + INTERVAL + 10 });
     expect(c2.replayed).toBe(true);
     expect(c2.acquired.instanceId).toBe(c1.acquired.instanceId);
-    expect((await listUnitInstancesForCaravan(pool, p.caravanId)).filter((r) => r.unit_type_id === pick)).toHaveLength(1);
+    expect((await listUnitInstancesForCaravan(pool, p.caravanId)).filter((r) => r.unit_type_id === pick)).toHaveLength(1 + started(pick));
     expect(await unitAcquiredEvents(p.accountId)).toHaveLength(1);
     // A replay generates nothing: the due refresh is still waiting to be taken.
     expect(await menuRows(p.caravanId)).toHaveLength(1);

@@ -1,5 +1,5 @@
 /**
- * Chunk 32: the admin flag (migration 018 `account_admin`). The server only READS it: the
+ * Chunk 32: the admin flag (migration 020 `account_admin`). The server only READS it: the
  * app role holds SELECT and nothing else on the table (db/roles.sql), so no player route can
  * grant it. `grantAdmin` / `revokeAdmin` are for the operator CLI (src/admin.ts), which
  * connects as the schema OWNER; called over the app role they fail with a privilege error.

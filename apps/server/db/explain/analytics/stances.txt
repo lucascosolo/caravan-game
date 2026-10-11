@@ -4,9 +4,9 @@ Sort
   CTE enc
     ->  Nested Loop
           ->  Bitmap Heap Scan on trip_encounter te
-                Recheck Cond: ((settled_at >= '2026-09-11 21:13:28.632+00'::timestamp with time zone) AND (settled_at < '2026-10-11 21:13:28.632+00'::timestamp with time zone))
+                Recheck Cond: ((settled_at >= '2026-09-11 22:01:49.946+00'::timestamp with time zone) AND (settled_at < '2026-10-11 22:01:49.946+00'::timestamp with time zone))
                 ->  Bitmap Index Scan on trip_encounter_settled_at_idx
-                      Index Cond: ((settled_at >= '2026-09-11 21:13:28.632+00'::timestamp with time zone) AND (settled_at < '2026-10-11 21:13:28.632+00'::timestamp with time zone))
+                      Index Cond: ((settled_at >= '2026-09-11 22:01:49.946+00'::timestamp with time zone) AND (settled_at < '2026-10-11 22:01:49.946+00'::timestamp with time zone))
           ->  Limit
                 ->  Index Scan using resolution_job_pkey on resolution_job
                       Index Cond: (id = te.job_id)
