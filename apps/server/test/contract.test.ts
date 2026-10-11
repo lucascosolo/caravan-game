@@ -403,12 +403,30 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     const replayUrl = `/me/encounters/${encodeURIComponent(commit.jobId)}/replay`;
     expect((await call(v, "GET", replayUrl)).statusCode).toBe(409);
     expect(await drain(appRole, { workerId: "contract-real", handlers: DEFAULT_HANDLERS, retryBackoffMs: () => 0 })).toHaveLength(1);
-    const mine = (await record("replay", "GET /me/encounters/:jobId/replay", await call(v, "GET", replayUrl), 200)) as { viewer: string; renderable: boolean; log: unknown };
+    // Chunk 22 QA S8: the trip loop folds the outcome in on the next read, so the replay's `settled` (ledger) is filled.
+    expect((await call(v, "GET", vTrip)).statusCode).toBe(200);
+    const mine =(await record("replay", "GET /me/encounters/:jobId/replay", await call(v, "GET", replayUrl), 200)) as { viewer: string; renderable: boolean; log: unknown };
     const theirs = (await record("replay-owner", "GET /me/encounters/:jobId/replay (party owner)", await call(fought, "GET", replayUrl), 200)) as { viewer: string; log: unknown };
     expect(mine).toMatchObject({ viewer: "caravan", renderable: true });
     expect(theirs.viewer).toBe("party_owner");
     // The recorded (renamed) log is still a valid replay: the web suite plays it.
     expect(() => readReplay((normalise(mine) as { log: unknown }).log)).not.toThrow();
+    // Chunk 22 QA D1 / S8 / N10: siege and stance labels from the job's snapshots; the settled
+    // itemization from the ledger, per viewer; the owner's body carries no trip id or stored block.
+    const mineBody = mine as unknown as { labels: { siege: { typeId: string }[]; units: { side: string; stance: string | null }[] }; settled: { applied: boolean; reputation: unknown[] } };
+    expect(mineBody.labels.siege.map((s) => s.typeId)).toEqual(["siege.battering_wagon"]);
+    expect(mineBody.labels.units.every((u) => u.stance !== null)).toBe(true);
+    expect(mineBody.settled.applied).toBe(true);
+    expect(mineBody.settled.reputation.length).toBeGreaterThan(0);
+    const theirsBody = theirs as unknown as Record<string, unknown> & { outcome: Record<string, unknown>; settled: { coin: { reason: string }[] } };
+    expect(theirsBody).toMatchObject({ tripId: null, stored: null });
+    expect("units" in theirsBody.outcome).toBe(false);
+    expect(JSON.stringify(theirsBody.settled)).not.toContain(v.accountId);
+    // D2: the caravan's fights within retention, newest first — the real-resolver one (a log) and the player's double-resolved ones (no log).
+    const recent = (await record("encounters", "GET /me/encounters", await call(v, "GET", "/me/encounters"), 200)) as { encounters: { jobId: string; replay: string }[] };
+    expect(recent.encounters).toEqual([expect.objectContaining({ jobId: commit.jobId, replay: "log" })]);
+    const history = (await record("encounters-history", "GET /me/encounters (three fights, two trips)", await call(p, "GET", "/me/encounters"), 200)) as { encounters: { encounterIndex: number; replay: string }[] };
+    expect(history.encounters.map((x) => [x.encounterIndex, x.replay])).toEqual([[1, "no_log"], [2, "no_log"], [1, "no_log"]]);
 
     // Chunk 15 QA D3 (+ N2), recorded LAST so its rows shift no earlier fixture's ids: a trip
     // whose second encounter cannot be resolved (the double's outcome is refused, so the job
@@ -461,12 +479,17 @@ describe("client–server contract (chunk 08 QA D4)", () => {
 
     // Chunk 29: the inbox, recorded last for the same reason. The real-resolver fight above
     // struck `fought`'s party: its owner's inbox holds that strike batch (with the replay link).
-    const ownerInbox = (await record("inbox", "GET /me/inbox", await call(fought, "GET", "/me/inbox"), 200)) as { items: { category: string; unread: boolean; detail: { strikes: { jobId: string }[] } }[]; unreadCount: number };
+    const ownerInbox = (await record("inbox", "GET /me/inbox", await call(fought, "GET", "/me/inbox"), 200)) as { items: { key: string; version: number; category: string; unread: boolean; detail: { strikes: { jobId: string }[] } }[]; unreadCount: number };
     expect(ownerInbox.items[0]).toMatchObject({ category: "party_strike", unread: true });
     expect(ownerInbox.items[0]!.detail.strikes.map((x) => x.jobId)).toContain(commit.jobId);
     expect(JSON.stringify(ownerInbox)).not.toContain(v.accountId);
     await record("inbox-unread", "GET /me/inbox/unread", await call(fought, "GET", "/me/inbox/unread"), 200);
-    await record("inbox-read", "POST /me/inbox/read", await call(fought, "POST", "/me/inbox/read", { all: true }), 200);
+    // Chunk 29 QA S4: one batch's lines on demand (the route an older batch's "Show the fights" calls).
+    const strikesBody = (await record("inbox-strikes", "GET /me/inbox/strikes/:window", await call(fought, "GET", `/me/inbox/strikes/${ownerInbox.items[0]!.key.split(":")[1]}`), 200)) as { strikes: { jobId: string }[] };
+    expect(strikesBody.strikes.map((x) => x.jobId)).toContain(commit.jobId);
+    // QA S1: "Mark all read" sends the key and version of every unread item on screen.
+    const shown = ownerInbox.items.filter((i) => i.unread).map((i) => ({ key: i.key, version: i.version }));
+    await record("inbox-read", "POST /me/inbox/read", await call(fought, "POST", "/me/inbox/read", { marks: shown }), 200);
     // Every other category, on the player's own account two hours on (the frozen clock moves;
     // sessions expire by the database's clock): the trip cap is full again, the refugee drip
     // owes a free menu, and the balance is near the storage cap.
@@ -482,6 +505,21 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     expect(prefs.items.map((i) => i.category)).toEqual(expect.arrayContaining(["mine_near_cap", "refugees_arrived", "trip_cap_refilled"]));
     vi.setSystemTime(FROZEN_MS);
     for (const name of ["inbox", "inbox-read", "inbox-preferences"]) recorded.get(name)!.body = stableInbox(recorded.get(name)!.body);
+    recorded.get("inbox-strikes")!.body = { ...(recorded.get("inbox-strikes")!.body as object), window: 1 };
+
+    // Chunk 30: the account lifecycle — a guest's first launch, a reload, the Account screen, linking, devices, export, deletion.
+    const guestRes = await app.inject({ method: "POST", url: "/auth/guest", payload: { region: "desert" } });
+    const guestBody = (await record("auth-guest", "POST /auth/guest", guestRes, 201)) as { token: string };
+    const guestCookie = String(([] as unknown[]).concat(guestRes.headers["set-cookie"])[0]).split(";")[0]!;
+    await record("auth-resume", "POST /auth/resume", await app.inject({ method: "POST", url: "/auth/resume", headers: { cookie: guestCookie } }), 200);
+    const g: Player = { token: guestBody.token, accountId: "", caravanId: "", units: [] };
+    await record("account-guest", "GET /me/account", await call(g, "GET", "/me/account"), 200);
+    await record("account-link", "POST /me/account/link", await call(g, "POST", "/me/account/link", { username: "contract_guest", password: "correct horse battery" }), 200);
+    await record("account", "GET /me/account", await call(g, "GET", "/me/account"), 200);
+    await record("devices", "GET /me/devices", await call(g, "GET", "/me/devices"), 200);
+    await record("devices-revoke-others", "POST /me/devices/revoke-others", await call(g, "POST", "/me/devices/revoke-others"), 200);
+    await record("export", "GET /me/export", await call(g, "GET", "/me/export"), 200);
+    await record("account-delete", "POST /me/account/delete", await call(g, "POST", "/me/account/delete", { confirm: "delete my account", password: "correct horse battery" }), 200);
 
     // PHASE-2 §36, recorded last: the same real-resolver fight after its log was COMPACTED to its
     // results summary. The owner lowers the size budget for one prune of that caravan (the only way

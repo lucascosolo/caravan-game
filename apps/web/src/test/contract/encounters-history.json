@@ -1,0 +1,39 @@
+{
+  "route": "GET /me/encounters (three fights, two trips)",
+  "status": 200,
+  "body": {
+    "encounters": [
+      {
+        "jobId": "encounter:00000000-0000-4000-8000-000000000001:1",
+        "tripId": "00000000-0000-4000-8000-000000000001",
+        "encounterIndex": 1,
+        "outcome": "caravan_held",
+        "depth": 512,
+        "settledAt": "2026-10-11T12:00:00.000Z",
+        "replay": "no_log"
+      },
+      {
+        "jobId": "encounter:00000000-0000-4000-8000-000000000001:2",
+        "tripId": "00000000-0000-4000-8000-000000000001",
+        "encounterIndex": 2,
+        "outcome": "caravan_held",
+        "depth": 512,
+        "settledAt": "2026-10-11T12:00:01.000Z",
+        "replay": "no_log"
+      },
+      {
+        "jobId": "encounter:00000000-0000-4000-8000-000000000002:1",
+        "tripId": "00000000-0000-4000-8000-000000000002",
+        "encounterIndex": 1,
+        "outcome": "caravan_overrun",
+        "depth": 1024,
+        "settledAt": "2026-10-11T12:00:02.000Z",
+        "replay": "no_log"
+      }
+    ],
+    "retention": {
+      "days": 30,
+      "minPerCaravan": 50
+    }
+  }
+}

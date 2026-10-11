@@ -16,7 +16,10 @@ export interface ApiErrorBody {
 
 export interface AccountPublic {
   readonly id: string;
-  readonly username: string;
+  /** Chunk 30: null for a guest (no username or password linked yet). */
+  readonly username: string | null;
+  /** Chunk 30: true until the guest links a username and password. The server always sends it (the guard requires it); optional here so older fixtures stay valid. */
+  readonly guest?: boolean | undefined;
 }
 
 export interface CaravanSummary {

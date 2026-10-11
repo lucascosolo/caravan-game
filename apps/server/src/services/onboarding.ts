@@ -75,21 +75,40 @@ export async function registerAccount(
       }
       throw err;
     }
-    // Account-level hub rows.
-    await createHomeTown(client, account.id);
-    await createStandingParty(client, account.id);
-    for (const pool of ACCOUNT_POOLS) {
-      await createAccountPoolProgress(client, account.id, pool);
-    }
-    // Chunk 24: a new player starts the first-session guide (account-level, PHASE-2 §24).
-    await enrollOnboarding(client, account.id);
-    // First (and, in v1, only) caravan.
-    const caravanInput: Parameters<typeof createCaravanForAccount>[1] = {
-      accountId: account.id,
-      regionId: input.regionId,
-    };
-    if (caravanName !== undefined) caravanInput.name = caravanName;
-    const caravan = await createCaravanForAccount(client, caravanInput);
+    const caravan = await createAccountHub(client, account.id, input.regionId, caravanName);
     return { account, caravan };
   });
+}
+
+/**
+ * Everything a new player account gets besides its identity, in the caller's transaction:
+ * the account-level hub rows, the onboarding marker and the first caravan with its region.
+ * Shared by registration and chunk 30's guest creation, so a guest is the same account a
+ * registration makes, minus the username and password.
+ */
+export async function createAccountHub(client: pg.PoolClient, accountId: string, regionId: string, caravanName: string | undefined): Promise<CaravanRow> {
+  // Account-level hub rows.
+  await createHomeTown(client, accountId);
+  await createStandingParty(client, accountId);
+  for (const pool of ACCOUNT_POOLS) {
+    await createAccountPoolProgress(client, accountId, pool);
+  }
+  // Chunk 24: a new player starts the first-session guide (account-level, PHASE-2 §24).
+  await enrollOnboarding(client, accountId);
+  // First (and, in v1, only) caravan. Region: chosen once, here, never swapped (GUARDRAILS §5).
+  const caravanInput: Parameters<typeof createCaravanForAccount>[1] = { accountId, regionId };
+  if (caravanName !== undefined) caravanInput.name = caravanName;
+  return createCaravanForAccount(client, caravanInput);
+}
+
+/** Chunk 30: the username + password rules registration applies, for linking a guest. */
+export function validateCredentials(rawUsername: string, password: unknown): { username: string; password: string } {
+  const username = normalizeUsername(rawUsername);
+  if (hasSystemUsernamePrefix(username)) {
+    throw badRequest("reserved_username", `usernames starting with '${RESERVED_USERNAME_PREFIX}' are reserved`);
+  }
+  if (typeof password !== "string" || password.length < PASSWORD_MIN || password.length > PASSWORD_MAX) {
+    throw badRequest("invalid_password", `password must be ${PASSWORD_MIN}-${PASSWORD_MAX} characters`);
+  }
+  return { username, password };
 }

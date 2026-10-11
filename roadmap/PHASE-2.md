@@ -98,7 +98,7 @@ outcome the ledger recorded.
 **QA checks.** Guardrail 1: diff the renderer's displayed outcome against the ledger
 for 100 replays. Confirm no code path in the player calls into `packages/resolver`.
 
-**Status: built** (2026-10-11, chunk 22 Maker). Build notes:
+**Status: QA'd — fix round 1 built** (2026-10-11; S1–S9, D1–D4 and N1–N10 closed, see `roadmap/qa/22-punchlist.md` "Fix round 1"; the Maker's build notes below predate it: the body now also carries `settled`, `labels.siege` and stances, and `GET /me/encounters` exists). Build notes:
 
 - **Where it lives.** `apps/web/src/screens/replay/`: `replayModel.ts` (pure: body → scene at a
   moment, event feed, tally, keyframe seeks), `ReplayPlayer.tsx` (fetch, states, summary,
@@ -244,7 +244,17 @@ explain, unprompted, which side they play actively and which side is passive.
 town a "camp"? Does the player ever "attack" anything? Guardrail 3: can the tutorial grant
 a unit type outside the starting nodes?
 
-**Status: built** (2026-10-11, chunk 24 Maker). Build notes:
+**Status: QA'd, fix round 1 in** (2026-10-11, chunk 24 fixer; punch list `roadmap/qa/24-punchlist.md`, every
+item closed). `done` waits on the balance pass's D1 acceptance (the guided first fight held most of the time
+with the real resolver; today two fresh real-resolver walks were both overrun at encounter 1). Fix round 1
+supersedes two build notes below: **every caravan now starts with `TUNABLES.STARTING_ROSTER`** (granted at
+caravan creation through the ordinary ledgered grant, the region's starters only, no Coin, no backfill), so
+the refugee step teaches acquisition rather than supplying the only unit; and the bank-or-push card now
+**recommends from the server's stakes preview** instead of saying the trip pushes once. migration 019 guards
+`account_onboarding` against DELETE; the e2e double overruns an unfenced encounter 1 so the overrun path is
+walked end to end.
+
+Build notes (chunk 24 Maker):
 
 - **What the first session is.** Register (the region field now reads "Permanent: chosen once for
   this caravan and never swapped…") → **the first screen** (`onboarding/WelcomeScreen.tsx`, before
@@ -498,7 +508,7 @@ afterward where it struck", and today nothing tells the owner to check.
 **Definition of done.** A party owner who has not opened the game learns within a
 minute that their party overran a caravan, and one tap lands on the replay.
 
-**Status: built** (2026-10-11, chunk 29 Maker) — the in-app inbox; device push deferred (below). Build notes:
+**Status: done** (2026-10-11; QA'd, roadmap/qa/29-punchlist.md S1–S4, D1–D2, N1–N9 closed: "Mark all read" sends what is on screen, a batch's version follows its late credits, long names wrap at 320 px, the read is 6 queries / ~20 ms for a 25k-strike owner with lines only for the newest 3 batches, the list ends with a pointer to the feed for what it leaves out, and the strike path is tested on the production worker with the settle hooks and the real resolver) — the in-app inbox; device push deferred (below). Build notes:
 
 - **Derived, not stored.** `apps/server/src/inbox/` (`derive.ts` pure, `service.ts` reads, `tunables.ts`).
   Items are computed on every read: **party strikes** from the ledger (`party_served_as_encounter`
@@ -515,11 +525,13 @@ minute that their party overran a caravan, and one tap lands on the replay.
   the only stored state besides `inbox_preference (account_id, category, enabled)`. Read state is UI
   state, deliberately not a ledger event. Each item has a stable KEY and an integer VERSION (strike
   batch: newest seq; refugees / trip cap: the instant; mine: one per stretch between spends, keyed
-  by the last spend's seq; packs: per week). Unread = no mark at the item's version. A strike landing
+  by the last spend's seq; packs: per week; QA S2: a strike batch's version is the newest seq among its strikes AND
+  the credits / progression they caused, so a late settle re-opens it). Unread = no mark at the item's version. A strike landing
   in an already-read batch makes the batch unread again. Marks only move forward (trigger
-  `inbox_read_forward_only`, plus `GREATEST` in the upsert); the server stores min(version the client
-  saw, current version), so a stale or inflated mark can neither hide nor pre-read a new strike; keys
-  the account's inbox is not showing are refused (400 `unknown_item`), so no arbitrary rows. CHECKs on
+  `inbox_read_forward_only`, plus `GREATEST` in the upsert; QA N3: migration 018's `inbox_read_guard_delete` refuses
+  DELETE while the account exists); the server stores min(version the client saw, current version), so a stale or
+  inflated mark can neither hide nor pre-read a new strike; keys the account's inbox is not showing are skipped and
+  listed in `ignored` (QA N4; nothing stored, so no arbitrary rows), and a key sent twice is folded (QA N2). CHECKs on
   key shape, non-negative version and known categories. Proven against `caravan_app`: decrease and key
   change refused, TRUNCATE / DISABLE TRIGGER / DROP TRIGGER denied (42501).
 - **Batching** (§29): strikes group into fixed `INBOX_STRIKE_BATCH_WINDOW_MS` (1 h, epoch-aligned)
@@ -527,7 +539,11 @@ minute that their party overran a caravan, and one tap lands on the replay.
   transferred and cap-discarded parts), Reputation and ladder totals — SQL sums over every strike in
   the window, not just the listed ones. The newest `INBOX_STRIKES_PER_ITEM` (10) are itemized, each
   with its own "Watch the fight"; the rest are counted with a pointer to the results feed. Horizon
-  14 days, at most 30 batches. All TUNABLE, in `inbox/tunables.ts` (presentation knobs, not balance —
+  14 days (from a window start, so no batch is split: QA N1), at most 30 batches; past those, `olderStrikes`
+  and a closing line point to the results feed (QA D2). QA S4: one statement picks the 30 windows (partial index
+  `ledger_event_party_served_at_idx`, migration 018) before joining their credits; only the newest
+  `INBOX_ITEMIZED_BATCHES` (3) carry lines, read by time window in one query and built by the feed's own
+  `partyFeedEntries`; an older batch fetches its lines from `GET /me/inbox/strikes/:window`. All TUNABLE, in `inbox/tunables.ts` (presentation knobs, not balance —
   same decision as chunk 02's job knobs).
 - **No identity leak.** A strike line carries exactly what the results feed shows of the defender —
   username, caravan name, region — picked field by field; not the account id (the ledger payload's
@@ -540,7 +556,8 @@ minute that their party overran a caravan, and one tap lands on the replay.
   asserts the whole screen's text has no buy / purchase / spend / deal / offer / sale / store / $ /
   hurry wording and the mine / packs cards have no buttons.
 - **Routes:** `GET /me/inbox`, `GET /me/inbox/unread` (the badge; same derivation without the
-  per-strike lines), `POST /me/inbox/read` (`{all: true}` | `{marks: [{key, version}]}`, ≤ 100),
+  per-strike lines), `GET /me/inbox/strikes/:window`, `POST /me/inbox/read` (`{marks: [{key, version}]}`, ≤ 100;
+  `{all: true}` is gone — QA S1: "Mark all read" sends the unread items on screen),
   `PUT /me/inbox/preferences` (`{preferences: {<category>: boolean}}`). Registered in `app.ts`.
 - **Client.** Header button "✉ Inbox" with the server's unread count as a text badge and in its
   accessible name (`shell/InboxButton.tsx`), polled every `INBOX_POLL_MS` (60 s, TUNABLE) while the
@@ -604,6 +621,111 @@ minute that their party overran a caravan, and one tap lands on the replay.
 **Definition of done.** Guest → linked → deleted round-trips cleanly and leaves the
 other participants' replays playable.
 
+**Status: built** (2026-10-11, chunk 30 Maker; play-test cut: username + password is the only
+link, no Sign in with Apple / Google until chunk 34). Migration **020** (`020_account_lifecycle`, renumbered from 019 on merge;
+018 is chunk 29's; renumber on merge if needed). Build notes:
+
+- **Guest-first.** `account.username` / `password_hash` are nullable *together* (CHECK); a guest is
+  an ordinary account row created by `POST /auth/guest {region, caravanName?}` with the same hub rows,
+  onboarding marker and first caravan registration makes (`services/onboarding.ts createAccountHub`),
+  so the whole chunk 24 tutorial plays as a guest. `POST /me/account/link {username, password}` sets
+  both on THAT row: the id never changes, nothing is migrated. `account_guard_identity` makes a linked
+  username permanent (no unlink, no rename) and stamps `linked_at` once; a system account can never be
+  linked. Registration still exists and is "linked from birth".
+- **Decision — the region is on the guest's first screen.** "Created silently" is read as *no sign-in
+  prompt*, not *no choices*: the start card asks for the region only (with the permanence hint) and one
+  tap makes the account. Rejected: a default region chosen for the player — region is a one-time,
+  never-swapped choice per caravan (GUARDRAILS §5), so choosing it silently would take that choice away.
+  There is still no account-level path to change a region.
+- **Decision — how a guest survives a reload: a server-set HttpOnly device cookie.** Every sign-in
+  (guest, register, login) creates a `device` row: 32 random bytes in the cookie `caravan_device`
+  (HttpOnly, SameSite=Strict, Path=/, Secure under https / production, Max-Age = `DEVICE_TTL_MS` 180 d,
+  sliding), only its sha256 stored. `POST /auth/resume` trades it for a fresh bearer session tied to
+  the device (≤ `DEVICE_SESSIONS_MAX` 3 per device, ≤ `DEVICES_PER_ACCOUNT_MAX` 10 per account). The
+  page never reads or writes it and nothing goes into localStorage / sessionStorage; the bearer token
+  stays in memory. Game routes authenticate by the bearer header only, so the cookie riding along on
+  them authorizes nothing (no CSRF surface); it is honoured only by `/auth/resume` and `/auth/logout`.
+  The cookie value is not rotated on resume (two tabs resuming at once must not lock a guest out).
+  Rejected: browser storage (forbidden for game state); a long-lived bearer in a JS-readable cookie
+  (XSS-exfiltrable). A guest's sign-out needs `{abandon: true}` (409 `guest_sign_out` otherwise) and
+  revoking a guest's own current device is refused — either would lose the account.
+- **Devices / sessions.** `GET /me/devices`, `DELETE /me/devices/:id`, `POST /me/devices/revoke-others`,
+  and `GET /me/account` (account, devices, deletion terms). Labels are "Browser on Platform" from the
+  User-Agent; no IP is stored. Pre-019 sessions are backfilled one device each; a session inserted
+  without a device gets one (`session_ensure_device`, token hash `bare:<id>` no cookie can match).
+- **Rate limits** (`src/account/tunables.ts`, TUNABLE, in-memory fixed windows per process): login
+  20 / 15 min per IP and 10 / 15 min per username tried; registration and guest creation 10 / h per
+  IP; resume 120 / 15 min per IP; link 10 / 15 min, export 5 / h, delete 10 / 15 min per account. 429
+  `rate_limited` with `retryAfterMs` + Retry-After. `CARAVAN_RATE_LIMITS=off` (vitest env, `pnpm e2e`)
+  is refused under NODE_ENV=production. Hand-off: a multi-instance deploy needs a shared store, and the
+  per-IP key needs Fastify `trustProxy` behind a reverse proxy.
+- **Export.** `GET /me/export` (attachment): the account, its caravans (progress, units, trips, trip
+  encounters), account pools, town, party, onboarding, inbox preferences, purchases, cosmetics, devices,
+  the encounters it took part in (job id, role, outcome kind) and its own ledger. Never a password or
+  token hash; any `*AccountId` / `*CaravanId` / `*_account_id` value that is not this player's own is
+  replaced by `"other_player"`.
+- **Deletion: `account_erase(account, bearer_token)`** (SECURITY DEFINER, the one audited path;
+  `POST /me/account/delete {confirm: "delete my account", password?}` — the password once linked, 403
+  `wrong_password` / `password_required` so a typo never signs anyone out). It deletes the account and
+  everything only it owns by the existing cascades — caravans, roster, party, purchases and cosmetics,
+  sessions and devices, trips, its unshared jobs and replays, inbox read marks and preferences (chunk 29,
+  015/018: `inbox_read`'s delete guard allows exactly the account cascade), the onboarding marker (017)
+  — and ANONYMIZES what it shares: a fight it defended against another player's party, and a fight its
+  party struck against another player's caravan (any status: a queued fight still resolves and settles,
+  against a system owner, so nothing is credited), other accounts' ledger payloads, other players'
+  `trip_encounter` rows and stored candidate menus. The rewrite rule (`account_erasure_walk`) maps exact
+  string values / keys equal to the account id or its caravan ids to the shared **tombstone** (system
+  account `…00d0`, caravan `…00d1`, created lazily with progress rows, no party, never served, no login,
+  no Coin) and a menu's `displayName` equal to the username to "Departed outfit". Feeds show such a
+  strike with no name. Every erasure writes `account_erasure_audit` (when, guest or not, row counts —
+  never the id or username; append-only, not account-scoped, listed in the per-file reset's exempt set).
+- **How the guards allow it.** The UPDATE guards of `ledger_event`, `resolution_job`, `encounter_log`,
+  `trip_encounter` and `encounter_candidates` gained one first test, `account_erasure_permits(OLD, NEW)`:
+  true only while `account_erasure_active` holds a row for `txid_current()` — written only by
+  `account_erase`, removed before it returns, not writable by `caravan_app` — AND the new row is exactly
+  the rewrite of the old one (whole-row jsonb compare). Otherwise the original body runs unchanged; even
+  the owner role cannot edit outside an erasure, and inside one only the exact rewrite passes. The app
+  role still has no UPDATE/DELETE on `encounter_log`.
+- **Proof of the caller (QA ask).** `account_erase` takes the caller's RAW bearer token and checks a live
+  session of that account with `token_hash = sha256(token)`. The database stores only hashes, so nothing
+  the app role can read builds the argument: a compromised server process can erase only an account whose
+  live token it is handed in a request, not an arbitrary id. Tested: the stored hash, another account's
+  token, NULL and an expired token are refused (42501).
+- **Decision — the account's own ledger rows are deleted**, by the cascade the append-only guard already
+  allows (the owner is gone). Exception: its *non-projecting* record of a shared fight (`encounter_resolved`
+  / `party_served_as_encounter` / `stop_resolved` under the kept job's causation) moves to the tombstone,
+  rewritten, so the job's events stay contiguous and `verifyJobReplay` still holds on the anonymized input.
+  Other accounts' projections fold only their own events, so their balances are untouched (tested:
+  `verifyProjection` for every other participant). Not rewritten: trip ids (inside job ids and ledger
+  causations) and standing-party ids (inside menus sorted by party id): random ids that name nothing once
+  the rows are gone.
+- **Decision — the tombstone retention floor.** Kept replays of deleted defenders all live on the one
+  tombstone caravan, so LOG_RETENTION's "newest 50 per caravan" floor is shared by every deleted player's
+  kept fights; the 30-day floor is unchanged. Accepted: the floor exists for the defender, who is gone.
+  **Chunk 36 coordination:** compaction is assumed to keep rows in `encounter_log` (or a sibling keyed by
+  `job_id` with the same two account columns); the rewrite is whole-row, so a compacted row is anonymized
+  the same way. A new table that copies account ids must be added to `account_erase`'s list; the test
+  "no row in any table still names the deleted account" scans every table and fails if one is missed.
+  Chunk 32: no analytics table existed on main when this was built; nothing to chase.
+- **Client.** `LoginScreen` leads with the guest start card (sign-in and register below, unchanged);
+  `SessionProvider` resumes on launch and once more after a 401 (≤ 3 per load; default on with the real
+  fetch, off for an injected test fetch unless asked); the header shows "Guest" and an Account button
+  (no one-tap sign-out for a guest); `#/account` = `AccountScreen` (link, devices, export download,
+  sign-out / leave-guest confirm, delete with typed phrase). Strings in `strings.ts` `auth` / `account`.
+  The `account` guard's `guest` is optional so pre-30 fixtures read; the server always sends it.
+- **Tests.** Server `test/account-lifecycle.test.ts` (28): guest creation and cookie flags, resume
+  (none / forged / expired), device session caps, link (same id, permanence, refusals, DB guards), devices
+  and sign-out, labels, rate limits, export, the DoD round trip with the real resolver (both replays render,
+  `verifyJobReplay`, `verifyProjection`, feeds, all-tables scan, audit, inbox / onboarding gone), a party
+  owner erased with a fight still queued, a never-linked guest, and the app-role guard proofs. Contract:
+  `auth-guest`, `auth-resume`, `account-guest`, `account-link`, `account`, `devices`,
+  `devices-revoke-others`, `export`, `account-delete`. Web `AccountScreen.test.tsx` (10). e2e
+  `e2e/account.spec.ts`: guest first launch → reload → link → reload → sign out → sign in, same id.
+  `formation.spec` and `onboarding.spec` signed in again after a reload (v1: a reload signed out); a
+  reload now stays signed in, so those two re-sign-ins were removed. The export's store rows are read
+  through `src/store/export.ts` (store-guards: only src/store reads the store's tables). The identity
+  guard keeps `account.id` immutable only (tests backdate `created_at`).
+
 ## 31. Integrity and anti-abuse — **M**, after 14, 19
 
 **Goal.** The economy transfers Coin between accounts on an overrun. That is the
@@ -633,6 +755,136 @@ time. The tunables involved are previewable.
 anything about matchmaking or earnings? It must not.
 
 ## 32. Telemetry and balance instrumentation — **M**, before any external playtest
+
+**Status: built** (2026-10-11, chunk 32 Maker). Build notes:
+
+- **Migration 021** (`021_telemetry`; renumbered 018 → 020 → 021 on merges, since main's 018–020 are
+  taken — renumber again on merge if needed): `account_admin (account_id, granted_by, granted_at)` — the admin flag, one row or none per
+  account, kept off `account` so no `SELECT *` a player route reads can carry it;
+  `account_analytics (account_id, analytics_id, opted_out)` — a RANDOM opaque id (never derived from
+  the account id; immutable by trigger) and the opt-out; `analytics_client_event (analytics_id, kind,
+  screen, error_name, stack_hash, occurred_at, received_at)` — closed vocabularies enforced by CHECK
+  (screen `^[a-z_]{1,24}$`, error class `^[A-Za-z]{1,24}$`, stack hash 8 hex, crash ⇔ class + hash,
+  never in the future). Rows cascade from the account through `account_analytics`, so chunk 30's
+  deletion has nothing to chase. Plus eight indexes for the aggregates (ledger_event (event_type,
+  occurred_at) and (account_id, occurred_at), trip (ended_at), trip_encounter (settled_at),
+  refugee_menu (created_at), pack_purchase (purchased_at), account (created_at) of players). No
+  encounter_candidates (chosen_at) index: it pulled the matchmaker's served-share query off chunk
+  25's band index (qa25-scale caught it); the pool-health served query instead walks that band
+  index once per band (`generate_series(0, max(band))` × a LATERAL subquery fenced with `OFFSET 0`,
+  so the planner keeps the per-band index range rather than a merge join over a full scan).
+- **Cascade.** account_admin and account_analytics reference account ON DELETE CASCADE, and
+  analytics_client_event references account_analytics (analytics_id) ON DELETE CASCADE, so
+  `DELETE FROM account` (main's per-file test reset, chunk 30's deletion) leaves no analytics row;
+  `telemetry.test.ts` deletes an account and checks both tables.
+- **Admin access.** `db/roles.sql` revokes INSERT/UPDATE/DELETE on `account_admin` from
+  `caravan_app` (SELECT only; guarded by `to_regclass` so the script applies below 021), so no route
+  — and no bug in one — can grant admin. The flag is set by the operator CLI
+  `pnpm --filter @caravan/server admin grant <username> [--by <label>] | revoke <username> | list`
+  (`src/admin.ts`, built to `dist/admin.js`), which connects with `MIGRATE_DATABASE_URL` (owner).
+  `/admin/*` answers **404** `not_found` to no token, a bad token and a non-admin (never 401/403);
+  `GET /admin/dashboard?days=1..120&week=<pack week>` is the only admin route and only reads.
+- **Server-side analytics** (`src/analytics/queries.ts`, assembled by `dashboard.ts`): derived from
+  the ledger and the tables play already writes; nothing new is tracked server-side. Panels: trip
+  length (encounters settled per ended trip × end reason), bank versus push by encounter index (with
+  stalemates), overrun rate by the caravan's Reputation band (its living rating at search time, the
+  matchmaker's `bandOf`), unit pick and win rates for posted units (win = held) and for raiders in
+  served parties (win = overrun; live vs authored), trap and siege usage, posts by stance, slot fill
+  (posted / raiders / traps / fence segments per encounter with held rate), fight length against the
+  tick cap, ladder rungs now and gained, unlock-node purchases, merge spend per day and per level,
+  Coin spent by reason, refugee menus per day (free / reroll / claimed), Coin by source with what the
+  cap discarded, storage-cap pressure, trip-cap pressure (starts that took the last use), the
+  **grind-wall probe** (free weekly Coin per active-player decile — active = started a trip that
+  pack week — against `WEEKLY_PAY_CEILING`, with paid Coin and payers per decile), the pack funnel
+  (opened the game → opened the store (screen flow) → reserved / settled per tier), session length
+  (screen events split by a 30-minute gap), day-1/7/30 return (cohort = players created in the last
+  90 days; a return is one of the account's OWN ledger actions or a screen event in
+  [created + N d, created + N+1 d)), screen views, crash reports, and **pool health** (live vs
+  authored servable parties per band of the owner's siege Reputation, caravans per band, served
+  authored share in the window, and an alarm per band: `empty` below CANDIDATES_PER_SEARCH parties,
+  `no_live` authored only, `authored_over_share` above AUTHORED_PARTY_MAX_SHARE_BP). Rates are basis
+  points computed in TS; all integers.
+- **Bounded cost.** Every windowed query reads through a 020 index; the resolution job and the
+  chosen menu are reached by key through `LATERAL … LIMIT 1`, and the settled-encounter CTE is
+  `MATERIALIZED` (inlined, the planner walked trip_encounter's whole primary key for a free sort
+  order). `test/telemetry-scale.test.ts` writes a two-year synthetic history (3 000 accounts,
+  30 000 trips with jobs and menus, 300 000 ledger events, 200 000 client events, refugee menus,
+  pack purchases), ANALYZEs and EXPLAINs every exported `*_SQL` over a 30-day window: no Seq Scan
+  and no condition-less index scan of any event-shaped table (ledger_event, trip, trip_encounter,
+  resolution_job, encounter_candidates, refugee_menu, pack_purchase, analytics_client_event). Only
+  the "now" panels (ladder levels, pool health, accounts near the cap, the opted-out set) scan state
+  tables of one row per player / party / caravan. The plans are checked in under
+  `apps/server/db/explain/analytics/*.txt` (`pnpm --filter @caravan/server explain:analytics`
+  rewrites them); the whole dashboard over that history built in ~0.4–1.1 s locally.
+- **Client telemetry** (`apps/web/src/telemetry/`): screen flow (the route, or `welcome`) and crash
+  reports (window `error` / `unhandledrejection` and the render error boundary) — a crash is a closed
+  error class plus an FNV-1a hash of its first three stack frames with URLs stripped, never the
+  message. Batched in memory (5 s after the first event, ≤ 25 per request, a failed send is dropped,
+  no storage of any kind, no third-party SDK), sent to `POST /me/telemetry` with each event's age.
+  The server validates the exact shape (unknown key, screen, class or a malformed hash refuses the
+  batch), caps the body at 4 KiB (413) and the batch at 25, rate-limits per account (12 batches a
+  minute, in-process fixed window with bounded memory; 429 + Retry-After, checked in `onRequest`
+  before the body is read) and keeps at most 1 000 events per analytics id per rolling 24 h. Knobs
+  in `src/analytics/tunables.ts` (operational, not balance; the server's screen list is compared with
+  the web client's by a test).
+- **Opt-out** is an account setting on the server: `GET/PUT /me/analytics { optedOut }`, a toggle
+  "Share usage data" inside the Inbox's settings disclosure (the client's one settings place). An
+  opted-out account's batches are accepted and dropped (`optedOut: true`, after which the client's
+  reporter stops), opting out deletes the client events already kept, and opted-out accounts are left
+  out of the return cohort. Ledger-derived balance aggregates (trips, picks, Coin) include every
+  player: they are counts over records the game keeps anyway, and dropping accounts would bias the
+  very numbers being tuned.
+- **One-way.** Nothing in the resolver, matchmaking, economy, acquisition or trip loop reads the
+  analytics module or tables (a test greps `src/` and the three packages); the dashboard only reads.
+- **Admin page**: `#/admin` (`apps/web/src/screens/admin/AdminScreen.tsx`, a lazy chunk linked from
+  nowhere; a 404 shows "Not found." and nothing else). Tables with every number as text, a
+  single-hue bar beside each rate, alarms in words; the §20 table at the top with today's registry
+  values. Column labels on this operator page are inline English, not `strings.ts` (headings and
+  player-facing copy are in `strings.ts` under `admin` / `privacy`).
+
+**PROJECT.md §20 → the panel each number is tuned against** (also `TUNING_MAP` in
+`src/analytics/dashboard.ts`, served with the dashboard and rendered at the top of the page):
+
+| # | §20 number | Registry keys | Panel(s) | What to read |
+|---|---|---|---|---|
+| 1 | Damage formula coefficients and the type/affinity matrix | DAMAGE_FORMULA, AFFINITY_ADVANTAGE_MULT, AFFINITY_DISADVANTAGE_MULT, MERGE_MULT_PER_LEVEL | defenderUnits, attackerUnits, overrunByBand | win rate per type on each side; overrun level across bands |
+| 2 | Garrison aggro radius and leash | AGGRO_RADIUS_DEFAULT, LEASH_DISTANCE_DEFAULT, LEASH_HYSTERESIS_MULT | stances, defenderUnits | held rate per defensive stance |
+| 3 | Deployment slot count | DEPLOYMENT_SLOT_CAP, PARTY_SLOT_CAP, SIEGE_SLOT_CAP | slots | posted / raiders per encounter vs held rate |
+| 4 | Fence segment HP and unlock cost | FENCE_SEGMENT_HP_DEFAULT, FENCE_HIT_SEGMENT_CAP, FENCE_MATERIAL_BUDGET | slots (fences), unlockPurchases | segments placed vs held rate; fence nodes bought |
+| 5 | Trap values and unlock costs | TRAP_DAMAGE_MIN/MAX, TRAP_SLOW_MAGNITUDE_DEFAULT, TRAP_ROOT_DURATION_DEFAULT, TRAP_SLOT_CAP | traps, unlockPurchases | pick and held rate per trap; trap nodes bought |
+| 6 | Siege values and unlock costs | SIEGE_FENCE_DAMAGE_MULT, SIEGE_TRAP_NULLIFY, STRUCTURE_BREAKER_MULT_DEFAULT | siege, unlockPurchases | pick and overrun rate per siege; siege nodes bought |
+| 7 | Ladder point curves | LADDER_* | ladder | owners per rung now; rungs crossed |
+| 8 | Unlock web node counts and structure | LIVING_UNITS_PER_REGION, TRAP_TYPES, SIEGE_TYPES, FENCE_TIERS | unlockPurchases, ladder | nodes bought (and never) vs points granted |
+| 9 | Weekly pack Coin per tier and the combined cap | PACK_COIN_BY_TIER, PACK_TIER_PRICES_CENTS, WEEKLY_PAY_CEILING | grindWall, packFunnel | ceiling vs free weekly earn per decile; funnel per tier |
+| 10 | Coin storage cap | COIN_STORAGE_CAP | storageCap, earnBySource | players at / near the cap; Coin discarded per source |
+| 11 | Coin earn rates | COIN_PER_ENCOUNTER_BASE, COIN_ENCOUNTER_ESCALATION_MULT, COIN_ENCOUNTER_BAND_SCALE_BP, COIN_DELIVERY_PER_ENCOUNTER, COIN_PER_PARTY_WIN, COIN_TRICKLE_RATE_PER_HOUR | earnBySource, grindWall, bankVsPush, tripLength | Coin by source; push rate past encounter 1 |
+| 12 | Trips-per-hour cap | TRIPS_PER_HOUR_CAP, TRIP_CAP_REGEN_MS | tripCap, sessionLength | starts that took the last use vs session length |
+| 13 | Refugee refresh interval and mercenary cost | REFUGEE_REFRESH_INTERVAL_MINUTES, REFUGEE_REROLL_COST_SCHEDULE, MERCENARY_COST_BASE | refugees, spendByReason | free menus / rerolls / claims per day; reroll and mercenary Coin |
+| 14 | Tick cap / stalemate threshold | BATTLE_LENGTH_CAP_SECONDS, TICK_RATE, STALEMATE_LOOT_SHARE | tickCap, bankVsPush | fights at / near the cap by outcome; stalemate share by encounter |
+
+- **Tests.** `apps/server/test/telemetry.test.ts` (30): one seeded history through the real routes
+  (four owners, three trips resolved by the double — held→bank, held→push→overrun, stalemate→bank —
+  a refugee reroll, merge-shaped spends, a pack purchase, trap ladder and unlock events, two client
+  sessions and a crash) and every panel asserted to exact numbers (Coin, ladder and grind-wall
+  against an independent fold of the same ledger rows, since real play moves them); retention over
+  backdated accounts with an opted-out one; the §20 table against PROJECT.md (14 bullets, real
+  registry keys, existing panels); admin 404s, revoke, the app role refused (42501) on
+  INSERT/UPDATE/DELETE of `account_admin`, no `src/` file but `analytics/admin.ts` writes it;
+  opt-out (kept nothing, deleted what was kept), the opaque id and cascade; ingest refusals, 413,
+  429, the daily cap, the limiter's bounded memory; the screen list equals the web's; the one-way
+  grep; the contract recording (`analytics`, `analytics-put`, `telemetry`, `admin-dashboard` under
+  `apps/web/src/test/contract/`, timestamps normalised). **Guard-test exemptions (narrow):**
+  `store-guards` (two greps) and `economy-guards` (one grep) exempt exactly ONE file,
+  `src/analytics/queries.ts`, from "no file outside the store / economy names pack_purchase /
+  coin_purchased / coin_spent": the funnel and the spend panels must read them. The exemption is
+  safe because that file is pure SELECT — `telemetry.test.ts` asserts it contains no INSERT /
+  UPDATE / DELETE / appendEvents / appendCoinCredits / spendCoin — and because nothing in play
+  imports `src/analytics` (the one-way grep). Every other analytics file stays under the greps. `telemetry-scale.test.ts` (4): the EXPLAIN
+  gate above. Web: `AdminScreen.test.tsx` (5), `telemetry/telemetry.test.tsx` (9: batching, caps, no
+  message text, opt-out stop, dispose, the hook, the toggle), contract guards for the four routes.
+- **Not done here:** device / native crash reporting (chunk 34); per-number target bands (what
+  value of each metric is "tuned") — that is chunk 37's sign-off; a scheduled band-emptiness alert
+  to a channel (the alarm is on the dashboard; there is no notification target yet).
 
 **Goal.** PROJECT.md §20 lists fourteen numbers that are placeholders. They get tuned
 from data or they never get tuned.
@@ -716,6 +968,68 @@ the purchase service and the resolver share no module.
 screen-reader walkthrough can name every unit, stance, and siege piece in the party.
 
 ## 36. Performance, storage, and scale — **M**, after 13, 15
+
+**Status: built** (2026-10-11, chunk 36 Maker; the play-test cut: retention compaction, matchmaking indexes with explain plans, a local load test). Build notes:
+
+- **Migration 022_retention_and_scale** (was 021 on the branch; renumbered on merge, after 021 telemetry).
+  - `encounter_log_summary`: one row per compacted replay. It holds the outcome (kind, depth, endTick, loot) from the job's immutable result, the end-card tally, and the log's metadata (versions, sizes, sha256, when the log was written). The tally is what the web player shows: raiders and posts fallen, fences broken, traps fired, traps nullified, core reached, deepest raider. The worker writes it into `result.replay.tally` at completion (`replay/summary.ts`, one pass over the rows; a test pins it to the web player's own tally from the reader). Nothing in a summary comes from a caller. The summary is insert-once, there are no updates, and TRUNCATE is refused. Its only path out is a cascade from its caravan or job, so it is account-scoped and the per-file test reset needs no exemption for it. Per-encounter Coin, Reputation and de-merge itemization is NOT copied: the replay route reads it from the ledger, which is permanent.
+  - Compaction replaces deletion everywhere:
+    - `encounter_log_prune(caravan)` keeps its signature and now compacts.
+    - `encounter_log_retention_sweep(limit 1..5000)` is the all-caravan entry point, oldest first.
+    - The internal `encounter_log_compact_rows` writes the summary first, then deletes the log. EXECUTE on it is revoked from PUBLIC.
+    - The delete guard also refuses any log without a summary, even for the owner role.
+  - LOG_SIZE_BUDGET: `encounter_log_retention.size_budget_bytes` = 102400, pinned to `TUNABLES.LOG_SIZE_BUDGET_BYTES` by a test. A log over the budget is compacted at any age. The worker runs the caravan's prune once more after marking the job completed, inside the same transaction, so an over-budget log never outlives its own completion. LOG_RETENTION is unchanged: older than 30 days AND outside the caravan's newest 50.
+  - The app role has no INSERT, UPDATE or DELETE on the summary table and cannot call the compactor. `retention.test.ts` proves the refusals as `caravan_app` and as the owner role.
+- **Account erasure (chunk 30) composes with compaction, in both orders** (tests for each):
+  - Erased, then compacted: `account_erase` has already re-pointed the shared log to the tombstone, and the summary copies those ids.
+  - Compacted, then erased: an AFTER UPDATE trigger on `resolution_job` (`encounter_log_summary_follow_erasure`) fires only while an erasure is active. When `account_erase` re-points a kept fight's job, the trigger applies the same closed `account_erasure_rewrite` to that job's summary. The summary's update guard admits exactly that rewrite through `account_erasure_permits`, and nothing else.
+  - Covered for a defender erased (the party's owner keeps the archived fight) and for a party owner erased (the defender keeps it). A summary of a fight with no other player goes with the caravan, as its log does. The summary JSON holds no ids and no names.
+  - `account_erase`'s audit counts do not include summaries (its function is chunk 30's).
+- **Scheduled job.** `jobs/retentionWorker.ts` `LogRetentionLoop` runs in-process like the encounter worker. It starts with the server (`index.ts`, `retentionJob: true`; tests sweep by hand) and repeats hourly. Each run calls the sweep in batches of 500 until a batch comes back short, at most 200 batches per run. Operational constants, not balance.
+- **Replay route.** A compacted fight answers **200** with `renderable: false`, `log: null`, `reason: COMPACTED_REASON` and `compacted: {reason, compactedAt, logCreatedAt, tally (deepest with displayName)}`. Outcome, depth, party and `settled` are as before, and `stored` is the caravan side's only. 410 `replay_expired` is now only for a log pruned before §36 with no summary. The edit is additive.
+  - Contract case: `replay-compacted` is recorded by the server suite (the owner role lowers the budget for one prune) and checked by the web guard (`compacted` is an optional field).
+  - The web player shows "This fight's playback has been archived" with the kept tally.
+  - Chunk 22's recent-fights list gains `replay: "compacted"`.
+- **Matchmaking indexes and EXPLAIN plans** (`apps/server/db/explain/*.txt`, generated by `pnpm load:explain -- --db … --write`). Data: 50 096 accounts, 50 096 standing parties, 52 000 trips, 156 000 stored chosen menus (648 MB). One veteran account has 2 000 trips; a typical active account has 25. Run after VACUUM ANALYZE on PostgreSQL 16.15, load average 10–15.
+  - **Reputation band:** the existing `pool_progress_pool_reputation_idx` and `account_system_idx` drive it, with no sequential scan. ±600 at 1000 returns 15 120 parties in 82–110 ms. **Finding:** the cost grows linearly with the in-band population, because the scan reads the ±600 slice even when the ±150 pass fills. A pass-by-pass scan is the next lever. It is not changed here (it is the draw's replay input).
+  - **Linked-account exclusion:** a `<> ALL($1)` filter on the band rows. There is no link table until chunk 31, so nothing to index. The plan shows it with a 25-id list.
+  - **Recent-opponent exclusion:** rewritten (`RECENT_OPPONENTS_SQL`) to take the newest N chosen menus by key before expanding any candidate list. The new `encounter_candidates_chosen_recent_idx (trip_id, chosen_at DESC, encounter_index DESC) INCLUDE (search_seq) WHERE chosen_at IS NOT NULL` makes that an index-only scan with 0 heap fetches. Veteran account: pre-§36 query 81.9 ms (12 031 buffers); new query without the index 73.4 ms; new query with the index **10.2 ms (7 300 buffers)**. Typical account: 0.33 ms.
+  - Chunk 25's served-share window: 0.47 ms.
+- **Resolver budget (100 ms per 180 s fight, CPU).** `budget.test.ts` now times every golden-corpus fight (72) plus the full-load fights. Each fight is timed best of 3–9 CPU runs after a warm-up, with a GC before each (`--expose-gc`), in batches so no synchronous block runs long.
+  - The strict 100 ms bound is `pnpm perf:resolver`: the file alone, `RESOLVER_BUDGET_STRICT=1`, a CI step of its own and part of `pnpm ci`. The parallel suite runs the same test with a 2× allowance; the full-length bound was 300 ms before.
+  - Measured in the final gate run (load average 4.5): slowest fight c13-full-load-full-length (3 600 ticks, unkillable) **86.8 ms**, a **13 % margin**. Next slowest: c13-stalemate-deep-but-not-in 70.1 ms, combat-full-load-16v8v28 53.7 ms. Corpus mean 8.1 ms. The direct full-length test read 83.1 ms.
+  - Under concurrent `pnpm determinism` the same fight read 103–137 ms of CPU. That is why the strict bound runs alone.
+  - Across earlier strict runs on this shared machine the heaviest fight read 88–108 ms; one of four runs failed at load average ~6. **The margin is thin on a contended runner.** If CI flakes, the lever is phase 2's A* (`findPath`, 40 % of the profile), not the bound.
+- **Load test** (`pnpm load:queue -- --db <load DB>`; resets that database; not in CI).
+  - **Assumed launch concurrency:** 100 trips in progress at the launch peak, about 1.1 commits/s. 100× is 10 000 trips and the **target is ≥ 110 resolutions/s** on one 4-core host running server, workers and Postgres together.
+  - **Phase A:** 500 real trips commit concurrently over HTTP as the app role while the workers resolve and settle.
+  - **Phase B:** the 100× burst, 10 000 encounters enqueued concurrently against ONE standing party (chunk 02's case). Optionally `--burst-parties N`.
+  - Checks that passed in every run: every job completed exactly once (attempts = 1), nothing parked, 2 ledger events per job, one log per job, the party row byte-identical afterwards, identical inputs → byte-identical logs (500 input groups).
+  - Measured with 4 worker processes × 2 drain loops, other agents running on the machine:
+
+    | Run | Load average | Throughput | Enqueue → resolved | Other |
+    |---|---|---|---|---|
+    | Phase A, 500 trips | 6.1–6.7 | — | commit → resolved p50 0.6 s, p95 2.0 s | bounded by the 21 commits/s HTTP commit rate |
+    | Phase B, one party | 6.1–6.7 | **51 jobs/s** | p50 102 s, p95 159 s | burst; CPU 14.4 ms/job |
+    | Phase B, 24 parties | 6.3–10.4 | **88 jobs/s** | p50 49 s, p95 73 s | burst; CPU 11.1 ms/job |
+
+    Stored logs average 2.7–3.2 KB gzip.
+  - **Target not met here, and not measurable fairly here.** The host is shared, and the worker CPU (11–14 ms/job) is a small share of the wall time.
+  - `--profile` shows the bottleneck is lock waiting, not the resolver. `pg_advisory_xact_lock` waits average 28–39 ms per job, against a 12–18 ms handler. Every job locks its caravan and every account it appends events for, and the one-party case appends a `party_served_as_encounter` event for the same owner each time. **Finding / hand-off:** a single popular standing party serializes on its owner's account lock, which caps that party at about 50 resolutions/s, whatever the worker count. Spreading over 24 parties lifts throughput to 88/s on this machine. Before launch, re-measure on a dedicated host. If the owner's lock binds, take the account lock only for events that move a balance (`party_served_as_encounter` projects nothing).
+- **Client.** The battle/replay scene is now lazy: chunk 22 had it statically imported by `WatchFight`, and with it the resolver's replay reader. `ReplayPlayer` is its own chunk, 34.7 KB (12.4 KB gzip), loaded the first time a fight is opened. The iso renderer (PixiJS) was already a lazy chunk (chunk 08 QA S3).
+  - **Atlas streaming and memory ceiling: nothing to stream yet.** Art is the iso renderer's placeholder shapes (chunk 26 is out of play-test scope), and there are no textures or atlases.
+  - What applies now: one PixiJS canvas per open view, lazily loaded, and `IsoCanvas` creates and destroys its renderer with the view.
+  - When chunk 26 lands: atlases must be per region, loaded on entering a region's screens and released on leaving. They need a stated texture-memory ceiling for low-end devices: target ≤ 64 MB of GPU texture on a 2 GB phone, tunable. That ceiling is a proposal, not measured.
+- **Tests added:**
+  - Server `retention.test.ts` (8): tally parity, compaction by budget and by retention, the sweep, the loop, guards against both roles, cascade, erasure in both orders for both sides, recent fights showing "compacted".
+  - Updated: trip-resolver retention (compaction), migrations (table list), contract (`replay-compacted`).
+  - Web: replay guard (compacted accepted, drifted summary refused) and ReplayPlayer (archived view).
+- **Gates (final run, sequential, after merging roadmap/phase-2-spec):**
+  - typecheck, lint, boundary: pass.
+  - Suites: content 82, circle 108, resolver 586, server 742 (+1 skipped), web 426 — all pass.
+  - determinism, perf:resolver (strict), build: pass.
+  - e2e: 11 passed.
+
 
 **Constraints.**
 - Resolver budget: one 180-second fight resolves in under 100 ms on the server. Measured

@@ -10,23 +10,41 @@
         "occurredAtMs": 1790000060000,
         "occurredAt": "2026-10-11T12:00:00.000Z",
         "detail": {
-          "count": 2,
-          "held": 2,
+          "count": 3,
+          "held": 3,
           "overran": 0,
           "stalemate": 0,
           "other": 0,
-          "coinEarned": 353,
+          "coinEarned": 1077,
           "coinTransferred": 0,
           "coinDiscardedAtCap": 0,
-          "reputationDelta": -15,
-          "ladderPointsGained": 10,
+          "reputationDelta": -42,
+          "ladderPointsGained": 30,
           "windowStartMs": 1790000000000,
           "windowEndMs": 1790000120000,
+          "linesIncluded": true,
           "strikes": [
             {
-              "seq": 2,
+              "seq": 3,
               "occurredAt": "2026-10-11T12:00:00.000Z",
               "jobId": "encounter:00000000-0000-4000-8000-000000000001:1",
+              "encounterIndex": 1,
+              "outcomeKind": "caravan_held",
+              "defender": {
+                "username": "contract_voider",
+                "caravanName": "Caravan",
+                "regionId": "desert"
+              },
+              "coinEarned": 353,
+              "coinTransferred": 0,
+              "coinDiscardedAtCap": 0,
+              "reputationDelta": -13,
+              "ladderPointsGained": 10
+            },
+            {
+              "seq": 2,
+              "occurredAt": "2026-10-11T12:00:01.000Z",
+              "jobId": "encounter:00000000-0000-4000-8000-000000000002:1",
               "encounterIndex": 1,
               "outcomeKind": "caravan_held",
               "defender": {
@@ -34,15 +52,16 @@
                 "caravanName": "Caravan",
                 "regionId": "desert"
               },
-              "coinEarned": 0,
+              "coinEarned": 371,
               "coinTransferred": 0,
-              "reputationDelta": 0,
-              "ladderPointsGained": 0
+              "coinDiscardedAtCap": 0,
+              "reputationDelta": -14,
+              "ladderPointsGained": 10
             },
             {
               "seq": 1,
-              "occurredAt": "2026-10-11T12:00:01.000Z",
-              "jobId": "encounter:00000000-0000-4000-8000-000000000002:1",
+              "occurredAt": "2026-10-11T12:00:02.000Z",
+              "jobId": "encounter:00000000-0000-4000-8000-000000000003:1",
               "encounterIndex": 1,
               "outcomeKind": "caravan_held",
               "defender": {
@@ -52,6 +71,7 @@
               },
               "coinEarned": 353,
               "coinTransferred": 0,
+              "coinDiscardedAtCap": 0,
               "reputationDelta": -15,
               "ladderPointsGained": 10
             }
@@ -89,6 +109,7 @@
         "defaultEnabled": false
       }
     ],
+    "olderStrikes": null,
     "strikeBatchWindowMs": 3600000,
     "horizonMs": 1209600000,
     "delivery": "in_app"

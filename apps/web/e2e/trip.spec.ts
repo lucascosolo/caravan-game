@@ -154,6 +154,8 @@ test("a full trip: outfit, ride out, three encounters (a rider dies at the secon
   const noLog = replay.getByTestId("replay-not-renderable");
   await expect(noLog).toHaveAttribute("data-no-log", "true");
   await expect(noLog).toContainText("No replay was recorded for this fight");
+  // QA N6: the raw reason sits under a plain sentence, inside "Technical detail".
+  await replay.getByText("Technical detail").click();
   await expect(replay.getByTestId("replay-reason")).toHaveText("Reason: no replay log was recorded for this fight");
   await expect(replay.getByTestId("replay-outcome")).toHaveText("Your caravan held.");
   await expect(replay.getByTestId("replay-depth-explained")).toContainText("from the ring to the core");
@@ -172,25 +174,52 @@ test("a full trip: outfit, ride out, three encounters (a rider dies at the secon
   // for this one request. The built client reads it with the resolver's replay reader and
   // draws it through the iso renderer on a real canvas; play at 4×, skip to the end.
   const recorded = JSON.parse(readFileSync(fileURLToPath(new URL("../src/test/contract/replay.json", import.meta.url)), "utf8")) as { body: { outcome: { kind: string } } };
-  await page.route("**/api/me/encounters/*/replay", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(recorded.body) }));
+  // QA N7: the player refuses a body for another fight, so the served body names the job that was asked for.
+  await page.route("**/api/me/encounters/*/replay", (route) => {
+    const jobId = decodeURIComponent(new URL(route.request().url()).pathname.split("/").at(-2)!);
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...recorded.body, jobId, encounterIndex: 1 }) });
+  });
   await r1.getByTestId("watch-fight").click();
   const real = page.getByRole("dialog", { name: "Encounter 1: the fight" });
   const player = real.getByTestId("replay-player");
   await expect(player).toBeVisible();
   await expect(real.getByTestId("iso-canvas")).toBeVisible();
-  await expect(real.getByTestId("replay-outcome")).toHaveText("Your caravan held.");
+  await expect(real.getByTestId("replay-summary-toggle")).toContainText("How it ended: Your caravan held.");
+  // QA S2: the camera opens on the action, a lattice cell at least 32 px wide at 360 px.
+  const isoZoom = () => page.evaluate(() => (window as unknown as { __isoDebug?: { zoom(): number } }).__isoDebug?.zoom() ?? 0);
+  await expect.poll(isoZoom).toBeGreaterThanOrEqual(32 / 48 - 1e-6);
+  // QA S9: the canvas keeps updating while the fight plays — its pixels change and the renderer's frame count rises.
+  const frames = () => page.evaluate(() => (window as unknown as { __isoDebug?: { framesDrawn(): number } }).__isoDebug?.framesDrawn() ?? 0);
+  const field = real.locator(".replay__field canvas");
+  const shotDir = process.env["E2E_SHOT_DIR"];
+  const before = await field.screenshot(shotDir ? { path: `${shotDir}/replay-360-start.png` } : {});
+  const framesBefore = await frames();
   await real.getByTestId("replay-speed-4").click();
   await real.getByTestId("replay-play").click();
   await expect.poll(async () => Number(await real.getByTestId("replay-scrub").inputValue()), { timeout: 8_000 }).toBeGreaterThan(130);
   await real.getByTestId("replay-play").click();
+  const after = await field.screenshot(shotDir ? { path: `${shotDir}/replay-360-mid.png` } : {});
+  expect(Buffer.compare(before, after), "the canvas changed between two ticks").not.toBe(0);
+  expect(await frames()).toBeGreaterThan(framesBefore + 10);
+  // QA N9: paused, nothing changes, so the renderer's ticker goes to sleep (no rAF while idle).
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __isoDebug?: { ticking(): boolean } }).__isoDebug?.ticking() ?? true)).toBe(false);
+  if (shotDir) await page.screenshot({ path: `${shotDir}/replay-360-dialog.png` });
+  await real.getByTestId("replay-feed-all").click();
   await expect(real.getByTestId("replay-feed")).toContainText("hit");
   const scrubBox = await real.getByTestId("replay-scrub").boundingBox();
   expect(scrubBox!.height).toBeGreaterThanOrEqual(43.5);
   await real.getByTestId("replay-to-end").click();
+  // QA S1: the last frame is held about a second before the end card shows.
   await expect(real.getByTestId("replay-end-card")).toHaveAttribute("data-outcome", recorded.body.outcome.kind);
   await expect(real.getByTestId("replay-end-card")).toContainText("Your caravan held.");
+  if (shotDir) await field.screenshot({ path: `${shotDir}/replay-360-end.png` });
+  await real.getByTestId("replay-end-dismiss").click();
+  await expect(real.getByTestId("replay-end-card")).toHaveCount(0);
   await page.setViewportSize({ width: 320, height: 640 });
   await fitsPortrait(page);
+  // The dialog's own content fits too (no clipped stage or controls after narrowing 360 → 320).
+  await expect.poll(() => page.evaluate(() => { const d = document.querySelector(".dialog--full")!; return d.scrollWidth - d.clientWidth; })).toBeLessThanOrEqual(0);
+  if (shotDir) await page.screenshot({ path: `${shotDir}/replay-320-dialog.png` });
   await page.setViewportSize({ width: 360, height: 640 });
   await real.getByTestId("replay-close").click();
   await page.unroute("**/api/me/encounters/*/replay");

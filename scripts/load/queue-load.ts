@@ -6,7 +6,7 @@
  *
  *   createdb -O caravan caravan_load          # any database whose name contains "load" (refused otherwise)
  *   pnpm load:queue -- --db postgres://caravan:caravan@127.0.0.1:5432/caravan_load \
- *     [--burst 10000] [--trips 500] [--processes 4] [--loops 2]
+ *     [--burst 10000] [--burst-parties 1] [--trips 500] [--processes 4] [--loops 2] [--profile]
  *   (= pnpm --filter @caravan/server exec tsx ../../scripts/load/queue-load.ts …)
  *
  * ASSUMED LAUNCH CONCURRENCY (no live data exists yet; revisit with chunk 32's telemetry):

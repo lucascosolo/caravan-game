@@ -8,7 +8,8 @@ import { readReplay } from "@caravan/resolver/replay";
 import { describe, expect, it } from "vitest";
 import type { ReplayView } from "../../api/replayTypes.ts";
 import { goldenNames, goldenView, replayCaravan, replayNoLog, replayOwner } from "../../test/replayFixtures.ts";
-import { clock, nextKeyframe, openReplay, prevKeyframe, type ReplayModel } from "./replayModel.ts";
+import { depthPercent } from "./depth.ts";
+import { END_HOLD_SECONDS, HIT_MARK_SECONDS, MARK_SECONDS, REPLAY_GEOMETRY, clock, nextKeyframe, openReplay, prevKeyframe, type ReplayModel } from "./replayModel.ts";
 
 function open(view: ReplayView): ReplayModel {
   const r = openReplay(view);
@@ -28,7 +29,8 @@ describe("the replay model on the server's recorded fight (contract fixture)", (
     const text = m.feed.map((l) => l.text).join("\n");
     expect(text).toMatch(/^Your Well Digger/m);
     expect(text).toMatch(/the raiders' (Dust Rider|Well Digger)/);
-    expect(text).toMatch(/ fell\.$/m);
+    // QA S7: a death names the row that took the unit to 0 HP.
+    expect(text).toMatch(/^Your Well Digger 1 fell to the raiders' Dust Rider\.$/m);
     expect(text).toMatch(/Spike Pit sprang on/);
     expect(text).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/);
     // Tally from the rows: three units fell in this fight.
@@ -127,7 +129,7 @@ describe("the whole golden corpus plays", () => {
       const finalKf = m.replay.keyframes[m.replay.keyframes.length - 1]!;
       expect(end.replayUnits!.map((u) => u.id), name).toEqual(finalKf.units.filter((u) => u.alive).map((u) => String(u.u)));
       // Every death, trap, fence break, ability and core arrival in the log is a feed line.
-      const rows = m.replay.events.filter((e) => ["unit_died", "trap_fired", "trap_nullified", "fence_broken", "ability", "core_reached", "hit"].includes(e.k)).length;
+      const rows = m.replay.events.filter((e) => ["unit_died", "trap_fired", "trap_nullified", "fence_broken", "ability", "core_reached", "hit", "fence_hit"].includes(e.k)).length;
       expect(m.feed.length, name).toBe(rows);
     }
   });
@@ -164,5 +166,125 @@ describe("the whole golden corpus plays", () => {
   it("clock reads fight time as m:ss", () => {
     expect(clock(0, 20)).toBe("0:00");
     expect(clock(1239, 20)).toBe("1:01");
+  });
+});
+
+describe("chunk 22 QA fixes in the model", () => {
+  it("S1: past the last tick the frame holds and the final rows' marks play out (the deciding kill is seen)", () => {
+    const m = open(replayCaravan());
+    const last = m.ticks - 1;
+    const final = m.replay.events.filter((e) => e.k === "unit_died").at(-1)!;
+    expect(final.t).toBe(last);
+    const atEnd = m.scene(last);
+    const held = m.scene(last + 0.5 * END_HOLD_SECONDS * m.tickRate);
+    expect(held.replayUnits).toEqual(atEnd.replayUnits);
+    const death = held.marks!.find((x) => x.kind === "death" && x.id === `m${m.replay.events.indexOf(final)}`);
+    expect(death, "the last death's cross is still on the field during the hold").toBeDefined();
+    expect(death!.age).toBeGreaterThan(0);
+    expect(death!.age).toBeLessThan(1);
+  });
+
+  it("S4: a hit row yields a line mark from the attacker's to the target's frame position at that tick", () => {
+    const view = replayCaravan();
+    const m = open(view);
+    const reader = readReplay(view.log);
+    const i = m.replay.events.findIndex((e) => e.k === "hit");
+    const hit = m.replay.events[i] as Extract<(typeof m.replay.events)[number], { k: "hit" }>;
+    const mark = m.scene(hit.t).marks!.find((x) => x.id === `m${i}`)!;
+    expect(mark.kind).toBe("hit");
+    const f = reader.frame(hit.t);
+    expect(mark.from).toEqual({ x: f.units[hit.u]!.x / 1024, y: f.units[hit.u]!.y / 1024 });
+    expect(mark.pos).toEqual({ x: f.units[hit.v]!.x / 1024, y: f.units[hit.v]!.y / 1024 });
+    // A fence hit is marked too, at the segment, and worded in the feed.
+    const fm = open(goldenView("combat-full-load-16v8v28"));
+    const fi = fm.replay.events.findIndex((e) => e.k === "fence_hit");
+    expect(fm.scene(fm.replay.events[fi]!.t).marks!.find((x) => x.id === `m${fi}`)!.kind).toBe("fence_hit");
+    expect(fm.feed.find((l) => l.key === fi)!.text).toMatch(/^The raiders' Dust Rider \d+ hit your Brush Pile #\d+ for \d+/);
+  });
+
+  it("S5: a mark's life is wall-clock — at 4× it spans four times as many fight ticks", () => {
+    const m = open(goldenView("c11-slow-trap"));
+    const fired = m.replay.events.find((e) => e.k === "trap_fired")!;
+    const life1 = MARK_SECONDS * m.tickRate;
+    const trapAt = (at: number, speed: number) => m.scene(at, { speed }).marks!.filter((x) => x.kind === "trap");
+    expect(trapAt(Math.min(m.ticks - 1, fired.t + life1 * 1.5), 1)).toHaveLength(0);
+    expect(trapAt(Math.min(m.ticks - 1, fired.t + life1 * 1.5), 4)).toHaveLength(1);
+    expect(HIT_MARK_SECONDS).toBeLessThan(MARK_SECONDS);
+  });
+
+  it("S6: depth reads 'reached the core' only when the core was reached; otherwise floored and capped at 99", () => {
+    expect(depthPercent(1021, false)).toBe(99);
+    expect(depthPercent(1023, false)).toBe(99);
+    expect(depthPercent(1024, true)).toBe(100);
+    expect(depthPercent(529, false)).toBe(51);
+    expect(depthPercent(0, false)).toBe(0);
+  });
+
+  it("S7: how each fighter fared, from the rows, for both viewers", () => {
+    const c = open(replayCaravan()).fates.map((f) => f.text);
+    expect(c).toEqual([
+      "Your Well Digger 1: fell to the raiders' Dust Rider at 0:21.",
+      "Your Well Digger 2: still standing at the end.",
+      "The raiders' Dust Rider: fell to your Well Digger 2 at 0:26.",
+      "The raiders' Well Digger: fell to your Well Digger 2 at 0:39.",
+    ]);
+    const o = open(replayOwner()).fates.map((f) => f.text);
+    expect(o.slice(0, 2)).toEqual(["Your Dust Rider: fell to the caravan's Well Digger 2 at 0:26.", "Your Well Digger: fell to the caravan's Well Digger 2 at 0:39."]);
+    const full = open(goldenView("combat-full-load-16v8v28")).fates.map((f) => f.text);
+    expect(full).toContain("The raiders' Dust Rider 16: reached the core at 0:06.");
+    expect(full).toContain("Your Well Digger 1: still standing when the core was overrun.");
+  });
+
+  it("D1: stances and siege come from the server's labels (the job's snapshots) and reach the scene", () => {
+    const view = replayCaravan();
+    const m = open(view);
+    const s = m.scene(0);
+    for (const u of s.replayUnits!) expect(u.stance).toBe(view.labels.units[Number(u.id)]!.stance);
+    expect(s.replayUnits!.map((u) => u.stance)).toEqual(["nearest", "traps", "hold", "guard"]);
+    expect(s.siege).toEqual([{ id: "0:siege.battering_wagon", typeId: "siege.battering_wagon", edge: "north", along: 0.3 }]);
+    expect(m.siegeNames).toEqual(["Battering Wagon (hits timber fences harder)"]);
+    expect(m.hasStances).toBe(true);
+    // A golden body names no siege, so the feed never credits one the player cannot see.
+    const full = open(goldenView("combat-full-load-16v8v28"));
+    expect(full.feed.filter((l) => /harmless/.test(l.text)).every((l) => !/siege/.test(l.text))).toBe(true);
+    // With a trap-countering piece labelled, the nullified trap names it.
+    const g = goldenView("combat-full-load-16v8v28");
+    const withSiege = open({ ...g, labels: { ...g.labels, siege: [{ typeId: "siege.rock_rake", displayName: "Rock Rake", counters: { kind: "trap", category: "groundwork" } }] } });
+    expect(withSiege.feed.find((l) => /harmless/.test(l.text))!.text).toMatch(/; the party's Rock Rake made it harmless\.$/);
+    const owner = open({ ...g, viewer: "party_owner", labels: { ...g.labels, siege: [{ typeId: "siege.rock_rake", displayName: "Rock Rake", counters: { kind: "trap", category: "groundwork" } }] } });
+    expect(owner.feed.find((l) => /harmless/.test(l.text))!.text).toMatch(/your party's Rock Rake made it harmless\.$/);
+  });
+
+  it("N3: a siege-nullified trap is not counted as sprung", () => {
+    const t = open(goldenView("combat-full-load-16v8v28")).tally;
+    expect(t.trapsSprung).toBe(3);
+    expect(t.trapsNullified).toBe(3);
+  });
+
+  it("N7: a body for another fight, or labels naming another type, are refused", () => {
+    const view = replayCaravan();
+    expect(openReplay(view, { jobId: "encounter:00000000-0000-4000-8000-0000000000ff:1" }).ok).toBe(false);
+    expect(openReplay(view, { jobId: view.jobId, encounterIndex: 2 }).ok).toBe(false);
+    expect(openReplay(view, { jobId: view.jobId, encounterIndex: view.encounterIndex }).ok).toBe(true);
+    const wrongType = { ...view, labels: { ...view.labels, units: view.labels.units.map((u, i) => (i === 0 ? { ...u, typeId: "desert.well_digger", displayName: "Well Digger" } : u)) } };
+    const r = openReplay(wrongType);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe("the server's labels do not match the stored log");
+  });
+
+  it("S2: the opening frame covers the ring and reaches toward every edge raiders came in from — not the whole field", () => {
+    const m = open(replayCaravan());
+    const r = m.frameRect;
+    for (const c of REPLAY_GEOMETRY.ringCells) {
+      expect(c.x).toBeGreaterThanOrEqual(r.x);
+      expect(c.x).toBeLessThan(r.x + r.w);
+      expect(c.y).toBeGreaterThanOrEqual(r.y);
+      expect(c.y).toBeLessThan(r.y + r.h);
+    }
+    expect(r.w).toBeLessThan(REPLAY_GEOMETRY.width);
+    expect(r.h).toBeLessThan(REPLAY_GEOMETRY.height);
+    expect(r.minCellPx).toBeGreaterThanOrEqual(32);
+    expect(m.entryEdges).toEqual(["north", "east"]);
+    expect(m.keyframeSeconds).toBe(5);
   });
 });

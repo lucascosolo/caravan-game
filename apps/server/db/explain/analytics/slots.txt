@@ -1,0 +1,24 @@
+-- chunk 32: slots over the synthetic history in test/telemetry-scale.test.ts (30-day window)
+Sort
+  Sort Key: ('posted'::text), sizes.posted
+  CTE enc
+    ->  Nested Loop
+          ->  Bitmap Heap Scan on trip_encounter te
+                Recheck Cond: ((settled_at >= '2026-09-11 22:01:49.946+00'::timestamp with time zone) AND (settled_at < '2026-10-11 22:01:49.946+00'::timestamp with time zone))
+                ->  Bitmap Index Scan on trip_encounter_settled_at_idx
+                      Index Cond: ((settled_at >= '2026-09-11 22:01:49.946+00'::timestamp with time zone) AND (settled_at < '2026-10-11 22:01:49.946+00'::timestamp with time zone))
+          ->  Limit
+                ->  Index Scan using resolution_job_pkey on resolution_job
+                      Index Cond: (id = te.job_id)
+          SubPlan 1
+            ->  Index Scan using account_pkey on account a
+                  Index Cond: (id = ((resolution_job.input ->> 'partyOwnerAccountId'::text))::uuid)
+  CTE sizes
+    ->  CTE Scan on enc e
+  ->  HashAggregate
+        Group Key: ('posted'::text), sizes.posted
+        ->  Append
+              ->  CTE Scan on sizes
+              ->  CTE Scan on sizes sizes_1
+              ->  CTE Scan on sizes sizes_2
+              ->  CTE Scan on sizes sizes_3

@@ -21,9 +21,13 @@ import { partyRoutes } from "./routes/party.js";
 import { progressionRoutes } from "./routes/progression.js";
 import { storeRoutes } from "./routes/store.js";
 import { replayRoutes } from "./routes/replay.js";
+import { telemetryRoutes } from "./routes/telemetry.js";
 import { tripRoutes } from "./routes/trip.js";
 import { unlockRoutes } from "./routes/unlocks.js";
 import { AppError } from "./services/errors.js";
+import { accountRoutes } from "./routes/account.js";
+import { RateLimitedError, RateLimiter, rateLimitsFromEnv, sendRateLimited } from "./account/rateLimit.js";
+import type { RateLimitConfig } from "./account/tunables.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -34,6 +38,8 @@ declare module "fastify" {
     encounterWorker: EncounterWorkerLoop | null;
     /** PHASE-2 §36: the scheduled replay-retention sweep (compaction). Null when not enabled (tests sweep by hand). */
     retentionJob: LogRetentionLoop | null;
+    /** Chunk 30: the auth / account routes' fixed-window limiter. */
+    rateLimiter: RateLimiter;
   }
   interface FastifyRequest {
     auth?: AuthContext;
@@ -59,6 +65,14 @@ export interface BuildAppOptions {
    * Default off (tests call the sweep themselves).
    */
   retentionJob?: boolean | { intervalMs?: number };
+  /**
+   * Chunk 30: the auth / account rate limits. Default: account/tunables.ts RATE_LIMITS, or off
+   * when CARAVAN_RATE_LIMITS=off (the server test suite's vitest env; refused in production).
+   * null turns them off; a config replaces them (the rate-limit tests pass small ones).
+   */
+  rateLimits?: RateLimitConfig | null;
+  /** Chunk 30: the limiter's clock (tests). */
+  rateLimitClock?: () => number;
 }
 
 /** Operational: the test double's sweep interval (its kicks do the work). */
@@ -69,6 +83,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   const db = opts.db ?? createPool();
   app.decorate("db", db);
   app.decorate("inlineEncounterWorker", opts.inlineEncounterWorker ?? null);
+  app.decorate("rateLimiter", new RateLimiter(opts.rateLimits !== undefined ? opts.rateLimits : rateLimitsFromEnv(process.env), opts.rateLimitClock));
   const inline = opts.inlineEncounterWorker ?? null;
   const workerOpt = opts.encounterWorker ?? inline !== null;
   const loop =
@@ -109,6 +124,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   if (!opts.db) app.addHook("onClose", async () => db.end());
 
   app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
+    if (err instanceof RateLimitedError) return sendRateLimited(reply, err);
     if (err instanceof AppError) {
       return reply.code(err.statusCode).send({ error: err.code, message: err.message });
     }
@@ -126,6 +142,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   });
 
   await app.register(authRoutes);
+  await app.register(accountRoutes);
   await app.register(meRoutes);
   await app.register(ledgerRoutes);
   await app.register(progressionRoutes);
@@ -141,5 +158,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(replayRoutes);
   await app.register(inboxRoutes);
   await app.register(onboardingRoutes);
+  // Chunk 32: client telemetry (screen flow, crashes), the opt-out, and the admin-only dashboard.
+  await app.register(telemetryRoutes);
   return app;
 }

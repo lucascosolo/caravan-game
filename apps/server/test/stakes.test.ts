@@ -42,6 +42,7 @@ import { redactForeignAccountIds } from "../src/routes/ledger.js";
 import { applyEarnFloor, chosenEncounterTerms, mergeLevelAfterDeath, planUnitLosses, transferCausationId } from "../src/trip/stakes.js";
 import { partyLoot } from "../src/trip/loot.js";
 import { appRolePool, testPool, truncateAll, unique } from "./helpers.js";
+import { besidesStartingRoster } from "./starting-roster-helpers.js";
 import { rebuildMixed, rebuildPlan, weeklyFreeEarn } from "../../../scripts/balance/model.js";
 import { doubleHandlers, type EncounterPlan } from "../src/dev/tripDouble.js";
 
@@ -246,8 +247,9 @@ async function byCausation(causationId: string): Promise<LedgerEventRow[]> {
   return (await pool.query<LedgerEventRow>("SELECT * FROM ledger_event WHERE causation_id = $1 ORDER BY causation_seq", [causationId])).rows;
 }
 
+/** The roster this suite built: every caravan's starting roster (chunk 24 QA D1) left out. */
 async function roster(caravanId: string): Promise<{ id: string; unit_type_id: string; merge_level: number }[]> {
-  return (await pool.query("SELECT id, unit_type_id, merge_level FROM unit_instance WHERE caravan_id = $1 ORDER BY id", [caravanId])).rows;
+  return besidesStartingRoster(pool, caravanId, (await pool.query("SELECT id, unit_type_id, merge_level FROM unit_instance WHERE caravan_id = $1 ORDER BY id", [caravanId])).rows);
 }
 
 async function levelOf(id: string): Promise<number | null> {
@@ -293,11 +295,14 @@ function expectNotReduced(before: Awaited<ReturnType<typeof permanence>>, after:
   expect(after.grants.slice(0, before.grants.length)).toEqual(before.grants);
 }
 
+/** The twelve general-pool owners (siege 950..1060) and the rating each was created at. */
+const generalOwners: { owner: Player; rating: number }[] = [];
+
 beforeAll(async () => {
   await truncateAll(pool);
   appRole = appRolePool();
   app = await buildApp({ db: appRole });
-  for (let i = 0; i < 12; i++) await makeOwner(950 + i * 10);
+  for (let i = 0; i < 12; i++) generalOwners.push({ owner: await makeOwner(950 + i * 10), rating: 950 + i * 10 });
 });
 afterAll(async () => {
   await app.close();
@@ -734,6 +739,12 @@ describe("the earn floor: one apply site, the chosen candidate's multiplier", ()
   it("a party the search widened to pays in full (FIXED_ONE), exactly the chosen row's multiplier", async () => {
     const d = await makeDefender();
     await setLiving(d, 1_350); // nothing within ±150: the search widens to the general pool
+    // Pin the pool this premise is about. Earlier encounters in this file move the general
+    // owners' siege ratings (progression at settle), and which owner each draw served depends
+    // on the seed (random trip/caravan ids), so by now a third owner may have drifted from
+    // 1040 into the ±150 band around the centre (1200: only 1050 and 1060 sit in it at their
+    // created ratings) and the search would not widen. Put them back where they were created.
+    for (const g of generalOwners) await pool.query("UPDATE pool_progress SET reputation = $2 WHERE account_id = $1 AND pool = 'siege'", [g.owner.accountId, g.rating]);
     await pack(d);
     const tripId = await start(d);
     await encounter(d, 1, { kind: "caravan_held" });

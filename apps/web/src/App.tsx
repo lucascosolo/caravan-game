@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 import { useSession, SessionProvider } from "./auth/session.tsx";
 import { LoginScreen } from "./screens/login/LoginScreen.tsx";
+import { AccountScreen } from "./screens/account/AccountScreen.tsx";
 import { WebsScreen } from "./screens/webs/WebsScreen.tsx";
 import { STRINGS } from "./strings.ts";
 import { OnboardingProvider, useOnboarding } from "./onboarding/OnboardingProvider.tsx";
@@ -17,9 +18,13 @@ const PacksScreen = lazy(() => import("./screens/store/PacksScreen.tsx").then((m
 // Chunk 29: the inbox (lazy: its "Watch the fight" opens the replay player, which draws on the canvas).
 const InboxScreen = lazy(() => import("./screens/inbox/InboxScreen.tsx").then((m) => ({ default: m.InboxScreen })));
 const CosmeticsScreen = lazy(() => import("./screens/store/CosmeticsScreen.tsx").then((m) => ({ default: m.CosmeticsScreen })));
+// Chunk 32: the admin dashboard, a lazy chunk no player ever loads (no link to it anywhere).
+const AdminScreen = lazy(() => import("./screens/admin/AdminScreen.tsx").then((m) => ({ default: m.AdminScreen })));
 import { AppShell } from "./shell/AppShell.tsx";
 import { ErrorBoundary } from "./shell/ErrorBoundary.tsx";
 import { navigate, useRoute } from "./shell/router.tsx";
+import { reportCrash } from "./telemetry/telemetry.ts";
+import { useTelemetry } from "./telemetry/useTelemetry.ts";
 
 function Routed(): JSX.Element {
   const { session, signOut, api } = useSession();
@@ -32,6 +37,9 @@ function Routed(): JSX.Element {
   useEffect(() => {
     if (session && route === "login") navigate("town", { replace: true });
   }, [session, route]);
+  // Chunk 32: screen flow (and crashes) for this session; the server honours the opt-out.
+  const welcomeShown = onboarding?.step === "welcome";
+  useTelemetry(api, session !== null, session === null ? null : welcomeShown ? "welcome" : route === "login" ? "town" : route);
   if (!session) {
     return (
       <div className="shell">
@@ -61,6 +69,12 @@ function Routed(): JSX.Element {
     case "inbox":
       screen = <InboxScreen />;
       break;
+    case "account":
+      screen = <AccountScreen />;
+      break;
+    case "admin":
+      screen = <AdminScreen />;
+      break;
     case "town":
     case "login":
     default:
@@ -70,7 +84,7 @@ function Routed(): JSX.Element {
   const welcome = onboarding?.step === "welcome";
   if (welcome) screen = <WelcomeScreen api={api} />;
   return (
-    <AppShell route={route === "login" || route === "packs" || route === "cosmetics" ? "town" : route} username={session.account.username} onSignOut={() => void signOut()}>
+    <AppShell route={route === "login" || route === "packs" || route === "cosmetics" ? "town" : route} username={session.account.username} onSignOut={() => void signOut()} hideTabs={welcome}>
       {!welcome && <ShellGuide api={api} route={route} onPartySaved={() => setPartyEpoch((n) => n + 1)} />}
       <Suspense
         fallback={
@@ -96,10 +110,16 @@ function GuideScope({ children }: { children: JSX.Element }): JSX.Element {
   );
 }
 
-export function App({ fetchImpl }: { fetchImpl?: typeof fetch } = {}): JSX.Element {
+/** The render error boundary's report: logged as before, and sent as a crash (class + stack hash only). */
+function onRenderError(error: unknown, info: { componentStack?: string | null }): void {
+  reportCrash(error);
+  console.error("render error", error, info.componentStack);
+}
+
+export function App({ fetchImpl, autoResume }: { fetchImpl?: typeof fetch; autoResume?: boolean } = {}): JSX.Element {
   return (
-    <SessionProvider {...(fetchImpl ? { fetchImpl } : {})}>
-      <ErrorBoundary>
+    <SessionProvider {...(fetchImpl ? { fetchImpl } : {})} {...(autoResume !== undefined ? { autoResume } : {})}>
+      <ErrorBoundary onError={onRenderError}>
         <GuideScope>
           <Routed />
         </GuideScope>

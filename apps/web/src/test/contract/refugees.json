@@ -7,7 +7,7 @@
       "sequence": 1,
       "origin": "free",
       "rerollsThisWindow": 0,
-      "seed": 3860765634,
+      "seed": 160765145,
       "poolTypeIds": [
         "desert.dust_rider",
         "desert.sand_sharpshooter",
@@ -16,6 +16,16 @@
       "offers": [
         {
           "slot": 0,
+          "unitTypeId": "desert.sand_sharpshooter",
+          "displayName": "Sand Sharpshooter",
+          "affinity": "powder",
+          "ability": {
+            "archetype": "heavy_strike",
+            "displayName": "Long Shot"
+          }
+        },
+        {
+          "slot": 1,
           "unitTypeId": "desert.dust_rider",
           "displayName": "Dust Rider",
           "affinity": "beast",
@@ -25,23 +35,13 @@
           }
         },
         {
-          "slot": 1,
+          "slot": 2,
           "unitTypeId": "desert.well_digger",
           "displayName": "Well Digger",
           "affinity": "grit",
           "ability": {
             "archetype": "structure_breaker",
             "displayName": "Pick Swing"
-          }
-        },
-        {
-          "slot": 2,
-          "unitTypeId": "desert.sand_sharpshooter",
-          "displayName": "Sand Sharpshooter",
-          "affinity": "powder",
-          "ability": {
-            "archetype": "heavy_strike",
-            "displayName": "Long Shot"
           }
         }
       ],
@@ -71,9 +71,9 @@
     "balance": 1000,
     "pendingTrickle": 0,
     "inventory": {
-      "count": 3,
+      "count": 5,
       "cap": 200,
-      "room": 197,
+      "room": 195,
       "full": false
     }
   }

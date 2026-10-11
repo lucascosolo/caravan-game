@@ -21,6 +21,8 @@
     "test:boundary": "node scripts/resolver-boundary-check.mjs",
     "determinism": "node scripts/determinism.mjs",
     "perf:resolver": "pnpm --filter @caravan/resolver run budget",
+    "load:queue": "pnpm --filter @caravan/server exec tsx ../../scripts/load/queue-load.ts",
+    "load:explain": "pnpm --filter @caravan/server exec tsx ../../scripts/load/matchmaking-explain.ts",
     "build": "node scripts/build.mjs && pnpm --filter @caravan/web build",
     "start": "node apps/server/dist/index.js",
     "smoke": "node scripts/smoke-server.mjs",

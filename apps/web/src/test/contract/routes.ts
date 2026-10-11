@@ -32,8 +32,10 @@ import {
   storeShape,
   unequipResultShape,
 } from "../../api/shapes.ts";
-import { replayShape } from "../../api/replayShapes.ts";
-import { inboxShape, inboxUnreadShape } from "../../api/inboxShapes.ts";
+import { recentFightsShape, replayShape } from "../../api/replayShapes.ts";
+import { accountViewShape, deleteResultShape, devicesShape, exportShape, linkResultShape, revokeOthersShape } from "../../api/accountShapes.ts";
+import { inboxMarkResultShape, inboxShape, inboxStrikeLinesShape, inboxUnreadShape } from "../../api/inboxShapes.ts";
+import { analyticsSettingsShape, dashboardShape, telemetryIngestShape } from "../../api/telemetryShapes.ts";
 import { onboardingChangeShape, onboardingShape } from "../../onboarding/shapes.ts";
 import { bankResultShape, encounterCommitShape, pushResultShape, stakesPreviewShape, tripCapRefusalShape, tripStartShape, tripStatusShape } from "../../api/tripShapes.ts";
 
@@ -95,11 +97,31 @@ export const CONTRACT_GUARDS: Readonly<Record<string, Guard<unknown> | null>> = 
   "replay-no-log": replayShape,
   // PHASE-2 §36: the same fight after its log was compacted to its results summary.
   "replay-compacted": replayShape,
+  // Chunk 22 QA D2: the caravan's fights within retention (one with a log; three double-resolved ones).
+  encounters: recentFightsShape,
+  "encounters-history": recentFightsShape,
   // Chunk 29's inbox: the struck party's owner (a real-resolver strike), the badge, a mark-all, and every other category.
   inbox: inboxShape,
   "inbox-unread": inboxUnreadShape,
-  "inbox-read": inboxShape,
+  "inbox-read": inboxMarkResultShape,
+  "inbox-strikes": inboxStrikeLinesShape,
+  // Chunk 30: the account lifecycle (guest first launch, reload, Account screen).
+  "auth-guest": authShape,
+  "auth-resume": authShape,
+  "account-guest": accountViewShape,
+  "account-link": linkResultShape,
+  account: accountViewShape,
+  devices: devicesShape,
+  "devices-revoke-others": revokeOthersShape,
+  export: exportShape,
+  "account-delete": deleteResultShape,
   "inbox-preferences": inboxShape,
+  // Chunk 32: the usage-data setting, a telemetry batch's answer, and the admin dashboard
+  // (recorded by apps/server/test/telemetry.test.ts over its seeded history).
+  analytics: analyticsSettingsShape,
+  "analytics-put": analyticsSettingsShape,
+  telemetry: telemetryIngestShape,
+  "admin-dashboard": dashboardShape,
 };
 
 /** Null when `body` passes the route's guard (or the route has none); else the guard's reason. */

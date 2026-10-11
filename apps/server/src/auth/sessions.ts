@@ -7,8 +7,11 @@ import type pg from "pg";
 import { SESSIONS_PER_ACCOUNT_MAX, SESSION_TTL_MS } from "../config.js";
 import type { AccountRow } from "../db/types.js";
 import { findAccountById } from "../repo/accounts.js";
+import { hashDeviceToken, insertDevice, newDeviceToken, pruneDevices } from "../account/device.js";
+import { DEVICE_SESSIONS_MAX } from "../account/tunables.js";
 import {
   deleteSession,
+  evictDeviceSessionsBeyondCap,
   evictSessionsBeyondCap,
   findLiveSessionByTokenHash,
   insertSession,
@@ -35,7 +38,25 @@ export class SystemAccountSessionError extends Error {
   }
 }
 
-export async function issueSession(db: pg.Pool | pg.PoolClient, accountId: string): Promise<{ token: string; expiresAt: Date }> {
+export interface IssuedSession {
+  token: string;
+  expiresAt: Date;
+  sessionId: string;
+  deviceId: string;
+  /** Chunk 30: the raw device credential, only when this call created the device (the route sets it as the HttpOnly cookie). */
+  deviceToken: string | null;
+}
+
+/**
+ * Chunk 30: every session belongs to a device. Without `deviceId` (a sign-in: register, login,
+ * guest creation) a new device is created and its raw credential returned once; with one (a
+ * resume) the session joins that device, which keeps at most DEVICE_SESSIONS_MAX sessions.
+ */
+export async function issueSession(
+  db: pg.Pool | pg.PoolClient,
+  accountId: string,
+  opts: { deviceId?: string; label?: string } = {},
+): Promise<IssuedSession> {
   const account = await findAccountById(db, accountId);
   if (!account) throw new Error(`account ${accountId} not found; cannot issue a session`);
   if (account.is_system) throw new SystemAccountSessionError(accountId);
@@ -44,9 +65,17 @@ export async function issueSession(db: pg.Pool | pg.PoolClient, accountId: strin
   // Housekeeping on the login path: drop this account's expired rows, then cap the live
   // ones so a leaked credential can't grow the table without bound.
   await purgeExpiredSessions(db, accountId);
-  await insertSession(db, { accountId, tokenHash: hashToken(token), expiresAt });
+  let deviceId = opts.deviceId ?? null;
+  let deviceToken: string | null = null;
+  if (deviceId === null) {
+    deviceToken = newDeviceToken();
+    deviceId = (await insertDevice(db, { accountId, tokenHash: hashDeviceToken(deviceToken), label: opts.label ?? "Unknown device" })).id;
+  }
+  const session = await insertSession(db, { accountId, tokenHash: hashToken(token), expiresAt, deviceId });
+  if (opts.deviceId !== undefined) await evictDeviceSessionsBeyondCap(db, deviceId, DEVICE_SESSIONS_MAX);
+  await pruneDevices(db, accountId);
   await evictSessionsBeyondCap(db, accountId, SESSIONS_PER_ACCOUNT_MAX);
-  return { token, expiresAt };
+  return { token, expiresAt, sessionId: session.id, deviceId, deviceToken };
 }
 
 export interface AuthContext {

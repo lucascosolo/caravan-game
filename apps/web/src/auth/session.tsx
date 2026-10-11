@@ -1,8 +1,14 @@
 /**
  * Session state: the bearer token and the signed-in account, in memory only. Provides the
  * typed API client bound to that token. A 401 from any call drops the session.
+ *
+ * Chunk 30: nothing is stored in the browser. On launch — and once more after a 401 — the
+ * provider asks the server to resume (POST /auth/resume): the server reads its own HttpOnly
+ * device cookie, which this code never sees, and answers a fresh bearer token for the same
+ * account. A guest therefore survives a reload without a username, a password or any
+ * localStorage. `resuming` is true while that first answer is out.
  */
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createApi, type Api } from "../api/client.ts";
 import type { AccountPublic, AuthResponse } from "../api/types.ts";
 
@@ -15,8 +21,18 @@ export interface SessionContextValue {
   readonly session: Session | null;
   readonly api: Api;
   readonly signIn: (auth: AuthResponse) => void;
-  readonly signOut: () => Promise<void>;
+  /** Chunk 30: a guest's sign-out passes `abandon` (the server refuses it otherwise). */
+  readonly signOut: (abandon?: boolean) => Promise<void>;
+  /** Chunk 30: true while the launch-time resume is in flight. */
+  readonly resuming: boolean;
+  /** Chunk 30: the account changed under the same session (a guest linked a username). */
+  readonly updateAccount: (account: AccountPublic) => void;
+  /** Chunk 30: the account is gone (deleted): forget the session without calling the server. */
+  readonly forget: () => void;
 }
+
+/** Automatic resumes after a 401, per page load: enough for an evicted session, never a loop. */
+const AUTO_RESUMES_MAX = 3;
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
@@ -58,8 +74,17 @@ export function clearViewerStorage(): void {
   }
 }
 
-export function SessionProvider({ children, fetchImpl }: { children: ReactNode; fetchImpl?: typeof fetch }): JSX.Element {
+/**
+ * `autoResume` (chunk 30): ask the server for the device-cookie session on launch and after a 401.
+ * Default: on with the real fetch; off when a test injects `fetchImpl` (its fake server has no
+ * device cookie), unless the test asks for it.
+ */
+export function SessionProvider({ children, fetchImpl, autoResume = fetchImpl === undefined }: { children: ReactNode; fetchImpl?: typeof fetch; autoResume?: boolean }): JSX.Element {
   const [session, setSession] = useState<Session | null>(null);
+  const [resuming, setResuming] = useState(autoResume);
+  // Bumped by a 401: try the device cookie once more before showing the start screen.
+  const [resumeEpoch, setResumeEpoch] = useState(0);
+  const autoResumes = useRef(0);
   // The api reads the token through a ref so one client instance serves every render.
   const tokenRef = useRef<string | null>(null);
   tokenRef.current = session?.token ?? null;
@@ -68,24 +93,59 @@ export function SessionProvider({ children, fetchImpl }: { children: ReactNode; 
     () =>
       createApi({
         getToken: () => tokenRef.current,
-        onUnauthorized: () => setSession(null),
+        onUnauthorized: () => {
+          setSession(null);
+          if (autoResume && autoResumes.current < AUTO_RESUMES_MAX) {
+            autoResumes.current += 1;
+            setResumeEpoch((n) => n + 1);
+          }
+        },
         ...(fetchImpl ? { fetchImpl } : {}),
       }),
-    [fetchImpl],
+    [fetchImpl, autoResume],
   );
 
+  useEffect(() => {
+    if (!autoResume) return;
+    let live = true;
+    setResuming(true);
+    api
+      .resume()
+      .then((auth) => {
+        // A sign-in that landed meanwhile wins: never replace a session the player just made.
+        if (live) setSession((prev) => prev ?? { token: auth.token, account: auth.account });
+      })
+      .catch(() => {
+        // No device here (401 no_device), or the server is unreachable: the start screen shows.
+      })
+      .finally(() => {
+        if (live) setResuming(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [api, autoResume, resumeEpoch]);
+
   const signIn = useCallback((auth: AuthResponse) => setSession({ token: auth.token, account: auth.account }), []);
-  const signOut = useCallback(async () => {
-    try {
-      await api.logout();
-    } catch {
-      // The server may already consider the session gone; locally it is gone either way.
-    }
+  const signOut = useCallback(
+    async (abandon?: boolean) => {
+      try {
+        await api.logout(abandon);
+      } catch {
+        // The server may already consider the session gone; locally it is gone either way.
+      }
+      resetViewerState();
+      setSession(null);
+    },
+    [api],
+  );
+  const updateAccount = useCallback((account: AccountPublic) => setSession((prev) => (prev ? { ...prev, account } : prev)), []);
+  const forget = useCallback(() => {
     resetViewerState();
     setSession(null);
-  }, [api]);
+  }, []);
 
-  const value = useMemo<SessionContextValue>(() => ({ session, api, signIn, signOut }), [session, api, signIn, signOut]);
+  const value = useMemo<SessionContextValue>(() => ({ session, api, signIn, signOut, resuming, updateAccount, forget }), [session, api, signIn, signOut, resuming, updateAccount, forget]);
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
 

@@ -40,12 +40,19 @@
 --                                over the size budget, and — for anything but a cascade — only
 --                                once its summary exists. A log can never vanish without one.
 --
--- ACCOUNTS (chunk 30, built concurrently). The summary copies the log row's account ids AS THEY
--- ARE at compaction, so a log anonymized before compaction compacts anonymized. The summary
--- holds no names, only the same two account uuids encounter_log does, under the same cascade
--- (its caravan / job). An anonymizer that rewrites encounter_log's account ids must cover
--- encounter_log_summary as well (its UPDATE guard below refuses every update; the merge with
--- chunk 30 adds the exception there, in a definer, exactly as for encounter_log).
+-- ACCOUNT ERASURE (chunk 30, migration 020) COMPOSES WITH COMPACTION, in either order:
+--   * erased, then compacted: account_erase re-points the shared encounter_log row (and the job's
+--     input / result) to the tombstone first; the compaction copies the row's ids as they are,
+--     so the summary is born anonymized.
+--   * compacted, then erased: account_erase knows nothing of this table, so a trigger here
+--     follows it. When account_erase re-points a resolution_job (a fight it keeps because the
+--     other side was another player), encounter_log_summary_follow_erasure applies the SAME
+--     closed rewrite (account_erasure_rewrite) to that job's summary row — the erased account
+--     and its caravans become the tombstone's — and the summary's update guard admits exactly
+--     that rewrite (account_erasure_permits), nothing else. A summary of a fight with no other
+--     player (its job is not re-pointed) goes with the caravan by cascade, like its log would.
+--   The summary JSON holds no account or caravan ids and no names (outcome numbers, the tally,
+--   unit type ids), so the rewrite only ever touches the three id columns.
 
 CREATE TABLE encounter_log_summary (
   job_id                  text        PRIMARY KEY REFERENCES resolution_job (id) ON DELETE CASCADE,
@@ -77,6 +84,8 @@ CREATE INDEX encounter_log_stored_bytes_idx ON encounter_log (stored_bytes);
 
 CREATE FUNCTION encounter_log_summary_guard_update() RETURNS trigger AS $$
 BEGIN
+  -- Chunk 30's erasure exception, exactly as for encounter_log: only the closed rewrite, only during an erasure.
+  IF account_erasure_permits(to_jsonb(OLD), to_jsonb(NEW)) THEN RETURN NEW; END IF;
   RAISE EXCEPTION 'encounter_log_summary % is immutable: a compacted replay''s summary is never rewritten', OLD.job_id USING ERRCODE = 'check_violation';
 END
 $$ LANGUAGE plpgsql;
@@ -103,6 +112,30 @@ END
 $$ LANGUAGE plpgsql;
 CREATE TRIGGER encounter_log_summary_guard_delete BEFORE DELETE ON encounter_log_summary
   FOR EACH ROW EXECUTE FUNCTION encounter_log_summary_guard_delete();
+
+-- Compacted, then erased: follow account_erase's re-pointing of the fight's job (see the header).
+CREATE FUNCTION encounter_log_summary_follow_erasure() RETURNS trigger AS $$
+DECLARE
+  r jsonb;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM account_erasure_active WHERE txid = txid_current()) THEN
+    RETURN NEW;
+  END IF;
+  SELECT account_erasure_rewrite(to_jsonb(s)) INTO r FROM encounter_log_summary s WHERE s.job_id = NEW.id;
+  IF r IS NOT NULL THEN
+    UPDATE encounter_log_summary
+       SET caravan_id = (r ->> 'caravan_id')::uuid,
+           defender_account_id = (r ->> 'defender_account_id')::uuid,
+           party_owner_account_id = (r ->> 'party_owner_account_id')::uuid
+     WHERE job_id = NEW.id
+       AND (caravan_id, defender_account_id, party_owner_account_id)
+           IS DISTINCT FROM ((r ->> 'caravan_id')::uuid, (r ->> 'defender_account_id')::uuid, (r ->> 'party_owner_account_id')::uuid);
+  END IF;
+  RETURN NEW;
+END
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER encounter_log_summary_follow_erasure AFTER UPDATE ON resolution_job
+  FOR EACH ROW EXECUTE FUNCTION encounter_log_summary_follow_erasure();
 
 ALTER TABLE encounter_log_retention ADD COLUMN size_budget_bytes integer NOT NULL DEFAULT 102400 CHECK (size_budget_bytes >= 1024);
 

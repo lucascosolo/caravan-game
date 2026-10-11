@@ -12,8 +12,10 @@
 import { PARTY_CONFIG_VERSION, type PartyConfig } from "@caravan/circle";
 import { useCallback, useEffect, useState } from "react";
 import type { Api } from "../api/client.ts";
+import type { TripEndingView } from "../api/tripTypes.ts";
 import type { PartyView } from "../api/types.ts";
 import { addUnit } from "../screens/party/partyModel.ts";
+import { unitLabel } from "../screens/trail/tripNames.ts";
 import { navigate, type Route } from "../shell/router.tsx";
 import { STRINGS } from "../strings.ts";
 import { GuideCard } from "./GuideCard.tsx";
@@ -40,27 +42,51 @@ export function prefillParty(view: PartyView): PartyConfig | null {
   return config.units.length > view.config.units.length ? config : null;
 }
 
-interface Facts {
+export interface Facts {
   readonly units: number;
+  /**
+   * The caravan has taken a refugee (the current menu is claimed, or an earlier one was). Read
+   * only on the roster step: every caravan starts with a starting roster (chunk 24 QA D1), so a
+   * unit in the roster no longer means the player has learnt where units come from.
+   */
+  readonly refugeeClaimed: boolean;
   readonly tripOpen: boolean;
   readonly lastEnd: "banked" | "overrun" | "voided" | null;
+  /** The ended trip's own record of what it cost (QA S2), when the last trip has ended. */
+  readonly ending: TripEndingView | null;
 }
 
-async function readFacts(api: Api): Promise<Facts | null> {
+async function readFacts(api: Api, step: OnboardingStep): Promise<Facts | null> {
   const me = await api.me();
   const caravan = me.caravans[0];
   if (!caravan) return null;
   const status = await api.tripStatus(caravan.id);
   const trip = status.trip;
-  return { units: caravan.units?.length ?? 0, tripOpen: !!trip && trip.phase !== "ended", lastEnd: trip && trip.phase === "ended" ? trip.endReason : null };
+  let refugeeClaimed = false;
+  if (step === "roster") {
+    const menu = (await api.refugees(caravan.id)).menu;
+    refugeeClaimed = menu.claimed !== null || menu.sequence > 1;
+  }
+  const ended = !!trip && trip.phase === "ended";
+  return { units: caravan.units?.length ?? 0, refugeeClaimed, tripOpen: !!trip && !ended, lastEnd: ended ? trip.endReason : null, ending: ended ? trip.ending : null };
 }
 
 /** The step the server's state says the account has at least reached, from where it stands. */
-export function stepForFacts(step: OnboardingStep, f: Facts): OnboardingStep | null {
+export function stepForFacts(step: OnboardingStep, f: Pick<Facts, "refugeeClaimed" | "tripOpen" | "lastEnd">): OnboardingStep | null {
   if (f.lastEnd !== null && stepRank(step) >= stepRank("roster") && stepRank(step) < stepRank("party")) return "party";
   if (f.tripOpen && stepRank(step) < stepRank("scout")) return "scout";
-  if (f.units > 0 && step === "roster") return "outfit";
+  if (f.refugeeClaimed && step === "roster") return "outfit";
   return null;
+}
+
+/** QA S2: the overrun card says what the ended trip recorded, never "what you packed is lost". */
+export function overrunLines(ending: TripEndingView | null): string[] {
+  if (!ending || ending.kind !== "overrun") return [G.overrunGeneric];
+  const names = (us: readonly { typeId: string; mergeLevel: number }[]): string => us.map(unitLabel).join(", ");
+  const lines = [ending.unitsLostOutright.length > 0 ? G.overrunLostOutright(names(ending.unitsLostOutright)) : G.overrunLostNone];
+  if (ending.unitsDeMerged.length > 0) lines.push(G.overrunDeMerged(ending.unitsDeMerged.map((u) => unitLabel({ typeId: u.typeId, mergeLevel: u.mergeLevelAfter })).join(", ")));
+  lines.push(G.overrunCoin(ending.coinLost));
+  return lines;
 }
 
 export interface ShellGuideProps {
@@ -84,7 +110,7 @@ export function ShellGuide({ api, route, onPartySaved, pollMs = GUIDE_POLL_MS }:
   const check = useCallback(async (): Promise<void> => {
     if (!step || step === "welcome" || step === "done" || !reach) return;
     try {
-      const f = await readFacts(api);
+      const f = await readFacts(api, step);
       if (!f) return;
       setFacts(f);
       const next = stepForFacts(step, f);
@@ -120,6 +146,8 @@ export function ShellGuide({ api, route, onPartySaved, pollMs = GUIDE_POLL_MS }:
       setRaise({ kind: "raised", n: saved.config.units.length });
       onPartySaved?.();
       navigate("party");
+      // QA N8: land at the top of the Party screen (the status and Finish), not at the Trail's scroll offset.
+      window.scrollTo?.(0, 0);
     } catch {
       setRaise({ kind: "failed" });
     }
@@ -167,10 +195,16 @@ export function ShellGuide({ api, route, onPartySaved, pollMs = GUIDE_POLL_MS }:
       );
     case "party": {
       const overrun = facts?.lastEnd === "overrun";
+      const voided = facts?.lastEnd === "voided" && facts.ending?.kind === "voided" ? facts.ending : null;
+      const firstFightLost = overrun && facts?.ending?.kind === "overrun" && facts.ending.encounterIndex <= 1;
       const here = route === "party";
+      // QA S3: after an overrun (or a void) the card leads with what happened to the player's own
+      // caravan, and the passive side follows under a heading that says whose party meets whose caravan.
+      const lead = here && raise.kind === "raised" ? G.partyHereTitle : overrun ? G.overrunTitle : voided ? G.voidedTitle : G.partyTitle;
+      const passiveHeading = lead === G.overrunTitle || lead === G.voidedTitle;
       return (
         <GuideCard
-          title={here && raise.kind === "raised" ? G.partyHereTitle : G.partyTitle}
+          title={lead}
           testId="guide-party"
           actions={
             <>
@@ -191,13 +225,25 @@ export function ShellGuide({ api, route, onPartySaved, pollMs = GUIDE_POLL_MS }:
           }
         >
           {overrun && (
-            <>
-              <h3 className="h3">{G.overrunTitle}</h3>
-              <p>{G.overrunBody}</p>
-              <p className="hint">{G.partyOverrun}</p>
-            </>
+            <div data-testid="guide-overrun">
+              {lead !== G.overrunTitle && <h3 className="h3">{G.overrunTitle}</h3>}
+              <p>{G.overrunLead}</p>
+              <ul className="plain" data-testid="guide-overrun-losses">
+                {overrunLines(facts?.ending ?? null).map((l) => (
+                  <li key={l}>{l}</li>
+                ))}
+              </ul>
+              <p className="hint">{firstFightLost ? G.partyOverrunFirst : G.partyOverrun}</p>
+            </div>
           )}
-          <p>{G.partyBody}</p>
+          {voided && (
+            <div data-testid="guide-voided">
+              {lead !== G.voidedTitle && <h3 className="h3">{G.voidedTitle}</h3>}
+              <p>{G.voidedBody(voided.voidedEncounter, voided.encountersSurvived)}</p>
+            </div>
+          )}
+          {passiveHeading && <h3 className="h3">{G.partyPassiveTitle}</h3>}
+          <p>{voided && voided.voidedEncounter <= 1 ? G.partyBodyNoFight : firstFightLost ? G.partyBodyOne : G.partyBody}</p>
           {raise.kind === "raised" && (
             <p className="notice" role="status" data-testid="guide-party-raised">
               {G.partyRaised(raise.n)}

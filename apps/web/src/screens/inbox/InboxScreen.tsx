@@ -6,12 +6,17 @@
  *
  * Every item says what happened, where, and what it cost or earned. A party strike — batched
  * per hour with a count — lists each fight with its own "Watch the fight", which opens the
- * replay player over this screen (chunk 22) and marks the batch read. No item links to the
- * store or suggests spending anything.
+ * replay player over this screen (chunk 22) and marks the batch read. Only the newest batches
+ * arrive with their fights listed; an older batch fetches them when opened (chunk 29 QA S4).
+ * When batches fall past the 30th or outside the horizon, the list ends by saying so, with the
+ * way to the results feed (QA D2). No item links to the store or suggests spending anything.
+ *
+ * "Mark all read" sends the key and version of every unread item ON SCREEN, so a strike that
+ * landed after this render stays unread (QA S1).
  */
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, type Api } from "../../api/client.ts";
-import type { InboxCategoryView, InboxItemView, InboxView } from "../../api/inboxTypes.ts";
+import type { InboxCategoryView, InboxItemView, InboxStrikeView, InboxView, StrikeDetailView } from "../../api/inboxTypes.ts";
 import { useApi } from "../../auth/session.tsx";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { publishUnread } from "../../shell/inboxSignal.ts";
@@ -19,6 +24,7 @@ import { formatWhen } from "../../shell/issues.ts";
 import { navigate } from "../../shell/router.tsx";
 import { STRINGS } from "../../strings.ts";
 import { WatchFight } from "../replay/WatchFight.tsx";
+import { AnalyticsToggle } from "./AnalyticsToggle.tsx";
 
 const T = STRINGS.inbox;
 
@@ -69,7 +75,10 @@ export function InboxScreen(props: InboxScreenProps = {}): JSX.Element {
   };
 
   const markOne = (item: InboxItemView): Promise<void> => act(() => api.markInboxRead({ marks: [{ key: item.key, version: item.version }] }), T.marked);
-  const markAll = (): Promise<void> => act(() => api.markInboxRead({ all: true }), T.marked);
+  const markAll = (): Promise<void> => {
+    const marks = (inbox?.items ?? []).filter((i) => i.unread).map((i) => ({ key: i.key, version: i.version }));
+    return marks.length === 0 ? Promise.resolve() : act(() => api.markInboxRead({ marks }), T.marked);
+  };
   const setPref = (category: InboxCategoryView, enabled: boolean): Promise<void> => act(() => api.setInboxPreferences({ [category]: enabled }), T.prefsSaved);
 
   if (loadError) return <ErrorBox error={loadError} onRetry={() => void load()} />;
@@ -82,7 +91,7 @@ export function InboxScreen(props: InboxScreenProps = {}): JSX.Element {
   }
 
   return (
-    <section aria-labelledby="inbox-heading" data-testid="inbox-screen">
+    <section aria-labelledby="inbox-heading" className="inbox" data-testid="inbox-screen">
       <div className="sheet__head">
         <h1 id="inbox-heading" className="sheet__title">
           {T.title}
@@ -121,6 +130,14 @@ export function InboxScreen(props: InboxScreenProps = {}): JSX.Element {
           ))}
         </ul>
       )}
+      {inbox.olderStrikes && (
+        <div className="inbox-older" data-testid="inbox-older">
+          <p className="hint">{T.olderStrikes(inbox.olderStrikes.batchesPastLimit, inbox.olderStrikes.beforeHorizon)}</p>
+          <button type="button" className="btn btn--small" onClick={() => navigate("party")}>
+            {T.openFeed}
+          </button>
+        </div>
+      )}
 
       <details className="disclosure" data-testid="inbox-prefs">
         <summary className="btn btn--block">{T.prefsHeading}</summary>
@@ -135,6 +152,8 @@ export function InboxScreen(props: InboxScreenProps = {}): JSX.Element {
             </label>
           ))}
         </div>
+        {/* Chunk 32: the usage-data opt-out lives with the other settings. */}
+        <AnalyticsToggle api={api} />
       </details>
     </section>
   );
@@ -168,29 +187,7 @@ function ItemBody({ item, api, onWatch }: { readonly item: InboxItemView; readon
           {d.coinTransferred > 0 && <div className="card__line hint">{T.strikeTransferred(d.coinTransferred)}</div>}
           {d.coinDiscardedAtCap > 0 && <div className="card__line hint">{T.strikeDiscarded(d.coinDiscardedAtCap)}</div>}
           <div className="card__line hint">{T.strikeWindow(formatWhen(d.windowStartMs), formatWhen(d.windowEndMs))}</div>
-          <ul className="inbox-strikes">
-            {d.strikes.map((s) => (
-              <li key={s.seq} data-testid={`inbox-strike-${s.seq}`}>
-                <div className="card__line">{T.strikeLine(s.defender.username ?? T.someone, s.defender.caravanName ?? T.someone, s.encounterIndex)}</div>
-                <div className="card__line">{T.strikeOutcome(s.outcomeKind)}</div>
-                <div className="card__line hint">
-                  {T.strikeLineEarned(s.coinEarned, s.reputationDelta)} · {formatWhen(s.occurredAt)}
-                </div>
-                {s.jobId !== null && s.encounterIndex !== null && (
-                  <span onClickCapture={onWatch}>
-                    <WatchFight
-                      jobId={s.jobId}
-                      encounterIndex={s.encounterIndex}
-                      label={T.watch}
-                      api={api}
-                      settled={{ coin: s.coinEarned, reputation: s.reputationDelta, ladder: s.ladderPointsGained }}
-                      testId={`inbox-watch-${s.seq}`}
-                    />
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
+          <StrikeLines itemKey={item.key} detail={d} api={api} onWatch={onWatch} />
           {d.notListed > 0 && <p className="hint">{T.strikeNotListed(d.notListed)}</p>}
         </>
       );
@@ -226,6 +223,64 @@ function ItemBody({ item, api, onWatch }: { readonly item: InboxItemView; readon
         </>
       );
   }
+}
+
+/** The window index in a strike item's key (`strike:<window>`). */
+const windowOf = (key: string): number => Number(key.slice("strike:".length));
+
+/** A batch's fights: listed when the inbox sent them, else fetched on request (QA S4). */
+function StrikeLines({ itemKey, detail, api, onWatch }: { readonly itemKey: string; readonly detail: StrikeDetailView; readonly api: Api; readonly onWatch: () => void }): JSX.Element | null {
+  const [fetched, setFetched] = useState<readonly InboxStrikeView[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+  const lines = detail.linesIncluded ? detail.strikes : fetched;
+  if (lines === null) {
+    const show = async (): Promise<void> => {
+      setLoading(true);
+      setError(null);
+      try {
+        setFetched((await api.inboxStrikes(windowOf(itemKey))).strikes);
+      } catch (err) {
+        setError(asApiError(err));
+      } finally {
+        setLoading(false);
+      }
+    };
+    return (
+      <div className="inbox-actions">
+        {error && <ErrorBox error={error} />}
+        <button type="button" className="btn btn--small" disabled={loading} onClick={() => void show()} data-testid={`inbox-show-${itemKey}`}>
+          {loading ? T.loadingStrikes : T.showStrikes(detail.count)}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <ul className="inbox-strikes">
+      {lines.map((s) => (
+        <li key={s.seq} data-testid={`inbox-strike-${s.seq}`}>
+          <div className="card__line">{T.strikeLine(s.defender.username ?? T.someone, s.defender.caravanName ?? T.someone, s.encounterIndex)}</div>
+          <div className="card__line">{T.strikeOutcome(s.outcomeKind)}</div>
+          <div className="card__line hint">
+            {T.strikeLineEarned(s.coinEarned, s.reputationDelta)}
+            {s.coinDiscardedAtCap > 0 ? ` ${T.strikeLineDiscarded(s.coinDiscardedAtCap)}` : ""} · {formatWhen(s.occurredAt)}
+          </div>
+          {s.jobId !== null && s.encounterIndex !== null && (
+            <span onClickCapture={onWatch}>
+              <WatchFight
+                jobId={s.jobId}
+                encounterIndex={s.encounterIndex}
+                label={T.watch}
+                api={api}
+                settled={{ coin: s.coinEarned, reputation: s.reputationDelta, ladder: s.ladderPointsGained }}
+                testId={`inbox-watch-${s.seq}`}
+              />
+            </span>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 /** Where an item's "go there" leads. Never the store, never a spend. */

@@ -7,7 +7,8 @@
  *   two strikes in one hour are ONE batch, so the badge reads 1 → the Inbox says what happened,
  *   where and what it earned, never an account id → "Watch the fight" opens the replay player over the
  *   inbox (the fixture's job has no stored fight, so the player says so) → the batch is read
- *   on the server and the badge is gone → the screen fits 320 px with 44 px targets → opting
+ *   on the server and the badge is gone → the screen fits 320 px with 44 px targets, even with a
+ *   40-character caravan name that has no space to break at (QA S3) → opting
  *   out of strikes empties the list and opting in brings it back.
  */
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
@@ -84,9 +85,12 @@ async function fitsPortrait(page: Page): Promise<void> {
   expect(r.small).toEqual([]);
 }
 
+/** Chunk 29 QA S3: the longest valid caravan name (CARAVAN_NAME_MAX = 40) with no space to break at. */
+const LONG_NAME = "W".repeat(40);
+
 test("a party owner learns of their strikes from the badge, reads them, and watches one", async ({ page, request }) => {
   const owner = await register(request, "Owner Wagons");
-  const defender = await register(request, "Struck Wagons");
+  const defender = await register(request, LONG_NAME);
   await recordStrikes(owner, defender);
 
   await page.setViewportSize({ width: 360, height: 640 });
@@ -101,7 +105,7 @@ test("a party owner learns of their strikes from the badge, reads them, and watc
   await expect(card).toHaveAttribute("data-unread", "true");
   await expect(card).toContainText("Your party struck 2 caravans");
   await expect(card).toContainText("1 overrun by your party · 1 held out");
-  await expect(card).toContainText(`vs ${defender.username} (Struck Wagons), encounter 2 of their trip`);
+  await expect(card).toContainText(`vs ${defender.username} (${LONG_NAME}), encounter 2 of their trip`);
   await expect(card).toContainText("Your party overran the caravan.");
   await expect(card).toContainText("The caravan held; your party was driven off.");
   const text = (await page.getByTestId("inbox-screen").textContent()) ?? "";

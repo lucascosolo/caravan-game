@@ -73,6 +73,15 @@ function fakeApi(over: Partial<Api> = {}): Api {
     register: notCalled,
     login: notCalled,
     logout: notCalled,
+    guest: notCalled,
+    resume: notCalled,
+    account: notCalled,
+    linkAccount: notCalled,
+    devices: notCalled,
+    revokeDevice: notCalled,
+    revokeOtherDevices: notCalled,
+    exportAccount: notCalled,
+    deleteAccount: notCalled,
     me: notCalled,
     unlocks: notCalled,
     progression: notCalled,
@@ -110,13 +119,19 @@ function fakeApi(over: Partial<Api> = {}): Api {
     equipCosmetic: notCalled,
     unequipCosmetic: notCalled,
     replay: notCalled,
+    recentFights: notCalled,
     inbox: notCalled,
     inboxUnread: notCalled,
     markInboxRead: notCalled,
+    inboxStrikes: notCalled,
     setInboxPreferences: notCalled,
     onboarding: notCalled,
     advanceOnboarding: notCalled,
     skipOnboarding: notCalled,
+    analyticsSettings: notCalled,
+    setAnalyticsOptOut: notCalled,
+    sendTelemetry: notCalled,
+    adminDashboard: notCalled,
     ...over,
   };
 }
@@ -459,6 +474,25 @@ describe("FormationScreen", () => {
     // S15: a locale time, never the raw ISO string, and no developer copy.
     expect(notice.textContent).not.toContain("2026-10-11T12:00:00.000Z");
     expect(notice.textContent).not.toMatch(/chunk \d+/i);
+  });
+
+  it("chunk 24 QA S5: a fight that resolved before the re-read (a fast overrun closes the manifest, 404) still moves the Trail on", async () => {
+    const user = userEvent.setup();
+    const saveFormation = vi.fn(async (_c: string, _n: number, f: Formation) => formationView(f, null));
+    const commitEncounter = vi.fn(async () => ({ jobId: "encounter:t:3", jobStatus: "queued", created: true }));
+    const formation = vi.fn(async () => {
+      throw new ApiError(404, "no_open_manifest", "this caravan is in town with nothing packed");
+    });
+    const onCommitted = vi.fn();
+    render(screenWith(fakeApi({ saveFormation, commitEncounter, formation }), { onCommitted }));
+    await user.click(within(screen.getByTestId("tray-unit-u-rider")).getByRole("button"));
+    await user.click(screen.getByText("tap-12-12"));
+    await user.click(screen.getByTestId("commit-open"));
+    await waitFor(() => expect(screen.getByTestId("commit-confirm")).toBeEnabled());
+    await user.click(screen.getByTestId("commit-confirm"));
+    await waitFor(() => expect(onCommitted).toHaveBeenCalledTimes(1));
+    expect(commitEncounter).toHaveBeenCalledWith("c1", 3);
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("shows a malformed server payload as bad_payload with its path, not a crash", async () => {

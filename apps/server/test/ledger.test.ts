@@ -244,8 +244,10 @@ describe("GET /me/ledger", () => {
     const body = first.json();
     expect(body.events.length).toBe(2);
     expect(body.events[0].seq).toBeLessThan(body.events[1].seq);
-    expect(body.events[0]).toMatchObject({ accountId, causationId: "test:append-only", causationSeq: 0, type: "coin_earned" });
     expect(body.hasMore).toBe(true);
+    // The caravan's starting-roster grant (chunk 24 QA D1) comes first; then this suite's first event.
+    const all = (await app.inject({ method: "GET", url: "/me/ledger?limit=500", headers })).json().events as { causationId: string }[];
+    expect(all.find((e) => !e.causationId.startsWith("starting_roster:"))).toMatchObject({ accountId, causationId: "test:append-only", causationSeq: 0, type: "coin_earned" });
     const rest = await app.inject({ method: "GET", url: `/me/ledger?after=${body.nextAfter}&limit=500`, headers });
     expect(rest.json().hasMore).toBe(false);
     const total = await listEventsForAccount(pool, accountId, { limit: 500 });

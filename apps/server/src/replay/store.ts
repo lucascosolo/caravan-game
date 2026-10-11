@@ -74,7 +74,7 @@ export async function storeEncounterLog(client: pg.PoolClient, a: EncounterLogAr
 }
 
 /**
- * LOG_RETENTION for one caravan (encounter_log_prune): COMPACT (PHASE-2 §36, migration 021) the
+ * LOG_RETENTION for one caravan (encounter_log_prune): COMPACT (PHASE-2 §36, migration 022) the
  * caravan's logs older than the retention days that are not among its newest N, and any log over
  * LOG_SIZE_BUDGET, to their results summary (encounter_log_summary), by the database clock. Only
  * completed jobs' logs (the summary is read from the job's result). Returns the number of rows
@@ -112,7 +112,7 @@ export function retentionMatchesTunables(r: { days: number; minPerCaravan: numbe
   );
 }
 
-/** A compacted replay's results summary (migration 021). */
+/** A compacted replay's results summary (migration 022). */
 export interface EncounterLogSummaryRow {
   job_id: string;
   caravan_id: string;

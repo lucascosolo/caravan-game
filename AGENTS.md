@@ -109,6 +109,12 @@ the owner role could simply disable, so the server never runs as the owner:
   re-applies `apps/server/db/roles.sql` on every run, then connects as `caravan_app` to
   prove the guards hold against the server's own role.
 
+**Server tests must not depend on file order:** `apps/server/test/per-file-reset.ts` starts every file
+with no accounts (so no jobs, parties, menus or ratings); create what a test needs itself and pin what a
+seeded matchmaking draw reads (ratings, authored set, owner headroom). Check: `vitest run --sequence.shuffle.files --sequence.seed=N`.
+The server suite's timeouts are 60 s per test and 60 s per hook (`apps/server/vitest.config.ts`): seeding
+the authored set takes 8–11 s and timed out at the old 20 s on a busy host.
+
 `encounter_log` (chunk 13 replays) is write-once even for the app role: no INSERT / UPDATE / DELETE
 grant; rows go in only through `encounter_log_write()` (SECURITY DEFINER, fenced on the job's
 live lease, checked against the job) and leave only through `encounter_log_prune()` (the
@@ -140,6 +146,9 @@ pnpm --filter @caravan/web e2e                        # Playwright smoke vs a ru
 pnpm e2e                     # the same, self-contained: seeds E2E_DATABASE_URL (dev, a run-unique formation account packed and ridden out, a run-unique trip account in town), starts the BUILT server on :3917 with CARAVAN_TEST_RESOLVER=double, runs the e2e, stops it (run `pnpm build` first)
 
 pnpm determinism             # resolver determinism harness (chunk 13): the golden-gate self-test (scripts/golden-gate.test.mjs), then the 72-fight corpus 100× byte-identical in-process (one test per scenario per 25-run batch) and equal to the golden logs in packages/resolver/golden (UPDATE_GOLDEN=1 regenerates), then 3 separate Node processes (different corpus orders) compared by sha256 with each other and the goldens; with a base ref (DETERMINISM_BASE_REF locally) it refuses a changed/deleted golden unless RESOLVER_VERSION increased as an integer and every changed golden carries it (`[resolver-bump]` covers only new fixtures)
+pnpm perf:resolver           # PHASE-2 §36: every golden-corpus fight (and the 180 s full-load fight) under 100 ms of CPU, timed ALONE (RESOLVER_BUDGET_STRICT=1); the parallel suite runs the same test with a 2x allowance. A CI step of its own, after determinism
+pnpm load:queue -- --db <owner URL of a *load* database>     # PHASE-2 §36 job-queue load test (resets that DB; not in CI): real trips + a 10 000-encounter one-party burst; --burst-parties N spreads it, --profile times each SQL statement
+pnpm load:explain -- --db <owner URL of a *load* database> --write   # PHASE-2 §36: seeds ~50k accounts / 156k menus and rewrites the matchmaking EXPLAIN plans in apps/server/db/explain/
 pnpm --filter @caravan/resolver test   # the resolver alone: 576 tests in 15 files (288 of them the 100× harness in 25-run batches), no DB, no network, ~70 s on 4 cores
 pnpm test:boundary           # resolver dependency-boundary check (zero deps, imports stay inside packages/resolver/src)
 pnpm build                   # esbuild → apps/server/dist (index.js, db/migrate.js, seed.js); workspace packages inlined, npm deps external; then vite build → apps/web/dist
@@ -149,7 +158,13 @@ pnpm ci                      # the CI job, step for step: typecheck, lint, test:
 ```
 
 Migrations are plain SQL pairs in `apps/server/migrations/NNN_name.{up,down}.sql`, run by
-`apps/server/src/db/migrate.ts`. Server routes so far: `POST /auth/register`,
+`apps/server/src/db/migrate.ts`. Chunk 30 (account lifecycle, PHASE-2 §30 build notes): guest-first
+`POST /auth/guest`, `POST /auth/resume` (the server's HttpOnly `caravan_device` cookie — the client
+stores nothing), `GET /me/account`, `POST /me/account/link`, `GET|DELETE /me/devices[/:id]`,
+`POST /me/devices/revoke-others`, `GET /me/export`, `POST /me/account/delete` (through the
+`account_erase` SECURITY DEFINER function, which anonymizes shared records to a tombstone). Auth
+routes are rate-limited; `CARAVAN_RATE_LIMITS=off` (set by the server vitest env and `pnpm e2e`) is
+refused in production. Server routes so far: `POST /auth/register`,
 `POST /auth/login`, `POST /auth/logout`, `GET /me`, `GET /health` (bearer token auth), plus
 the ledger, progression, circle, economy and unlock routes of chunks 02–07 and 16
 (`GET /unlocks/webs`, `GET /me/unlocks`, `POST /me/unlocks/spend`), the party routes of
@@ -162,7 +177,7 @@ and `…/trip/bank` with `{tripId, encounterIndex}`) and chunk 13's replay
 otherwise 200 with `renderable` — false, with a reason, for a log that fails its sha256 / reader
 check or for a fight resolved without a tick log) and chunk 24's
 first-session guide (`GET /me/onboarding`, `POST /me/onboarding/advance {step}`, `POST /me/onboarding/skip`;
-account-level, forward-only, grants nothing; `pnpm db:seed` marks its pre-equipped accounts' guide done). `pnpm db:seed` also creates the authored cold-start
+account-level, forward-only, grants nothing; `pnpm db:seed` marks its pre-equipped accounts' guide done) and chunk 32's telemetry (`GET/PUT /me/analytics {optedOut}`, `POST /me/telemetry` screen flow + crash reports, and the admin-only `GET /admin/dashboard` — 404 for non-admins; grant with `pnpm --filter @caravan/server admin grant <username>`, which uses MIGRATE_DATABASE_URL). `pnpm db:seed` also creates the authored cold-start
 parties (`src/matchmaking/authored.ts`, chunk 25: 12 per Reputation band, bands 0–7, owned
 by `sys_outfit_*` system accounts that cannot log in or hold Coin), so a fresh database
 serves three scoutable candidates at every band from the first search. Migrations 011 and 009

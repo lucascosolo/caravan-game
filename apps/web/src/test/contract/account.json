@@ -1,0 +1,29 @@
+{
+  "route": "GET /me/account",
+  "status": 200,
+  "body": {
+    "account": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "username": "contract_guest",
+      "guest": false,
+      "coinBalance": 0,
+      "coinStorageCap": 50000,
+      "createdAt": "2026-10-11T12:00:00.000Z",
+      "linkedAt": "2026-10-11T12:00:01.000Z"
+    },
+    "devices": [
+      {
+        "id": "00000000-0000-4000-8000-000000000002",
+        "label": "Unknown device",
+        "createdAt": "2026-10-11T12:00:02.000Z",
+        "lastSeenAt": "2026-10-11T12:00:03.000Z",
+        "expiresAt": "2026-10-11T12:00:04.000Z",
+        "current": true
+      }
+    ],
+    "deletion": {
+      "confirmPhrase": "delete my account",
+      "requiresPassword": true
+    }
+  }
+}

@@ -1,0 +1,12 @@
+DROP INDEX IF EXISTS account_created_at_idx;
+DROP INDEX IF EXISTS pack_purchase_purchased_at_idx;
+DROP INDEX IF EXISTS refugee_menu_created_at_idx;
+DROP INDEX IF EXISTS trip_encounter_settled_at_idx;
+DROP INDEX IF EXISTS trip_ended_at_idx;
+DROP INDEX IF EXISTS ledger_event_account_time_idx;
+DROP INDEX IF EXISTS ledger_event_type_time_idx;
+DROP TABLE IF EXISTS analytics_client_event;
+DROP TRIGGER IF EXISTS account_analytics_guard_update ON account_analytics;
+DROP FUNCTION IF EXISTS account_analytics_guard_update();
+DROP TABLE IF EXISTS account_analytics;
+DROP TABLE IF EXISTS account_admin;

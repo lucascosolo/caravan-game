@@ -64,6 +64,40 @@
       "partyHash": "a000000000000000000000000000000000000000000000000000000000000001",
       "partySavedAt": "2026-10-11T12:00:00.000Z"
     },
+    "settled": {
+      "source": "ledger",
+      "applied": true,
+      "coin": [],
+      "coinLost": null,
+      "reputation": [
+        {
+          "pool": "living",
+          "delta": 14
+        }
+      ],
+      "ladder": [
+        {
+          "pool": "living",
+          "pointsDelta": 25,
+          "levelBefore": 0,
+          "levelAfter": 0
+        },
+        {
+          "pool": "trap",
+          "pointsDelta": 25,
+          "levelBefore": 0,
+          "levelAfter": 0
+        }
+      ],
+      "unlockPoints": [],
+      "deMerged": [],
+      "destroyed": [],
+      "trip": {
+        "ended": false,
+        "endReason": null,
+        "unbankedCoin": 1000
+      }
+    },
     "resolverVersion": 8,
     "logFormat": 2,
     "renderable": true,
@@ -80,7 +114,8 @@
           "hp": 620,
           "ab": 4,
           "displayName": "Dust Rider",
-          "ability": "Spur On"
+          "ability": "Spur On",
+          "stance": "nearest"
         },
         {
           "u": 1,
@@ -92,7 +127,8 @@
           "hp": 1100,
           "ab": 5,
           "displayName": "Well Digger",
-          "ability": "Pick Swing"
+          "ability": "Pick Swing",
+          "stance": "traps"
         },
         {
           "u": 2,
@@ -104,7 +140,8 @@
           "hp": 1100,
           "ab": 5,
           "displayName": "Well Digger",
-          "ability": "Pick Swing"
+          "ability": "Pick Swing",
+          "stance": "hold"
         },
         {
           "u": 3,
@@ -116,7 +153,8 @@
           "hp": 1100,
           "ab": 5,
           "displayName": "Well Digger",
-          "ability": "Pick Swing"
+          "ability": "Pick Swing",
+          "stance": "guard"
         }
       ],
       "fences": [
@@ -188,13 +226,24 @@
           "typeId": "trap.spike_pit",
           "x": 14848,
           "y": 12800,
-          "displayName": "Spike Pit"
+          "displayName": "Spike Pit",
+          "category": "groundwork"
+        }
+      ],
+      "siege": [
+        {
+          "typeId": "siege.battering_wagon",
+          "displayName": "Battering Wagon",
+          "counters": {
+            "kind": "fence",
+            "category": "timber"
+          }
         }
       ]
     },
     "stored": {
-      "rawBytes": 5034,
-      "storedBytes": 1494,
+      "rawBytes": 5033,
+      "storedBytes": 1493,
       "encoding": "gzip",
       "sha256": "a000000000000000000000000000000000000000000000000000000000000002",
       "contentHash": "a000000000000000000000000000000000000000000000000000000000000003",

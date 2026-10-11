@@ -252,8 +252,9 @@ describe("nothing in the economy can see what an account has paid for (GUARDRAIL
       readdirSync(dir, { withFileTypes: true }).flatMap((d) => (d.isDirectory() ? walk(join(dir, d.name)) : d.name.endsWith(".ts") ? [join(dir, d.name)] : []));
     const importers = walk(src).filter((f) => /import\s[^;]*\bcoinDebitDraft\b[^;]*from/.test(readFileSync(f, "utf8")));
     expect(importers.map((f) => f.slice(src.length + 1))).toEqual(["economy/coin.ts"]);
-    // And nothing outside the economy module writes a `coin_spent` draft by hand.
-    const spenders = walk(src).filter((f) => !f.includes("/economy/") && !f.endsWith("ledger/coin.ts") && !f.endsWith("ledger/events.ts") && /["']coin_spent["']/.test(readFileSync(f, "utf8")));
+    // And nothing outside the economy module writes a `coin_spent` draft by hand. (Chunk 32: src/analytics/queries.ts only READS
+    // the ledger — its SQL filters on the type; telemetry.test.ts asserts it has no write verb.)
+    const spenders = walk(src).filter((f) => !f.includes("/economy/") && !f.endsWith("/analytics/queries.ts") && !f.endsWith("ledger/coin.ts") && !f.endsWith("ledger/events.ts") && /["']coin_spent["']/.test(readFileSync(f, "utf8")));
     expect(spenders).toEqual([]);
   });
 

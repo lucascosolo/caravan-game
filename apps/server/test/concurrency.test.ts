@@ -10,6 +10,7 @@
  */
 import { RESOLVER_VERSION } from "@caravan/resolver";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { startingRosterTypes } from "../src/acquisition/startingRoster.js";
 import { withTransaction } from "../src/db/pool.js";
 import { PLACEHOLDER_HANDLERS, enqueueEncounterResolution } from "../src/jobs/handlers/encounterResolution.js";
 import { countJobsByStatus, enqueueJob, getJob, requeueParkedJob } from "../src/jobs/queue.js";
@@ -103,7 +104,8 @@ describe("one standing party served into many concurrent encounters", () => {
     expect(await partyBytes(ownerId)).toBe(before); // the template itself is untouched
     const feed = await listEventsForAccount(pool, ownerId, { limit: 500 });
     expect(feed.filter((e) => e.event_type === "party_served_as_encounter").length).toBe(N);
-    expect(feed.every((e) => e.caravan_id === null)).toBe(true); // nothing caravan-scoped leaked onto the owner
+    // Nothing caravan-scoped leaked onto the owner (its own caravan's creation grant, chunk 24 QA D1, aside).
+    expect(feed.filter((e) => !e.causation_id.startsWith("starting_roster:")).every((e) => e.caravan_id === null)).toBe(true);
     for (const d of defenders) expect((await verifyProjection(pool, d.accountId)).ok).toBe(true);
     expect((await verifyProjection(pool, ownerId)).ok).toBe(true);
   });
@@ -146,11 +148,12 @@ describe("many resolutions for one account at once", () => {
     for (let i = 0; i < JOBS; i++) expect((await listEventsByCausation(pool, `busy:${i}`)).length).toBe(3);
     const v = await verifyProjection(pool, accountId);
     expect(v.ok, JSON.stringify(v)).toBe(true);
-    expect(v.eventsFolded).toBe(JOBS * 3);
+    // The jobs' events, plus caravan A's starting-roster grant at registration (chunk 24 QA D1).
+    expect(v.eventsFolded).toBe(JOBS * 3 + startingRosterTypes("desert").length);
   });
 
   it("within one account, events commit in seq order (the append lock holds)", async () => {
-    const events = await listEventsForAccount(pool, accountId, { limit: 500 });
+    const events = (await listEventsForAccount(pool, accountId, { limit: 500 })).filter((e) => !e.causation_id.startsWith("starting_roster:"));
     // Every job's three events are contiguous in seq: no other job's event interleaves.
     for (let i = 0; i < events.length; i += 3) {
       const trio = events.slice(i, i + 3);

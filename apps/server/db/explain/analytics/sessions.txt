@@ -1,0 +1,17 @@
+-- chunk 32: sessions over the synthetic history in test/telemetry-scale.test.ts (30-day window)
+Aggregate
+  ->  Sort
+        Sort Key: sessions.analytics_id
+        ->  Subquery Scan on sessions
+              ->  HashAggregate
+                    Group Key: ev.analytics_id, sum(ev.starts) OVER (?)
+                    ->  WindowAgg
+                          ->  Subquery Scan on ev
+                                ->  WindowAgg
+                                      ->  Sort
+                                            Sort Key: ce.analytics_id, ce.occurred_at, ce.id
+                                            ->  Bitmap Heap Scan on analytics_client_event ce
+                                                  Recheck Cond: ((occurred_at >= '2026-09-11 22:01:49.946+00'::timestamp with time zone) AND (occurred_at < '2026-10-11 22:01:49.946+00'::timestamp with time zone))
+                                                  Filter: (kind = 'screen'::text)
+                                                  ->  Bitmap Index Scan on analytics_client_event_time_idx
+                                                        Index Cond: ((occurred_at >= '2026-09-11 22:01:49.946+00'::timestamp with time zone) AND (occurred_at < '2026-10-11 22:01:49.946+00'::timestamp with time zone))

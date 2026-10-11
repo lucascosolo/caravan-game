@@ -3,7 +3,7 @@
  * every caravan, in-process, like the encounter worker (jobs/inProcessWorker.ts).
  *
  * The completion transaction already compacts the caravan it just wrote to (encounter_log_prune,
- * migration 021), but a caravan that stops playing never writes again — its logs would outlive
+ * migration 022), but a caravan that stops playing never writes again — its logs would outlive
  * the window forever. So every `intervalMs` (and once at start) the server runs
  * `encounter_log_retention_sweep(batch)` until a call compacts fewer than `batch` rows (or
  * `maxBatchesPerRun` is reached; the next run carries on). Each call is its own short

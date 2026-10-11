@@ -51,6 +51,8 @@ DROP FUNCTION IF EXISTS encounter_log_compact_rows(text[]);
 ALTER TABLE encounter_log_retention DROP COLUMN IF EXISTS size_budget_bytes;
 DROP INDEX IF EXISTS encounter_log_stored_bytes_idx;
 DROP INDEX IF EXISTS encounter_log_created_idx;
+DROP TRIGGER IF EXISTS encounter_log_summary_follow_erasure ON resolution_job;
+DROP FUNCTION IF EXISTS encounter_log_summary_follow_erasure();
 DROP TABLE IF EXISTS encounter_log_summary;
 DROP FUNCTION IF EXISTS encounter_log_summary_guard_delete();
 DROP FUNCTION IF EXISTS encounter_log_summary_guard_truncate();

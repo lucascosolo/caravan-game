@@ -38,10 +38,17 @@ export const INBOX_MAX_STRIKE_ITEMS = 30;
 export const INBOX_STRIKES_PER_ITEM = 10;
 
 /**
+ * TUNABLE (chunk 29 QA S4). Only the newest this-many batches carry their strike lines in
+ * `GET /me/inbox`; an older batch carries its totals, and its lines are fetched when the player
+ * opens it (`GET /me/inbox/strikes/:window`). Keeps the page light for a busy party.
+ */
+export const INBOX_ITEMIZED_BATCHES = 3;
+
+/**
  * TUNABLE. "Mine near cap": the balance (with pending trickle) is at or above this percent of
  * the storage cap. The trickle stops at the cap (chunk 16), so this is the "about to stop" line.
  */
 export const INBOX_MINE_NEAR_CAP_PERCENT = 90;
 
-/** TUNABLE. Most read marks one request may set (a mark-all sends every visible item). */
+/** TUNABLE. Most read marks one request may set ("Mark all read" sends every unread item on screen: at most INBOX_MAX_STRIKE_ITEMS + a handful). */
 export const INBOX_MAX_MARKS_PER_REQUEST = 100;

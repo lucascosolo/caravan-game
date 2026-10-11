@@ -1,5 +1,5 @@
 /**
- * PHASE-2 §36 — LOG_RETENTION and LOG_SIZE_BUDGET enforced by COMPACTION (migration 021):
+ * PHASE-2 §36 — LOG_RETENTION and LOG_SIZE_BUDGET enforced by COMPACTION (migration 022):
  *   - the worker records the end-card tally in the job's immutable result at completion, and it
  *     equals the tally the web replay player derives from the reader's events;
  *   - a log past retention, or over the size budget, is compacted to its results summary
@@ -27,6 +27,7 @@ import { createUnitInstance } from "../src/repo/unitInstances.js";
 import { COMPACTED_REASON } from "../src/routes/replay.js";
 import { encounterLogRetention, findEncounterLogSummary, pruneEncounterLogs, retentionMatchesTunables, sweepEncounterLogRetention } from "../src/replay/store.js";
 import { replayTally } from "../src/replay/summary.js";
+import { DELETE_CONFIRM_PHRASE } from "../src/account/tunables.js";
 import { appRolePool, expectDbError, testPool, truncateAll, unique } from "./helpers.js";
 
 const pool = testPool();
@@ -104,12 +105,14 @@ function webTally(raw: ReplayLog) {
   const log = replay.log;
   const died = new Set<number>();
   const broke = new Set<number>();
-  const sprung = new Set<number>();
+  const fired = new Set<number>();
+  const nullified = new Set<number>();
   let core = false;
   for (const e of replay.events) {
     if (e.k === "unit_died") died.add(e.u);
     else if (e.k === "fence_broken") broke.add(e.f);
-    else if (e.k === "trap_fired" || e.k === "trap_nullified") sprung.add(e.i);
+    else if (e.k === "trap_fired") fired.add(e.i);
+    else if (e.k === "trap_nullified") nullified.add(e.i);
     else if (e.k === "core_reached") core = true;
   }
   const isRaider = (u: number): boolean => log.units[u]?.side === "attacker";
@@ -121,7 +124,8 @@ function webTally(raw: ReplayLog) {
     defenders: log.units.length - raiders,
     fencesBroken: broke.size,
     fences: log.fences.length,
-    trapsSprung: sprung.size,
+    trapsSprung: fired.size,
+    trapsNullified: [...nullified].filter((i) => !fired.has(i)).length,
     traps: log.traps.length,
     coreReached: core,
   };
@@ -130,7 +134,7 @@ function webTally(raw: ReplayLog) {
 /** A completed encounter job + its encounter_log row, created_at backdated (owner, guards off for the one insert). */
 async function syntheticLog(d: Player, k: number, ageDays: number, status: "completed" | "queued" = "completed"): Promise<string> {
   const id = `encounter:00000000-0000-4000-8036-${String(k).padStart(12, "0")}:1`;
-  const result = { outcome: { kind: "caravan_held", depth: 0, endTick: 100, loot: 0 }, replay: { tally: { raiders: 1, raidersFallen: 1, defenders: 1, defendersFallen: 0, fences: 0, fencesBroken: 0, traps: 0, trapsSprung: 0, coreReached: false, deepest: null } } };
+  const result = { outcome: { kind: "caravan_held", depth: 0, endTick: 100, loot: 0 }, replay: { tally: { raiders: 1, raidersFallen: 1, defenders: 1, defendersFallen: 0, fences: 0, fencesBroken: 0, traps: 0, trapsSprung: 0, trapsNullified: 0, coreReached: false, deepest: null } } };
   if (status === "completed") {
     await pool.query("INSERT INTO resolution_job (id, kind, account_id, caravan_id, input, max_attempts, status, result, completed_at) VALUES ($1, 'encounter_resolution', $2, $3, $4::jsonb, 3, 'completed', $5::jsonb, now())", [
       id, d.accountId, d.caravanId, JSON.stringify({ resolverVersion: RESOLVER_VERSION }), JSON.stringify(result),
@@ -214,6 +218,8 @@ describe("PHASE-2 §36: replay retention by compaction", () => {
     const before = (await call(d, "GET", url)).json();
     expect(before).toMatchObject({ renderable: true });
     expect(before.compacted).toBeUndefined();
+    expect(fought, "the live candidate is one of this file's owners").not.toBeNull();
+    const ownerBefore = (await call(fought!, "GET", url)).json();
 
     // Not compactable yet: fresh, the caravan's newest, under budget. The sweep leaves it.
     expect(await sweepEncounterLogRetention(appRole, 500)).toBe(0);
@@ -237,8 +243,11 @@ describe("PHASE-2 §36: replay retention by compaction", () => {
     if (deepest) expect(body.compacted.tally.deepest).toMatchObject({ typeId: deepest.typeId, displayName: expect.any(String) });
     expect(body.stored).toMatchObject({ sha256: row.log_sha256, rawBytes: row.raw_bytes, storedBytes: row.stored_bytes });
     // The party's owner sees the same summary from their side; anyone else still gets 404.
-    expect(fought, "the live candidate is one of this file's owners").not.toBeNull();
-    expect((await call(fought!, "GET", url)).json()).toMatchObject({ viewer: "party_owner", renderable: false, outcome: before.outcome, compacted: { reason: "size_budget" } });
+    expect((await call(fought!, "GET", url)).json()).toMatchObject({ viewer: "party_owner", renderable: false, outcome: ownerBefore.outcome, settled: ownerBefore.settled, stored: null, compacted: { reason: "size_budget" } });
+    // Chunk 22's recent-fights list says the fight's summary is kept (not "pruned").
+    await call(d, "GET", `/me/caravans/${d.caravanId}/trip`); // the trip loop settles lazily on read
+    const recent = (await call(d, "GET", "/me/encounters")).json() as { encounters: { jobId: string; replay: string }[] };
+    expect(recent.encounters.find((e) => e.jobId === jobId)?.replay).toBe("compacted");
     const stranger = await registerPlayer();
     expect((await call(stranger, "GET", url)).statusCode).toBe(404);
     // A second compaction of the same job is a no-op.
@@ -322,5 +331,66 @@ describe("PHASE-2 §36: replay retention by compaction", () => {
     const acct = (await pool.query<{ account_id: string }>("SELECT account_id FROM caravan WHERE id = $1", [s.caravan_id])).rows[0]!;
     await pool.query("DELETE FROM account WHERE id = $1", [acct.account_id]);
     expect((await pool.query("SELECT 1 FROM encounter_log_summary WHERE caravan_id = $1", [s.caravan_id])).rowCount).toBe(0);
+  });
+});
+
+describe("PHASE-2 §36 × chunk 30: compaction and account erasure compose, in either order", () => {
+  const TOMB_ACCOUNT = "00000000-0000-4000-8000-0000000000d0";
+  const TOMB_CARAVAN = "00000000-0000-4000-8000-0000000000d1";
+  const erase = async (p: Player) => {
+    const res = await call(p, "POST", "/me/account/delete", { confirm: DELETE_CONFIRM_PHRASE, password: "correct horse battery" });
+    expect(res.statusCode, res.body).toBe(200);
+    return res.json() as { counts: Record<string, number> };
+  };
+  /** A finished real fight: the defender, the party owner who struck, and the job. */
+  async function aFight(): Promise<{ d: Player; o: Player; jobId: string; url: string }> {
+    const d = await makeDefender();
+    const jobId = await commitFirstEncounter(d);
+    // (The sweep test above left one queued job with no trip input; a drain parks it. Only this fight matters here.)
+    expect((await worker()).filter((x) => x.kind === "completed" && x.job.id === jobId)).toHaveLength(1);
+    const ownerId = ((await getJob(pool, jobId))!.input as EncounterJobInput).partyOwnerAccountId;
+    const o = owners.find((x) => x.accountId === ownerId)!;
+    expect(o).toBeDefined();
+    return { d, o, jobId, url: `/me/encounters/${encodeURIComponent(jobId)}/replay` };
+  }
+
+  it("compacted, then the DEFENDER erases their account: the summary is kept for the party's owner, re-pointed to the tombstone like the log would be", async () => {
+    const { d, o, jobId, url } = await aFight();
+    expect(await withTinyBudget(() => pruneEncounterLogs(appRole, d.caravanId))).toBe(1);
+    const before = (await findEncounterLogSummary(pool, jobId))!;
+    expect(before.defender_account_id).toBe(d.accountId);
+    const { counts } = await erase(d);
+    expect(counts["fightsDefendedKept"]).toBe(1);
+    const after = (await findEncounterLogSummary(pool, jobId))!;
+    expect(after).toMatchObject({ caravan_id: TOMB_CARAVAN, defender_account_id: TOMB_ACCOUNT, party_owner_account_id: o.accountId, reason: before.reason, log_sha256: before.log_sha256 });
+    expect(after.summary).toEqual(before.summary);
+    expect(JSON.stringify(after)).not.toContain(d.accountId);
+    expect(JSON.stringify(after)).not.toContain(d.caravanId);
+    // The owner still reads the archived fight.
+    expect((await call(o, "GET", url)).json()).toMatchObject({ viewer: "party_owner", renderable: false, compacted: { reason: "size_budget" } });
+  });
+
+  it("compacted, then the PARTY OWNER erases their account: the defender keeps the summary; the owner side becomes the tombstone", async () => {
+    const { d, o, jobId, url } = await aFight();
+    expect(await withTinyBudget(() => pruneEncounterLogs(appRole, d.caravanId))).toBe(1);
+    await erase(o);
+    owners.splice(owners.indexOf(o), 1);
+    const after = (await findEncounterLogSummary(pool, jobId))!;
+    expect(after).toMatchObject({ caravan_id: d.caravanId, defender_account_id: d.accountId, party_owner_account_id: TOMB_ACCOUNT });
+    expect((await call(d, "GET", url)).json()).toMatchObject({ viewer: "caravan", renderable: false, compacted: { reason: "size_budget" } });
+    // Outside an erasure the same rewrite is still refused, even to the owner.
+    expect((await expectDbError(pool, "UPDATE encounter_log_summary SET party_owner_account_id = $2 WHERE job_id = $1", [jobId, d.accountId]))?.message).toMatch(/immutable/);
+  });
+
+  it("erased, then compacted: the summary is born from the anonymized log, with the tombstone's ids", async () => {
+    const { d, o, jobId, url } = await aFight();
+    await erase(d);
+    const log = (await pool.query<{ caravan_id: string; defender_account_id: string }>("SELECT caravan_id, defender_account_id FROM encounter_log WHERE job_id = $1", [jobId])).rows[0]!;
+    expect(log).toEqual({ caravan_id: TOMB_CARAVAN, defender_account_id: TOMB_ACCOUNT });
+    expect(await withTinyBudget(() => sweepEncounterLogRetention(appRole, 500))).toBeGreaterThanOrEqual(1);
+    const s = (await findEncounterLogSummary(pool, jobId))!;
+    expect(s).toMatchObject({ caravan_id: TOMB_CARAVAN, defender_account_id: TOMB_ACCOUNT, party_owner_account_id: o.accountId });
+    expect(JSON.stringify(s)).not.toContain(d.accountId);
+    expect((await call(o, "GET", url)).json()).toMatchObject({ viewer: "party_owner", renderable: false, compacted: { reason: "size_budget" } });
   });
 });

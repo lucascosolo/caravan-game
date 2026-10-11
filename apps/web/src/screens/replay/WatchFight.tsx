@@ -57,7 +57,7 @@ export function WatchFight({ jobId, encounterIndex, label, api, settled = null, 
               </p>
             }
           >
-            <ReplayPlayer jobId={jobId} settled={settled} {...(api ? { api } : {})} />
+            <ReplayPlayer jobId={jobId} encounterIndex={encounterIndex} settled={settled} {...(api ? { api } : {})} />
           </Suspense>
         </Modal>
       )}

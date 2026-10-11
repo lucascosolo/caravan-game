@@ -30,25 +30,41 @@ export interface OnboardingContextValue {
 
 const OnboardingContext = createContext<OnboardingContextValue | null>(null);
 
-export function OnboardingProvider({ api, children }: { api: Api; children: ReactNode }): JSX.Element {
+/**
+ * QA N6: how long to wait before each retry of the first read (presentation, not balance). A
+ * transient failure on a brand-new account's first read would otherwise hide the first screen
+ * for the whole session; after these the guide goes quiet (fail-open). A 4xx is not retried.
+ */
+export const ONBOARDING_READ_RETRY_MS: readonly number[] = [600, 2000];
+
+export function OnboardingProvider({ api, children, retryMs = ONBOARDING_READ_RETRY_MS }: { api: Api; children: ReactNode; retryMs?: readonly number[] }): JSX.Element {
   const [view, setView] = useState<OnboardingView | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
   const stepRef = useRef<OnboardingStep | null>(null);
 
   useEffect(() => {
     let live = true;
-    api.onboarding().then(
-      (r) => {
-        if (!live) return;
-        stepRef.current = r.onboarding.step;
-        setView(r.onboarding);
-      },
-      () => undefined,
-    );
+    let timer: number | undefined;
+    const attempt = (n: number): void => {
+      api.onboarding().then(
+        (r) => {
+          if (!live) return;
+          stepRef.current = r.onboarding.step;
+          setView(r.onboarding);
+        },
+        (err: unknown) => {
+          const status = (err as { status?: number } | null)?.status;
+          if (!live || n >= retryMs.length || (typeof status === "number" && status >= 400 && status < 500)) return;
+          timer = window.setTimeout(() => attempt(n + 1), retryMs[n]);
+        },
+      );
+    };
+    attempt(0);
     return () => {
       live = false;
+      if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [api]);
+  }, [api, retryMs]);
 
   const reach = useCallback(
     async (step: OnboardingStep): Promise<void> => {
