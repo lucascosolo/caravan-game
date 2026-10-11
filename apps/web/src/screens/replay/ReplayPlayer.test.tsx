@@ -12,7 +12,7 @@ import { ApiError, type Api } from "../../api/client.ts";
 import type { RecentFightsView, ReplayView } from "../../api/replayTypes.ts";
 import type { IsoCanvasProps } from "../../iso/index.ts";
 import { STRINGS } from "../../strings.ts";
-import { goldenView, replayCaravan, replayNoLog, replayOwner } from "../../test/replayFixtures.ts";
+import { goldenView, replayCaravan, replayCompacted, replayNoLog, replayOwner } from "../../test/replayFixtures.ts";
 import { resetViewerState } from "../../auth/session.tsx";
 import { fakeApi, partyView } from "../../test/townFixtures.ts";
 import { PartyScreen } from "../party/PartyScreen.tsx";
@@ -366,6 +366,23 @@ describe("states that cannot play", () => {
     expect(screen.getByTestId("replay-outcome")).toHaveTextContent("Your caravan held.");
     // The ledger's itemization still shows: this double-resolved fight's trip was banked.
     expect(screen.getByTestId("replay-settled")).toHaveTextContent("+1000 Coin banked for this encounter.");
+    expect(screen.queryByTestId("iso-canvas")).toBeNull();
+  });
+
+  it("PHASE-2 §36: a compacted fight shows it was archived, with the outcome and the tally the server kept — never a canvas", async () => {
+    const view = replayCompacted();
+    const { api } = apiFor(view);
+    render(<ReplayPlayer jobId={view.jobId} api={api} />);
+    const box = await screen.findByTestId("replay-not-renderable");
+    expect(box).toHaveAttribute("data-compacted", "true");
+    expect(box).toHaveAttribute("data-no-log", "false");
+    expect(box).toHaveTextContent(STRINGS.replay.compactedTitle);
+    expect(screen.getByTestId("replay-outcome")).toHaveTextContent("Your caravan held.");
+    const t = view.compacted!.tally!;
+    const tally = screen.getByTestId("replay-tally");
+    expect(tally).toHaveTextContent(`Raiders down: ${t.raidersFallen} of ${t.raiders}`);
+    expect(tally).toHaveTextContent(`Your posted units down: ${t.defendersFallen} of ${t.defenders}`);
+    expect(screen.getByTestId("replay-depth")).toHaveTextContent(`Deepest: ${t.deepest!.displayName}.`);
     expect(screen.queryByTestId("iso-canvas")).toBeNull();
   });
 

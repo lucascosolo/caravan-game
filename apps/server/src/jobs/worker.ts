@@ -44,7 +44,7 @@ import {
   type LeaseFence,
 } from "./queue.js";
 import { JOB_VISIBILITY_TIMEOUT_MS } from "./tunables.js";
-import { storeEncounterLog } from "../replay/store.js";
+import { pruneEncounterLogs, storeEncounterLog } from "../replay/store.js";
 
 export interface HandlerOutput {
   events: LedgerEventDraft[];
@@ -166,6 +166,9 @@ export async function runOnce(pool: pg.Pool, opts: WorkerOptions): Promise<RunOu
       if (output.encounterLog) await storeEncounterLog(client, output.encounterLog, fence);
       if (opts.afterAppend) await opts.afterAppend(job, client);
       const completed = await markJobCompleted(client, job.id, output.result, fence);
+      // PHASE-2 §36: compaction needs the job's result, so the caravan's prune runs once more now that
+      // the job is completed — an over-budget log is compacted before this transaction commits.
+      if (output.encounterLog) await pruneEncounterLogs(client, output.encounterLog.caravanId);
       if (opts.afterCompleted) {
         await client.query("SAVEPOINT after_completed");
         try {

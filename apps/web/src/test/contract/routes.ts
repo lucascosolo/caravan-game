@@ -95,6 +95,8 @@ export const CONTRACT_GUARDS: Readonly<Record<string, Guard<unknown> | null>> = 
   replay: replayShape,
   "replay-owner": replayShape,
   "replay-no-log": replayShape,
+  // PHASE-2 §36: the same fight after its log was compacted to its results summary.
+  "replay-compacted": replayShape,
   // Chunk 22 QA D2: the caravan's fights within retention (one with a log; three double-resolved ones).
   encounters: recentFightsShape,
   "encounters-history": recentFightsShape,

@@ -33,7 +33,9 @@ import { appendCoinCredits } from "../src/economy/coin.js";
 import { appendEvents } from "../src/ledger/ledger.js";
 import { DEFAULT_HANDLERS } from "../src/jobs/handlers/encounterResolution.js";
 import { drain } from "../src/jobs/worker.js";
-import { NO_LOG_REASON } from "../src/routes/replay.js";
+import { COMPACTED_REASON, NO_LOG_REASON } from "../src/routes/replay.js";
+import { pruneEncounterLogs } from "../src/replay/store.js";
+import { TUNABLES } from "@caravan/content";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
 import { TRIP_CAP_REGEN_MS, TRIPS_PER_HOUR_CAP } from "../src/trip/cap.js";
 import { appRolePool, testPool, truncateAll } from "./helpers.js";
@@ -518,6 +520,18 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     await record("devices-revoke-others", "POST /me/devices/revoke-others", await call(g, "POST", "/me/devices/revoke-others"), 200);
     await record("export", "GET /me/export", await call(g, "GET", "/me/export"), 200);
     await record("account-delete", "POST /me/account/delete", await call(g, "POST", "/me/account/delete", { confirm: "delete my account", password: "correct horse battery" }), 200);
+
+    // PHASE-2 §36, recorded last: the same real-resolver fight after its log was COMPACTED to its
+    // results summary. The owner lowers the size budget for one prune of that caravan (the only way
+    // to make a minutes-old log compactable without waiting 30 days), then restores it.
+    await pool.query("UPDATE encounter_log_retention SET size_budget_bytes = 1024");
+    try {
+      expect(await pruneEncounterLogs(appRole, v.caravanId)).toBe(1);
+    } finally {
+      await pool.query("UPDATE encounter_log_retention SET size_budget_bytes = $1", [TUNABLES.LOG_SIZE_BUDGET_BYTES]);
+    }
+    const compacted = (await record("replay-compacted", "GET /me/encounters/:jobId/replay (log compacted, PHASE-2 §36)", await call(v, "GET", replayUrl), 200)) as Record<string, unknown>;
+    expect(compacted).toMatchObject({ viewer: "caravan", renderable: false, reason: COMPACTED_REASON, log: null, outcome: (mine as unknown as { outcome: unknown }).outcome, compacted: { reason: "size_budget" } });
 
     // Write the fixtures (only when they changed, so a rerun leaves the tree clean).
     mkdirSync(OUT, { recursive: true });

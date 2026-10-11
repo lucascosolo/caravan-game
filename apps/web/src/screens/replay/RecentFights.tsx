@@ -61,6 +61,7 @@ export function RecentFights({ api: apiProp }: { readonly api?: Api }): JSX.Elem
                   ) : (
                     <>
                       {e.replay === "no_log" && <p className="hint">{T.recentNoLog}</p>}
+                      {e.replay === "compacted" && <p className="hint">{T.recentCompacted}</p>}
                       <WatchFight jobId={e.jobId} encounterIndex={e.encounterIndex} label={T.recentWatch} api={api} testId={`recent-watch-${e.jobId}`} />
                     </>
                   )}

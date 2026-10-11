@@ -5,6 +5,7 @@ import { createPool } from "./db/pool.js";
 import type { InlineEncounterWorker } from "./dev/testResolver.js";
 import { DEFAULT_HANDLERS } from "./jobs/handlers/encounterResolution.js";
 import { EncounterWorkerLoop } from "./jobs/inProcessWorker.js";
+import { LogRetentionLoop } from "./jobs/retentionWorker.js";
 import { TRIP_SETTLE_HOOKS } from "./trip/service.js";
 import { acquisitionRoutes } from "./routes/acquisition.js";
 import { authRoutes } from "./routes/auth.js";
@@ -35,6 +36,8 @@ declare module "fastify" {
     inlineEncounterWorker: InlineEncounterWorker | null;
     /** QA-13 S1: the in-process job-queue drain (real resolver by default). Null when not enabled (most tests drain by hand). */
     encounterWorker: EncounterWorkerLoop | null;
+    /** PHASE-2 §36: the scheduled replay-retention sweep (compaction). Null when not enabled (tests sweep by hand). */
+    retentionJob: LogRetentionLoop | null;
     /** Chunk 30: the auth / account routes' fixed-window limiter. */
     rateLimiter: RateLimiter;
   }
@@ -56,6 +59,12 @@ export interface BuildAppOptions {
    * (tests drain by hand so they can observe "not resolved yet").
    */
   encounterWorker?: boolean | { pollMs?: number };
+  /**
+   * PHASE-2 §36: run the replay-retention sweep in-process (jobs/retentionWorker.ts) — logs past
+   * LOG_RETENTION or over LOG_SIZE_BUDGET compacted to their results summary. index.ts passes true.
+   * Default off (tests call the sweep themselves).
+   */
+  retentionJob?: boolean | { intervalMs?: number };
   /**
    * Chunk 30: the auth / account rate limits. Default: account/tunables.ts RATE_LIMITS, or off
    * when CARAVAN_RATE_LIMITS=off (the server test suite's vitest env; refused in production).
@@ -98,6 +107,19 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   if (loop) {
     app.addHook("onReady", async () => loop.start());
     app.addHook("onClose", async () => loop.stop());
+  }
+  const retention =
+    opts.retentionJob === undefined || opts.retentionJob === false
+      ? null
+      : new LogRetentionLoop(db, {
+          ...(typeof opts.retentionJob === "object" && opts.retentionJob.intervalMs !== undefined ? { intervalMs: opts.retentionJob.intervalMs } : {}),
+          onError: (err) => app.log.error(err),
+          onRun: (r) => app.log.info(r, `replay retention: ${r.compacted} log(s) compacted to their results summary`),
+        });
+  app.decorate("retentionJob", retention);
+  if (retention) {
+    app.addHook("onReady", async () => retention.start());
+    app.addHook("onClose", async () => retention.stop());
   }
   if (!opts.db) app.addHook("onClose", async () => db.end());
 

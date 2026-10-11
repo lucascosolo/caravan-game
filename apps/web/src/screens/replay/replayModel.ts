@@ -117,7 +117,7 @@ export interface SceneOptions {
   readonly highlight?: ReadonlySet<number>;
 }
 
-export type OpenReplay = { readonly ok: true; readonly model: ReplayModel } | { readonly ok: false; readonly reason: string; readonly noLog: boolean };
+export type OpenReplay = { readonly ok: true; readonly model: ReplayModel } | { readonly ok: false; readonly reason: string; readonly noLog: boolean; readonly compacted?: true };
 
 /** How long a mark stays over the thing a row reported, in seconds of WALL time at any speed (presentation). */
 export const MARK_SECONDS = 1.0;
@@ -215,6 +215,8 @@ export function openReplay(view: ReplayView, expected?: { readonly jobId: string
   if (expected && (view.jobId !== expected.jobId || (expected.encounterIndex !== undefined && view.encounterIndex !== expected.encounterIndex))) {
     return { ok: false, reason: T.wrongFight, noLog: false };
   }
+  // PHASE-2 §36: the log was compacted to its results summary (past retention) — nothing to play, by design.
+  if (view.compacted) return { ok: false, reason: view.reason ?? T.compactedReason, noLog: false, compacted: true };
   if (view.log === null || view.log === undefined) return { ok: false, reason: view.reason ?? T.noLogReason, noLog: true };
   if (!view.renderable) return { ok: false, reason: view.reason ?? T.notRenderableReason, noLog: false };
   let replay: Replay;

@@ -126,11 +126,12 @@ export function ReplayPlayer({ jobId, encounterIndex, api: apiProp, settled = nu
 function ReplayBody({ view, expected, settled, autoPlay }: { readonly view: ReplayView; readonly expected: { jobId: string; encounterIndex?: number }; readonly settled: ReplaySettled | null; readonly autoPlay: boolean }): JSX.Element {
   const opened = useMemo(() => openReplay(view, expected), [view, expected.jobId, expected.encounterIndex]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!opened.ok) {
+    const archived = opened.compacted === true;
     return (
-      <div data-testid="replay-not-renderable" data-no-log={opened.noLog ? "true" : "false"}>
+      <div data-testid="replay-not-renderable" data-no-log={opened.noLog ? "true" : "false"} data-compacted={archived ? "true" : "false"}>
         <section className="card" role="status">
-          <h3>{opened.noLog ? T.noLogTitle : T.cannotPlayTitle}</h3>
-          <p>{opened.noLog ? T.noLogBody : T.cannotPlayBody}</p>
+          <h3>{archived ? T.compactedTitle : opened.noLog ? T.noLogTitle : T.cannotPlayTitle}</h3>
+          <p>{archived ? T.compactedBody : opened.noLog ? T.noLogBody : T.cannotPlayBody}</p>
           {/* QA N6: the reader's raw reason, kept, but under the plain sentence. */}
           <details className="disclosure">
             <summary>{T.reasonDetail}</summary>
@@ -173,7 +174,10 @@ function settledLines(view: ReplayView, fallback: ReplaySettled | null): string[
 function Summary({ view, model, settled }: { readonly view: ReplayView; readonly model: ReplayModel | null; readonly settled: ReplaySettled | null }): JSX.Element {
   const o = view.outcome;
   const v = view.viewer;
-  const t = model?.tally;
+  // PHASE-2 §36: with no log to read, a compacted fight's tally is the one the server kept.
+  const kept = model ? null : (view.compacted?.tally ?? null);
+  const t = model?.tally ?? (kept ? { ...kept, trapsNullified: kept.trapsNullified ?? 0 } : undefined);
+  const deepestName = model?.deepestName ?? kept?.deepest?.displayName ?? null;
   const pct = o ? depthPercent(o.depth, o.kind === "caravan_overrun" || (t?.coreReached ?? false)) : 0;
   const lines = settledLines(view, settled);
   return (
@@ -185,7 +189,7 @@ function Summary({ view, model, settled }: { readonly view: ReplayView; readonly
       {o && (
         <>
           <p data-testid="replay-depth">
-            {T.depth(pct, v)} {model?.deepestName ? T.deepest(model.deepestName) : null}
+            {T.depth(pct, v)} {deepestName ? T.deepest(deepestName) : null}
           </p>
           <p className="hint" data-testid="replay-depth-explained">
             {T.depthExplained}

@@ -9,7 +9,9 @@
  * The list is capped at `min_per_caravan` rows. Each row says whether its replay can be played:
  *   "log"     a stored log exists (the replay route answers 200);
  *   "no_log"  the fight was resolved without one (the dev/test double: 200, renderable false);
- *   "pruned"  a log existed and is gone (410).
+ *   "compacted"  the log was compacted to its results summary (PHASE-2 §36: 200, renderable false,
+ *             with the kept summary);
+ *   "pruned"  a log existed and is gone with no summary (410; only logs pruned before §36).
  *
  * Only the caravan's side of the fight is listed (the account's own caravans); the party's owner
  * reaches theirs through the Party feed and the inbox. Nothing names the opposing account.
@@ -25,7 +27,7 @@ export interface RecentFightView {
   /** DEPTH_METRIC, fixed-point 0..1024, as the trip loop settled it. */
   depth: number;
   settledAt: string;
-  replay: "log" | "no_log" | "pruned";
+  replay: "log" | "no_log" | "compacted" | "pruned";
 }
 
 export interface RecentFightsView {
@@ -48,6 +50,7 @@ export async function recentFights(db: Queryable, accountId: string): Promise<Re
      )
      SELECT m.job_id, m.trip_id::text AS trip_id, m.encounter_index, m.outcome_kind, m.depth_fp, m.settled_at,
             CASE WHEN l.job_id IS NOT NULL THEN 'log'
+                 WHEN EXISTS (SELECT 1 FROM encounter_log_summary s WHERE s.job_id = m.job_id) THEN 'compacted'
                  WHEN coalesce(j.result -> 'replay', 'null'::jsonb) = 'null'::jsonb THEN 'no_log'
                  ELSE 'pruned' END AS replay
        FROM mine m

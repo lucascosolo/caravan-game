@@ -1002,6 +1002,11 @@ export const STRINGS = {
     reason: (r: string): string => `Reason: ${r}`,
     reasonDetail: "Technical detail",
     noLogReason: "no replay log was recorded for this fight",
+    // PHASE-2 §36: past the keeping window the server keeps the fight's results summary, not its tick log.
+    compactedTitle: "This fight's playback has been archived",
+    compactedBody: "Fights are kept for playback for a while; after that the server keeps only how it ended. The summary below is the server's record.",
+    compactedReason: "the replay was archived to its results summary",
+    recentCompacted: "Playback archived: the summary of how it ended is kept.",
     notRenderableReason: "the server could not read this log",
     labelsMismatch: "the server's labels do not match the stored log",
     wrongFight: "the server answered with a different fight than the one asked for",

@@ -34,6 +34,7 @@ import {
 } from "../../trip/outcome.js";
 import { ContentHashMismatchError, RESOLUTION_CONTENT_HASH } from "../../trip/resolverAdapter.js";
 import type { EncounterLogArtifact, JobHandler } from "../worker.js";
+import { replayTally, type ReplayTallyRecord } from "../../replay/summary.js";
 
 export interface EncounterJobInput extends JsonObject {
   tripId: string;
@@ -239,6 +240,8 @@ export function makeEncounterResolutionHandler(resolver: EncounterResolver): Job
     const input = job.input as EncounterJobInput;
     let outcome: EncounterOutcome;
     let encounterLog: EncounterLogArtifact | undefined;
+    // PHASE-2 §36: the end-card tally, kept in the (immutable) result so it outlives the log's compaction.
+    let tally: ReplayTallyRecord | null = null;
     try {
       const resolverInput = resolverInputFromJob(job.input);
       const resolved = resolveEncounter(resolver, resolverInput, partyLootFullFromJob(job.input));
@@ -248,6 +251,7 @@ export function makeEncounterResolutionHandler(resolver: EncounterResolver): Job
       // HERE, before anything is recorded (no repair, no resupply — chunk 15).
       applyAttritionOutcome(resolverInput.survivors, attritionOf(outcome));
       if (resolved.log !== null) {
+        tally = replayTally(resolved.log);
         const text = JSON.stringify(resolved.log);
         const sha = (v: unknown) => createHash("sha256").update(canonicalJson(v as Json)).digest("hex");
         encounterLog = {
@@ -309,7 +313,7 @@ export function makeEncounterResolutionHandler(resolver: EncounterResolver): Job
       },
     ];
     // QA-15 S2: the log lives in encounter_log; the result names it (hash + size), never holds it.
-    const replay: JsonObject | null = encounterLog ? { store: "encounter_log", jobId: job.id, logFormat: encounterLog.logFormat, sha256: encounterLog.sha256, rawBytes: Buffer.byteLength(encounterLog.text) } : null;
+    const replay: JsonObject | null = encounterLog ? { store: "encounter_log", jobId: job.id, logFormat: encounterLog.logFormat, sha256: encounterLog.sha256, rawBytes: Buffer.byteLength(encounterLog.text), tally: tally as unknown as JsonObject | null } : null;
     return { events, result: { outcome: outcomeJson, resolverVersion: RESOLVER_VERSION, resolver: resolver.name, replay }, ...(encounterLog ? { encounterLog } : {}) };
   };
 }
