@@ -38,3 +38,6 @@ Thumbs.db
 
 # Deploy freeze lockfile
 .nodeploy
+
+# Agent worktrees created by the Claude Code harness
+.claude/worktrees/
