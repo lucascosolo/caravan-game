@@ -37,3 +37,16 @@ N4. [closed] Move src/jobs/tunables.ts constants into a documented server-side i
 - **S8** Fastify querystring schema (`after` integer 0..2^53, `limit` 1..500) → 400; response carries `hasMore` (`listEventsPageForAccount`).
 - **S9** `DEFAULT_HANDLERS.encounter_resolution` throws `NonRetryableJobError` while `RESOLVER_VERSION < 1` → parked immediately with a clear `last_error`; the placeholder is `PLACEHOLDER_HANDLERS`, registered only by tests.
 - **N1** BEFORE INSERT trigger enforces contiguity. **N2** documented at the `seq` column. **N3** `next_attempt_at` + `retryBackoffMs` (1 s doubling, 60 s cap; `WorkerOptions.retryBackoffMs` overrides). **N4** `src/jobs/tunables.ts` header documents the server-side-infra decision.
+
+# Round 2 — B1 re-check (commit e139871): B1 holds. Remaining:
+
+## Should-fix
+R2-S1. worker.ts:93-94 treats a *missing* `input.resolverVersion` as a match. Require the key; add CHECK `resolution_job.input ? 'resolverVersion'` with `jsonb_typeof = 'number'` in migration 002.
+R2-S2. A wrong-version worker leases the job and burns attempts; during a rolling deploy old workers park every new-version job. `leaseNextJob` takes `resolverVersion` and filters `(input->>'resolverVersion')::int = $n` so skewed workers never lease it.
+R2-S3. `requeueParkedJob` writes no audit and the app role can do the same with raw UPDATE. Add `requeued_at`/`requeued_by`/`requeue_count` columns set by the function; REVOKE UPDATE(status) from caravan_app and make the lease/complete/fail/park/requeue status writers SECURITY DEFINER SQL functions (owner), so status changes only flow through them.
+R2-S4. Transition trigger permits what the fence forbids. Defense in depth: `completed` requires `OLD.status='leased'`; a new lease (`leased` from non-leased, or a changed `leased_by`) requires `NEW.attempts > OLD.attempts`; `status<>'queued' OR max_attempts >= attempts`.
+
+## Nits
+R2-N1. Park-on-exhaustion sets `leased_by` to a worker that never ran it; set NULL.
+R2-N2. `leaseNextJob` uses `now()`; use `clock_timestamp()` for symmetry with the fence.
+R2-N3. `result` may be non-NULL on a non-completed row; CHECK `status='completed' OR result IS NULL`.
