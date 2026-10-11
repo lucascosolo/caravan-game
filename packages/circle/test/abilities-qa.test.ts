@@ -382,6 +382,13 @@ describe("chunk 12 QA: attrition still bites — release gate", () => {
   // full HP. (Measured: 82.6–89.9 % across the four trips below; a healer that could top the
   // caravan up between fights would put it back near 100 %.)
   const DEGRADED_BELOW = 0.9;
+  /**
+   * Raiders per light encounter. Chunk 37 balance pass (BALANCE-LOG.md): 2 → 3. With defense
+   * ratings ×1.5 two level-1 raiders barely scratch the turtle, so there was nothing left for
+   * healing to undo and the gate measured nothing; three keeps the encounters light (all survived)
+   * but real.
+   */
+  const LIGHT_RAIDERS = 3;
 
   /** The same circle with the healers' satchels emptied of effect (healFraction 0): identical units, positions and fights otherwise. */
   function noHealing(circle: ReturnType<typeof turtleCircle>): ReturnType<typeof turtleCircle> {
@@ -394,7 +401,7 @@ describe("chunk 12 QA: attrition still bites — release gate", () => {
     const full = circle.posts.reduce((n, p) => n + p.maxHp, 0);
     for (let e = 0; e < 3; e++) {
       const p = competentParty((start + 2 * e) % 8, 1);
-      circle = carry(circle, fight(circle, { units: p.units.slice(0, 2), siege: [] }));
+      circle = carry(circle, fight(circle, { units: p.units.slice(0, LIGHT_RAIDERS), siege: [] }));
       if (!healing) circle = noHealing(circle);
     }
     return circle.posts.reduce((n, p) => n + p.hp, 0) / full;
@@ -429,7 +436,7 @@ describe("chunk 12 QA: attrition still bites — release gate", () => {
       for (let e = 0; e < 3; e++) {
         const before = circle.posts.reduce((n, p) => n + p.hp, 0);
         const p = competentParty((start + 2 * e) % 8, 1);
-        const out = fight(circle, { units: p.units.slice(0, 2), siege: [] });
+        const out = fight(circle, { units: p.units.slice(0, LIGHT_RAIDERS), siege: [] });
         expect(caravanHeld(out), `trip ${start}, encounter ${e + 1} must be survived for the gate to mean anything`).toBe(true);
         // Charges reset per encounter, never accumulate: each healer casts at most its four.
         for (const healer of out.units.filter((u) => u.side === "defender" && u.typeId.includes("apothecary"))) {

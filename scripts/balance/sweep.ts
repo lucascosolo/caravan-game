@@ -265,7 +265,7 @@ function assemble(m: Manifest, fences: Formation["fences"], trapCells: Cell[], p
   return v.ok ? v.value : null;
 }
 
-function searchLayout(gap: string, post: string, mode: "guard" | "hold" | "mixed", trap: string): Layout {
+export function searchLayout(gap: string, post: string, mode: "guard" | "hold" | "mixed", trap: string): Layout {
   return {
     name: `${gap}/${post}/${mode}/${trap}`,
     family: "search",
@@ -464,13 +464,16 @@ export function rosterAt(regionId: RegionId, o: { size: number; level: number; t
 
 /**
  * STARTING_ROSTER (chunk 24 QA D1). The mechanism is the chunk 24 fixer's; until it lands the
- * sweep models it here: by default one level-1 unit of each of the region's starter types.
- * `extra` adds the first free refugee claim the guide walks the player through.
+ * sweep models it here: `copiesPerStarterType` level-1 copies of each of the region's starter
+ * types — read from TUNABLES.STARTING_ROSTER once that block is on main, else the value this pass
+ * recommends (BALANCE_STARTING_COPIES). `refugee` adds the first free refugee claim the guide
+ * walks the player through.
  */
-export const STARTING_ROSTER_MODEL = { perStarterType: 1, mergeLevel: 1 } as const;
+export const BALANCE_STARTING_COPIES = 3;
+export const STARTING_ROSTER_MODEL: { readonly copiesPerStarterType: number } = (TUNABLES as unknown as { STARTING_ROSTER?: { copiesPerStarterType: number } }).STARTING_ROSTER ?? { copiesPerStarterType: BALANCE_STARTING_COPIES };
 export function freshRoster(regionId: RegionId, refugee: string | null, traps: number): RosterSpec {
   const units: { typeId: string; mergeLevel: number }[] = [];
-  for (const t of starterTypes(regionId)) for (let i = 0; i < STARTING_ROSTER_MODEL.perStarterType; i++) units.push({ typeId: t, mergeLevel: STARTING_ROSTER_MODEL.mergeLevel });
+  for (const t of starterTypes(regionId)) for (let i = 0; i < STARTING_ROSTER_MODEL.copiesPerStarterType; i++) units.push({ typeId: t, mergeLevel: 1 });
   if (refugee) units.push({ typeId: refugee, mergeLevel: 1 });
   return { label: `fresh ${regionId}${refugee ? ` +${refugee.split(".")[1]}` : ""} ${traps} trap`, regionId, units, traps: Array(traps).fill(trapsUpTo(0)[0]!), fence: { tierId: bestFenceUpTo(0), count: TUNABLES.FENCE_MATERIAL_BUDGET } };
 }
@@ -629,3 +632,30 @@ export function median(xs: readonly number[]): number {
 }
 
 export { REGION_IDS, baseMergeLevel, maxLivingTier };
+
+// ── the band-typical roster ────────────────────────────────────────────────────────────
+
+/** Fence tier a caravan has reached by band ordinal `o` (trap-web tiers 0, 2, 3, 4 hold brush, split rail, barbed wire, stacked stone). */
+export function fenceTierAt(o: number): number {
+  return o <= 1 ? 0 : o <= 3 ? 2 : o <= 5 ? 3 : 4;
+}
+
+/**
+ * What a caravan typically packs in band ordinal `o`, by the same progress curve the authored set
+ * fields at that band (a player there has merged and unlocked about as far as the outfits they
+ * meet): eight units (at the floor: the starting roster and one refugee) at the band's base merge
+ * level, living types up to the band's tier, six traps (they cost nothing to pack) of the types
+ * reachable by then, and a full fence of the best tier reachable.
+ */
+export function bandTypicalRoster(regionId: RegionId, o: number, composition: Composition = "defensive"): RosterSpec {
+  const fresh = starterTypes(regionId).length * STARTING_ROSTER_MODEL.copiesPerStarterType + 1;
+  const size = Math.min(TUNABLES.DEPLOYMENT_SLOT_CAP, o === 0 ? fresh : TUNABLES.DEPLOYMENT_SLOT_CAP);
+  return rosterAt(regionId, { size, level: baseMergeLevel(o), tier: maxLivingTier(o), traps: TUNABLES.TRAP_SLOT_CAP, trapTier: Math.min(3, Math.floor((o + 1) / 2)), fenceTier: fenceTierAt(o), composition, label: `b${o}-typical ${regionId} ${composition}` });
+}
+
+/** A layout by name (SKILLED ∪ NAIVE ∪ GUIDED). */
+export function layoutNamed(name: string): Layout {
+  const l = SKILLED.find((x) => x.name === name);
+  if (!l) throw new Error(`no layout '${name}'`);
+  return l;
+}

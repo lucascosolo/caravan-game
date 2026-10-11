@@ -89,8 +89,10 @@ export const AUTHORED_USERNAME_PREFIX = SYSTEM_USERNAME_PREFIX;
 /**
  * Bump when the set changes meaning (a content drop); the spec hash catches every change regardless.
  * v3 (chunk 25 QA N5): bands no longer pair up on (max living tier, base merge level).
+ * v4 (chunk 37 balance pass): the difficulty curve re-authored to rise from unmerged three-raider
+ * starter outfits at the floor (party size, merge level and leaders on their own curves).
  */
-export const AUTHORED_SET_VERSION = 3;
+export const AUTHORED_SET_VERSION = 4;
 export const AUTHORED_PARTIES_PER_BAND: number = TUNABLES.AUTHORED_PARTIES_PER_BAND;
 if (!Number.isInteger(AUTHORED_PARTIES_PER_BAND) || AUTHORED_PARTIES_PER_BAND < 12) throw new Error("TUNABLES.AUTHORED_PARTIES_PER_BAND must be an integer of at least 12 (PHASE-2 §25)");
 if (!Number.isInteger(TUNABLES.AUTHORED_REPUTATION_CEILING) || TUNABLES.AUTHORED_REPUTATION_CEILING < TUNABLES.REPUTATION_FLOOR) throw new Error("TUNABLES.AUTHORED_REPUTATION_CEILING must be an integer at or above REPUTATION_FLOOR");
@@ -216,9 +218,24 @@ export function maxSiegeTier(bandOrdinal: number): number {
 }
 /** The top merge level a band fields (its leader may be one higher): MERGE_LEVEL_MIN at the floor, MERGE_LEVEL_MAX in the top band, offset half a step from the tier curve. */
 export function baseMergeLevel(bandOrdinal: number): number {
+  // Balance pass (chunk 37, BALANCE-LOG.md): no half-step offset any more — the floor bands are
+  // the unmerged starter outfits a fresh caravan meets first, and the curve rises from there.
   const steps = TUNABLES.MERGE_LEVEL_MAX - TUNABLES.MERGE_LEVEL_MIN;
-  return Math.min(TUNABLES.MERGE_LEVEL_MAX, TUNABLES.MERGE_LEVEL_MIN + Math.floor((bandOrdinal * steps + Math.floor(LAST_ORDINAL / 2)) / LAST_ORDINAL));
+  return Math.min(TUNABLES.MERGE_LEVEL_MAX, TUNABLES.MERGE_LEVEL_MIN + Math.floor((bandOrdinal * steps) / LAST_ORDINAL));
 }
+
+/**
+ * How many raiders party `i` of a band fields (chunk 37 balance pass, BALANCE-LOG.md): three at
+ * the floor, rising by about five over the set to a full PARTY_SLOT_CAP in the top band, the odd
+ * parties of a band one ahead of the even ones on the half steps. Never fewer than the edges it splits over.
+ */
+export function bandPartySize(bandOrdinal: number, i: number): number {
+  const rise = Math.floor(((2 * bandOrdinal + (i % 2)) * AUTHORED_SIZE_RISE) / (2 * LAST_ORDINAL));
+  return Math.min(TUNABLES.PARTY_SLOT_CAP, AUTHORED_SIZE_FLOOR + rise);
+}
+const AUTHORED_SIZE_FLOOR: number = TUNABLES.AUTHORED_PARTY_SIZE_FLOOR;
+const AUTHORED_SIZE_RISE: number = TUNABLES.AUTHORED_PARTY_SIZE_RISE;
+const AUTHORED_LEADER_FROM_ORDINAL: number = TUNABLES.AUTHORED_LEADER_FROM_BAND_ORDINAL;
 
 export function outfitSlug(name: string): string {
   let slug = name.toLowerCase().replace(/['\u2019]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
@@ -272,11 +289,12 @@ export function authoredPartySpecs(): AuthoredPartySpec[] {
       const roster = chooseTypes(livingWeb, maxLivingTier(ordinal), 2 + Math.floor(ordinal / 2), nth + ordinal);
       const edgeCount = EDGE_SPLITS[nth % EDGE_SPLITS.length]!;
       // At least one unit per edge the party splits across, so a 4-edge party really comes from four sides.
-      const size = Math.min(TUNABLES.PARTY_SLOT_CAP, Math.max(edgeCount, 3 + ordinal + (i % 2)));
+      const size = Math.min(TUNABLES.PARTY_SLOT_CAP, Math.max(edgeCount, bandPartySize(ordinal, i)));
       const base = baseMergeLevel(ordinal);
       const units: { typeId: string; mergeLevel: number }[] = [];
       for (let u = 0; u < size; u++) {
-        const level = u === 0 ? Math.min(TUNABLES.MERGE_LEVEL_MAX, base + (i % 3 === 0 ? 1 : 0)) : Math.max(TUNABLES.MERGE_LEVEL_MIN, base - (u % 2));
+        const leader = ordinal >= AUTHORED_LEADER_FROM_ORDINAL && i % 3 === 0 ? 1 : 0;
+        const level = u === 0 ? Math.min(TUNABLES.MERGE_LEVEL_MAX, base + leader) : Math.max(TUNABLES.MERGE_LEVEL_MIN, base - (u % 2));
         units.push({ typeId: roster.types[u % roster.types.length]!, mergeLevel: level });
       }
       const loadouts = SIEGE_LOADOUTS.filter((l) => l.every((id) => (findUnlockNode(siegeWeb, id)?.tier ?? Infinity) <= maxSiegeTier(ordinal)));
@@ -339,8 +357,13 @@ function validateSpecs(specs: readonly AuthoredPartySpec[], bands: readonly numb
   const top = specs.filter((s) => s.band === bands[bands.length - 1]);
   if (!top.some((s) => s.units.some((u) => u.mergeLevel === TUNABLES.MERGE_LEVEL_MAX))) fail("the top band fields no unit at the merge cap");
   // Chunk 25 QA N5: every band reads as a step up from the one below it.
+  // Chunk 37: (max tier, base merge level, raiders in the band) never falls, and at least one of
+  // them rises — the floor bands may share a tier and a merge level and differ by party size.
+  const raidersIn = (b: number) => specs.filter((s) => s.band === b).reduce((n, s) => n + s.units.length, 0);
   for (let o = 1; o < bands.length; o++) {
-    if (maxLivingTier(o) === maxLivingTier(o - 1) && baseMergeLevel(o) === baseMergeLevel(o - 1)) fail(`bands ${bands[o - 1]} and ${bands[o]} field the same max tier and base merge level`);
+    const prev = [maxLivingTier(o - 1), baseMergeLevel(o - 1), raidersIn(bands[o - 1]!)];
+    const cur = [maxLivingTier(o), baseMergeLevel(o), raidersIn(bands[o]!)];
+    if (cur.some((v, k) => v < prev[k]!) || cur.every((v, k) => v === prev[k]!)) fail(`band ${bands[o]} does not read as a step up from band ${bands[o - 1]}`);
   }
 }
 

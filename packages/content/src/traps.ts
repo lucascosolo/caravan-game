@@ -48,7 +48,7 @@ export const TRAP_TYPES: readonly TrapType[] = deepFreeze([
     flavor: "A dug pit, sharpened stakes, a scatter of brush on top. Old as war.",
     category: "groundwork",
     affinity: "grit",
-    damage: 250,
+    damage: 375,
     effect: null,
   },
   {
@@ -57,7 +57,7 @@ export const TRAP_TYPES: readonly TrapType[] = deepFreeze([
     flavor: "Bear iron, staked to the ground. Whatever steps in it stays a while.",
     category: "groundwork",
     affinity: "grit",
-    damage: 160,
+    damage: 240,
     effect: { kind: "root", duration: TUNABLES.TRAP_ROOT_DURATION_DEFAULT },
   },
   {
@@ -66,7 +66,7 @@ export const TRAP_TYPES: readonly TrapType[] = deepFreeze([
     flavor: "Picket rope and a bent sapling. Cheap, quiet, and it holds a leg fast.",
     category: "groundwork",
     affinity: "grit",
-    damage: 60,
+    damage: 90,
     effect: { kind: "root", duration: TUNABLES.TRAP_ROOT_DURATION_DEFAULT },
   },
   {
@@ -75,7 +75,7 @@ export const TRAP_TYPES: readonly TrapType[] = deepFreeze([
     flavor: "Twisted nails sown across the approach. Nothing walks the same after.",
     category: "groundwork",
     affinity: "grit",
-    damage: 90,
+    damage: 135,
     effect: { kind: "slow", magnitude: TUNABLES.TRAP_SLOW_MAGNITUDE_DEFAULT, duration: TUNABLES.TRAP_SLOW_DURATION_DEFAULT },
   },
   {
@@ -84,7 +84,7 @@ export const TRAP_TYPES: readonly TrapType[] = deepFreeze([
     flavor: "A half-buried keg and a pressure fuse. One step and the ground stands up.",
     category: "powder",
     affinity: "powder",
-    damage: 220,
+    damage: 330,
     effect: null,
   },
   {
@@ -93,7 +93,7 @@ export const TRAP_TYPES: readonly TrapType[] = deepFreeze([
     flavor: "Pitch and lamp oil in a tipping pot. Burns slow, sticks to everything.",
     category: "powder",
     affinity: "powder",
-    damage: 140,
+    damage: 210,
     effect: { kind: "slow", magnitude: TUNABLES.TRAP_SLOW_MAGNITUDE_DEFAULT, duration: TUNABLES.TRAP_SLOW_DURATION_DEFAULT },
   },
 ]);
