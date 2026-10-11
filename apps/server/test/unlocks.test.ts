@@ -51,7 +51,8 @@ const spend = (p: Player, pool: UnlockPool, nodeId: string, caravanId?: string |
 
 const owner = (p: Player) => ({ accountId: p.accountId, caravanId: p.caravanId, regionId: p.regionId });
 
-let rungCounter = 100;
+// Rungs are 1..LADDER_RUNGS_PER_POOL and unique per (pool, owner); count per owner+pool.
+const rungCounters: Record<string, number> = {};
 /**
  * TEST FIXTURE ONLY: the production source of unlock points is chunk 04's rung crossing
  * (`unlock_points_granted` from progression/outcome.ts). This writes the same event
@@ -60,7 +61,12 @@ let rungCounter = 100;
  */
 async function grant(p: Player, pool: UnlockPool, points: number): Promise<void> {
   await withTransaction(pool === "living" ? testPoolRef : testPoolRef, async (c) => {
-    const rung = ++rungCounter;
+    const key = `${p.accountId}:${pool === "living" ? p.caravanId : ""}:${pool}`;
+    // Count DOWN from the top rung so fixture grants never collide with a real rung-1
+    // crossing driven by the end-to-end test below.
+    const n = (rungCounters[key] = (rungCounters[key] ?? 0) + 1);
+    const rung = 21 - n;
+    if (rung < 1) throw new Error(`test fixture: more than 20 grants for ${key}`);
     await appendEvents(c, `test:grant:${p.accountId}:${pool}:${rung}`, [
       { type: "unlock_points_granted", accountId: p.accountId, caravanId: pool === "living" ? p.caravanId : null, payload: { pool, points, rung } },
     ]);

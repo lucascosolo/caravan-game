@@ -142,8 +142,10 @@ describe("S1/S2/S8: crafted ledger events cannot move permanent progress the wro
   it("a direct UPDATE cannot lower ladder_points either, as the app role", async () => {
     await apply(encounter("caravan_held", d, await register("crafto")));
     const err = await expectDbError(appDb, "UPDATE pool_progress SET ladder_points = ladder_points - 1 WHERE caravan_id = $1", [d.caravanId]);
-    expect(err?.code).toBe("23514");
-    expect(err?.message).toContain("ladder_points is cumulative");
+    // Chunk 02 QA revoked UPDATE on the projected columns from the app role (42501); if a
+    // grant ever slips through, the ladder_points guard (23514) is the second line.
+    expect(["42501", "23514"]).toContain(err?.code);
+    if (err?.code === "23514") expect(err.message).toContain("ladder_points is cumulative");
     expect((await verifyProjection(pool, d.accountId)).ok).toBe(true);
   });
 
