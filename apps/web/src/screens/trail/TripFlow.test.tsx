@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, type Api } from "../../api/client.ts";
 import type { BankResult, StakesPreview, TripStatusView } from "../../api/tripTypes.ts";
 import type { IsoCanvasProps } from "../../iso/index.ts";
+import { STRINGS } from "../../strings.ts";
 import { CARAVAN_ID, fakeApi, meWith } from "../../test/townFixtures.ts";
 import { previewAfter1, statusArranging, statusBanked, statusDecide, statusOverrun, statusResolving, withTrip } from "../../test/tripFixtures.ts";
 import { Stakes } from "./BankOrPushScreen.tsx";
@@ -58,7 +59,7 @@ describe("trip chain on the Trail tab", () => {
     const enc = decide.trip!.encounters[0]!;
     const r = enc.result!;
     expect(within(results).getByTestId("result-outcome")).toHaveTextContent("The caravan held.");
-    expect(within(results).getByTestId("result-depth")).toHaveTextContent(`The attackers got ${Math.round((enc.depth * 100) / 1024)}% of the way to the core.`);
+    expect(within(results).getByTestId("result-depth")).toHaveTextContent(STRINGS.trip.depth(Math.round((enc.depth * 100) / 1024)));
     expect(within(results).getByTestId("result-coin")).toHaveTextContent(`+${enc.coinAccrued} Coin this encounter, carried unbanked.`);
     expect(within(results).getByTestId("result-killed")).toHaveTextContent("None");
     const damaged = within(results).getByTestId("result-damaged");

@@ -3,6 +3,8 @@ import type pg from "pg";
 import type { AuthContext } from "./auth/sessions.js";
 import { createPool } from "./db/pool.js";
 import type { InlineEncounterWorker } from "./dev/testResolver.js";
+import { DEFAULT_HANDLERS } from "./jobs/handlers/encounterResolution.js";
+import { EncounterWorkerLoop } from "./jobs/inProcessWorker.js";
 import { acquisitionRoutes } from "./routes/acquisition.js";
 import { authRoutes } from "./routes/auth.js";
 import { circleRoutes } from "./routes/circle.js";
@@ -22,8 +24,10 @@ import { AppError } from "./services/errors.js";
 declare module "fastify" {
   interface FastifyInstance {
     db: pg.Pool;
-    /** Dev/test only (chunk 23, CARAVAN_TEST_RESOLVER=double): resolve committed encounters in-process. Null in production. */
+    /** Dev/test only (chunk 23, CARAVAN_TEST_RESOLVER=double): the test double's handlers. Null in production. */
     inlineEncounterWorker: InlineEncounterWorker | null;
+    /** QA-13 S1: the in-process job-queue drain (real resolver by default). Null when not enabled (most tests drain by hand). */
+    encounterWorker: EncounterWorkerLoop | null;
   }
   interface FastifyRequest {
     auth?: AuthContext;
@@ -36,13 +40,46 @@ export interface BuildAppOptions {
   logger?: boolean;
   /** Dev/test only: see src/dev/testResolver.ts. index.ts passes `inlineWorkerFromEnv(process.env)`. */
   inlineEncounterWorker?: InlineEncounterWorker | null;
+  /**
+   * QA-13 S1: drain the job queue in-process (jobs/inProcessWorker.ts) — with the test double's
+   * handlers when `inlineEncounterWorker` is set, else the production DEFAULT_HANDLERS (the real
+   * resolver). index.ts passes true. Default: on when `inlineEncounterWorker` is set, else off
+   * (tests drain by hand so they can observe "not resolved yet").
+   */
+  encounterWorker?: boolean | { pollMs?: number };
 }
+
+/** Operational: the test double's sweep interval (its kicks do the work). */
+const DOUBLE_POLL_MS = 30_000;
 
 export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: opts.logger ?? false });
   const db = opts.db ?? createPool();
   app.decorate("db", db);
   app.decorate("inlineEncounterWorker", opts.inlineEncounterWorker ?? null);
+  const inline = opts.inlineEncounterWorker ?? null;
+  const workerOpt = opts.encounterWorker ?? inline !== null;
+  const loop =
+    workerOpt === false
+      ? null
+      : new EncounterWorkerLoop(db, {
+          name: inline ? inline.name : "resolver",
+          handlers: inline ? inline.handlers : DEFAULT_HANDLERS,
+          kickDelayMs: inline ? inline.delayMs : 0,
+          // The double keeps its chunk 23 timing: resolved INLINE_WORKER_DELAY_MS after the commit's kick (so a
+          // client sees "resolving"), not raced by a 1 s poll; its poll only sweeps up what a kick missed.
+          ...(inline ? { retryBackoffMs: () => 0, pollMs: DOUBLE_POLL_MS } : {}),
+          ...(typeof workerOpt === "object" && workerOpt.pollMs !== undefined ? { pollMs: workerOpt.pollMs } : {}),
+          onError: (err) => app.log.error(err),
+          onOutcome: (o) => {
+            if (o.kind === "failed" || o.kind === "parked") app.log.warn({ job: o.jobId, error: o.error }, `encounter job ${o.kind}`);
+          },
+        });
+  app.decorate("encounterWorker", loop);
+  if (loop) {
+    app.addHook("onReady", async () => loop.start());
+    app.addHook("onClose", async () => loop.stop());
+  }
   if (!opts.db) app.addHook("onClose", async () => db.end());
 
   app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {

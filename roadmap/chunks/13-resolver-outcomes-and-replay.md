@@ -314,3 +314,69 @@ FK-referenced: plain TRUNCATE → 0A000, CASCADE → the guard's 23514), migrati
   ~1 ms/tick, dominated by phase 2's two A* runs per recompute while breaching. Not reachable
   with content fence HP (≤ 1000) at the time of writing, inside the 30 s job lease, but worth a
   QA look before chunk 37 raises HP.
+
+## Build notes (QA-13 fix round 1) — `RESOLVER_VERSION` 7 → 8, LOG_FORMAT v1 → v2
+
+Closes the punch list in `roadmap/qa/13-punchlist.md` (S1–S6, D1, D3, N1–N6; D2 deferred to the
+balance pass, no balance number changed; N7 no action).
+
+- **DEPTH_METRIC from the ring line (D1).** UI sentence: *"How far the deepest raider got inside
+  the wagon circle: the share of the distance from the ring's outer edge to the core that it
+  closed."* Distance is Chebyshev to the core block; the ring's outer edge is `RING_SPAN` = 3 cells
+  on every side; depth = floor(1024 × (RING_SPAN − closest) / RING_SPAN), 0 for a raider that
+  never crossed the ring line. The depth^1.5 loot curve is unchanged. Content `DEPTH_METRIC` is now
+  `deepest_raider_share_of_ring_to_core_distance`. In the regenerated corpus every held fight a
+  party lost outside the ring has depth 0 (seven of eight), and the trap-stopped dashes 853.
+- **Depth 1024 ⇔ an overrun (S2).** A raider is sampled only where it stood alive: after its own
+  phase-3 move, after a dash its traps left it alive from, at the end of a tick it ends alive and
+  on its arrival tick. A dash its own traps kill is sampled at the lethal trap (never at distance
+  0); `fightDepth` also clamps a non-overrun below 1024. `qa12-dash-over-trap-onto-core` is now
+  held at 853 (was 1024 = full loot). Pinned by `test/outcome.test.ts` and the corpus-wide check.
+- **The seal covers the whole log (S3).** LOG_FORMAT v2: `check` = `replaySeal` (FNV-1a over the
+  envelope, outcome, every label field and every row, in `REPLAY_KEYS` order); every object has an
+  exact key set; unit labels carry `ab` (the ability archetype index). The reader also checks the
+  rows against each other (hp = max(0, prev − damage) for hits, fence hits, traps, burst/heavy and
+  breaker targets; heals; self-buff/dash rows at the caster's HP; `d` only at 0 HP, `fb` only at 0
+  fence HP; no act after death; an `ab` row's archetype = its caster's label). What a re-sealed
+  edit can leave consistent (a retarget, a hit credited to another live raider) only the server
+  can catch: the replay route compares sha256(stored text) with the row's `log_sha256` AND with the
+  immutable `job.result.replay.sha256`, and the row's format / version with the body; any mismatch
+  is `renderable: false`. v1 logs are not readable (`renderable: false`, "not readable").
+- **encounter_log is insert-once, by the resolution path only (S4, migration 015).** The app role
+  has no INSERT / UPDATE / DELETE on it. `encounter_log_write` (SECURITY DEFINER) is the one
+  writer: the caller must hold the job's live lease at its attempt; the BEFORE INSERT guard checks
+  the job is a LEASED encounter job and that caravan, defender, party owner, resolver version and
+  content hash are the job's, and stamps `created_at`; a second write is a unique violation (no
+  more `ON CONFLICT DO NOTHING` — a planted row makes the completion fail, never stands in). The
+  BEFORE DELETE guard allows only rows outside the retention rule (or a cascade from the caravan /
+  job), and `encounter_log_prune(caravan)` (definer) is the prune, on the database clock with the
+  window read from the constant `encounter_log_retention` row (pinned to the tunables by a test).
+- **Gate (S5).** `scripts/golden-gate.mjs`: a modified / deleted / renamed golden needs
+  RESOLVER_VERSION to increase as an integer (parsed at base and HEAD — a comment edit or a
+  decrement does not count; `[resolver-bump]` covers only ADDED fixtures), and every added or
+  changed golden must carry HEAD's version. `scripts/golden-gate.test.mjs` (12 node:test cases,
+  run first by `pnpm determinism`) proves refusal and acceptance on fixture diffs.
+- **Harness under load (S6).** The 100× loop is one test per scenario per batch of 25 runs (288
+  tests), the integer-state walk one test per scenario: no synchronous block runs for more than a
+  few seconds. Same check (100 byte-identical resolutions per scenario). The harness script gives
+  the vitest step and each driver process a timeout and reports a signal.
+- **The running server resolves encounters (S1).** `jobs/inProcessWorker.ts` `EncounterWorkerLoop`
+  drains the queue in-process: kicked by every commit, and polled every
+  `ENCOUNTER_WORKER_POLL_MS` (1 s). `index.ts` builds the app with `encounterWorker: true` — the
+  real resolver by default; `CARAVAN_TEST_RESOLVER=double` swaps in the double's handlers (same
+  meaning for e2e). Tests build apps without it and drain by hand. A fight resolved by a resolver
+  that writes no tick log answers `renderable: false` with the reason, not 410.
+- **Content stamp (D3).** `resolutionContent()` is a whitelist projection of the stats the
+  simulation reads (`RESOLUTION_STAT_KEYS`), never the copy (`displayName`, `flavor`,
+  ability `description`, `regionId`); a test pins that every content key is one or the other, that
+  a copy edit leaves the hash unchanged and a stat edit changes it.
+- **Nits.** N1 an undecodable body → `renderable: false`; N2 a parked job → 409
+  `resolution_unavailable`; N3 the reader's verdict is cached per verified sha256 and the response
+  is gzip-compressed when accepted; N4 `INPUT_BOUNDS.minAttackCooldownMs` = 400 (content's
+  ATTACK_COOLDOWN_MIN, asserted equal at import by @caravan/circle) — ability cooldowns keep the
+  1-tick floor (the corpus has a deliberate 1-tick burst; content's 6 s minimum is a content
+  invariant); N5 the route sends `depth: {scale, measuredFrom: "ring_line", lootCurve, value,
+  lootShare}`, the sentence is `STRINGS.trip.depthExplained` in the web client; N6
+  `PARTY_LOOT_FULL_MAX` (8·10⁹) is enforced.
+- **Hand-off note.** `scheduleInlineDrain` in `src/dev/testResolver.ts` is no longer called (the
+  loop replaces it); that file and the test double are another fixer's, so it was left in place.

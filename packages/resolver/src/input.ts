@@ -120,6 +120,13 @@ export const INPUT_BOUNDS = {
   maxDistance: 64 * FIXED_POINT_SCALE,
   /** Any duration in ms: cooldowns, intervals. One minute. */
   maxMillis: 60_000,
+  /**
+   * The shortest attack cooldown, ms (QA-13 N4): content's ATTACK_COOLDOWN_MIN, enforced here so
+   * the log-size budget rests on validation, not on content — a 1 ms cooldown is a hit row every
+   * tick for every unit (2 MB raw / 415 KB gzip at the cap). @caravan/circle asserts at import
+   * time that this equals TUNABLES.ATTACK_COOLDOWN_MIN. Changes only with RESOLVER_VERSION.
+   */
+  minAttackCooldownMs: 400,
   maxTickRate: 1000,
   /** battleLengthCapSeconds: one hour. */
   maxBattleSeconds: 3600,
@@ -342,7 +349,7 @@ export function assertParty(v: unknown): asserts v is Party {
     boundedInt(o.offense, `${where}.offense`, 1, INPUT_BOUNDS.maxRating);
     boundedInt(o.moveSpeed, `${where}.moveSpeed`, 1, INPUT_BOUNDS.maxMoveSpeed);
     boundedInt(o.attackRange, `${where}.attackRange`, 0, INPUT_BOUNDS.maxDistance);
-    boundedInt(o.attackCooldown, `${where}.attackCooldown`, 1, INPUT_BOUNDS.maxMillis);
+    boundedInt(o.attackCooldown, `${where}.attackCooldown`, INPUT_BOUNDS.minAttackCooldownMs, INPUT_BOUNDS.maxMillis);
     assertAbility(o.ability, `${where}.ability`);
   });
   eachOf(p.siege, "party.siege", fail).forEach((s, i) => {
@@ -461,7 +468,7 @@ export function assertResolveInput(v: unknown): asserts v is ResolveInput {
     boundedInt(p.attackRange, `posts[${idx}].attackRange`, 0, INPUT_BOUNDS.maxDistance);
     boundedInt(p.aggroRadius, `posts[${idx}].aggroRadius`, 0, INPUT_BOUNDS.maxDistance);
     boundedInt(p.leashDistance, `posts[${idx}].leashDistance`, 0, INPUT_BOUNDS.maxDistance);
-    boundedInt(p.attackCooldown, `posts[${idx}].attackCooldown`, 1, INPUT_BOUNDS.maxMillis);
+    boundedInt(p.attackCooldown, `posts[${idx}].attackCooldown`, INPUT_BOUNDS.minAttackCooldownMs, INPUT_BOUNDS.maxMillis);
     if (p.mergeLevel < 1 || p.mergeLevel >= tunables.mergeStatMultByLevel.length) fail(`posts[${idx}].mergeLevel ${p.mergeLevel} has no entry in tunables.mergeStatMultByLevel`);
     if (postRefs.includes(p.ref)) fail(`duplicate post ref '${p.ref}'`);
     postRefs.push(p.ref);

@@ -1,10 +1,10 @@
 {
 "scenario": "c10-traps-stance-tie-and-chain",
-"resolverVersion": 7,
+"resolverVersion": 8,
 "outcome": {"kind":"caravan_overrun","end":"core_overrun","endTick":180,"depth":1024,"deepestUnit":0},
 "ticks": 181,
 "units": [
-{"id":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","mergeLevel":1,"x":15887,"y":15446,"startHp":620,"hp":599,"maxHp":620,"alive":true,"reachedCoreTick":180,"diedTick":-1}
+{"id":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","mergeLevel":1,"ability":"dash","x":15887,"y":15446,"startHp":620,"hp":599,"maxHp":620,"alive":true,"reachedCoreTick":180,"diedTick":-1}
 ],
 "fences": [],
 "traps": [
@@ -12,7 +12,7 @@
 {"i":1,"ref":"t2","typeId":"trap.spike_pit","x":17920,"y":5632,"spent":true,"spentTick":93},
 {"i":2,"ref":"t3","typeId":"trap.spike_pit","x":15872,"y":9728,"spent":true,"spentTick":138}
 ],
-"replay": {"format":"caravan-replay","v":1,"resolverVersion":7,"tickRate":20,"tickCap":600,"keyframeInterval":100,"ticks":181,"outcome":{"kind":"caravan_overrun","end":"core_overrun","endTick":180,"depth":1024,"deepestUnit":0},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":620,"hp":620}],"fences":[],"traps":[{"i":0,"ref":"t1","typeId":"trap.spike_pit","x":13824,"y":5632},{"i":1,"ref":"t2","typeId":"trap.spike_pit","x":17920,"y":5632},{"i":2,"ref":"t3","typeId":"trap.spike_pit","x":15872,"y":9728}],"count":16,"check":417789497,"events":[
+"replay": {"format":"caravan-replay","v":2,"resolverVersion":8,"tickRate":20,"tickCap":600,"keyframeInterval":100,"ticks":181,"outcome":{"kind":"caravan_overrun","end":"core_overrun","endTick":180,"depth":1024,"deepestUnit":0},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":620,"hp":620,"ab":4}],"fences":[],"traps":[{"i":0,"ref":"t1","typeId":"trap.spike_pit","x":13824,"y":5632},{"i":1,"ref":"t2","typeId":"trap.spike_pit","x":17920,"y":5632},{"i":2,"ref":"t3","typeId":"trap.spike_pit","x":15872,"y":9728}],"count":16,"check":2076984336,"events":[
 [0,"s",0,15872,512],
 [0,"tg",0,2,0],
 [0,"p",0,76,13824,5632,-1],

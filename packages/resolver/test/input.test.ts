@@ -86,6 +86,12 @@ describe("assertResolveInput", () => {
     expect(() => assertResolveInput(mutated((o) => { (bf(o).fences as Mut[])[0]!.hp = 1_000_000; (bf(o).fences as Mut[])[0]!.maxHp = 1_000_000; }))).not.toThrow();
     expect(() => assertResolveInput(mutated((o) => ((pt(o).units as Mut[])[0]!.attackCooldown = 60_001)))).toThrow(/attackCooldown must be ≤ 60000/);
     expect(() => assertResolveInput(mutated((o) => ((pt(o).units as Mut[])[0]!.attackCooldown = 60_000)))).not.toThrow();
+    // QA-13 N4: the content minimum (400 ms) is the floor, so the log-size budget cannot be broken by input.
+    expect(INPUT_BOUNDS.minAttackCooldownMs).toBe(400);
+    expect(() => assertResolveInput(mutated((o) => ((pt(o).units as Mut[])[0]!.attackCooldown = 399)))).toThrow(/attackCooldown must be ≥ 400|attackCooldown must be .*400/);
+    expect(() => assertResolveInput(mutated((o) => ((pt(o).units as Mut[])[0]!.attackCooldown = 1)))).toThrow(/attackCooldown/);
+    expect(() => assertResolveInput(mutated((o) => ((pt(o).units as Mut[])[0]!.attackCooldown = 400)))).not.toThrow();
+    expect(() => assertResolveInput(mutated((o) => ((bf(o).posts as Mut[])[0]!.attackCooldown = 399)))).toThrow(/attackCooldown/);
     expect(() => assertResolveInput(mutated((o) => ((pt(o).units as Mut[])[0]!.moveSpeed = 64 * 1024 + 1)))).toThrow(/moveSpeed must be ≤ 65536/);
     expect(() => assertResolveInput(mutated((o) => ((pt(o).units as Mut[])[0]!.offense = 1_000_001)))).toThrow(/offense must be ≤ 1000000/);
     expect(() => assertResolveInput(mutated((o) => (tn(o).tickRate = 1001)))).toThrow(/tickRate must be ≤ 1000/);

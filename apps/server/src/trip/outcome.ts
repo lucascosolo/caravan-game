@@ -45,8 +45,9 @@ export type EncounterOutcomeKind = (typeof ENCOUNTER_OUTCOME_KINDS)[number];
  *               caravan_overrun  an attacker reached the core; the trip ends (chunk 19's losses)
  *               stalemate        tick cap; the attackers withdrew; the caravan may bank or push
  *   depth       how deep the party got, an integer 0 … FIXED_ONE (1024 = reached the core):
- *               the resolver's DEPTH_METRIC, "how far the deepest raider got: the share of its
- *               straight-line distance to the core that it closed". An overrun is always 1024.
+ *               the resolver's DEPTH_METRIC (v8, QA-13 D1), "how far the deepest raider got
+ *               inside the wagon circle: the share of the distance from the ring's outer edge to
+ *               the core that it closed" (0 outside the ring line). Only an overrun is 1024.
  *               It scales the PARTY OWNER's loot; the caravan's encounter Coin does not depend on it.
  *   endTick     the tick the end condition was met on (TICK_CAP − 1 for a stalemate).
  *   loot        the party owner's loot for this encounter (trip/loot.ts): full on an overrun,

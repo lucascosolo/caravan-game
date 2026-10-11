@@ -389,11 +389,13 @@ export const TUNABLES = {
 
   /**
    * Fixed by design (chunk 13; the resolver implements it — packages/resolver/src/outcome.ts).
-   * "How far the deepest raider got: the share of its straight-line distance to the core that
-   * it closed." An integer 0..1024 (1024 = the core; an overrun is always 1024). Fence segments
-   * broken and posts killed are NOT added in (a composite cannot be previewed in one sentence).
+   * "How far the deepest raider got inside the wagon circle: the share of the distance from the
+   * ring's outer edge to the core that it closed." Measured from the ring line since resolver v8
+   * (QA-13 D1; it was from the spawn edge and saturated), 0 for a raider that never crossed it.
+   * An integer 0..1024 (1024 = the core; only an overrun reaches it). Fence segments broken and
+   * posts killed are NOT added in (a composite cannot be previewed in one sentence).
    */
-  DEPTH_METRIC: "deepest_raider_share_of_distance_to_core",
+  DEPTH_METRIC: "deepest_raider_share_of_ring_to_core_distance",
   /**
    * Fixed shape (chunk 13). The party owner's loot when the party is WIPED (the caravan held):
    * full × depth^1.5, computed integer-only as floor(full × d × isqrt(d × 1024) / 1024²) with

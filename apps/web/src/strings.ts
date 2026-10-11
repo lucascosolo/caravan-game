@@ -403,7 +403,9 @@ export const STRINGS = {
         stalemate: "Time ran out and the attackers withdrew: the caravan held.",
         caravan_overrun: "The caravan was overrun.",
       })[kind] ?? "Outcome recorded.",
-    depth: (pct: number): string => (pct >= 100 ? "The attackers reached the core." : `The attackers got ${pct}% of the way to the core.`),
+    depth: (pct: number): string => (pct >= 100 ? "The attackers reached the core." : pct <= 0 ? "No attacker got inside the wagon ring." : `The attackers got ${pct}% of the way from the wagon ring to the core.`),
+    /** DEPTH_METRIC in one sentence (chunk 13, resolver v8; the replay route sends only the numbers). */
+    depthExplained: "How far the deepest raider got inside the wagon circle: the share of the distance from the ring to the core that it closed. A raid's loot from a held caravan is that share to the power 1.5.",
     coinAccrued: (coin: number): string => `+${coin} Coin this encounter, carried unbanked.`,
     coinNone: "No Coin from this encounter.",
     killedHeading: "Killed",
