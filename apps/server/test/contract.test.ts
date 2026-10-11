@@ -34,7 +34,7 @@ import { drain } from "../src/jobs/worker.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
 import { TRIP_CAP_REGEN_MS, TRIPS_PER_HOUR_CAP } from "../src/trip/cap.js";
 import { appRolePool, testPool, truncateAll } from "./helpers.js";
-import { doubleHandlers } from "./trip-double.js";
+import { doubleHandlers } from "../src/dev/tripDouble.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.resolve(here, "../../web/src/test/contract");
@@ -163,9 +163,9 @@ async function register(username: string): Promise<Player & { auth: LightMyReque
   return { token: body.token, accountId: body.account.id, caravanId: body.caravan.id, units: [], auth: res };
 }
 
-async function giveUnits(p: Player, typeIds: readonly string[]): Promise<string[]> {
+async function giveUnits(p: Player, typeIds: readonly string[], mergeLevel = 1): Promise<string[]> {
   const ids: string[] = [];
-  for (const unitTypeId of typeIds) ids.push((await createUnitInstance(pool, { caravanId: p.caravanId, unitTypeId, mergeLevel: 1 })).id);
+  for (const unitTypeId of typeIds) ids.push((await createUnitInstance(pool, { caravanId: p.caravanId, unitTypeId, mergeLevel })).id);
   p.units.push(...ids);
   return ids;
 }
@@ -250,7 +250,10 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     await record("cosmetics", "GET /me/cosmetics", await call(p, "GET", "/me/cosmetics"), 200);
 
     // The trail: pack, ride out (chunk 15's start), search, read, choose, arrange, commit.
-    const posted = riders.slice(0, 2);
+    // Chunk 23 QA S4: a merged veteran rides too, so the de-merge it takes for dying shows a
+    // real level change (3 → 2 on the bank, 2 → 1 on the overrun), not just the level-1 floor.
+    const [veteran] = await giveUnits(p, ["desert.dust_rider"], 3);
+    const posted = [...riders.slice(0, 2), veteran!];
     await record("manifest-pack", "POST /caravans/:id/manifest", await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: posted, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 20 } }), 201);
     await record("manifest", "GET /caravans/:id/manifest", await call(p, "GET", `/caravans/${p.caravanId}/manifest`), 200);
     const tripUrl = `/me/caravans/${p.caravanId}/trip`;
@@ -272,7 +275,9 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     await record("formation-commit", "POST /caravans/:id/encounters/:n/formation/commit", await call(p, "POST", `/caravans/${p.caravanId}/encounters/1/formation/commit`), 200);
 
     // Chunk 23: the trip loop's routes as the trip client reads them, resolved by chunk 15's
-    // deterministic double (encounter 1: held, every post takes 150, the trap fires, the fence breaks).
+    // deterministic double (encounter 1: held, every post takes 150, the trap fires, the fence
+    // breaks; encounter 2: held, but the veteran dies — chunk 23 QA S1/S2/S4: a death the caravan
+    // survives, so the preview, the bank and the banked ending all carry a de-merge).
     const resolve = (plans: Parameters<typeof doubleHandlers>[0], fallback?: Parameters<typeof doubleHandlers>[1]) =>
       drain(appRole, { workerId: "contract", handlers: doubleHandlers(plans, fallback), retryBackoffMs: () => 0 });
     await record("trip-commit", "POST /me/caravans/:id/trip/encounters/:n/commit", await call(p, "POST", `${tripUrl}/encounters/1/commit`), 202);
@@ -291,7 +296,7 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     const formation2 = { v: 2, fences: [{ ref: "f1", segment: 1 }], traps: [], posts: formation.posts };
     expect((await call(p, "PUT", `/caravans/${p.caravanId}/encounters/2/formation`, formation2)).statusCode).toBe(200);
     expect((await call(p, "POST", `${tripUrl}/encounters/2/commit`)).statusCode).toBe(202);
-    await resolve({}, { kind: "caravan_held", unitDamage: 150 });
+    await resolve({ 2: { kind: "caravan_held", unitDamage: 150, kill: [veteran!] } });
     await record("trip-preview-2", "GET /me/caravans/:id/trip/preview", await call(p, "GET", `${tripUrl}/preview`), 200);
     await record("trip-bank", "POST /me/caravans/:id/trip/bank", await call(p, "POST", `${tripUrl}/bank`, { tripId: started.tripId, encounterIndex: 2 }), 200);
     await record("trip-status-banked", "GET /me/caravans/:id/trip", await call(p, "GET", tripUrl), 200);
@@ -308,7 +313,8 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     expect((await call(p, "POST", `/me/caravans/${p.caravanId}/encounters/1/choose`, { candidateId: c3.candidateId })).statusCode).toBe(200);
     expect((await call(p, "PUT", `/caravans/${p.caravanId}/encounters/1/formation`, formation)).statusCode).toBe(200);
     expect((await call(p, "POST", `${tripUrl}/encounters/1/commit`)).statusCode).toBe(202);
-    await resolve({ 1: { kind: "caravan_overrun", unitDamage: 400, kill: [ordered[0]!] } });
+    // The veteran (level 2 since the bank) dies in the fight the caravan falls in: de-merged to 1, not destroyed.
+    await resolve({ 1: { kind: "caravan_overrun", unitDamage: 400, kill: [veteran!] } });
     await record("trip-status-overrun", "GET /me/caravans/:id/trip", await call(p, "GET", tripUrl), 200);
 
     // The cap: one more use spent (fixture: the owner role moves the stored timestamp forward

@@ -42,7 +42,7 @@ import { redactForeignAccountIds } from "../src/routes/ledger.js";
 import { applyEarnFloor, mergeLevelAfterDeath, planUnitLosses, transferCausationId } from "../src/trip/stakes.js";
 import { appRolePool, testPool, truncateAll, unique } from "./helpers.js";
 import { rebuildMixed, rebuildPlan, weeklyFreeEarn } from "../../../scripts/balance/model.js";
-import { doubleHandlers, type EncounterPlan } from "./trip-double.js";
+import { doubleHandlers, type EncounterPlan } from "../src/dev/tripDouble.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = join(HERE, "../src");

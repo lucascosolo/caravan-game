@@ -53,6 +53,14 @@
                 "hpBefore": 620,
                 "hpAfter": 470,
                 "maxHp": 620
+              },
+              {
+                "ref": "00000000-0000-4000-8000-000000000006",
+                "typeId": "desert.dust_rider",
+                "mergeLevel": 3,
+                "hpBefore": 968,
+                "hpAfter": 818,
+                "maxHp": 968
               }
             ],
             "unitsUnhurt": [],

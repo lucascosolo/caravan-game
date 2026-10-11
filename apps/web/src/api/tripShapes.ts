@@ -52,6 +52,8 @@ export const tripCapShape: Guard<TripCapView> = object({
 
 const unitRef = { ref: REF, typeId: ID, mergeLevel: LEVEL } as const;
 const trapRef = object({ ref: REF, typeId: ID });
+/** The server's `DeMergedUnit` (trip/stakes.ts), the same in the preview, the bank and the banked ending. */
+const deMergedUnit = object({ ref: REF, typeId: ID, fromLevel: LEVEL, toLevel: LEVEL, diedAtEncounter: ENCOUNTER });
 
 const encounterResult: Guard<EncounterResultView> = object({
   jobId: ID,
@@ -76,12 +78,22 @@ const tripEncounter: Guard<TripEncounterView> = object({
   result: orNull(encounterResult),
 });
 
-export const restoredShape: Guard<RestoredView> = object({
+const restoredFields = {
   unitsHealed: orEmpty(array(object({ ...unitRef, hpAtBank: HP, maxHp: HP }), LIST)),
   trapsRestocked: COUNT,
   fenceSegmentsRebuilt: COUNT,
-  deMergePending: orEmpty(array(REF, LIST)),
-});
+} as const;
+/**
+ * The refit a bank answers with (POST …/trip/bank). `deMerged` is REQUIRED here (chunk 23 QA
+ * S2): an `orEmpty` once turned the server's rename of this list into a silent `[]`, so a
+ * player's de-merge was never shown. A missing list is `bad_payload`, never "nobody died".
+ */
+export const restoredShape: Guard<RestoredView> = object({ ...restoredFields, deMerged: array(deMergedUnit, LIST) });
+/**
+ * The same refit as the `trip_banked` event stored it (trip.ending.restored). A trip banked
+ * before chunk 19 recorded no de-merges (none were applied then), so an absent list is `[]`.
+ */
+const endingRestoredShape: Guard<RestoredView> = object({ ...restoredFields, deMerged: orEmpty(array(deMergedUnit, LIST)) });
 
 const bankedEnding: Guard<BankedEndingView> = object({
   kind: literal("banked"),
@@ -91,7 +103,7 @@ const bankedEnding: Guard<BankedEndingView> = object({
   requested: COIN,
   credited: COIN,
   discarded: COIN,
-  restored: restoredShape,
+  restored: endingRestoredShape,
 });
 
 const overrunEnding: Guard<OverrunEndingView> = object({
@@ -153,6 +165,7 @@ export const stakesPreviewShape: Guard<StakesPreview> = object({
     deliveryBonus: COIN,
     total: COIN,
     forecast: object({ balance: COIN, cap: COIN, room: COIN, prospectiveEarn: COIN, wouldCredit: COIN, wouldDiscard: COIN, atCap: boolean() }),
+    unitsDeMerged: array(deMergedUnit, LIST),
   }),
   units: array(
     object({ ...unitRef, hp: HP, maxHp: HP, damage: HP, alive: boolean(), diedAtEncounter: nullable(ENCOUNTER), mergeLevelOnDeath: LEVEL }),
@@ -161,7 +174,9 @@ export const stakesPreviewShape: Guard<StakesPreview> = object({
   ifOverrun: object({
     coinLost: COIN,
     unitsLostOutright: array(object({ ...unitRef, hp: HP }), LIST),
-    unitsDeMergedNotDestroyed: array(object({ ...unitRef, mergeLevelAfter: LEVEL }), LIST),
+    unitsDeMergedNotDestroyed: array(deMergedUnit, LIST),
+    unitDyingInTheFinalFight: string({ maxLength: 64 }),
+    coinGoesTo: string({ maxLength: 64 }),
   }),
   traps: object({ remaining: array(trapRef, LIST), spent: array(trapRef, LIST) }),
   fences: object({ intact: array(fenceIntact, LIST), destroyed: array(fenceDestroyed, LIST) }),

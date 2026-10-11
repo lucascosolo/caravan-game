@@ -42,14 +42,22 @@
               {
                 "ref": "00000000-0000-4000-8000-000000000004",
                 "typeId": "desert.dust_rider",
-                "mergeLevel": 1,
-                "hpBefore": 620,
-                "maxHp": 620
+                "mergeLevel": 2,
+                "hpBefore": 775,
+                "maxHp": 775
               }
             ],
             "unitsDamaged": [
               {
                 "ref": "00000000-0000-4000-8000-000000000005",
+                "typeId": "desert.dust_rider",
+                "mergeLevel": 1,
+                "hpBefore": 620,
+                "hpAfter": 220,
+                "maxHp": 620
+              },
+              {
+                "ref": "00000000-0000-4000-8000-000000000006",
                 "typeId": "desert.dust_rider",
                 "mergeLevel": 1,
                 "hpBefore": 620,
@@ -79,13 +87,18 @@
             "ref": "00000000-0000-4000-8000-000000000005",
             "typeId": "desert.dust_rider",
             "mergeLevel": 1
+          },
+          {
+            "ref": "00000000-0000-4000-8000-000000000006",
+            "typeId": "desert.dust_rider",
+            "mergeLevel": 1
           }
         ],
         "unitsDeMerged": [
           {
             "ref": "00000000-0000-4000-8000-000000000004",
             "typeId": "desert.dust_rider",
-            "mergeLevel": 1,
+            "mergeLevel": 2,
             "mergeLevelAfter": 1,
             "diedAtEncounter": 1
           }
