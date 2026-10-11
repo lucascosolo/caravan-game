@@ -6,7 +6,10 @@
  *   GET  /caravans/:caravanId/manifest                               the open manifest + survivors + stakes summary
  *   PUT  /caravans/:caravanId/encounters/:n/formation                draft / re-draft the next encounter's arrangement
  *   GET  /caravans/:caravanId/encounters/:n/formation                read it (and its gaps)
- *   POST /caravans/:caravanId/encounters/:n/formation/commit         freeze it
+ *   POST /caravans/:caravanId/encounters/:n/formation/commit         freeze it: only inside an open trip, against
+ *                                                                     a CHOSEN (scouted) candidate (chunk 15 QA N4).
+ *                                                                     The trip loop's commit route also queues the
+ *                                                                     resolution; this one only freezes.
  *
  * There is deliberately no route that edits a manifest, applies an outcome, or closes a
  * manifest: the first does not exist anywhere, the other two belong to the resolution path
@@ -15,8 +18,10 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { withTransaction } from "../db/pool.js";
 import type { CaravanRow } from "../db/types.js";
+import { chosenCandidate } from "../matchmaking/service.js";
+import { findOpenTrip } from "../matchmaking/trips.js";
 import { findCaravanById } from "../repo/caravans.js";
-import { badRequest } from "../services/errors.js";
+import { badRequest, conflict } from "../services/errors.js";
 import {
   CircleValidationError,
   commitFormation,
@@ -102,7 +107,14 @@ export async function circleRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: EncounterParams }>("/caravans/:caravanId/encounters/:n/formation/commit", { preHandler: requireAuth }, async (req) => {
     const caravan = await ownCaravan(req);
     const n = encounterIndex(req.params.n);
-    const formation = await withTransaction(app.db, (client) => commitFormation(client, caravan, n));
+    const formation = await withTransaction(app.db, async (client) => {
+      // Chunk 15 QA N4: never freeze a circle outside the trip loop, or before the party it is
+      // arranged against was scouted and chosen (GUARDRAILS §4: no blind commit).
+      const trip = await findOpenTrip(client, caravan.id);
+      if (!trip) throw conflict("no_trip", "a formation is committed on a trip: ride out first");
+      if (!(await chosenCandidate(client, trip.id, n))) throw conflict("no_candidate_chosen", `scout and choose the party for encounter ${n} before committing the circle against it`);
+      return commitFormation(client, caravan, n);
+    });
     return { formation };
   });
 

@@ -13,7 +13,7 @@ D3. **[closed]** (55 000 = the mid of ≈ 43.7k / 55.5k / 66.7k; derivation on t
 ## Should-fix
 S1. **[closed]** (`redactForeignAccountIds` in `/me/ledger`; feed `defender` without `accountId`) Account ids leak: filter `partyOwnerAccountId` from `trip_overrun` and any account ids from `party_served_as_encounter` in the `/me/ledger` read model; drop `defender.accountId` from the party feed (keep username, a public handle).
 S2. **[closed]** (`coinDiscardedAtCap`, plus `coinTransferred` / `partyWinCoin`) Feed entry gains `coinDiscardedAtCap` from the event's `overflowDiscarded`.
-S3. **[open — with chunk 15 S4, after chunk 13; settle not moved]** (Joins chunk 15 S4, after chunk 13.) Settle at resolution so the recipient's headroom is read then.
+S3. **[closed — with chunk 15 QA S4]** The worker settles in its completion transaction (`TRIP_SETTLE_HOOKS.afterCompleted`), so the transfer + party win (and a hold's loot) are clamped against the recipient's headroom at resolution time; lazy settle is the fallback. Owner-pay rule reconciled: an overrun pays transfer + party win (loot 0, `FULL_CLEAR_LOOT_SHARE` removed), a held fight pays depth-scaled loot (`party_loot`, same `transfer:<jobId>` causation, capped), a stalemate pays nothing; never a system owner (see roadmap/qa/15-punchlist.md). Settle at resolution so the recipient's headroom is read then.
 
 ## Nits
 N1. **[closed]** Held-back units don't exist (formations require every living unit posted): close chunk 15 N1 as moot; correct the chunk 19 Build note.

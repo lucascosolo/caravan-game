@@ -91,6 +91,17 @@ export interface WorkerOptions {
   beforeComplete?: (job: ResolutionJobRow) => Promise<void>;
   /** Test hook: runs inside the completion transaction after events are appended. */
   afterAppend?: (job: ResolutionJobRow, client: pg.PoolClient) => Promise<void>;
+  /**
+   * Chunk 15 QA S4: runs inside the completion transaction, after the job is marked completed,
+   * within a SAVEPOINT — a hook that throws is rolled back alone and the completion still
+   * commits (reported through `onHookError`). The trip loop passes its settle
+   * (trip/service.ts TRIP_SETTLE_HOOKS), so a resolution's effects land with it.
+   */
+  afterCompleted?: (client: pg.PoolClient, job: ResolutionJobRow) => Promise<void>;
+  /** Chunk 15 QA D3: runs after a job PARKS (its own transaction); the trip loop voids the trip. Errors go to `onHookError`. */
+  afterParked?: (pool: pg.Pool, job: ResolutionJobRow) => Promise<void>;
+  /** Where a failed hook is reported (default: ignored; the lazy settle retries and surfaces it). */
+  onHookError?: (err: unknown, job: ResolutionJobRow, hook: "afterCompleted" | "afterParked") => void;
 }
 
 function errorMessage(err: unknown): string {
@@ -155,6 +166,16 @@ export async function runOnce(pool: pg.Pool, opts: WorkerOptions): Promise<RunOu
       if (output.encounterLog) await storeEncounterLog(client, output.encounterLog);
       if (opts.afterAppend) await opts.afterAppend(job, client);
       const completed = await markJobCompleted(client, job.id, output.result, fence);
+      if (opts.afterCompleted) {
+        await client.query("SAVEPOINT after_completed");
+        try {
+          await opts.afterCompleted(client, completed);
+          await client.query("RELEASE SAVEPOINT after_completed");
+        } catch (err) {
+          await client.query("ROLLBACK TO SAVEPOINT after_completed");
+          opts.onHookError?.(err, completed, "afterCompleted");
+        }
+      }
       await client.query("COMMIT");
       return { kind: "completed", job: completed, eventCount: rows.length };
     } catch (err) {
@@ -167,10 +188,22 @@ export async function runOnce(pool: pg.Pool, opts: WorkerOptions): Promise<RunOu
     const message = errorMessage(err);
     if (err instanceof NonRetryableJobError) {
       const job = await markJobParked(pool, leased.id, fence.attempts, message, { workerId: fence.workerId });
+      await runParkedHook(pool, opts, job);
       return { kind: "parked", job, jobId: leased.id, error: message };
     }
     const job = await markJobFailed(pool, leased.id, fence.attempts, message, { workerId: fence.workerId, backoffMs: backoff(fence.attempts) });
+    // A retryable failure that spent the attempt budget parks too (markJobFailed decides).
+    if (job?.status === "parked") await runParkedHook(pool, opts, job);
     return { kind: "failed", job, jobId: leased.id, error: message };
+  }
+}
+
+async function runParkedHook(pool: pg.Pool, opts: WorkerOptions, job: ResolutionJobRow | null): Promise<void> {
+  if (!opts.afterParked || !job || job.status !== "parked") return;
+  try {
+    await opts.afterParked(pool, job);
+  } catch (err) {
+    opts.onHookError?.(err, job, "afterParked");
   }
 }
 

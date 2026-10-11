@@ -21,7 +21,7 @@ export interface TripRow {
   end_reason: TripEndReason | null;
 }
 
-export type TripEndReason = "banked" | "overrun";
+export type TripEndReason = "banked" | "overrun" | "voided";
 
 /**
  * Open a trip on the caravan's open manifest. Chunk 15 wraps this with the trip cap and the

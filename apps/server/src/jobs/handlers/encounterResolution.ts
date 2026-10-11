@@ -25,6 +25,7 @@ import { snapshotFormation, type FormationSnapshot, type StandingPartySnapshot }
 import { applyEncounterOutcome as applyAttritionOutcome } from "@caravan/circle";
 import {
   attritionOf,
+  partyLootFullFromJob,
   productionEncounterResolver,
   resolveEncounter,
   resolverInputFromJob,
@@ -48,6 +49,8 @@ export interface EncounterJobInput extends JsonObject {
   resolverVersion: number;
   /** QA-15 S3: sha256 of the content + tunables the resolution will read (RESOLUTION_CONTENT_HASH at enqueue). */
   contentHash: string;
+  /** QA-15 S4: the party owner's full loot for this encounter (trip loop jobs; see trip/outcome.ts JOB_LOOT_FULL_KEY). */
+  partyLootFull?: number;
 }
 
 export interface EnqueueEncounterInput {
@@ -59,6 +62,8 @@ export interface EnqueueEncounterInput {
   formation: JsonObject;
   /** QA-15 N3: the trip loop's survivors snapshot, stored as its own top-level job-input key. */
   survivors?: JsonObject;
+  /** QA-15 S4: the party owner's full loot (coinForEncounter(n, chosen band), 0 for a system owner). Trip loop only. */
+  partyLootFull?: number;
   /**
    * Chunk 14: the party snapshot taken ONCE when the candidate menu was generated and
    * stored on the chosen candidate (`enqueueChosenEncounter`). Stored into the job input
@@ -127,6 +132,7 @@ export async function enqueueEncounterResolution(
     partyOwnerAccountId: input.partyOwnerAccountId,
     formation,
     ...(survivors === undefined ? {} : { survivors }),
+    ...(input.partyLootFull === undefined ? {} : { partyLootFull: input.partyLootFull }),
     party,
     resolverVersion: RESOLVER_VERSION,
     contentHash: RESOLUTION_CONTENT_HASH,
@@ -235,7 +241,7 @@ export function makeEncounterResolutionHandler(resolver: EncounterResolver): Job
     let encounterLog: EncounterLogArtifact | undefined;
     try {
       const resolverInput = resolverInputFromJob(job.input);
-      const resolved = resolveEncounter(resolver, resolverInput);
+      const resolved = resolveEncounter(resolver, resolverInput, partyLootFullFromJob(job.input));
       outcome = resolved.outcome;
       // Dry-run the carry-forward fold against the survivors the formation was committed
       // with: an outcome that heals, re-arms, rebuilds or names an unknown ref is refused

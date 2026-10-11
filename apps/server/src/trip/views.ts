@@ -8,6 +8,7 @@
  *                      resolver recorded (job result). Units killed / damaged, traps spent,
  *                      fences broken / damaged — exactly the fight's own delta.
  *   endingOfBanked     the delivery as the `trip_banked` event recorded it.
+ *   endingOfVoided     a voided trip (chunk 15 QA D3) as the `trip_voided` event recorded it.
  *   endingOfOverrun    the collapse as the `trip_overrun` event recorded it, WITHOUT the
  *                      party owner's account id (chunk 14 N4: no owner id reaches a client).
  *
@@ -97,7 +98,26 @@ export interface OverrunEndingView extends JsonObject {
   lossesApplied: boolean;
 }
 
-export type TripEndingView = BankedEndingView | OverrunEndingView;
+/**
+ * Chunk 15 QA D3: a trip whose encounter could not be resolved (its job parked). It ended as a
+ * bank after its last survived encounter (`encountersSurvived`, 0 = nothing credited); the
+ * voided encounter applied nothing; the trip-cap use was not refunded.
+ */
+export interface VoidedEndingView extends JsonObject {
+  kind: "voided";
+  voidedEncounter: number;
+  /** Why the encounter could not be resolved (the parked job's last error). */
+  reason: string;
+  encountersSurvived: number;
+  unbankedCoin: number;
+  deliveryBonus: number;
+  requested: number;
+  credited: number;
+  discarded: number;
+  restored: JsonObject;
+}
+
+export type TripEndingView = BankedEndingView | OverrunEndingView | VoidedEndingView;
 
 const int = (v: unknown): number => (typeof v === "number" && Number.isSafeInteger(v) ? v : 0);
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
@@ -107,6 +127,22 @@ export function endingOfBanked(payload: Record<string, unknown>): BankedEndingVi
   const restored = payload["restored"];
   return {
     kind: "banked",
+    encountersSurvived: int(payload["encountersSurvived"]),
+    unbankedCoin: int(payload["unbankedCoin"]),
+    deliveryBonus: int(payload["deliveryBonus"]),
+    requested: int(payload["requested"]),
+    credited: int(payload["credited"]),
+    discarded: int(payload["discarded"]),
+    restored: restored && typeof restored === "object" && !Array.isArray(restored) ? (restored as JsonObject) : {},
+  };
+}
+
+export function endingOfVoided(payload: Record<string, unknown>): VoidedEndingView {
+  const restored = payload["restored"];
+  return {
+    kind: "voided",
+    voidedEncounter: int(payload["voidedEncounter"]),
+    reason: str(payload["reason"]),
     encountersSurvived: int(payload["encountersSurvived"]),
     unbankedCoin: int(payload["unbankedCoin"]),
     deliveryBonus: int(payload["deliveryBonus"]),

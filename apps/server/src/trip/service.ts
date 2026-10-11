@@ -49,9 +49,10 @@ import { findFormation, findManifestById, findOpenManifest, type WagonManifestRo
 import type { Queryable } from "../db/pool.js";
 import { withTransaction } from "../db/pool.js";
 import type { CaravanRow, Pool, ResolutionJobRow } from "../db/types.js";
-import { coinForDelivery, coinForEncounter, creditBankedTrip, overflowForecast } from "../economy/coin.js";
+import { appendCoinCredits, coinForDelivery, coinForEncounter, creditBankedTrip, overflowForecast, partyLootCredit } from "../economy/coin.js";
 import { accrueTrickleTx, peekTrickle } from "../economy/trickle.js";
-import { encounterJobId, getJob } from "../jobs/queue.js";
+import { ENCOUNTER_RESOLUTION_WIRED } from "../jobs/handlers/encounterResolution.js";
+import { JOB_KIND_ENCOUNTER_RESOLUTION, encounterJobId, getJob } from "../jobs/queue.js";
 import type { JsonObject, LedgerEventRow } from "../ledger/events.js";
 import { appendEvents, listEventsByCausation, lockAccountForAppend, lockAccountsForAppend, lockCaravanForResolution } from "../ledger/ledger.js";
 import { ESCALATION_PER_ENCOUNTER, bandOf, centreOffsetFor } from "../matchmaking/band.js";
@@ -61,11 +62,12 @@ import { applyEncounterOutcome, progressionCausationId } from "../progression/ou
 import { setCaravanState } from "../repo/caravans.js";
 import { getCaravanPoolProgress } from "../repo/poolProgress.js";
 import { AppError, badRequest, conflict } from "../services/errors.js";
+import { isUuid } from "../util/uuid.js";
 import { consumeTripCap, readTripCap, type TripCapView } from "./cap.js";
 import { JOB_SURVIVORS_KEY, assertTripEncounterOutcome, attritionOf, caravanSurvived, resolverInputFromJob, type EncounterOutcome, type EncounterOutcomeKind } from "./outcome.js";
-import { applyDeMerges, applyOverrunLosses, deathIndex, encounterEarn, mergeLevelAfterDeath, planUnitLosses, type DeMergedUnit, type DestroyedUnit, type OverrunLosses } from "./stakes.js";
+import { applyDeMerges, applyOverrunLosses, chosenEncounterTerms, deathIndex, encounterEarn, mergeLevelAfterDeath, planUnitLosses, transferCausationId, type DeMergedUnit, type DestroyedUnit, type OverrunLosses } from "./stakes.js";
 import { decideTripEncounter, findTripEncounter, insertTripEncounter, listTripEncounters, unbankedCoinOf, type TripEncounterRow } from "./repo.js";
-import { encounterResultOf, endingOfBanked, endingOfOverrun, type EncounterResultView, type TripEndingView } from "./views.js";
+import { encounterResultOf, endingOfBanked, endingOfOverrun, endingOfVoided, type EncounterResultView, type TripEndingView } from "./views.js";
 
 const notFound = (code: string, message: string) => new AppError(404, code, message);
 
@@ -75,7 +77,25 @@ export const tripCausation = {
   bankCoin: (tripId: string) => `trip:${tripId}:bank`,
   banked: (tripId: string) => `trip:${tripId}:banked`,
   overrun: (tripId: string) => `trip:${tripId}:overrun`,
+  /** Chunk 15 QA D3: the void path's `trip_voided` (its Coin, if any, is credited under `bankCoin`, so a void and a bank can never both credit). */
+  voided: (tripId: string) => `trip:${tripId}:voided`,
 };
+
+/**
+ * Chunk 15 QA D3: can an encounter committed now ever be resolved? Yes when the production
+ * handler is wired (chunk 13: ENCOUNTER_RESOLUTION_WIRED) or a dev/test resolver is installed
+ * (CARAVAN_TEST_RESOLVER=double, which `pnpm e2e` uses). Otherwise every encounter job would
+ * park and every trip would void at its first commit, so a start is refused up front
+ * (409 `resolver_unavailable`) and no trip-cap use is spent on it.
+ */
+export function encounterResolverAvailable(testResolverInstalled: boolean, wired: boolean = ENCOUNTER_RESOLUTION_WIRED): boolean {
+  return wired || testResolverInstalled;
+}
+
+export interface StartTripOptions {
+  /** Default true. The route passes `encounterResolverAvailable(app has a test resolver)`. */
+  resolverAvailable?: boolean;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // Start
@@ -93,7 +113,8 @@ export interface TripStartResult {
  * starts serialize on the caravan lock: the second sees the open trip and is refused
  * (409 trip_open) without consuming a use.
  */
-export async function startTrip(client: pg.PoolClient, caravan: CaravanRow, nowMs: number): Promise<TripStartResult> {
+export async function startTrip(client: pg.PoolClient, caravan: CaravanRow, nowMs: number, opts: StartTripOptions = {}): Promise<TripStartResult> {
+  if (opts.resolverAvailable === false) throw conflict("resolver_unavailable", "encounters cannot be resolved on this server right now; no trip can start (no trip-cap use was spent)");
   await lockCaravanForResolution(client, caravan.id);
   await lockAccountForAppend(client, caravan.account_id);
   const live = await client.query<CaravanRow>("SELECT * FROM caravan WHERE id = $1 FOR UPDATE", [caravan.id]);
@@ -110,6 +131,9 @@ export async function startTrip(client: pg.PoolClient, caravan: CaravanRow, nowM
   // there is no instant at which the trip is open and the caravan reads as in town.
   await setCaravanState(client, caravan.id, "on_trip");
   const trip = await createTrip(client, caravan.id);
+  // Chunk 15 QA N7: the DB ties this trip to the cap use just consumed (one use per trip; the
+  // insert must name the account's current tat_ms, which only the consumption above sets).
+  await client.query("INSERT INTO trip_cap_use (trip_id, account_id, tat_ms) VALUES ($1, $2, $3)", [trip.id, caravan.account_id, cap.tatMs]);
   const [event] = await appendEvents(client, tripCausation.start(trip.id), [
     {
       type: "trip_started",
@@ -123,7 +147,7 @@ export async function startTrip(client: pg.PoolClient, caravan: CaravanRow, nowM
       },
     },
   ]);
-  return { trip, cap, event: event! };
+  return { trip, cap: { before: cap.before, after: cap.after }, event: event! };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -163,8 +187,17 @@ export async function commitEncounter(
   if (!row?.committed_at || !row.survivors_snapshot) throw new Error(`encounter ${encounterIndex}: formation not committed with a survivors snapshot`);
   const formation = JSON.parse(serializeFormation(formationFromJson(row.formation))) as JsonObject;
   const survivors = JSON.parse(serializeManifest(manifestFromJson(row.survivors_snapshot))) as JsonObject;
+  // QA-15 S4: the owner's full loot, fixed from the CHOSEN menu row (its band, its owner) the way
+  // the caravan's own coin_accrued is: coinForEncounter(n, band); 0 for a system owner, who is
+  // never credited. Without a chosen candidate enqueueChosenEncounter refuses (409) below.
+  const chosen = await chosenCandidate(client, trip.id, encounterIndex);
+  let partyLootFull: number | undefined;
+  if (chosen) {
+    const owner = await client.query<{ is_system: boolean }>("SELECT is_system FROM account WHERE id = $1", [chosen.owner.accountId]);
+    partyLootFull = owner.rows[0]?.is_system === false ? coinForEncounter(encounterIndex, (await chosenEncounterTerms(client, trip.id, encounterIndex)).band) : 0;
+  }
   // QA-15 N3: the survivors snapshot is its own top-level job-input key, not smuggled inside the formation.
-  const { job, created } = await enqueueChosenEncounter(client, caravan, encounterIndex, formation, survivors);
+  const { job, created } = await enqueueChosenEncounter(client, caravan, encounterIndex, formation, survivors, partyLootFull);
   return { job, created };
 }
 
@@ -208,7 +241,17 @@ export type SettleState =
   | { state: "arranging"; tripId: string; encounterIndex: number }
   | { state: "resolving"; tripId: string; encounterIndex: number; jobId: string; jobStatus: string }
   | { state: "resolution_unavailable"; tripId: string; encounterIndex: number; jobId: string; lastError: string | null }
-  | { state: "settled"; tripId: string; encounterIndex: number; encounter: TripEncounterRow; created: boolean; overrun: TripOverrunHandoff | null };
+  | { state: "voided"; tripId: string; encounterIndex: number; jobId: string; created: boolean; voided: TripVoidedPayload | null }
+  | { state: "settled"; tripId: string; encounterIndex: number; encounter: TripEncounterRow; created: boolean; overrun: TripOverrunHandoff | null; ownerLoot: OwnerLootCredit | null };
+
+/** Chunk 15 QA S4: the owner's loot for a held fight as the settle credited it. */
+export interface OwnerLootCredit extends JsonObject {
+  /** The outcome's reported `loot`: what was requested. */
+  amount: number;
+  credited: number;
+  /** Past the owner's storage cap (recorded as `overflowDiscarded` on the credit). */
+  discarded: number;
+}
 
 function poolsUsedByCaravan(formation: { posts: readonly unknown[]; traps: readonly unknown[] }): Pool[] {
   const pools: Pool[] = [];
@@ -224,13 +267,18 @@ function deathsBetween(before: Manifest, after: Manifest): string[] {
 }
 
 /**
- * Fold a COMPLETED resolution job into the trip, exactly once. Safe to call any number of
- * times, concurrently, from any read path: the caravan lock + trip row lock + the
- * manifest's "next encounter" check make a second settle a no-op, and the DB refuses a
- * second trip_encounter row (primary key) or a counter that moves by more than one.
- * Opens its own transaction (it first reads the job without locks).
+ * Fold a COMPLETED resolution job into the trip, exactly once; or, when it PARKED, void the
+ * trip (chunk 15 QA D3). Safe to call any number of times, concurrently, from any read path:
+ * the caravan lock + trip row lock + the manifest's "next encounter" check make a second
+ * settle a no-op, and the DB refuses a second trip_encounter row (primary key) or a counter
+ * that moves by more than one. Opens its own transaction (it first reads the job without locks).
+ *
+ * Since chunk 15 QA S4 the worker settles in its completion transaction (`settleResolvedJobTx`,
+ * via `TRIP_SETTLE_HOOKS`), so the absent party owner is paid and rated without the defender
+ * reading anything; this lazy path stays as the fallback (a worker run without the hooks, or a
+ * settle the worker's savepoint rolled back).
  */
-export async function settleEncounter(pool: pg.Pool, caravan: CaravanRow): Promise<SettleState> {
+export async function settleEncounter(pool: pg.Pool, caravan: CaravanRow, nowMs: number = Date.now()): Promise<SettleState> {
   const trip = await findOpenTrip(pool, caravan.id);
   if (!trip) return { state: "no_trip" };
   const manifest = await findManifestById(pool, trip.manifest_id);
@@ -239,25 +287,168 @@ export async function settleEncounter(pool: pg.Pool, caravan: CaravanRow): Promi
   const jobId = encounterJobId(trip.id, n);
   const job = await getJob(pool, jobId);
   if (!job) return { state: "arranging", tripId: trip.id, encounterIndex: n };
-  if (job.status === "parked") return { state: "resolution_unavailable", tripId: trip.id, encounterIndex: n, jobId, lastError: job.last_error };
+  if (job.status === "parked") return withTransaction(pool, (client) => voidTripTx(client, caravan, trip.id, n, nowMs));
   if (job.status !== "completed") return { state: "resolving", tripId: trip.id, encounterIndex: n, jobId, jobStatus: job.status };
+  return withTransaction(pool, (client) => settleInTx(client, caravan, trip.id, n));
+}
+
+/** The locked half of a settle, in the caller's transaction (the lazy path, or the worker's completion transaction). */
+async function settleInTx(client: pg.PoolClient, caravan: CaravanRow, tripId: string, n: number): Promise<SettleState> {
+  const jobId = encounterJobId(tripId, n);
+  const job = await getJob(client, jobId);
+  if (!job || job.status !== "completed") throw new Error(`job ${jobId} is not completed`);
   const outcome = (job.result as { outcome?: unknown } | null)?.outcome;
   assertTripEncounterOutcome(outcome);
   const ownerAccountId = String((job.input as { partyOwnerAccountId?: unknown }).partyOwnerAccountId ?? "");
   if (!ownerAccountId) throw new Error(`job ${jobId} names no party owner`);
+  await lockCaravanForResolution(client, caravan.id);
+  await lockAccountsForAppend(client, [caravan.account_id, ownerAccountId]);
+  const t = await client.query<TripRow>("SELECT * FROM trip WHERE id = $1 FOR UPDATE", [tripId]);
+  const m = t.rows[0] ? await findManifestById(client, t.rows[0].manifest_id, true) : null;
+  const existing = await findTripEncounter(client, tripId, n);
+  if (existing) return { state: "settled", tripId, encounterIndex: n, encounter: existing, created: false, overrun: null, ownerLoot: null };
+  if (!t.rows[0] || t.rows[0].ended_at || !m || m.encounters_resolved + 1 !== n) {
+    throw conflict("trip_moved", "the trip changed while this encounter was being settled; read it again");
+  }
+  return settleLocked(client, caravan, t.rows[0], m, n, job, outcome);
+}
 
+/** Is `job` the CURRENT encounter of an open trip of its caravan? That context, else null (nothing to settle or void). */
+async function currentEncounterOf(client: pg.PoolClient, job: ResolutionJobRow): Promise<{ caravan: CaravanRow; tripId: string; n: number } | null> {
+  if (job.kind !== JOB_KIND_ENCOUNTER_RESOLUTION) return null;
+  const input = job.input as { tripId?: unknown; encounterIndex?: unknown };
+  if (typeof input.tripId !== "string" || !isUuid(input.tripId) || typeof input.encounterIndex !== "number") return null;
+  const n = input.encounterIndex;
+  if (encounterJobId(input.tripId, n) !== job.id) return null;
+  const c = await client.query<CaravanRow>("SELECT * FROM caravan WHERE id = $1", [job.caravan_id]);
+  const caravan = c.rows[0];
+  if (!caravan) return null;
+  const trip = await findOpenTrip(client, caravan.id);
+  if (!trip || trip.id !== input.tripId) return null;
+  const manifest = await findManifestById(client, trip.manifest_id);
+  if (!manifest || manifest.encounters_resolved + 1 !== n) return null;
+  return { caravan, tripId: trip.id, n };
+}
+
+/**
+ * Chunk 15 QA S4 (and chunk 19 QA S3): settle a job the worker has JUST completed, inside the
+ * worker's completion transaction, so the owner's credits are clamped against their headroom
+ * at resolution time and their Reputation moves then. Null when the job is not the current
+ * encounter of an open trip (chunk 02's own jobs, a job whose trip already ended).
+ */
+export async function settleResolvedJobTx(client: pg.PoolClient, job: ResolutionJobRow): Promise<SettleState | null> {
+  const at = await currentEncounterOf(client, job);
+  return at ? settleInTx(client, at.caravan, at.tripId, at.n) : null;
+}
+
+/** Chunk 15 QA D3: void the trip whose current encounter's job just PARKED (own transaction). Null when it is not one. */
+export async function voidTripForParkedJob(pool: pg.Pool, job: ResolutionJobRow, nowMs: number = Date.now()): Promise<SettleState | null> {
   return withTransaction(pool, async (client) => {
-    await lockCaravanForResolution(client, caravan.id);
-    await lockAccountsForAppend(client, [caravan.account_id, ownerAccountId]);
-    const t = await client.query<TripRow>("SELECT * FROM trip WHERE id = $1 FOR UPDATE", [trip.id]);
-    const m = await findManifestById(client, trip.manifest_id, true);
-    const existing = await findTripEncounter(client, trip.id, n);
-    if (existing) return { state: "settled", tripId: trip.id, encounterIndex: n, encounter: existing, created: false, overrun: null } as const;
-    if (!t.rows[0] || t.rows[0].ended_at || !m || m.encounters_resolved + 1 !== n) {
-      throw conflict("trip_moved", "the trip changed while this encounter was being settled; read it again");
-    }
-    return settleLocked(client, caravan, t.rows[0], m, n, job, outcome);
+    const at = await currentEncounterOf(client, job);
+    return at ? voidTripTx(client, at.caravan, at.tripId, at.n, nowMs) : null;
   });
+}
+
+/**
+ * The trip loop's worker hooks (chunk 15 QA S4 / D3). Pass them to `runOnce` / `drain`:
+ * `afterCompleted` settles in the completion transaction (inside a savepoint: a settle that
+ * fails is rolled back alone, the resolution still commits, and the lazy settle retries and
+ * surfaces the error); `afterParked` voids the trip.
+ */
+export const TRIP_SETTLE_HOOKS = {
+  afterCompleted: async (client: pg.PoolClient, job: ResolutionJobRow): Promise<void> => {
+    await settleResolvedJobTx(client, job);
+  },
+  afterParked: async (pool: pg.Pool, job: ResolutionJobRow): Promise<void> => {
+    await voidTripForParkedJob(pool, job);
+  },
+} as const;
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// The void path (chunk 15 QA D3)
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+/** The `trip_voided` event's payload. */
+export interface TripVoidedPayload extends JsonObject {
+  tripId: string;
+  manifestId: string;
+  /** The encounter whose resolution parked: discarded, nothing of it applies. */
+  voidedEncounter: number;
+  jobId: string;
+  /** The parked job's last error. */
+  reason: string;
+  /** Banked as of this encounter (0: nothing survived, nothing credited). */
+  encountersSurvived: number;
+  unbankedCoin: number;
+  deliveryBonus: number;
+  requested: number;
+  credited: number;
+  discarded: number;
+  balanceAfter: number | null;
+  restored: BankRefit;
+  /** D3: the trip-cap use is never refunded. */
+  tripCapRefunded: false;
+}
+
+/**
+ * D3: the trip is voided. The parked encounter is discarded (no trip_encounter row, no
+ * attrition, no progression, no overrun losses, nothing to its party's owner), and the trip
+ * ends exactly as a BANK after its last survived encounter k would: the stored per-encounter
+ * Coin of 1..k plus the delivery for k, credited once under the bank's own causation id (so a
+ * void and a bank can never both credit), chunk 19's per-death de-merges for deaths in 1..k
+ * (a bank applies them too, so a fight that cannot be resolved can never be used to dodge
+ * them), the refit, manifest closed, caravan in town. With k = 0 nothing is credited and no
+ * unit changes. The trip-cap use is not refunded. `trip_voided` records it, with the reason.
+ */
+async function voidTripTx(client: pg.PoolClient, caravan: CaravanRow, tripId: string, n: number, nowMs: number): Promise<SettleState> {
+  const jobId = encounterJobId(tripId, n);
+  await lockCaravanForResolution(client, caravan.id);
+  await lockAccountForAppend(client, caravan.account_id);
+  const t = await client.query<TripRow>("SELECT * FROM trip WHERE id = $1 FOR UPDATE", [tripId]);
+  const trip = t.rows[0];
+  if (trip?.end_reason === "voided") return { state: "voided", tripId, encounterIndex: n, jobId, created: false, voided: null };
+  const manifest = trip ? await findManifestById(client, trip.manifest_id, true) : null;
+  const job = await getJob(client, jobId);
+  if (!trip || trip.ended_at || !manifest || manifest.encounters_resolved + 1 !== n || !job || job.status !== "parked") {
+    throw conflict("trip_moved", "the trip changed while it was being voided; read it again");
+  }
+  if (await findTripEncounter(client, tripId, n)) throw new Error(`trip ${tripId}: encounter ${n} is settled and parked at once`);
+  const rows = await listTripEncounters(client, tripId);
+  const k = rows.length;
+  if (k !== manifest.encounters_resolved) throw new Error(`trip ${tripId}: ${k} settled encounters, manifest says ${manifest.encounters_resolved}`);
+  const unbanked = unbankedCoinOf(rows);
+  let credit: { credited: number; discarded: number; balanceAfter: number | null } = { credited: 0, discarded: 0, balanceAfter: null };
+  if (k > 0) {
+    await accrueTrickleTx(client, caravan.account_id, nowMs, { force: true });
+    const c = await creditBankedTrip(client, { accountId: caravan.account_id, causationId: tripCausation.bankCoin(tripId), tripId, encountersSurvived: k, encounterCoin: rows.map((r) => r.coin_accrued) });
+    credit = { credited: c.credited, discarded: c.discarded, balanceAfter: c.balanceAfter };
+  }
+  const survivors = manifestFromJson(manifest.survivors);
+  const { deMerged } = planUnitLosses(survivors, rows, "banked");
+  const deMergeDrafts = await applyDeMerges(client, { accountId: caravan.account_id, caravanId: caravan.id }, tripId, "banked", deMerged);
+  const restored = refitOf(survivors, deMerged);
+  await endTrip(client, tripId, "voided");
+  await closeManifest(client, manifest.id);
+  await setCaravanState(client, caravan.id, "in_town");
+  const deliveryBonus = k > 0 ? coinForDelivery(k) : 0;
+  const voided: TripVoidedPayload = {
+    tripId,
+    manifestId: manifest.id,
+    voidedEncounter: n,
+    jobId,
+    reason: job.last_error ?? "the resolution job parked",
+    encountersSurvived: k,
+    unbankedCoin: unbanked,
+    deliveryBonus,
+    requested: unbanked + deliveryBonus,
+    credited: credit.credited,
+    discarded: credit.discarded,
+    balanceAfter: credit.balanceAfter,
+    restored,
+    tripCapRefunded: false,
+  };
+  await appendEvents(client, tripCausation.voided(tripId), [{ type: "trip_voided", accountId: caravan.account_id, caravanId: caravan.id, payload: voided }, ...deMergeDrafts]);
+  return { state: "voided", tripId, encounterIndex: n, jobId, created: true, voided };
 }
 
 async function settleLocked(
@@ -306,6 +497,20 @@ async function settleLocked(
     party_owner_account_id: ownerAccountId,
   });
 
+  // 3b. The party owner's pay for a HELD fight (chunk 15 QA S4): exactly the outcome's reported
+  //     loot (depth-scaled, at the chosen row's band, 0 for a system owner — stamped at enqueue),
+  //     capped by the owner's headroom, under `transfer:<jobId>`. An overrun pays chunk 19's
+  //     transfer + party win below instead and its loot is 0; a stalemate pays nothing.
+  let ownerLoot: OwnerLootCredit | null = null;
+  if (outcome.kind === "caravan_held" && outcome.loot > 0 && !ownerAuthored) {
+    const c = await appendCoinCredits(client, {
+      causationId: transferCausationId(job.id),
+      accountId: ownerAccountId,
+      credits: [partyLootCredit({ tripId: trip.id, encounterIndex: n, jobId: job.id, amount: outcome.loot, depth: outcome.depth })],
+    });
+    ownerLoot = { amount: outcome.loot, credited: c.credited, discarded: c.discarded };
+  }
+
   // 4. Overrun ends the trip: losses applied (chunk 19), back to town, manifest closed.
   let overrun: TripOverrunHandoff | null = null;
   if (!survived) {
@@ -344,7 +549,7 @@ async function settleLocked(
     await setCaravanState(client, caravan.id, "in_town");
     await appendEvents(client, tripCausation.overrun(trip.id), [{ type: "trip_overrun", accountId: caravan.account_id, caravanId: caravan.id, payload: overrun }, ...drafts]);
   }
-  return { state: "settled", tripId: trip.id, encounterIndex: n, encounter, created: true, overrun };
+  return { state: "settled", tripId: trip.id, encounterIndex: n, encounter, created: true, overrun, ownerLoot };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -363,7 +568,8 @@ export function parseDecision(body: unknown): DecisionRequest {
   for (const k of Object.keys(b)) if (k !== "tripId" && k !== "encounterIndex") throw badRequest("bad_body", `unknown key '${k}'`);
   const tripId = b["tripId"];
   const n = b["encounterIndex"];
-  if (typeof tripId !== "string" || !/^[0-9a-f-]{36}$/i.test(tripId)) throw badRequest("bad_body", "tripId must be a trip id");
+  // Chunk 15 QA S6: a real UUID (8-4-4-4-12 hex), not 36 hex-or-dash characters; anything else is a 400, never a 500.
+  if (!isUuid(tripId)) throw badRequest("bad_body", "tripId must be a trip id");
   if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > 999_999) throw badRequest("bad_body", "encounterIndex must be a positive integer");
   return { tripId: tripId.toLowerCase(), encounterIndex: n };
 }
@@ -502,6 +708,8 @@ export async function bankTrip(client: pg.PoolClient, caravan: CaravanRow, req: 
         requested,
         credited: credit.credited,
         discarded: credit.discarded,
+        // Chunk 15 QA N5: stored so a replayed bank returns the same balance it reported first.
+        balanceAfter: credit.balanceAfter,
         restored,
       },
     },
@@ -510,11 +718,18 @@ export async function bankTrip(client: pg.PoolClient, caravan: CaravanRow, req: 
   return { tripId: trip.id, encountersSurvived: req.encounterIndex, requested, credited: credit.credited, discarded: credit.discarded, balanceAfter: credit.balanceAfter, restored, replayed: false };
 }
 
+/**
+ * A retried bank, answered from the stored `trip_banked` event. The body is EQUIVALENT to the
+ * first answer, not byte-identical: `replayed` is true, and `balanceAfter` is the balance the
+ * bank left (chunk 15 QA N5: stored in the event since), not today's balance. A trip banked
+ * before N5 has no stored balance: null.
+ */
 async function replayBank(db: Queryable, trip: TripRow): Promise<BankResult> {
   const [ev] = await listEventsByCausation(db, tripCausation.banked(trip.id));
   if (!ev) throw new Error(`trip ${trip.id} is banked but has no trip_banked event`);
-  const p = ev.payload as unknown as { encountersSurvived: number; requested: number; credited: number; discarded: number; restored: BankRefit };
-  return { tripId: trip.id, encountersSurvived: p.encountersSurvived, requested: p.requested, credited: p.credited, discarded: p.discarded, balanceAfter: null, restored: p.restored, replayed: true };
+  const p = ev.payload as unknown as { encountersSurvived: number; requested: number; credited: number; discarded: number; balanceAfter?: unknown; restored: BankRefit };
+  const balanceAfter = typeof p.balanceAfter === "number" && Number.isSafeInteger(p.balanceAfter) ? p.balanceAfter : null;
+  return { tripId: trip.id, encountersSurvived: p.encountersSurvived, requested: p.requested, credited: p.credited, discarded: p.discarded, balanceAfter, restored: p.restored, replayed: true };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -539,7 +754,7 @@ export interface TripView {
   manifestId: string;
   startedAt: string;
   endedAt: string | null;
-  endReason: "banked" | "overrun" | null;
+  endReason: "banked" | "overrun" | "voided" | null;
   phase: TripPhase;
   encountersResolved: number;
   /** The encounter being arranged / resolved (phase arranging / resolving), else null. */
@@ -641,11 +856,11 @@ async function tripView(db: Queryable, trip: TripRow): Promise<TripView> {
 
 async function tripEnding(db: Queryable, trip: TripRow): Promise<TripEndingView | null> {
   if (!trip.ended_at || !trip.end_reason) return null;
-  const causation = trip.end_reason === "banked" ? tripCausation.banked(trip.id) : tripCausation.overrun(trip.id);
+  const causation = trip.end_reason === "banked" ? tripCausation.banked(trip.id) : trip.end_reason === "voided" ? tripCausation.voided(trip.id) : tripCausation.overrun(trip.id);
   const [ev] = await listEventsByCausation(db, causation);
   if (!ev) return null;
   const payload = ev.payload as Record<string, unknown>;
-  return trip.end_reason === "banked" ? endingOfBanked(payload) : endingOfOverrun(payload);
+  return trip.end_reason === "banked" ? endingOfBanked(payload) : trip.end_reason === "voided" ? endingOfVoided(payload) : endingOfOverrun(payload);
 }
 
 /** Trip status for the caravan. Settles a completed resolution first (lazy, idempotent). */
@@ -684,8 +899,12 @@ export interface StakesPreview {
   decisionFor: number | null;
   /** Trip state, never in the account balance until a bank. */
   unbankedCoin: { total: number; byEncounter: { index: number; coin: number }[] };
-  /** What banking now would deliver, against the account's room right now. */
-  bankNow: {
+  /**
+   * What banking now would deliver, against the account's room right now. OMITTED before the
+   * first survived encounter (chunk 15 QA N2): there is nothing to bank yet, and a bank is
+   * only offered after surviving one.
+   */
+  bankNow?: {
     encounterCoin: number;
     deliveryBonus: number;
     total: number;
@@ -729,7 +948,8 @@ export interface StakesPreview {
      * Chunk 14's escalation: the band centre for the next party sits this far from your rating
      * (negative at encounter 1: FIRST_ENCOUNTER_CENTRE_OFFSET, chunk 19 QA D2b).
      */
-    difficulty: { escalationApplied: number; risePerEncounter: number; harderThanThisEncounter: boolean };
+    /** `harderThanThisEncounter` is OMITTED before the first survived encounter (chunk 15 QA N2): there is no "this encounter" to compare with. */
+    difficulty: { escalationApplied: number; risePerEncounter: number; harderThanThisEncounter?: boolean };
     /** The next party arrives at full strength; nothing of yours is repaired or restocked. */
     partyArrivesFresh: true;
   };
@@ -802,15 +1022,19 @@ async function stakesPreviewIn(db: Queryable, caravan: CaravanRow, nowMs: number
     decisionOpen: view.phase === "decide",
     decisionFor: view.decisionFor,
     unbankedCoin: { total: unbanked, byEncounter: rows.map((r) => ({ index: r.encounter_index, coin: r.coin_accrued })) },
-    bankNow: {
-      encounterCoin: unbanked,
-      deliveryBonus: coinForDelivery(m),
-      total: bankTotal,
-      // "Room right now" (chunk 16 QA N6): the trickle keeps filling the store meanwhile. The
-      // bank flushes the trickle before crediting (QA N3), so it clamps against this balance.
-      forecast: overflowForecast(trickle.balance, trickle.cap, bankTotal),
-      unitsDeMerged: planUnitLosses(survivors, rows, "banked").deMerged,
-    },
+    ...(m >= 1
+      ? {
+          bankNow: {
+            encounterCoin: unbanked,
+            deliveryBonus: coinForDelivery(m),
+            total: bankTotal,
+            // "Room right now" (chunk 16 QA N6): the trickle keeps filling the store meanwhile. The
+            // bank flushes the trickle before crediting (QA N3), so it clamps against this balance.
+            forecast: overflowForecast(trickle.balance, trickle.cap, bankTotal),
+            unitsDeMerged: planUnitLosses(survivors, rows, "banked").deMerged,
+          },
+        }
+      : {}),
     units,
     ifOverrun: {
       coinLost: unbanked,
@@ -832,7 +1056,11 @@ async function stakesPreviewIn(db: Queryable, caravan: CaravanRow, nowMs: number
       reward,
       band,
       bankTotalIfSurvived: unbanked + reward + coinForDelivery(next),
-      difficulty: { escalationApplied: centreOffsetFor(next), risePerEncounter: ESCALATION_PER_ENCOUNTER, harderThanThisEncounter: centreOffsetFor(next) > (m >= 1 ? centreOffsetFor(m) : Number.MIN_SAFE_INTEGER) },
+      difficulty: {
+        escalationApplied: centreOffsetFor(next),
+        risePerEncounter: ESCALATION_PER_ENCOUNTER,
+        ...(m >= 1 ? { harderThanThisEncounter: centreOffsetFor(next) > centreOffsetFor(m) } : {}),
+      },
       partyArrivesFresh: true,
     },
     // The earn multiplier as chunk 14 stored it on the chosen candidate; it already landed on

@@ -300,6 +300,20 @@ export function partyWinCredit(input: { tripId: string; encounterIndex: number; 
 }
 
 /**
+ * Chunk 15 QA S4: the party owner's depth-scaled loot for a HELD fight (the caravan wiped the
+ * party), as a spec. `amount` is the outcome's reported `loot` (trip/loot.ts) — the trip loop
+ * credits exactly that, under `transfer:<jobId>` like chunk 19's overrun credits, capped by the
+ * owner's headroom (the clamp records `overflowDiscarded`). Reason `party_loot`, a plain
+ * `coin_earned`. Never on an overrun (the transfer + party win are what that fight earns) or a
+ * stalemate, and never to a system owner.
+ */
+export function partyLootCredit(input: { tripId: string; encounterIndex: number; jobId: string; amount: number; depth: number }): CoinCreditSpec {
+  assertPosInt("encounterIndex", input.encounterIndex);
+  if (!Number.isSafeInteger(input.amount) || input.amount < 0) throw new RangeError(`loot must be a non-negative integer, got ${String(input.amount)}`);
+  return { amount: input.amount, reason: "party_loot", extra: { tripId: input.tripId, encounterIndex: input.encounterIndex, jobId: input.jobId, depth: input.depth } };
+}
+
+/**
  * The passive side's earn path: the owner of a standing party whose party overran a
  * caravan. The owner was never present; their party lost nothing (GUARDRAILS §0). Standalone
  * form (its own causation id); the trip loop's overrun pays it through `partyWinCredit` in the

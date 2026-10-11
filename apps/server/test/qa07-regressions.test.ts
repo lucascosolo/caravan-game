@@ -13,7 +13,7 @@ import { buildApp } from "../src/app.js";
 import { applyOutcome, battlefieldForEncounter, closeManifest } from "../src/circle/service.js";
 import { withTransaction } from "../src/db/pool.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
-import { appRolePool, expectDbError, testPool, truncateAll, unique } from "./helpers.js";
+import { appRolePool, expectDbError, testPool, truncateAll, unique, commitFormationInTown } from "./helpers.js";
 
 const pool = testPool();
 let appRole: pg.Pool;
@@ -42,7 +42,8 @@ async function giveUnit(p: Player, key: string, typeId: string, mergeLevel = 1):
 function call(p: Player, method: "GET" | "POST" | "PUT", url: string, payload?: unknown, headers: Record<string, string> = {}): Promise<LightMyRequestResponse> {
   const opts: InjectOptions = { method, url, headers: { authorization: `Bearer ${p.token}`, ...headers } };
   if (payload !== undefined) opts.payload = payload as NonNullable<InjectOptions["payload"]>;
-  return app.inject(opts);
+  // Chunk 15 QA N4: the raw commit route is trip-only now; chunk 07's model tests commit through the service.
+  return commitFormationInTown(appRole, p.caravanId, method, url).then((r) => (r as unknown as LightMyRequestResponse | null) ?? app.inject(opts));
 }
 
 const PACK = (p: Player) => ({ units: [p.units["rider"], p.units["digger"]], traps: ["trap.spike_pit", "trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 10 } });
