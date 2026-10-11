@@ -168,3 +168,9 @@ state (inbox.spec.ts:1-11). No test plays a stored log from the inbox, although 
 (probe P8). There is also no test for the mark-all race (S1), the horizon edge (N1), duplicate
 marks (N2), a long name at 320 px (S3) or cap-discarded totals. Also, the `describe` title at
 inbox.test.ts:420 still says "migration 017" (now 015).
+
+## Orchestrator decisions (2026-10-11)
+
+- **D1: closed by chunk 13's fix round.** The running server now drains the job queue in-process with the real resolver, and settles at resolution through the trip settle hooks (`apps/server/src/jobs/inProcessWorker.ts`). The fixer adds a test proving that an inbox item appears within one poll of a real resolution, without the test flag.
+- **D2: say so, never hide silently.** When batches fall past the 30th or outside the 14-day horizon, the inbox ends with one line saying older activity is in the Party results feed, with a link there. Batch counts never disagree with the feed (N1): a batch the cutoff would split is shown whole or not at all.
+- **S1–S4 and every nit are in scope.** For S1, "Mark all read" sends exactly the keys and versions the client is showing. Whatever arrived after is still unread. For S2, a batch's version moves whenever its totals change, including credits that land later. For S4, use an index matching the strike query, aggregate only the batches that will be shown, and paginate or collapse strike lines so the page stays light. N9's tests must run with the settle hooks, as production does.
