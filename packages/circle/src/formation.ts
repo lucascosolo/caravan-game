@@ -22,9 +22,10 @@
  *                 an attacker inside its aggro radius, chases up to its leash, returns.
  *   - `hold`    — fights only attackers within attack range of its post and never leaves
  *                 it (leash 0).
- *   - `reserve` — ignores everything until an attacker is INSIDE THE RING (any lattice cell
- *                 with Chebyshev distance < PERIMETER_RING_RADIUS from the core centre),
- *                 then behaves as `guard`. This is the "kept safely in the back" choice of
+ *   - `reserve` — does not move or acquire a target until an attacker is INSIDE THE RING (any
+ *                 lattice cell with Chebyshev distance < PERIMETER_RING_RADIUS from the core
+ *                 centre), then behaves as `guard`. It still fires at anything in reach
+ *                 before release (chunk 11 QA D1). This is the "kept safely in the back" choice of
  *                 §13.4, which is why every living unit must still be posted.
  * These are the DEFENDING side's stances. They are distinct from the attacking party's
  * three targeting stances (chunk 09), which live on the party, not here.
