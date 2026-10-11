@@ -16,7 +16,9 @@ import type { BankResult, StakesPreview, TripStatusView } from "../../api/tripTy
 import { STRINGS } from "../../strings.ts";
 import type { IsoCanvasProps } from "../../iso/index.ts";
 import { CARAVAN_ID, fakeApi, meWith } from "../../test/townFixtures.ts";
-import { bankAfter2, previewAfter1, previewAfter2, previewFromRecorded, statusArranging, statusBanked, statusDecide, statusOverrun, statusResolving, withTrip } from "../../test/tripFixtures.ts";
+import { bankAfter2, previewAfter1, previewAfter2, previewAtStart, previewFromRecorded, statusArranging, statusBanked, statusDecide, statusOverrun, statusResolving, statusVoided, voidedRaw, withTrip } from "../../test/tripFixtures.ts";
+import { expectShape } from "../../api/shape.ts";
+import { tripStatusShape } from "../../api/tripShapes.ts";
 import { BankOrPushScreen, Stakes } from "./BankOrPushScreen.tsx";
 import { TripSummary } from "./TripSummary.tsx";
 import { TrailScreen } from "./TrailScreen.tsx";
@@ -137,7 +139,7 @@ describe("trip chain on the Trail tab", () => {
     await user.click(screen.getByTestId("bank-open"));
     const dialog = await screen.findByRole("dialog", { name: "Bank the trip?" });
     const p = previewAfter1();
-    expect(await within(dialog).findByTestId("bank-quote")).toHaveTextContent(`The trip ends. ${p.bankNow.forecast.wouldCredit} Coin is banked in the town, safe for good.`);
+    expect(await within(dialog).findByTestId("bank-quote")).toHaveTextContent(`The trip ends. ${p.bankNow!.forecast.wouldCredit} Coin is banked in the town, safe for good.`);
     expect(tripPreview.mock.calls.length).toBe(before + 1); // re-read before quoting (README §4)
     await user.click(within(dialog).getByTestId("bank-confirm"));
     expect(bankTrip).toHaveBeenCalledWith(CARAVAN_ID, decide.trip!.id, 1);
@@ -297,7 +299,7 @@ describe("trip chain on the Trail tab", () => {
   it("a death the caravan survived: the bank card, the bank confirm and the push confirm each name it with its level change (QA S1/S2)", async () => {
     const user = userEvent.setup();
     const p = previewAfter2();
-    const dead = p.bankNow.unitsDeMerged;
+    const dead = p.bankNow!.unitsDeMerged;
     expect(dead).toEqual([expect.objectContaining({ typeId: "desert.dust_rider", fromLevel: 3, toLevel: 2, diedAtEncounter: 2 })]);
     const bankTrip = vi.fn(async () => bankAfter2());
     const onDecided = vi.fn();
@@ -345,8 +347,8 @@ describe("the bank-or-push itemization (GUARDRAILS §4: every stake, from the pr
     const unbanked = screen.getByTestId("stake-unbanked");
     expect(unbanked).toHaveTextContent(`${p.unbankedCoin.total} Coin carried on the trail, not yet banked.`);
     for (const e of p.unbankedCoin.byEncounter) expect(unbanked).toHaveTextContent(`Encounter ${e.index}: ${e.coin} Coin`);
-    expect(screen.getByTestId("stake-bank")).toHaveTextContent(`${p.bankNow.encounterCoin} Coin from the encounters + ${p.bankNow.deliveryBonus} Coin for the delivery = ${p.bankNow.total} Coin.`);
-    expect(screen.getByTestId("stake-bank-forecast")).toHaveTextContent(`All ${p.bankNow.forecast.wouldCredit} Coin fits: your store holds ${p.bankNow.forecast.balance} of ${p.bankNow.forecast.cap} Coin right now.`);
+    expect(screen.getByTestId("stake-bank")).toHaveTextContent(`${p.bankNow!.encounterCoin} Coin from the encounters + ${p.bankNow!.deliveryBonus} Coin for the delivery = ${p.bankNow!.total} Coin.`);
+    expect(screen.getByTestId("stake-bank-forecast")).toHaveTextContent(`All ${p.bankNow!.forecast.wouldCredit} Coin fits: your store holds ${p.bankNow!.forecast.balance} of ${p.bankNow!.forecast.cap} Coin right now.`);
     expect(screen.getByTestId("stake-bank-demerged-none")).toHaveTextContent("No unit has died: everything comes home at its level.");
     for (const u of p.units) {
       const li = screen.getByTestId(`stake-unit-${u.ref}`);
@@ -386,7 +388,7 @@ describe("the bank-or-push itemization (GUARDRAILS §4: every stake, from the pr
     render(<Stakes preview={p} />);
     const f = screen.getByTestId("stake-bank-forecast");
     expect(f).toHaveAttribute("role", "alert");
-    expect(f).toHaveTextContent(`Only 500 Coin fits under the cap (49500 of 50000 Coin stored right now); ${p.bankNow.total - 500} Coin would be discarded.`);
+    expect(f).toHaveTextContent(`Only 500 Coin fits under the cap (49500 of 50000 Coin stored right now); ${p.bankNow!.total - 500} Coin would be discarded.`);
     const dead = p.units.find((u) => !u.alive)!;
     expect(screen.getByTestId(`stake-unit-${dead.ref}`)).toHaveTextContent("Dead since encounter 2");
     expect(screen.getByTestId(`stake-unit-${dead.ref}`)).toHaveTextContent("Loses a merge level: 3 → 2");
@@ -395,5 +397,68 @@ describe("the bank-or-push itemization (GUARDRAILS §4: every stake, from the pr
     expect(screen.getByTestId(`stake-overrun-demerged-${dead.ref}`)).toHaveTextContent("Dust Rider · L3 → L2");
     expect(screen.getByTestId(`stake-bank-demerged-${dead.ref}`)).toHaveTextContent("Dust Rider · L3 → L2");
     expect(screen.getByTestId("stake-fences")).toHaveTextContent("Brush Pile #2 · HP 120 of 300");
+  });
+
+  it("before the first survival (chunk 15 QA N2) the preview has no bank quote: said plainly, and the difficulty line makes no comparison", () => {
+    const p = previewAtStart();
+    expect(p.bankNow).toBeUndefined();
+    render(<Stakes preview={p} />);
+    expect(screen.getByTestId("stake-bank-none")).toHaveTextContent("Nothing to bank yet: a bank is offered once you survive an encounter.");
+    expect(screen.queryByTestId("stake-bank-forecast")).toBeNull();
+    expect(screen.getByTestId("stake-next-difficulty")).toHaveTextContent(`The next party is searched ${p.nextEncounter.difficulty.escalationApplied} Reputation above your own.`);
+    expect(screen.getByTestId("stake-next-difficulty")).not.toHaveTextContent("Harder");
+  });
+});
+
+describe("a voided trip (chunk 15 QA D3): the encounter could not be resolved", () => {
+  const noManifest = vi.fn(async () => {
+    throw new ApiError(404, "no_open_manifest", "nothing packed");
+  });
+
+  it("resolving → the server voids the trip: the summary says what was banked and de-merged, that nothing of the last fight applied, and that the trip use stays spent", async () => {
+    const user = userEvent.setup();
+    const voided = statusVoided();
+    const { api } = apiWith([statusResolving(), voided], { manifest: noManifest, economy: vi.fn(async () => { throw new ApiError(0, "network", "offline"); }) });
+    render(<TrailScreen api={api} pollBackoffMs={FAST} />);
+    const summary = await screen.findByTestId("trip-summary", {}, { timeout: 3000 });
+    expect(summary).toHaveAttribute("data-end", "voided");
+    expect(screen.queryByTestId("api-error")).toBeNull();
+    const e = voided.trip!.ending!;
+    if (e.kind !== "voided") throw new Error("fixture");
+    const box = within(summary).getByTestId("summary-voided");
+    expect(box).toHaveTextContent(`Encounter ${e.voidedEncounter} could not be resolved, so the trip was called off. The caravan is back in town.`);
+    expect(within(box).getByTestId("summary-voided-nothing")).toHaveTextContent(`Nothing from encounter ${e.voidedEncounter} was applied: no damage, no deaths, no Coin won or lost, nothing paid to the raiders.`);
+    expect(box).toHaveTextContent(`The trip was banked as of encounter ${e.encountersSurvived}, the last one survived:`);
+    expect(box).toHaveTextContent(`${e.unbankedCoin} Coin from the encounters + ${e.deliveryBonus} Coin for the delivery = ${e.requested} Coin.`);
+    expect(within(box).getByTestId("summary-credited")).toHaveTextContent(`${e.credited} Coin banked.`);
+    expect(within(box).getByTestId("summary-voided-demerged")).toHaveTextContent("Dust Rider · L2 → L1");
+    expect(within(box).getByTestId("summary-voided-cap")).toHaveTextContent("The trip still used 1 of your available trips: that use is not given back");
+    // The technical reason is a collapsed detail, never the headline.
+    expect(within(box).getByTestId("summary-voided-reason")).toHaveTextContent(e.reason);
+    expect(within(box).getByText("Why the server could not resolve it").tagName).toBe("SUMMARY");
+    // Only the survived encounter's results are listed; no bank or push is offered.
+    expect(within(summary).getByTestId("encounter-result-1")).toBeInTheDocument();
+    expect(within(summary).queryByTestId("encounter-result-2")).toBeNull();
+    expect(screen.queryByTestId("bank-open")).toBeNull();
+    expect(screen.queryByTestId("push-open")).toBeNull();
+    await user.click(screen.getByTestId("summary-to-town"));
+    expect(window.location.hash).toBe("#/town");
+  });
+
+  it("voided before any survival: nothing was delivered or credited and no unit changed (the recorded body, edited before the guard)", () => {
+    const raw = voidedRaw();
+    Object.assign(raw.trip.ending, { voidedEncounter: 1, encountersSurvived: 0, unbankedCoin: 0, deliveryBonus: 0, requested: 0, credited: 0, discarded: 0 });
+    raw.trip.ending.restored.deMerged = [];
+    raw.trip.encounters = [];
+    raw.trip.encountersResolved = 0;
+    const s = expectShape(tripStatusShape, raw);
+    render(<TripSummary trip={s.trip!} balance={500} />);
+    const box = screen.getByTestId("summary-voided");
+    expect(box).toHaveTextContent("Encounter 1 could not be resolved");
+    expect(within(box).getByTestId("summary-voided-none")).toHaveTextContent("No encounter was survived before it, so there was nothing to deliver: no Coin was credited and no unit changed.");
+    expect(within(box).queryByTestId("summary-credited")).toBeNull();
+    expect(within(box).queryByTestId("summary-balance")).toBeNull();
+    expect(within(box).getByTestId("summary-voided-cap")).toBeInTheDocument();
+    expect(screen.getByTestId("summary-to-town")).toHaveTextContent("Back to town");
   });
 });

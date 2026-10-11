@@ -1,0 +1,230 @@
+{
+  "route": "GET /me/caravans/:id/trip/preview (before the first survival)",
+  "status": 200,
+  "body": {
+    "tripId": "00000000-0000-4000-8000-000000000001",
+    "encountersSurvived": 0,
+    "decisionOpen": false,
+    "decisionFor": null,
+    "unbankedCoin": {
+      "total": 0,
+      "byEncounter": []
+    },
+    "units": [
+      {
+        "ref": "00000000-0000-4000-8000-000000000002",
+        "typeId": "desert.dust_rider",
+        "mergeLevel": 1,
+        "hp": 620,
+        "maxHp": 620,
+        "damage": 0,
+        "alive": true,
+        "diedAtEncounter": null,
+        "mergeLevelOnDeath": 1
+      },
+      {
+        "ref": "00000000-0000-4000-8000-000000000003",
+        "typeId": "desert.dust_rider",
+        "mergeLevel": 1,
+        "hp": 620,
+        "maxHp": 620,
+        "damage": 0,
+        "alive": true,
+        "diedAtEncounter": null,
+        "mergeLevelOnDeath": 1
+      },
+      {
+        "ref": "00000000-0000-4000-8000-000000000004",
+        "typeId": "desert.dust_rider",
+        "mergeLevel": 2,
+        "hp": 775,
+        "maxHp": 775,
+        "damage": 0,
+        "alive": true,
+        "diedAtEncounter": null,
+        "mergeLevelOnDeath": 1
+      }
+    ],
+    "ifOverrun": {
+      "coinLost": 0,
+      "unitsLostOutright": [
+        {
+          "ref": "00000000-0000-4000-8000-000000000002",
+          "typeId": "desert.dust_rider",
+          "mergeLevel": 1,
+          "hp": 620
+        },
+        {
+          "ref": "00000000-0000-4000-8000-000000000003",
+          "typeId": "desert.dust_rider",
+          "mergeLevel": 1,
+          "hp": 620
+        },
+        {
+          "ref": "00000000-0000-4000-8000-000000000004",
+          "typeId": "desert.dust_rider",
+          "mergeLevel": 2,
+          "hp": 775
+        }
+      ],
+      "unitsDeMergedNotDestroyed": [],
+      "unitDyingInTheFinalFight": "de_merged_not_destroyed",
+      "coinGoesTo": "overrunning_party_owner_capped"
+    },
+    "traps": {
+      "remaining": [
+        {
+          "ref": "t0",
+          "typeId": "trap.spike_pit"
+        }
+      ],
+      "spent": []
+    },
+    "fences": {
+      "intact": [
+        {
+          "ref": "f0",
+          "tierId": "fence.brush_pile",
+          "hp": 300,
+          "maxHp": 300
+        },
+        {
+          "ref": "f1",
+          "tierId": "fence.brush_pile",
+          "hp": 300,
+          "maxHp": 300
+        },
+        {
+          "ref": "f2",
+          "tierId": "fence.brush_pile",
+          "hp": 300,
+          "maxHp": 300
+        },
+        {
+          "ref": "f3",
+          "tierId": "fence.brush_pile",
+          "hp": 300,
+          "maxHp": 300
+        },
+        {
+          "ref": "f4",
+          "tierId": "fence.brush_pile",
+          "hp": 300,
+          "maxHp": 300
+        },
+        {
+          "ref": "f5",
+          "tierId": "fence.brush_pile",
+          "hp": 300,
+          "maxHp": 300
+        },
+        {
+          "ref": "f6",
+          "tierId": "fence.brush_pile",
+          "hp": 300,
+          "maxHp": 300
+        },
+        {
+          "ref": "f7",
+          "tierId": "fence.brush_pile",
+          "hp": 300,
+          "maxHp": 300
+        },
+        {
+          "ref": "f8",
+          "tierId": "fence.brush_pile",
+          "hp": 300,
+          "maxHp": 300
+        },
+        {
+          "ref": "f9",
+          "tierId": "fence.brush_pile",
+          "hp": 300,
+          "maxHp": 300
+        },
+        {
+          "ref": "f10",
+          "tierId": "fence.brush_pile",
+          "hp": 300,
+          "maxHp": 300
+        },
+        {
+          "ref": "f11",
+          "tierId": "fence.brush_pile",
+          "hp": 300,
+          "maxHp": 300
+        },
+        {
+          "ref": "f12",
+          "tierId": "fence.brush_pile",
+          "hp": 300,
+          "maxHp": 300
+        },
+        {
+          "ref": "f13",
+          "tierId": "fence.brush_pile",
+          "hp": 300,
+          "maxHp": 300
+        },
+        {
+          "ref": "f14",
+          "tierId": "fence.brush_pile",
+          "hp": 300,
+          "maxHp": 300
+        },
+        {
+          "ref": "f15",
+          "tierId": "fence.brush_pile",
+          "hp": 300,
+          "maxHp": 300
+        },
+        {
+          "ref": "f16",
+          "tierId": "fence.brush_pile",
+          "hp": 300,
+          "maxHp": 300
+        },
+        {
+          "ref": "f17",
+          "tierId": "fence.brush_pile",
+          "hp": 300,
+          "maxHp": 300
+        },
+        {
+          "ref": "f18",
+          "tierId": "fence.brush_pile",
+          "hp": 300,
+          "maxHp": 300
+        },
+        {
+          "ref": "f19",
+          "tierId": "fence.brush_pile",
+          "hp": 300,
+          "maxHp": 300
+        }
+      ],
+      "destroyed": []
+    },
+    "nextEncounter": {
+      "index": 1,
+      "reward": 1000,
+      "band": 3,
+      "bankTotalIfSurvived": 1125,
+      "difficulty": {
+        "escalationApplied": -150,
+        "risePerEncounter": 15
+      },
+      "partyArrivesFresh": true
+    },
+    "lastOpponent": null,
+    "rules": {
+      "tripsPerHourCap": 3,
+      "tripCapRegenMs": 1200000,
+      "tripCapGate": "time",
+      "noRepairBetweenEncounters": true,
+      "restoreOnTripEnd": "full_on_bank_none_on_overrun",
+      "bankOfferedOnlyAfterSurviving": true,
+      "safetyBonusForPushing": false
+    }
+  }
+}
