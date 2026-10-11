@@ -22,7 +22,23 @@ export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
+/**
+ * Chunk 25 QA S6: a system account (the non-player owner of an authored party) never holds
+ * a session, whatever path asks for one — not just the login route. issueSession refuses
+ * to mint one and authenticate refuses to honour one, so a session row for a system
+ * account (however it got there) authenticates nothing.
+ */
+export class SystemAccountSessionError extends Error {
+  constructor(public readonly accountId: string) {
+    super(`account ${accountId} is a system account and cannot hold a session`);
+    this.name = "SystemAccountSessionError";
+  }
+}
+
 export async function issueSession(db: pg.Pool | pg.PoolClient, accountId: string): Promise<{ token: string; expiresAt: Date }> {
+  const account = await findAccountById(db, accountId);
+  if (!account) throw new Error(`account ${accountId} not found; cannot issue a session`);
+  if (account.is_system) throw new SystemAccountSessionError(accountId);
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
   // Housekeeping on the login path: drop this account's expired rows, then cap the live
@@ -47,7 +63,7 @@ export async function authenticate(db: pg.Pool, authorizationHeader: string | un
   const session = await findLiveSessionByTokenHash(db, hashToken(token));
   if (!session) return null;
   const account = await findAccountById(db, session.account_id);
-  if (!account) return null;
+  if (!account || account.is_system) return null;
   return { sessionId: session.id, account };
 }
 

@@ -100,6 +100,14 @@ export async function migrateUp(pool: pg.Pool, migrations: Migration[] = loadMig
   return ran;
 }
 
+/**
+ * Roll back the most recent `steps` migrations, newest first, ALL IN ONE TRANSACTION
+ * (chunk 25 QA S1). Some down migrations refuse while data they would orphan or de-guard
+ * exists (009 and 011 refuse while system accounts exist); running the whole batch
+ * atomically is the pre-check: if any step's guard refuses, nothing is rolled back — a
+ * `down N` or a `reset` never stops halfway with some migrations gone and others applied.
+ * Postgres DDL is transactional, so this is exact, not a best-effort dry run.
+ */
 export async function migrateDown(
   pool: pg.Pool,
   steps = 1,
@@ -107,25 +115,31 @@ export async function migrateDown(
 ): Promise<string[]> {
   const applied = await appliedMigrationIds(pool);
   const byId = new Map(migrations.map((m) => [m.id, m]));
-  const ran: string[] = [];
+  const plan: Migration[] = [];
   for (const id of applied.slice().reverse().slice(0, steps)) {
     const m = byId.get(id);
     if (!m) throw new Error(`Applied migration ${id} has no file on disk; cannot roll back`);
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
+    plan.push(m);
+  }
+  if (plan.length === 0) return [];
+  const client = await pool.connect();
+  let current: Migration | undefined;
+  try {
+    await client.query("BEGIN");
+    for (const m of plan) {
+      current = m;
       await client.query(m.down);
       await client.query("DELETE FROM schema_migrations WHERE id = $1", [m.id]);
-      await client.query("COMMIT");
-      ran.push(`${m.id}_${m.name}`);
-    } catch (err) {
-      await client.query("ROLLBACK").catch(() => undefined);
-      throw new Error(`Migration ${m.id}_${m.name} (down) failed: ${(err as Error).message}`);
-    } finally {
-      client.release();
     }
+    await client.query("COMMIT");
+    return plan.map((m) => `${m.id}_${m.name}`);
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    const rest = plan.length > 1 ? `; nothing was rolled back (${plan.length} steps run as one transaction)` : "";
+    throw new Error(`Migration ${current!.id}_${current!.name} (down) failed: ${(err as Error).message}${rest}`);
+  } finally {
+    client.release();
   }
-  return ran;
 }
 
 /** Roll everything back, then apply everything. Used by the test suite. */

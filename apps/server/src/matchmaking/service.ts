@@ -54,16 +54,20 @@ import {
   bandOf,
   bandWidths,
   candidateSeed,
+  currentDrawRules,
   escalatedCentre,
   escalationFor,
   gapBeyondBand,
+  replayPool,
   sandbagEarnMultiplier,
   selectCandidates,
+  type AuthoredDrawRules,
   type AuthoredServedShare,
   type BandInfo,
   type PoolEntry,
   type SelectionPass,
 } from "./band.js";
+import { authoredOutfitFor } from "./authored.js";
 import { authoredServedShare } from "./authoredShare.js";
 import { noLinkedAccounts, type LinkedAccountsResolver } from "./exclusions.js";
 import { findOpenTrip, type TripRow } from "./trips.js";
@@ -72,14 +76,21 @@ export const notFound = (code: string, message: string) => new AppError(404, cod
 
 /**
  * One offered candidate AS STORED on the menu row: everything the defender can read before
- * committing (GUARDRAILS §4) plus the owner's account id, which chunk 15 / the resolution
- * job need and the client view omits (QA N4; `CandidateView`).
+ * committing (GUARDRAILS §4) plus the owner's account id — on `owner` and inside the
+ * snapshot — which chunk 15 / the resolution job need and the client view omits (chunk 14
+ * QA N4, chunk 25 QA D4; `CandidateView`). Account ids are not public.
  */
 export interface Candidate {
   /** Stable within the menu it belongs to; what `choose` names. */
   candidateId: string;
   partyId: string;
-  owner: { accountId: string; displayName: string; authored: boolean };
+  /**
+   * `displayName`: the username of a live owner; for an authored (system) owner the
+   * outfit's name, never the `sys_outfit_*` handle (chunk 25 QA N3). `flavor`: the
+   * outfit's one-line flavour for an authored owner (onboarding copy, chunk 24), null for
+   * a live one.
+   */
+  owner: { accountId: string; displayName: string; authored: boolean; flavor: string | null };
   reputation: {
     /** The owner's siege Reputation at search time (chunk 04 QA D1). */
     rating: number;
@@ -100,12 +111,41 @@ export interface Candidate {
   scout: PartyScoutView;
 }
 
-/** A candidate as the client sees it: the stored candidate without the owner's account id (QA N4). */
-export type CandidateView = Omit<Candidate, "owner"> & { owner: { displayName: string; authored: boolean } };
+/** The snapshot as the client sees it: the stored snapshot without `ownerAccountId` (chunk 25 QA D4). */
+export interface SnapshotView extends JsonObject {
+  partyId: string;
+  slot: number;
+  savedAt: string;
+  hash: string;
+  composition: JsonObject;
+}
+
+/**
+ * A candidate as the client sees it: the stored candidate with NO account id anywhere —
+ * not on `owner` (chunk 14 QA N4) and not inside the snapshot (chunk 25 QA D4). The stored
+ * row and the job input keep both.
+ */
+export type CandidateView = Omit<Candidate, "owner" | "snapshot"> & {
+  owner: { displayName: string; authored: boolean; flavor: string | null };
+  snapshot: SnapshotView;
+};
 
 export function candidateView(c: Candidate): CandidateView {
-  const { owner, ...rest } = c;
-  return { ...rest, owner: { displayName: owner.displayName, authored: owner.authored } };
+  const { owner, snapshot, ...rest } = c;
+  const { ownerAccountId: _ownerAccountId, ...snapshotView } = snapshot;
+  return { ...rest, owner: { displayName: owner.displayName, authored: owner.authored, flavor: owner.flavor ?? null }, snapshot: snapshotView };
+}
+
+/**
+ * What the defender sees as the owner's name (chunk 25 QA N3): a live owner's username; an
+ * authored owner's outfit name and flavour, looked up from the system username — never the
+ * raw `sys_outfit_*` handle. A system account the current set no longer describes reads as
+ * a generic name rather than leaking its handle.
+ */
+export function ownerDisplay(username: string, authored: boolean): { displayName: string; flavor: string | null } {
+  if (!authored) return { displayName: username, flavor: null };
+  const outfit = authoredOutfitFor(username);
+  return outfit ? { displayName: outfit.name, flavor: outfit.flavor } : { displayName: "Unnamed outfit", flavor: null };
 }
 
 export interface EncounterCandidatesRow {
@@ -123,6 +163,12 @@ export interface EncounterCandidatesRow {
   searched_at_ms: number;
   /** Chunk 25: the band's authored served share the draw saw (null on rows older than migration 011). */
   authored_served: AuthoredServedShare | null;
+  /** Chunk 25 QA S4: the display band of `centre` (what the served-share query keys on). */
+  band: number | null;
+  /** Chunk 25 QA N2: the authored-draw tunables the menu was drawn under (null = rows older than 011). */
+  draw_rules: AuthoredDrawRules | null;
+  /** Chunk 25 QA N2/S3: whether the served-share weight changed this draw. */
+  authored_weighted_down: boolean | null;
   chosen_candidate_id: string | null;
   chosen_at: Date | null;
   created_at: Date;
@@ -198,25 +244,36 @@ interface PoolRow {
 /**
  * Every standing party the draw could possibly serve for this centre, with its owner's
  * siege Reputation. Region is NOT read. A party with no units is not served (there would
- * be nothing to fight); v1 serves slot 0. QA S2: the scan is bounded in SQL to what
- * `selectCandidates` can ever pick — live parties within ±REPUTATION_BAND_WIDTH_MAX of the
- * centre (the widest pass) and every authored party (the outside-band fallback) — over
- * `pool_progress (pool, reputation)` (migration 009). The stored pool is this subset, and
- * replay over it is exact because nothing outside it could have been drawn.
+ * be nothing to fight); v1 serves slot 0. Chunk 14 QA S2 / chunk 25 QA S5: the scan is
+ * bounded in SQL to what `selectCandidates` can ever pick, as a UNION ALL of two indexed
+ * branches — live parties within ±REPUTATION_BAND_WIDTH_MAX of the centre (over
+ * `pool_progress (pool, reputation)`, migration 009) and the system accounts' parties (the
+ * outside-band fallback; over `account_system_idx`, migration 011) — so neither branch
+ * reads the whole party table. Each branch drives from its index and reaches the other
+ * rows by key through LATERAL ... LIMIT 1 lookups (the LIMIT keeps the planner from
+ * flattening them into a hash join over a full scan). A test EXPLAINs it over ~10k parties.
  */
-async function loadPool(db: Queryable, centre: number, excludeAccountIds: readonly string[]): Promise<PoolRow[]> {
-  const res = await db.query<PoolRow>(
-    `SELECT sp.id AS party_id, sp.account_id AS owner_account_id, a.username, a.is_system, pp.reputation
-       FROM standing_party sp
-       JOIN account a ON a.id = sp.account_id
-       JOIN pool_progress pp ON pp.account_id = sp.account_id AND pp.pool = 'siege'
-      WHERE sp.slot = 0
+export const POOL_SQL = `SELECT sp.id AS party_id, pp.account_id AS owner_account_id, a.username, false AS is_system, pp.reputation
+       FROM pool_progress pp
+       CROSS JOIN LATERAL (SELECT username, is_system FROM account WHERE id = pp.account_id LIMIT 1) a
+       CROSS JOIN LATERAL (SELECT id, composition FROM standing_party WHERE account_id = pp.account_id AND slot = 0 LIMIT 1) sp
+      WHERE pp.pool = 'siege'
+        AND pp.reputation BETWEEN $2::integer - $3::integer AND $2::integer + $3::integer
+        AND NOT a.is_system
         AND jsonb_array_length(sp.composition -> 'units') > 0
-        AND NOT (sp.account_id = ANY($1::uuid[]))
-        AND (pp.reputation BETWEEN $2::integer - $3::integer AND $2::integer + $3::integer OR a.is_system)
-      ORDER BY sp.id`,
-    [excludeAccountIds, centre, REPUTATION_BAND_WIDTH_MAX],
-  );
+        AND NOT (pp.account_id = ANY($1::uuid[]))
+     UNION ALL
+     SELECT sp.id, a.id, a.username, true, pp.reputation
+       FROM account a
+       CROSS JOIN LATERAL (SELECT reputation FROM pool_progress WHERE account_id = a.id AND pool = 'siege' LIMIT 1) pp
+       CROSS JOIN LATERAL (SELECT id, composition FROM standing_party WHERE account_id = a.id AND slot = 0 LIMIT 1) sp
+      WHERE a.is_system
+        AND jsonb_array_length(sp.composition -> 'units') > 0
+        AND NOT (a.id = ANY($1::uuid[]))
+      ORDER BY 1`;
+
+async function loadPool(db: Queryable, centre: number, excludeAccountIds: readonly string[]): Promise<PoolRow[]> {
+  const res = await db.query<PoolRow>(POOL_SQL, [excludeAccountIds, centre, REPUTATION_BAND_WIDTH_MAX]);
   return res.rows;
 }
 
@@ -276,7 +333,7 @@ export function candidateIdFor(tripId: string, encounterIndex: number, searchSeq
 export function candidateFromSnapshot(
   ids: { tripId: string; encounterIndex: number; searchSeq: number },
   entry: PoolEntry,
-  displayName: string,
+  who: { displayName: string; flavor: string | null },
   caravanRating: number,
   bandWidthUsed: number,
   snapshot: StandingPartySnapshot,
@@ -286,7 +343,7 @@ export function candidateFromSnapshot(
   return {
     candidateId: candidateIdFor(ids.tripId, ids.encounterIndex, ids.searchSeq, snapshot),
     partyId: entry.partyId,
-    owner: { accountId: entry.ownerAccountId, displayName, authored: entry.authored },
+    owner: { accountId: entry.ownerAccountId, displayName: who.displayName, authored: entry.authored, flavor: who.flavor },
     reputation: { rating: entry.rating, band: bandOf(entry.rating), gapFromCaravan: gap, gapBeyondBand: beyond, sandbagEarnMultiplier: sandbagEarnMultiplier(beyond) },
     snapshot,
     scout: scoutParty(partyFromJson(snapshot.composition)),
@@ -309,7 +366,7 @@ function menuView(row: EncounterCandidatesRow, passes: SelectionPass[], authored
     widened: row.band_width_used > REPUTATION_BAND_WIDTH,
     authoredOutsideBand,
     authoredShare: { authored, of, shareBp: of === 0 ? 0 : Math.floor((authored * 10_000) / of), maxShareBp: AUTHORED_PARTY_MAX_SHARE_BP },
-    authoredServed: row.authored_served ? { ...row.authored_served, weightedDown: authoredWeightedDown } : null,
+    authoredServed: row.authored_served ? { ...row.authored_served, weightedDown: row.authored_weighted_down ?? authoredWeightedDown } : null,
     passes,
     excludedPartyIds: row.excluded_party_ids,
     candidates: row.candidates.map(candidateView),
@@ -322,7 +379,7 @@ function menuView(row: EncounterCandidatesRow, passes: SelectionPass[], authored
 
 /** Re-run the stored draw to get the passes/fallback flags (and, for QA, to prove the menu replays). */
 export function replaySearch(row: EncounterCandidatesRow): { partyIds: string[]; passes: SelectionPass[]; usedAuthoredFallback: boolean; authoredWeightedDown: boolean; bandWidthUsed: number } {
-  const r = selectCandidates({ centre: row.centre, seed: row.seed, pool: row.pool, skipped: new Set(row.skipped_party_ids), authoredServed: row.authored_served });
+  const r = selectCandidates({ centre: row.centre, seed: row.seed, pool: row.pool, skipped: new Set(row.skipped_party_ids), authoredServed: row.authored_served, rules: row.draw_rules });
   return { partyIds: r.picks.map((p) => p.partyId), passes: r.passes, usedAuthoredFallback: r.usedAuthoredFallback, authoredWeightedDown: r.authoredWeightedDown, bandWidthUsed: r.bandWidthUsed };
 }
 
@@ -388,15 +445,18 @@ export async function searchCandidates(client: pg.PoolClient, caravan: CaravanRo
     if (recentSet.has(r.party_id)) excludedPartyIds.push(r.party_id);
     else pool.push({ partyId: r.party_id, ownerAccountId: r.owner_account_id, rating: r.reputation, authored: r.is_system });
   }
-  const names = new Map(rows.map((r) => [r.party_id, r.username]));
-  // Chunk 25: the band's authored served share (second stage of retire-by-ratio), stored with the menu.
-  const authoredServed = await authoredServedShare(client, bandOf(centre));
+  const names = new Map(rows.map((r) => [r.party_id, ownerDisplay(r.username, r.is_system)]));
+  // Chunk 25: the band's authored served share (second stage of retire-by-ratio), and the
+  // draw rules in force, both stored with the menu so the draw replays from the row (QA N2).
+  const band = bandOf(centre);
+  const authoredServed = await authoredServedShare(client, band);
+  const rules = currentDrawRules();
 
   // Draw, snapshotting each pick exactly once; a party that no longer resolves is skipped
   // (recorded) and the draw re-runs without it, so the stored inputs replay to the stored menu.
   const skipped = new Set<string>();
   const snapshots = new Map<string, StandingPartySnapshot>();
-  let result = selectCandidates({ centre, seed, pool, skipped, authoredServed });
+  let result = selectCandidates({ centre, seed, pool, skipped, authoredServed, rules });
   for (;;) {
     let retry = false;
     for (const pick of result.picks) {
@@ -410,16 +470,27 @@ export async function searchCandidates(client: pg.PoolClient, caravan: CaravanRo
       }
     }
     if (!retry) break;
-    result = selectCandidates({ centre, seed, pool, skipped, authoredServed });
+    result = selectCandidates({ centre, seed, pool, skipped, authoredServed, rules });
   }
   if (result.picks.length < CANDIDATES_PER_SEARCH) throw new PoolEmptyError(result.picks.length);
 
+  // QA S5: store only what the draw could have picked — everything within the width it
+  // ended at, the fallback's candidates, and the skipped — and prove it replays before writing.
+  const stored = replayPool(pool, centre, result, skipped);
+  const check = selectCandidates({ centre, seed, pool: stored, skipped, authoredServed, rules });
+  if (check.picks.map((p) => p.partyId).join() !== result.picks.map((p) => p.partyId).join() || check.bandWidthUsed !== result.bandWidthUsed) {
+    throw new Error("stored pool subset does not replay to the drawn menu");
+  }
+
   const ids = { tripId: trip.id, encounterIndex, searchSeq };
-  const candidates = result.picks.map((p) => candidateFromSnapshot(ids, p, names.get(p.partyId) ?? "", caravanRating, result.bandWidthUsed, snapshots.get(p.partyId)!));
+  const candidates = result.picks.map((p) => {
+    const who = names.get(p.partyId) ?? { displayName: "", flavor: null };
+    return candidateFromSnapshot(ids, p, who, caravanRating, result.bandWidthUsed, snapshots.get(p.partyId)!);
+  });
   const res = await client.query<EncounterCandidatesRow>(
-    `INSERT INTO encounter_candidates (trip_id, encounter_index, search_seq, seed, caravan_rating, centre, band_width_used, pool, excluded_party_ids, skipped_party_ids, candidates, searched_at_ms, authored_served)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::jsonb) RETURNING *`,
-    [trip.id, encounterIndex, searchSeq, seed, caravanRating, centre, result.bandWidthUsed, JSON.stringify(pool), JSON.stringify(excludedPartyIds), JSON.stringify([...skipped]), canonicalJson(candidates as unknown as Json), opts.nowMs, JSON.stringify(authoredServed)],
+    `INSERT INTO encounter_candidates (trip_id, encounter_index, search_seq, seed, caravan_rating, centre, band_width_used, pool, excluded_party_ids, skipped_party_ids, candidates, searched_at_ms, authored_served, band, draw_rules, authored_weighted_down)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::jsonb, $14, $15::jsonb, $16) RETURNING *`,
+    [trip.id, encounterIndex, searchSeq, seed, caravanRating, centre, result.bandWidthUsed, JSON.stringify(stored), JSON.stringify(excludedPartyIds), JSON.stringify([...skipped]), canonicalJson(candidates as unknown as Json), opts.nowMs, JSON.stringify(authoredServed), band.index, JSON.stringify(rules), result.authoredWeightedDown],
   );
   return viewOf(res.rows[0]!, opts.nowMs);
 }

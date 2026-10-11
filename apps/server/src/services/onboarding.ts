@@ -10,12 +10,17 @@ import type { AccountRow, CaravanRow } from "../db/types.js";
 import { hashPassword } from "../auth/password.js";
 import { createAccount, createHomeTown, createStandingParty } from "../repo/accounts.js";
 import { ACCOUNT_POOLS, createAccountPoolProgress } from "../repo/poolProgress.js";
+import { SYSTEM_USERNAME_PREFIX, hasSystemUsernamePrefix } from "../matchmaking/reservedUsername.js";
 import { createCaravanForAccount } from "./caravans.js";
 import { badRequest, conflict } from "./errors.js";
 
 const USERNAME_RE = /^[a-z0-9_]+$/;
-/** Chunk 25 (chunk 14 QA N2): the authored system accounts' handle prefix; no player may register under it. */
-export const RESERVED_USERNAME_PREFIX = "sys_outfit_";
+/**
+ * Chunk 25 (chunk 14 QA N2): the authored system accounts' handle prefix; no player may
+ * register under it. A LITERAL prefix, tested by the same predicate the seed uses (chunk 25
+ * QA B1: matchmaking/reservedUsername.ts) — never as a LIKE pattern.
+ */
+export const RESERVED_USERNAME_PREFIX = SYSTEM_USERNAME_PREFIX;
 
 export function normalizeUsername(raw: string): string {
   const username = raw.trim().toLowerCase();
@@ -46,7 +51,7 @@ export async function registerAccount(
   input: { username: string; password: string; regionId: string; caravanName?: string },
 ): Promise<{ account: AccountRow; caravan: CaravanRow }> {
   const username = normalizeUsername(input.username);
-  if (username.startsWith(RESERVED_USERNAME_PREFIX)) {
+  if (hasSystemUsernamePrefix(username)) {
     throw badRequest("reserved_username", `usernames starting with '${RESERVED_USERNAME_PREFIX}' are reserved`);
   }
   if (
