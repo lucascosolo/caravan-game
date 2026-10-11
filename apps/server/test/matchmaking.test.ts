@@ -199,7 +199,9 @@ describe("search returns exactly three fully scoutable candidates", () => {
     const regionsOf = (m: CandidateMenuView) => m.candidates.map((c) => c.scout.units[0]!.typeId.split(".")[0]);
     const seen = new Set(regionsOf(menu));
     let now = menu.searchedAtMs;
-    for (let i = 0; i < 6 && seen.size < 3; i++) {
+    // The seed includes the caravan's random id, so this is a probabilistic sweep: with the
+    // authored pool spread over four regions, 30 draws make a miss astronomically unlikely.
+    for (let i = 0; i < 30 && !(seen.size >= 3 && seen.has("desert")); i++) {
       now += COOLDOWN_MS;
       for (const r of regionsOf(await searchAt(d, 1, now))) seen.add(r);
     }
