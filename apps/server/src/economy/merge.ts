@@ -9,20 +9,30 @@
  * any multiplier of its own. Coin decides WHEN a merge happens, never what it produces.
  *
  * Server-validated against the caller's own instances: all on the named caravan, which
- * must belong to the account; same type; same level; count exactly a recipe's `spend`.
+ * must belong to the account AND be in town (QA S1: units on an open trip are at risk and
+ * stay at risk — nothing is repaired or merged mid-trip); same type; same level; count
+ * exactly a recipe's `spend`. Everything that needs no row (ids well-formed, distinct,
+ * a recipe for the count) is checked before the first query (QA N2, S3).
+ *
  * Commit is one transaction under the account append lock: consume the instances, create
- * the outputs, and append `coin_spent` + `unit_merged`. Two merges racing on the same
- * instances serialize on the lock and the loser finds its inputs gone.
+ * the outputs, and debit through `spendCoin` (the only debit path), which appends
+ * `coin_spent` + `unit_merged` under one causation id. A retry of a merge that already
+ * committed — the same caravan and the same input ids — returns the stored outcome
+ * (QA S6) instead of "not owned". Two merges racing on the same instances serialize on
+ * the lock; the loser is exactly such a retry.
+ *
+ * Conventions: a caravan that is not the caller's is a 404, the same as one that does not
+ * exist (the response never confirms a foreign caravan id).
  */
 import { FIXED_POINT_SCALE, TUNABLES, getUnitType, mergeStatMult, scaleInt, type LivingUnitType } from "@caravan/content";
 import type pg from "pg";
 import { withTransaction, type Queryable } from "../db/pool.js";
-import type { UnitInstanceRow } from "../db/types.js";
-import { coinDebitDraft } from "../ledger/coin.js";
-import type { LedgerEventDraft, LedgerEventRow } from "../ledger/events.js";
-import { appendEvents, lockAccountForAppend } from "../ledger/ledger.js";
+import type { CaravanState, UnitInstanceRow } from "../db/types.js";
+import type { JsonObject, LedgerEventDraft, LedgerEventRow } from "../ledger/events.js";
+import { causationExists, listEventsByCausation, lockAccountForAppend } from "../ledger/ledger.js";
 import { AppError, badRequest, conflict } from "../services/errors.js";
-import { accrueTrickleTx } from "./trickle.js";
+import { readCoinBalance, spendCoin } from "./coin.js";
+import { peekTrickle } from "./trickle.js";
 
 export interface MergeRecipe {
   readonly spend: number;
@@ -104,7 +114,10 @@ export interface MergePreview {
   toLevel: number;
   costPerUnit: number;
   totalCost: number;
+  /** Ledger balance PLUS the trickle pending as of the preview — what a commit now would see (QA S2). */
   balance: number;
+  /** Of `balance`, the part the trickle has accrued but not yet written. */
+  pendingTrickle: number;
   affordable: boolean;
   consumed: { instanceIds: string[]; count: number; slots: number; perUnit: UnitStats; combined: UnitStats };
   produced: { count: number; slots: number; perUnit: UnitStats; combined: UnitStats };
@@ -115,6 +128,34 @@ export interface MergePreview {
 
 function notFound(message: string): AppError {
   return new AppError(404, "not_found", message);
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The caravan id in the path, before it reaches a `uuid` column (QA S3). */
+function assertCaravanId(caravanId: unknown): asserts caravanId is string {
+  if (typeof caravanId !== "string" || !UUID.test(caravanId)) throw badRequest("invalid_caravan_id", "caravanId must be a uuid");
+}
+
+/**
+ * Everything about the input ids that needs no database: a non-empty array of uuids,
+ * normalized to lowercase (so a retry with different casing is the same cause, QA S6),
+ * distinct after normalization, and a count some recipe consumes (QA N2 — a 20 000-id
+ * request is refused here, not after a 20 000-id query).
+ */
+function normalizeInstanceIds(ids: unknown): string[] {
+  if (!Array.isArray(ids) || ids.length === 0 || ids.some((id) => typeof id !== "string" || !UUID.test(id))) {
+    throw badRequest("invalid_instance_ids", "instanceIds must be a non-empty array of unit instance ids");
+  }
+  const normalized = (ids as string[]).map((id) => id.toLowerCase());
+  if (new Set(normalized).size !== normalized.length) throw badRequest("duplicate_instances", "instanceIds must be distinct");
+  if (!recipeForCount(normalized.length)) {
+    throw badRequest(
+      "no_such_recipe",
+      `a merge consumes ${MERGE_RECIPES.map((r) => r.spend).join(" or ")} units of the same type and level; got ${normalized.length}`,
+    );
+  }
+  return normalized;
 }
 
 interface ValidatedMerge {
@@ -128,15 +169,8 @@ interface ValidatedMerge {
 
 /** Shared by preview and commit. `rows` must already be the caller's instances on the caravan. */
 function validateMergeRows(instanceIds: readonly string[], rows: readonly UnitInstanceRow[]): ValidatedMerge {
-  const distinct = new Set(instanceIds);
-  if (distinct.size !== instanceIds.length) throw badRequest("duplicate_instances", "instanceIds must be distinct");
   const recipe = recipeForCount(instanceIds.length);
-  if (!recipe) {
-    throw badRequest(
-      "no_such_recipe",
-      `a merge consumes ${MERGE_RECIPES.map((r) => r.spend).join(" or ")} units of the same type and level; got ${instanceIds.length}`,
-    );
-  }
+  if (!recipe) throw badRequest("no_such_recipe", "no recipe consumes this many units");
   if (rows.length !== instanceIds.length) {
     const have = new Set(rows.map((r) => r.id));
     const missing = instanceIds.filter((id) => !have.has(id));
@@ -159,7 +193,7 @@ function validateMergeRows(instanceIds: readonly string[], rows: readonly UnitIn
   return { rows: [...rows], unit, recipe, fromLevel, toLevel, totalCost: mergeCost(toLevel, recipe.produce) };
 }
 
-function buildPreview(caravanId: string, v: ValidatedMerge, balance: number): MergePreview {
+function buildPreview(caravanId: string, v: ValidatedMerge, balance: number, pendingTrickle: number): MergePreview {
   const perBefore = statsAtLevel(v.unit, v.fromLevel);
   const perAfter = statsAtLevel(v.unit, v.toLevel);
   return {
@@ -172,6 +206,7 @@ function buildPreview(caravanId: string, v: ValidatedMerge, balance: number): Me
     costPerUnit: mergeCost(v.toLevel, 1),
     totalCost: v.totalCost,
     balance,
+    pendingTrickle,
     affordable: balance >= v.totalCost,
     consumed: {
       instanceIds: v.rows.map((r) => r.id),
@@ -191,73 +226,110 @@ function buildPreview(caravanId: string, v: ValidatedMerge, balance: number): Me
   };
 }
 
-async function assertCaravanOwned(db: Queryable, accountId: string, caravanId: string): Promise<void> {
-  const res = await db.query("SELECT 1 FROM caravan WHERE id = $1 AND account_id = $2", [caravanId, accountId]);
-  if ((res.rowCount ?? 0) === 0) throw notFound(`caravan ${caravanId} is not yours`);
+/**
+ * The caravan must be the caller's (else 404, same as not existing). Returns its state;
+ * `lock` takes FOR SHARE so a trip cannot start under an open merge transaction.
+ */
+async function readOwnedCaravanState(db: Queryable, accountId: string, caravanId: string, lock: boolean): Promise<CaravanState> {
+  const res = await db.query<{ state: CaravanState }>(
+    `SELECT state FROM caravan WHERE id = $1 AND account_id = $2${lock ? " FOR SHARE" : ""}`,
+    [caravanId, accountId],
+  );
+  const row = res.rows[0];
+  if (!row) throw notFound(`caravan ${caravanId} is not yours`);
+  return row.state;
 }
 
-function assertUuidList(ids: unknown): asserts ids is string[] {
-  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!Array.isArray(ids) || ids.length === 0 || ids.some((id) => typeof id !== "string" || !UUID.test(id))) {
-    throw badRequest("invalid_instance_ids", "instanceIds must be a non-empty array of unit instance ids");
-  }
+/** Merging is a town activity (QA S1): a caravan on a trip has its units at risk, and they stay that way. */
+function assertInTown(state: CaravanState): void {
+  if (state !== "in_town") throw conflict("caravan_on_trip", "units cannot be merged while the caravan is on a trip; nothing is repaired mid-trip");
 }
 
 /** Everything the player commits against, before they commit (GUARDRAILS §4). Read-only. */
 export async function previewMerge(
   db: Queryable,
-  input: { accountId: string; caravanId: string; instanceIds: unknown },
+  input: { accountId: string; caravanId: string; instanceIds: unknown; nowMs?: number },
 ): Promise<MergePreview> {
-  assertUuidList(input.instanceIds);
-  await assertCaravanOwned(db, input.accountId, input.caravanId);
+  assertCaravanId(input.caravanId);
+  const instanceIds = normalizeInstanceIds(input.instanceIds);
+  assertInTown(await readOwnedCaravanState(db, input.accountId, input.caravanId, false));
   const rows = await db.query<UnitInstanceRow>(
     "SELECT * FROM unit_instance WHERE id = ANY($1::uuid[]) AND caravan_id = $2 ORDER BY id",
-    [input.instanceIds, input.caravanId],
+    [instanceIds, input.caravanId],
   );
-  const v = validateMergeRows(input.instanceIds, rows.rows);
-  const acct = await db.query<{ coin_balance: number }>("SELECT coin_balance FROM account WHERE id = $1", [input.accountId]);
-  return buildPreview(input.caravanId, v, acct.rows[0]?.coin_balance ?? 0);
+  const v = validateMergeRows(instanceIds, rows.rows);
+  // Read-only: the pending trickle is computed, not written, so the preview's balance is
+  // the balance a commit right now would be checked against (QA S2).
+  const trickle = await peekTrickle(db, input.accountId, input.nowMs ?? Date.now());
+  return buildPreview(input.caravanId, v, trickle.balance, trickle.pending);
+}
+
+/** The `unit_merged` event payload; what a retry gets back (QA S6). */
+export interface UnitMergedPayload extends JsonObject {
+  unitTypeId: string;
+  fromLevel: number;
+  toLevel: number;
+  recipe: { spend: number; produce: number };
+  consumedInstanceIds: string[];
+  producedInstanceIds: string[];
+  coinCost: number;
 }
 
 export interface MergeResult {
-  preview: MergePreview;
+  /**
+   * True when this request named a merge that had already committed (same caravan, same
+   * inputs): nothing moved, and `merged`, `events` and `consumedIds` are the stored ones.
+   * `preview` is null and `produced` lists whichever outputs still exist on the roster.
+   */
+  replayed: boolean;
+  preview: MergePreview | null;
+  merged: UnitMergedPayload;
   produced: UnitInstanceRow[];
+  producedIds: string[];
   consumedIds: string[];
   events: LedgerEventRow[];
   balanceAfter: number;
 }
 
+/** The one cause a given set of inputs can ever be merged under. Ids are lowercase and sorted. */
+function mergeCausationId(caravanId: string, instanceIds: readonly string[]): string {
+  return `merge:${caravanId.toLowerCase()}:${[...instanceIds].sort().join(",")}`;
+}
+
 /**
  * Commit a merge atomically. Order inside the transaction:
  *   1. account append lock (serializes every Coin movement and merge for this account)
- *   2. trickle accrual, so the balance checked is the balance the player sees
- *   3. lock + validate the input instances (ownership, type, level, recipe, cap)
- *   4. balance >= cost, else `insufficient_coin` (the CHECK is the backstop)
+ *   2. the caravan is the caller's (404) — then, if this exact merge already committed,
+ *      return its stored outcome (QA S6)
+ *   3. the caravan is in town (409 `caravan_on_trip`, QA S1), FOR SHARE for the transaction
+ *   4. lock + validate the input instances (ownership, type, level, recipe, cap)
  *   5. DELETE the inputs (row count must equal `spend`), INSERT the outputs
- *   6. append `coin_spent` and `unit_merged` under one deterministic causation id
+ *   6. `spendCoin`: flush the trickle, balance >= cost else `insufficient_coin` (rolls
+ *      back 5), then `coin_spent` + `unit_merged` under one deterministic causation id
  */
 export async function performMerge(
   pool: pg.Pool,
   input: { accountId: string; caravanId: string; instanceIds: unknown; nowMs?: number },
 ): Promise<MergeResult> {
-  assertUuidList(input.instanceIds);
-  const instanceIds = input.instanceIds;
+  assertCaravanId(input.caravanId);
+  const instanceIds = normalizeInstanceIds(input.instanceIds);
+  const caravanId = input.caravanId.toLowerCase();
+  const nowMs = input.nowMs ?? Date.now();
+  const consumedIds = [...instanceIds].sort();
+  const causationId = mergeCausationId(caravanId, consumedIds);
   return withTransaction(pool, async (client) => {
     await lockAccountForAppend(client, input.accountId);
-    await assertCaravanOwned(client, input.accountId, input.caravanId);
-    const trickle = await accrueTrickleTx(client, input.accountId, input.nowMs ?? Date.now());
+    const state = await readOwnedCaravanState(client, input.accountId, caravanId, true);
+    if (await causationExists(client, causationId)) return replayMerge(client, input.accountId, caravanId, causationId);
+    assertInTown(state);
     const locked = await client.query<UnitInstanceRow>(
       "SELECT * FROM unit_instance WHERE id = ANY($1::uuid[]) AND caravan_id = $2 ORDER BY id FOR UPDATE",
-      [instanceIds, input.caravanId],
+      [instanceIds, caravanId],
     );
     const v = validateMergeRows(instanceIds, locked.rows);
-    const preview = buildPreview(input.caravanId, v, trickle.balance);
-    if (!preview.affordable) {
-      throw conflict("insufficient_coin", `merge to level ${v.toLevel} costs ${v.totalCost} Coin; balance is ${trickle.balance}`);
-    }
     const deleted = await client.query<{ id: string }>(
       "DELETE FROM unit_instance WHERE id = ANY($1::uuid[]) AND caravan_id = $2 RETURNING id",
-      [instanceIds, input.caravanId],
+      [instanceIds, caravanId],
     );
     if (deleted.rowCount !== v.recipe.spend) {
       throw conflict("merge_inputs_changed", "the units to merge changed underneath this request");
@@ -266,35 +338,58 @@ export async function performMerge(
     for (let i = 0; i < v.recipe.produce; i++) {
       const ins = await client.query<UnitInstanceRow>(
         "INSERT INTO unit_instance (caravan_id, unit_type_id, merge_level) VALUES ($1, $2, $3) RETURNING *",
-        [input.caravanId, v.unit.id, v.toLevel],
+        [caravanId, v.unit.id, v.toLevel],
       );
       produced.push(ins.rows[0]!);
     }
-    const consumedIds = [...instanceIds].sort();
-    const causationId = `merge:${input.caravanId}:${consumedIds.join(",")}`;
-    const drafts: LedgerEventDraft[] = [
-      coinDebitDraft({
-        accountId: input.accountId,
-        amount: v.totalCost,
-        reason: "merge",
-        extra: { caravanId: input.caravanId, unitTypeId: v.unit.id, toLevel: v.toLevel, produced: v.recipe.produce },
-      }),
-      {
-        type: "unit_merged",
-        accountId: input.accountId,
-        caravanId: input.caravanId,
-        payload: {
-          unitTypeId: v.unit.id,
-          fromLevel: v.fromLevel,
-          toLevel: v.toLevel,
-          recipe: { spend: v.recipe.spend, produce: v.recipe.produce },
-          consumedInstanceIds: consumedIds,
-          producedInstanceIds: produced.map((p) => p.id),
-          coinCost: v.totalCost,
-        },
-      },
-    ];
-    const events = await appendEvents(client, causationId, drafts);
-    return { preview, produced, consumedIds, events, balanceAfter: trickle.balance - v.totalCost };
+    const merged: UnitMergedPayload = {
+      unitTypeId: v.unit.id,
+      fromLevel: v.fromLevel,
+      toLevel: v.toLevel,
+      recipe: { spend: v.recipe.spend, produce: v.recipe.produce },
+      consumedInstanceIds: consumedIds,
+      producedInstanceIds: produced.map((p) => p.id),
+      coinCost: v.totalCost,
+    };
+    const unitMerged: LedgerEventDraft = { type: "unit_merged", accountId: input.accountId, caravanId, payload: merged };
+    const spend = await spendCoin(client, input.accountId, v.totalCost, "merge", nowMs, {
+      causationId,
+      extra: { caravanId, unitTypeId: v.unit.id, toLevel: v.toLevel, produced: v.recipe.produce },
+      alongside: [unitMerged],
+    });
+    const preview = buildPreview(caravanId, v, spend.balanceBefore, 0);
+    return {
+      replayed: false,
+      preview,
+      merged,
+      produced,
+      producedIds: merged.producedInstanceIds,
+      consumedIds,
+      events: spend.events,
+      balanceAfter: spend.balanceAfter,
+    };
   });
+}
+
+/** A retry of a committed merge: the stored outcome, nothing moved (QA S6). */
+async function replayMerge(client: pg.PoolClient, accountId: string, caravanId: string, causationId: string): Promise<MergeResult> {
+  const events = await listEventsByCausation(client, causationId);
+  const mergedEvent = events.find((e) => e.event_type === "unit_merged" && e.account_id === accountId && e.caravan_id === caravanId);
+  if (!mergedEvent) throw notFound("unit instance(s) not owned on this caravan");
+  const merged = mergedEvent.payload as UnitMergedPayload;
+  const stillThere = await client.query<UnitInstanceRow>(
+    "SELECT * FROM unit_instance WHERE id = ANY($1::uuid[]) AND caravan_id = $2 ORDER BY id",
+    [merged.producedInstanceIds, caravanId],
+  );
+  const { balance } = await readCoinBalance(client, accountId);
+  return {
+    replayed: true,
+    preview: null,
+    merged,
+    produced: stillThere.rows,
+    producedIds: merged.producedInstanceIds,
+    consumedIds: merged.consumedInstanceIds,
+    events,
+    balanceAfter: balance,
+  };
 }

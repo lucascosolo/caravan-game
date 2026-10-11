@@ -331,6 +331,16 @@ export const TUNABLES = {
   COIN_TRICKLE_RATE_PER_HOUR: 200,
   COIN_TRICKLE_MS_PER_COIN: 18_000,
   /**
+   * TUNABLE (chunk 16, QA S4). The trickle is DISPLAYED to the player on every read but only
+   * MATERIALIZED as a ledger event once at least this many whole coins have accrued, or
+   * (below) once this much time has passed since the accrual point — whichever comes first.
+   * Keeps a player polling the balance from writing one ledger row per 18 s. Neither
+   * threshold changes what is earned: the pending coins are carried, never dropped.
+   */
+  TRICKLE_MATERIALIZE_MIN_COINS: 10,
+  /** TUNABLE (chunk 16, QA S4). See TRICKLE_MATERIALIZE_MIN_COINS. 15 minutes. */
+  TRICKLE_MATERIALIZE_MIN_MS: 15 * 60_000,
+  /**
    * TUNABLE (chunk 16). Coin cost of a merge, indexed by the RESULTING level (index 0 and 1
    * unused: nothing produces a level-1 unit). Cost is PER RESULTING UNIT, so 5→3 at the same
    * target level costs three times 2→1. Steeply escalating — THE pacing lever.

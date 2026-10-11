@@ -746,3 +746,52 @@ clean. `DATABASE_URL=...caravan_test_qa02 pnpm --filter @caravan/server ledger:r
 unfenced signatures); its reproductions live in the regression file instead.
 
 **Next:** QA re-audit of chunk 02 (status stays `built` until QA signs off).
+
+### 2026-10-11 — Chunk 16 (economy: Coin and merges): QA round 1 closed (S1–S6, N1–N6)
+
+Worktree branch off `roadmap/phase-2-spec` at `a0bfe94`. Punch list
+`roadmap/qa/16-punchlist.md`, every item marked `[closed]` with where it landed. Files
+touched: `apps/server/src/economy/{coin,trickle,merge}.ts`, `apps/server/src/routes/economy.ts`,
+`apps/server/test/{economy,economy-guards}.test.ts`, `packages/content/src/tunables.ts`
+(two new keys only: `TRICKLE_MATERIALIZE_MIN_COINS` 10, `TRICKLE_MATERIALIZE_MIN_MS` 15 min),
+the chunk file, the punch list, this entry. No migration. Exported names unchanged;
+new exports `spendCoin`, `peekTrickle`, `UnitMergedPayload`, `SpendCoinOptions/Result`.
+
+- **S5 first, because the others lean on it:** `spendCoin(client, accountId, amount, reason,
+  nowMs, { causationId, extra?, alongside? })` is the only debit path — forced trickle flush,
+  409 `insufficient_coin`, then `coin_spent` + `alongside` in one batch. `merge.ts` no
+  longer builds a debit draft; a source scan asserts `coinDebitDraft` has exactly one
+  importer (`economy/coin.ts`) and no `coin_spent` literal exists outside economy/ledger.
+- **S4:** reads compute the trickle always and show `ledger + pending`; a row is written
+  only at the coin/time threshold or a debit's flush; at the cap nothing is written (no
+  zero-amount rows); accrual point = max(last valid trickle `accruedThroughMs`, last
+  `coin_spent` `occurred_at`). Consequence worth knowing: a spend drops any sub-coin
+  remainder (< 18 s) — the forced flush before the debit bounds it to that. Tests use a
+  backdated `created_at` so the injectable clock and the database clock that stamps
+  `occurred_at` stay consistent.
+- **S1/S3/N2:** merges refuse 409 `caravan_on_trip` unless `in_town` (FOR SHARE in the
+  commit transaction; preview checks too); `invalid_caravan_id` 400 and the id
+  normalization / distinct / recipe checks all run before the first query.
+- **S6:** a retry of a committed merge (same caravan, same lowercase-sorted ids) returns
+  200 `{ replayed: true, merged, events, consumedInstanceIds, producedInstanceIds }` from
+  the stored `unit_merged`. Behaviour change for the race test: six concurrent merges of
+  the same inputs are now 1 winner + 5 replays (was 1 + 5 × 404); still one `coin_spent`.
+- **S2, N1, N3, N4, N5, N6:** preview balance = ledger + pending via read-only
+  `peekTrickle`; `prospectiveEarn` safe-integer ≤ 10 × cap; malformed trickle rows skipped
+  for the previous valid one and `appendCoinCredits` refuses reason `trickle`; the earn
+  schedule clamps at the cap per encounter (≈ encounter 23) and asserts safe integers;
+  "room right now" wording in the forecast doc and `overflow.message`; the 404 convention
+  for foreign caravans recorded in the chunk file.
+
+**Verification (this worktree, base `a0bfe94`):** `cd apps/server && TEST_DATABASE_URL=
+postgres://caravan:caravan@localhost:5432/caravan_test_f16 npx vitest run` — 15 files,
+209 tests passing (was 195 at base; chunk 16: `economy.test.ts` 28, `economy-guards.test.ts`
+20). `pnpm typecheck` clean across all five packages; `pnpm lint` (resolver) clean;
+`pnpm test:boundary` passes; content tests 44 passing. The probe harness QA left at
+`scratchpad/qa16/qa16.probe.test.ts` was turned into the "QA round 1 punch list" block of
+`economy.test.ts` (S1–S6, N1–N3, clock-backwards / future `created_at`, ladder untouched
+by a merge, 4-mine-plus-1-foreign refused whole) and the N4/S4/S5 pure checks in
+`economy-guards.test.ts`.
+
+**Next:** QA re-review of chunk 16; then `built` → `QA'd` in INDEX.md (not touched here —
+out of this fixer's file set). Chunks 18 and 20 must debit through `spendCoin`.

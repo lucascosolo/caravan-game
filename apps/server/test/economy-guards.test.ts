@@ -98,6 +98,16 @@ describe("earn schedule", () => {
     expect(FIXED_POINT_SCALE).toBe(1024);
   });
 
+  it("N4: the schedule clamps at the storage cap and never leaves the safe-integer range", () => {
+    expect(coinForEncounter(200)).toBe(TUNABLES.COIN_STORAGE_CAP);
+    const schedule = encounterCoinSchedule(300);
+    expect(schedule.every((n) => Number.isSafeInteger(n) && n <= TUNABLES.COIN_STORAGE_CAP)).toBe(true);
+    expect(schedule.indexOf(TUNABLES.COIN_STORAGE_CAP)).toBeGreaterThan(0);
+    expect(Number.isSafeInteger(coinForEncountersSurvived(300))).toBe(true);
+    // Below the clamp the table is unchanged.
+    expect(schedule.slice(0, 8)).toEqual(encounterCoinSchedule(8));
+  });
+
   it("the passive path pays less than one survived encounter (playing pays better than not playing)", () => {
     expect(TUNABLES.COIN_PER_PARTY_WIN).toBeLessThan(coinForEncounter(1));
   });
@@ -157,6 +167,31 @@ describe("trickle math is pure, exact and read-frequency independent", () => {
     expect(after.coins).toBe(2);
   });
 
+  it("S4: materializes only at the coin or time threshold, never at the cap, and the thresholds drop nothing", () => {
+    const minCoins = TUNABLES.TRICKLE_MATERIALIZE_MIN_COINS;
+    expect(computeTrickle({ accruedFromMs: 0, nowMs: (minCoins - 1) * MS, balance: 0, cap: 50_000 }).shouldMaterialize).toBe(false);
+    expect(computeTrickle({ accruedFromMs: 0, nowMs: minCoins * MS, balance: 0, cap: 50_000 }).shouldMaterialize).toBe(true);
+    expect(computeTrickle({ accruedFromMs: 0, nowMs: TUNABLES.TRICKLE_MATERIALIZE_MIN_MS, balance: 0, cap: 50_000 }).shouldMaterialize).toBe(true);
+    // At the cap there is nothing to credit, so nothing to write — however long it has been.
+    expect(computeTrickle({ accruedFromMs: 0, nowMs: 1_000 * MS, balance: 50_000, cap: 50_000 }).shouldMaterialize).toBe(false);
+    // Partial room still writes once the threshold is met (the discard is recorded on that row).
+    expect(computeTrickle({ accruedFromMs: 0, nowMs: minCoins * MS, balance: 49_999, cap: 50_000 })).toMatchObject({ credited: 1, discarded: minCoins - 1, shouldMaterialize: true });
+    // Reads below the threshold carry the pending coins forward: ledger + pending is always the full amount.
+    let from = 0;
+    let ledger = 0;
+    let shown = 0;
+    for (let t = MS; t <= 100 * MS; t += MS) {
+      const c = computeTrickle({ accruedFromMs: from, nowMs: t, balance: ledger, cap: 50_000 });
+      shown = ledger + c.credited;
+      if (c.shouldMaterialize) {
+        ledger += c.credited;
+        from = c.accruedThroughMs;
+      }
+      expect(shown).toBe(t / MS);
+    }
+    expect(ledger).toBe(100);
+  });
+
   it("a clock that goes backwards credits nothing", () => {
     expect(computeTrickle({ accruedFromMs: 5_000_000, nowMs: 1_000, balance: 0, cap: 50_000 }).coins).toBe(0);
   });
@@ -180,6 +215,17 @@ describe("nothing in the economy can see what an account has paid for (GUARDRAIL
       });
     }
     expect(offenders).toEqual([]);
+  });
+
+  it("S5: `coinDebitDraft` is imported only by economy/coin.ts — `spendCoin` is the only debit path", () => {
+    const src = join(HERE, "..", "src");
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((d) => (d.isDirectory() ? walk(join(dir, d.name)) : d.name.endsWith(".ts") ? [join(dir, d.name)] : []));
+    const importers = walk(src).filter((f) => /import\s[^;]*\bcoinDebitDraft\b[^;]*from/.test(readFileSync(f, "utf8")));
+    expect(importers.map((f) => f.slice(src.length + 1))).toEqual(["economy/coin.ts"]);
+    // And nothing outside the economy module writes a `coin_spent` draft by hand.
+    const spenders = walk(src).filter((f) => !f.includes("/economy/") && !f.endsWith("ledger/coin.ts") && !f.endsWith("ledger/events.ts") && /["']coin_spent["']/.test(readFileSync(f, "utf8")));
+    expect(spenders).toEqual([]);
   });
 
   it("economy sources never read account columns beyond Coin and identity", () => {

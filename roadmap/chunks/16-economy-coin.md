@@ -1,6 +1,7 @@
 # Chunk 16 — Economy: Coin (and the merge system)
 
-**Depends on:** 02, 03. **Status:** built (2026-10-11; QA pending).
+**Depends on:** 02, 03. **Status:** built (2026-10-11); QA round 1 punch list closed
+2026-10-11 (`roadmap/qa/16-punchlist.md`), awaiting re-review.
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 ## Goal
@@ -46,6 +47,8 @@ that Coin exists to pace. Losing Coin is chunk 19; buying it is chunk 20.
 | `COIN_PER_BANKED_TRIP` | 500 flat completion bonus | The delivery reward. |
 | `COIN_PER_PARTY_WIN` | 300 when your standing party overruns a caravan | The passive side's earn path. Deliberately below the active path — playing should pay better than not playing. |
 | `COIN_TRICKLE_RATE` | 200/hour, ceasing at the storage cap | Keeps something always at risk. Computed lazily on read. |
+| `TRICKLE_MATERIALIZE_MIN_COINS` | 10 | QA S4. A read shows the pending trickle always but writes a ledger row only once this many coins (or `_MIN_MS`) have accrued. Pending coins carry; nothing is dropped. |
+| `TRICKLE_MATERIALIZE_MIN_MS` | 15 min | QA S4. The time threshold for the same. With 18 s/coin the coin threshold is reached first; this one matters if the rate is retuned. |
 | `MERGE_COST_BY_TARGET_LEVEL` | L2: 250, L3: 900, L4: 3,000, L5: 9,500 | Steeply escalating — this is *the* pacing lever. Cost is per resulting unit. |
 | `MERGE_RECIPE_SMALL` | 2 → 1 | 2.0 units per level. |
 | `MERGE_RECIPE_LARGE` | 5 → 3 | 1.67 units per level. Better rate; rewards hoarding. |
@@ -115,3 +118,38 @@ per-encounter Coin is unbanked trip state until then, so there is deliberately n
 "credit one encounter into the account now" path), `creditPartyWin`, and the generic
 batch-clamped `appendCoinCredits`. See ORCHESTRATION.md for assumptions and the grind-wall
 numbers.
+
+## QA round 1 closed (2026-10-11)
+
+Punch list: `roadmap/qa/16-punchlist.md` (S1–S6, N1–N6 all `[closed]`). What changed:
+
+- **Debits have one path:** `spendCoin(client, accountId, amount, reason, nowMs, { causationId,
+  extra?, alongside? })` in `economy/coin.ts` — flushes the pending trickle (forced), refuses
+  409 `insufficient_coin`, then appends `coin_spent` plus any `alongside` events (the merge's
+  `unit_merged`) in one batch under one causation id. `coinDebitDraft` is imported nowhere
+  else; a source-scan test enforces it. Chunks 18/20 debit through this and nothing else.
+- **Trickle: shown always, written at thresholds, never at the cap.** The balance the player
+  sees (`GET /me/economy` `balance`, `MergePreview.balance`) is ledger + pending. A trickle
+  row is written once `TRICKLE_MATERIALIZE_MIN_COINS` / `_MIN_MS` is reached or a debit
+  flushes it. At the cap nothing is written. The accrual point is
+  max(last valid trickle `accruedThroughMs`, last `coin_spent` `occurred_at`), so idling at
+  the cap banks no backlog; a spend drops at most a sub-coin remainder (< 18 s).
+  `peekTrickle` is the read-only form for previews.
+- **Merges are town-only** (409 `caravan_on_trip` unless `in_town`, FOR SHARE in the commit
+  transaction), **validated before any query** (uuid path param → 400 `invalid_caravan_id`;
+  ids lowercased, distinct, a recipe for the count), and **idempotent on retry**: the same
+  caravan + inputs after a commit returns 200 `{ replayed: true, merged, events, ... }` with
+  the stored `unit_merged` payload. A race on the same inputs is 1 winner + N replays.
+- **Earn schedule clamps at `COIN_STORAGE_CAP`** per encounter (reached around encounter 23)
+  and asserts safe integers; `prospectiveEarn` is a safe integer ≤ 10 × cap.
+
+### Conventions (QA N6)
+
+- **A caravan that is not the caller's is a 404**, indistinguishable from one that does not
+  exist. The response never confirms a foreign caravan id. Unit instances not on the named
+  caravan are likewise 404 (`not_found`), whoever owns them.
+- The overflow forecast is **as of now**: `room` is the room right now; UI text says so.
+- Merge and Coin error codes: 400 `invalid_caravan_id` / `invalid_instance_ids` /
+  `duplicate_instances` / `no_such_recipe` / `mixed_unit_types` / `mixed_merge_levels` /
+  `invalid_prospective_earn`; 404 `not_found`; 409 `caravan_on_trip` / `merge_cap` /
+  `insufficient_coin` / `merge_inputs_changed`.
