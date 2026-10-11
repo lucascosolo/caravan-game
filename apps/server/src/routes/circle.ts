@@ -33,20 +33,29 @@ import { requireAuth } from "./require-auth.js";
 type CaravanParams = { caravanId: string };
 type EncounterParams = CaravanParams & { n: string };
 
+/** QA S4: a real UUID (8-4-4-4-12 hex), not merely 36 characters of hex and dashes. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function ownCaravan(req: FastifyRequest<{ Params: CaravanParams }>): Promise<CaravanRow> {
-  const caravan = /^[0-9a-f-]{36}$/i.test(req.params.caravanId) ? await findCaravanById(req.server.db, req.params.caravanId) : null;
+  const caravan = UUID.test(req.params.caravanId) ? await findCaravanById(req.server.db, req.params.caravanId) : null;
   if (!caravan || caravan.account_id !== req.auth!.account.id) throw notFound("no_caravan", "caravan not found");
   return caravan;
 }
 
+/** QA N2: a positive integer with no leading zero, at most six digits. */
 function encounterIndex(raw: string): number {
-  if (!/^\d{1,6}$/.test(raw)) throw badRequest("bad_encounter", "encounter index must be a positive integer");
+  if (!/^[1-9]\d{0,5}$/.test(raw)) throw badRequest("bad_encounter", "encounter index must be a positive integer");
   return Number(raw);
 }
 
+/**
+ * QA S3: the pack body is parsed as strictly as a formation is — an object (never an
+ * array), only the known keys at each level, each of the right shape.
+ */
 function parsePackRequest(body: unknown): PackRequest {
-  if (body === null || typeof body !== "object") throw badRequest("bad_body", "expected a JSON object");
+  if (body === null || typeof body !== "object" || Array.isArray(body)) throw badRequest("bad_body", "expected a JSON object");
   const b = body as Record<string, unknown>;
+  for (const k of Object.keys(b)) if (!["units", "traps", "fence"].includes(k)) throw badRequest("bad_body", `unknown key '${k}'`);
   const strings = (v: unknown, name: string): string[] => {
     if (v === undefined) return [];
     if (!Array.isArray(v) || !v.every((x) => typeof x === "string" && x.length > 0)) throw badRequest("bad_body", `${name} must be an array of ids`);
@@ -55,8 +64,10 @@ function parsePackRequest(body: unknown): PackRequest {
   let fence: PackRequest["fence"] = null;
   if (b["fence"] !== undefined && b["fence"] !== null) {
     const f = b["fence"];
-    if (f === null || typeof f !== "object") throw badRequest("bad_body", "fence must be { tierId, count } or null");
-    const { tierId, count } = f as Record<string, unknown>;
+    if (typeof f !== "object" || Array.isArray(f)) throw badRequest("bad_body", "fence must be { tierId, count } or null");
+    const fo = f as Record<string, unknown>;
+    for (const k of Object.keys(fo)) if (!["tierId", "count"].includes(k)) throw badRequest("bad_body", `unknown key 'fence.${k}'`);
+    const { tierId, count } = fo;
     if (typeof tierId !== "string" || typeof count !== "number") throw badRequest("bad_body", "fence must be { tierId: string, count: number }");
     fence = { tierId, count };
   }

@@ -4,7 +4,7 @@
  * lock guards holding against the server's own role.
  */
 import { TUNABLES } from "@caravan/content";
-import { RING_SEGMENTS, formationFromJson, serializeFormation, type Formation } from "@caravan/circle";
+import { RING_ANCHORS, RING_SEGMENTS, formationFromJson, serializeFormation, type Formation } from "@caravan/circle";
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
 import type pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -53,15 +53,15 @@ const STARTER_PACK = (p: Player) => ({
 
 /** Fences on `count` consecutive ring positions from `first`; traps and posts on inner cells. */
 function arrangement(manifest: { units: { ref: string; hp: number }[]; traps: { ref: string; spent: boolean }[]; fences: { ref: string; hp: number }[] }, first = 0): Formation {
-  const corner = RING_SEGMENTS[0]!.cell;
+  const corner = RING_ANCHORS[0]!; // the north-west wagon anchor; inner cells start one in
   const cells: { x: number; y: number }[] = [];
   for (let y = corner.y + 1; y < corner.y + 4; y++) for (let x = corner.x + 1; x < corner.x + 8; x++) cells.push({ x, y });
   let i = 0;
   return {
-    v: 1,
+    v: 2,
     fences: manifest.fences.filter((f) => f.hp > 0).map((f, k) => ({ ref: f.ref, segment: (first + k) % RING_SEGMENTS.length })),
     traps: manifest.traps.filter((t) => !t.spent).map((t) => ({ ref: t.ref, cell: cells[i++]! })),
-    posts: manifest.units.filter((u) => u.hp > 0).map((u) => ({ ref: u.ref, cell: cells[i++]! })),
+    posts: manifest.units.filter((u) => u.hp > 0).map((u) => ({ ref: u.ref, cell: cells[i++]!, stance: "guard" as const })),
   };
 }
 
@@ -205,7 +205,7 @@ describe("arranging the formation per encounter, and carry-forward", () => {
   }
 
   it("rejects malformed and illegal formations with the full issue list", async () => {
-    const malformed = await call(p, "PUT", url(1), { v: 1, fences: [], traps: [], posts: [], elevation: [] });
+    const malformed = await call(p, "PUT", url(1), { v: 2, fences: [], traps: [], posts: [], elevation: [] });
     expect(malformed.statusCode).toBe(400);
     expect(malformed.json().error).toBe("malformed_formation");
     expect(malformed.json().message).toMatch(/unknown key 'elevation'/);
@@ -261,7 +261,7 @@ describe("arranging the formation per encounter, and carry-forward", () => {
     const edit = await call(p, "PUT", url(1), arrangement(s, 3));
     expect(edit.statusCode).toBe(409);
     expect(edit.json().error).toBe("formation_committed");
-    const dbEdit = await expectDbError(appRole, `UPDATE wagon_formation SET formation = '{"v":1,"fences":[],"traps":[],"posts":[]}'::jsonb, formation_hash = repeat('0', 64) WHERE manifest_id = $1 AND encounter_index = 1`, [manifestId]);
+    const dbEdit = await expectDbError(appRole, `UPDATE wagon_formation SET formation = '{"v":2,"fences":[],"traps":[],"posts":[]}'::jsonb, formation_hash = repeat('0', 64) WHERE manifest_id = $1 AND encounter_index = 1`, [manifestId]);
     expect(dbEdit?.message).toMatch(/committed and frozen/);
     const dbDel = await expectDbError(appRole, `DELETE FROM wagon_formation WHERE manifest_id = $1 AND encounter_index = 1`, [manifestId]);
     expect(dbDel?.message).toMatch(/history/);
@@ -270,7 +270,7 @@ describe("arranging the formation per encounter, and carry-forward", () => {
     const battlefield = await battlefieldForEncounter(appRole, manifestId, 1);
     expect(battlefield.fences).toHaveLength(10);
     expect(battlefield.posts).toHaveLength(2);
-    expect(Object.keys(battlefield).sort()).toEqual(["core", "entries", "fences", "grid", "posts", "traps", "v"]);
+    expect(Object.keys(battlefield).sort()).toEqual(["anchors", "core", "entries", "fences", "grid", "pathConnectivity", "posts", "traps", "v"]);
   });
 
   it("carries attrition forward: a trap spent at encounter 1 is still spent at encounters 2 and 3, a dead unit stays dead, a broken segment stays broken", async () => {

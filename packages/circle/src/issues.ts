@@ -17,9 +17,15 @@ export type IssueCode =
   | "slot_cap_units"
   | "slot_cap_traps"
   | "fence_budget"
+  /** QA S3: a manifest must pack at least one living unit — bounded stakes are vacuous otherwise. */
+  | "manifest_empty"
   | "duplicate_unit"
   | "bad_merge_level"
   | "bad_count"
+  /** QA N1: the structure's `v` is not the version this code validates. */
+  | "bad_version"
+  /** QA S8: more placements than the caps allow; refused before any per-entry validation. */
+  | "oversized"
   | "unknown_ref"
   | "duplicate_ref"
   | "unit_dead"
@@ -31,10 +37,23 @@ export type IssueCode =
   | "bad_cell"
   | "cell_occupied"
   | "cell_reserved"
-  | "post_too_close";
+  | "post_too_close"
+  /** QA D1: a post's defensive stance is not one of DEFENSIVE_STANCES. */
+  | "bad_stance";
 
 export type Validation<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly issues: readonly Issue[] };
 
+/**
+ * QA S8: an issue list is capped so a hostile body cannot turn validation into a response
+ * amplifier. Fifty is plenty for a UI to show "every problem at once" on a legal-sized input.
+ */
+export const MAX_ISSUES = 50;
+
 export function issue(code: IssueCode, message: string, subject?: string): Issue {
   return subject === undefined ? { code, message } : { code, message, subject };
+}
+
+/** The first MAX_ISSUES issues, in the order they were found. */
+export function capIssues(issues: readonly Issue[]): readonly Issue[] {
+  return issues.length > MAX_ISSUES ? issues.slice(0, MAX_ISSUES) : issues;
 }

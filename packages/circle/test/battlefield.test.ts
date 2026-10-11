@@ -9,15 +9,20 @@ import {
   BATTLEFIELD_VERSION,
   CORE_CELLS,
   CORE_CENTER,
+  DEFENSIVE_STANCES,
+  RING_ANCHORS,
   assertBattlefield,
   canonicalJson,
   cellCenter,
+  cellKey,
+  isAnchorCell,
   ringSegment,
   toBattlefield,
   type Battlefield,
   type BattlefieldPost,
   type Cell,
   type FixedPoint,
+  type Formation,
 } from "../src/index.js";
 import { arrange, fullPack } from "./fixtures.js";
 
@@ -38,6 +43,25 @@ describe("toBattlefield", () => {
     expect(b.core.center).toEqual(CORE_CENTER);
     expect(b.grid).toEqual({ width: 32, height: 32 });
     expect(b.v).toBe(BATTLEFIELD_VERSION);
+    expect(BATTLEFIELD_VERSION).toBe(2);
+  });
+
+  it("QA D2: carries the four wagon anchors as blocked cells and the 4-connected pathing rule", () => {
+    expect(b.anchors).toEqual(RING_ANCHORS);
+    expect(b.anchors).toHaveLength(4);
+    expect(b.pathConnectivity).toBe(4);
+    for (const a of b.anchors) expect(isAnchorCell(a)).toBe(true);
+    // No fence, trap or post ever shares a cell with an anchor.
+    const placed = [...b.fences, ...b.traps, ...b.posts].map((o) => cellKey(o.cell));
+    for (const a of b.anchors) expect(placed).not.toContain(cellKey(a));
+  });
+
+  it("QA D1: every post carries its defensive stance through to the resolver", () => {
+    const withStances: Formation = { ...f, posts: f.posts.map((p, i) => ({ ...p, stance: DEFENSIVE_STANCES[i % 3]! })) };
+    const bf = toBattlefield(m, withStances);
+    for (const p of bf.posts) expect(p.stance).toBe(withStances.posts.find((q) => q.ref === p.ref)!.stance);
+    expect(new Set(bf.posts.map((p) => p.stance))).toEqual(new Set(["guard", "hold", "reserve"]));
+    expect(() => assertBattlefield(JSON.parse(JSON.stringify(bf)))).not.toThrow();
   });
 
   it("posted units carry post, aggro radius, leash and the DEFENSE rating scaled by merge level", () => {
@@ -75,7 +99,7 @@ describe("toBattlefield", () => {
   });
 
   it("throws on a formation that references something the manifest lacks", () => {
-    expect(() => toBattlefield(m, { ...f, posts: [...f.posts, { ref: "u-ghost", cell: { x: 20, y: 20 } }] })).toThrow(/not in the manifest/);
+    expect(() => toBattlefield(m, { ...f, posts: [...f.posts, { ref: "u-ghost", cell: { x: 20, y: 20 }, stance: "guard" }] })).toThrow(/not in the manifest/);
   });
 });
 
@@ -125,5 +149,51 @@ describe("the battlefield is flat: no elevation, terrain or scenery can be carri
     // And a float anywhere is refused too.
     expect(() => assertBattlefield(mutated((o) => (((o["posts"] as Record<string, unknown>[])[0]!["pos"] as Record<string, unknown>)["x"] = 1536.5)))).toThrow(/integer/);
     expect(() => assertBattlefield(mutated((o) => ((o["posts"] as Record<string, unknown>[])[0]!["defense"] = 70.25)))).toThrow(/integer/);
+  });
+
+  it("QA S1: the nested content shapes are closed too — nothing hides inside an ability or a trap effect", () => {
+    const m = fullPack();
+    const plain = JSON.parse(JSON.stringify(toBattlefield(m, arrange(m)))) as Record<string, unknown>;
+    const mutated = (patch: (o: Record<string, unknown>) => void): unknown => {
+      const o = JSON.parse(JSON.stringify(plain)) as Record<string, unknown>;
+      patch(o);
+      return o;
+    };
+    const post = (o: Record<string, unknown>, i = 0) => (o["posts"] as Record<string, unknown>[])[i]!;
+    const trap = (o: Record<string, unknown>, i = 0) => (o["traps"] as Record<string, unknown>[])[i]!;
+    const fence = (o: Record<string, unknown>, i = 0) => (o["fences"] as Record<string, unknown>[])[i]!;
+    expect(() => assertBattlefield(mutated((o) => ((post(o)["ability"] as Record<string, unknown>)["elevation"] = 7)))).toThrow(/posts\[0\]\.ability carries unknown key 'elevation'/);
+    expect(() => assertBattlefield(mutated((o) => ((post(o)["ability"] as Record<string, unknown>)["archetype"] = "nuke")))).toThrow(/archetype nuke is not an ability archetype/);
+    // A key that belongs to ANOTHER archetype is still unknown for this one.
+    const heavy = (plain["posts"] as Record<string, unknown>[]).findIndex((p) => (p["ability"] as Record<string, unknown>)["archetype"] === "heavy_strike");
+    expect(heavy).toBeGreaterThanOrEqual(0);
+    expect(() => assertBattlefield(mutated((o) => ((post(o, heavy)["ability"] as Record<string, unknown>)["radius"] = 1024)))).toThrow(/ability carries unknown key 'radius'/);
+    expect(() => assertBattlefield(mutated((o) => delete (post(o)["ability"] as Record<string, unknown>)["cooldown"]))).toThrow(/ability is missing 'cooldown'/);
+    const withEffect = (plain["traps"] as Record<string, unknown>[]).findIndex((t) => t["effect"] !== null);
+    expect(withEffect).toBeGreaterThanOrEqual(0);
+    expect(() => assertBattlefield(mutated((o) => ((trap(o, withEffect)["effect"] as Record<string, unknown>)["terrain"] = 1)))).toThrow(/effect carries unknown key 'terrain'/);
+    expect(() => assertBattlefield(mutated((o) => ((trap(o, withEffect)["effect"] as Record<string, unknown>)["kind"] = "stun")))).toThrow(/effect.kind stun is not a trap effect/);
+    expect(() => assertBattlefield(mutated((o) => (trap(o, withEffect)["effect"] = [])))).toThrow(/effect must be an object or null/);
+    // Enum-valued fields are checked against the content enums.
+    expect(() => assertBattlefield(mutated((o) => ((o["entries"] as Record<string, unknown>[])[0]!["edge"] = "up")))).toThrow(/edge up is not an entry edge/);
+    expect(() => assertBattlefield(mutated((o) => (post(o)["affinity"] = "cover")))).toThrow(/affinity cover is not an affinity/);
+    expect(() => assertBattlefield(mutated((o) => (post(o)["stance"] = "attack")))).toThrow(/stance attack is not a defensive stance/);
+    expect(() => assertBattlefield(mutated((o) => (trap(o)["category"] = "magic")))).toThrow(/category magic is not a trap category/);
+    expect(() => assertBattlefield(mutated((o) => (trap(o)["affinity"] = "void")))).toThrow(/affinity void is not an affinity/);
+    expect(() => assertBattlefield(mutated((o) => (fence(o)["category"] = "forcefield")))).toThrow(/category forcefield is not a fence category/);
+    // Positions must lie on the field; hp within 0..maxHp.
+    expect(() => assertBattlefield(mutated((o) => (post(o)["pos"] = { x: 999_999, y: 5 })))).toThrow(/is off the field/);
+    expect(() => assertBattlefield(mutated((o) => (post(o)["pos"] = { x: 5, y: -5 })))).toThrow(/is off the field/);
+    expect(() => assertBattlefield(mutated((o) => (post(o)["pos"] = { x: 32 * FIXED_POINT_SCALE, y: 5 })))).toThrow(/is off the field/);
+    expect(() => assertBattlefield(mutated((o) => (post(o)["hp"] = (post(o)["maxHp"] as number) + 1)))).toThrow(/not within 0..maxHp/);
+    expect(() => assertBattlefield(mutated((o) => (fence(o)["hp"] = -1)))).toThrow(/not within 0..maxHp/);
+    // The lattice-level invariants are pinned too.
+    expect(() => assertBattlefield(mutated((o) => (o["pathConnectivity"] = 8)))).toThrow(/pathConnectivity must be 4/);
+    expect(() => assertBattlefield(mutated((o) => (o["anchors"] = [])))).toThrow(/anchors must list the 4/);
+    expect(() => assertBattlefield(mutated((o) => (o["entries"] = (o["entries"] as unknown[]).slice(1))))).toThrow(/entries must list all 4 edges/);
+    expect(() => assertBattlefield(mutated((o) => ((o["grid"] as Record<string, unknown>)["width"] = 64)))).toThrow(/grid is not 32/);
+    expect(() => assertBattlefield(mutated((o) => (o["v"] = 1)))).toThrow(/version 1/);
+    // The unmodified battlefield still passes after all of that.
+    expect(() => assertBattlefield(mutated(() => undefined))).not.toThrow();
   });
 });

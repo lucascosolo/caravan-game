@@ -148,3 +148,34 @@ as pay-to-win, arriving through the art pipeline.
 - **Scenery has not leaked into the sim:** no elevation, cover, or terrain value
   reaches the model or resolver.
 - **Split correctness:** the manifest and formation are caravan-level, not account-level.
+
+## QA round 1 notes (2026-10-11; see `roadmap/qa/07-punchlist.md`)
+
+Two orchestrator decisions changed the model after the first build; the tunables table
+above is superseded where they conflict:
+
+- **D1 — defensive stances.** A post is `{ref, cell, stance}` and the formation is `v: 2`.
+  `stance ∈ {guard, hold, reserve}`, default `guard`; a body that omits it parses as
+  `guard`, the canonical snapshot always carries it, and the `Battlefield` post carries it
+  to the resolver. Semantics (fixed here, implemented in chunk 11): `guard` = the aggro/leash
+  pursuit of chunk 11's brief; `hold` = fights only attackers within attack range of its
+  post, never leaves it (leash 0); `reserve` = ignores everything until an attacker is
+  inside the ring (any lattice cell with Chebyshev distance < `PERIMETER_RING_RADIUS` from
+  the core centre), then behaves as `guard`. "Every living unit must be posted" stands —
+  `reserve` is the kept-in-the-back choice.
+- **D2 — ring corners are fixed wagon anchors.** The square at Chebyshev radius 4 has 32
+  cells; its four corners are permanent impassable anchors (`RING_ANCHOR_CELLS` = 4,
+  `RING_ANCHORS`, shown as parked wagons, never buyable, never a gap), and the other 28 are
+  fence positions: `PERIMETER_SEGMENTS` = **28**, `FENCE_MATERIAL_BUDGET` = **20** (still
+  8 forced gaps). Segment 0 is the cell just east of the north-west anchor; each side has
+  7 segments. Lattice pathing is 4-connected with no corner cutting (`PATH_CONNECTIVITY`
+  = 4, decided for chunk 10 in parallel); the circle's reachability helper always treats the
+  anchors as blocked, and the `Battlefield` carries `anchors` and `pathConnectivity`
+  (`BATTLEFIELD_VERSION` 2). Tested: all 28 fenced seals the core; any single gap opens it
+  from every edge.
+- Also from the punch list: a manifest must pack ≥ 1 living unit (`manifest_empty`);
+  outcomes may only name things that were in the fight (S2); each committed formation
+  stores a `survivors_snapshot` so the resolver input for a resolved encounter is
+  byte-reproducible (S7); oversized formations are refused before validation and the
+  issue list is capped at 50 (S8); the survivors trigger checks key sets, hp bounds and
+  distinct refs (S6); `encounters_resolved` advances by exactly one (N5).

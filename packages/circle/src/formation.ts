@@ -11,27 +11,46 @@
  *   - which fence segments go on which ring positions (and therefore where the gaps are —
  *     a gap is legal and, under the budget, unavoidable);
  *   - where each unspent trap is laid, if it is laid at all (holding one back is legal);
- *   - where each living unit is posted. Its post is a lattice cell: the fixed origin its
- *     aggro radius and leash are measured from during the fight.
+ *   - where each living unit is posted, and with what DEFENSIVE STANCE. Its post is a
+ *     lattice cell: the fixed origin its aggro radius and leash are measured from during
+ *     the fight.
  *
- * There is no stance field on a post. The only stances the design defines are the three
- * targeting stances of the ATTACKING party (chunk 09); a posted unit's behaviour is
- * aggro/leash around its post (chunk 11).
+ * Defensive stances (QA D1; PROJECT.md §9 "where units are posted and with what stance").
+ * One per post, chosen fresh per encounter like everything else here. Chunk 11 implements
+ * the behaviour; the semantics are fixed here so the model and the resolver agree:
+ *   - `guard`   — the default. Aggro/leash pursuit as chunk 11's brief describes: notices
+ *                 an attacker inside its aggro radius, chases up to its leash, returns.
+ *   - `hold`    — fights only attackers within attack range of its post and never leaves
+ *                 it (leash 0).
+ *   - `reserve` — ignores everything until an attacker is INSIDE THE RING (any lattice cell
+ *                 with Chebyshev distance < PERIMETER_RING_RADIUS from the core centre),
+ *                 then behaves as `guard`. This is the "kept safely in the back" choice of
+ *                 §13.4, which is why every living unit must still be posted.
+ * These are the DEFENDING side's stances. They are distinct from the attacking party's
+ * three targeting stances (chunk 09), which live on the party, not here.
  */
 import { FIXED_POINT_SCALE, TUNABLES } from "@caravan/content";
-import { issue, type Issue, type Validation } from "./issues.js";
+import { capIssues, issue, type Issue, type Validation } from "./issues.js";
 import {
   cellDistSq,
   cellKey,
   isAnyEntryCell,
   isCell,
   isCoreCell,
-  isRingCell,
+  isRingOrAnchorCell,
   isRingSegmentIndex,
   sameCell,
   type Cell,
 } from "./lattice.js";
 import { isFenceIntact, isUnitAlive, type AccessCheck, type Manifest } from "./manifest.js";
+
+export const DEFENSIVE_STANCES = ["guard", "hold", "reserve"] as const;
+export type DefensiveStance = (typeof DEFENSIVE_STANCES)[number];
+export const DEFAULT_DEFENSIVE_STANCE: DefensiveStance = "guard";
+
+export function isDefensiveStance(value: unknown): value is DefensiveStance {
+  return typeof value === "string" && (DEFENSIVE_STANCES as readonly string[]).includes(value);
+}
 
 export interface FencePlacement {
   /** A manifest fence ref. */
@@ -51,16 +70,19 @@ export interface PostPlacement {
   readonly ref: string;
   /** The post: the fixed origin the unit's leash is measured from. */
   readonly cell: Cell;
+  /** QA D1: how the unit behaves at that post. See the header. */
+  readonly stance: DefensiveStance;
 }
 
 export interface Formation {
-  readonly v: 1;
+  /** 2 since QA D1 (posts carry a stance). Version 1 snapshots were never stored outside tests. */
+  readonly v: 2;
   readonly fences: readonly FencePlacement[];
   readonly traps: readonly TrapPlacement[];
   readonly posts: readonly PostPlacement[];
 }
 
-export const FORMATION_VERSION = 1 as const;
+export const FORMATION_VERSION = 2 as const;
 
 export const EMPTY_FORMATION: Formation = Object.freeze({
   v: FORMATION_VERSION,
@@ -69,12 +91,37 @@ export const EMPTY_FORMATION: Formation = Object.freeze({
   posts: Object.freeze([]),
 });
 
-/** Minimum squared post separation, in cells² (MIN_POST_DISTANCE is Fixed cells). */
+/**
+ * Minimum squared post separation, in cells² (MIN_POST_DISTANCE is Fixed cells).
+ * QA N6: posts are whole lattice cells, so the threshold is TRUNCATED to whole cells. A
+ * fractional MIN_POST_DISTANCE is therefore a no-op: anything in [1, 2) cells means
+ * "distinct cells", which the cell-occupancy check already enforces; only 2 or more
+ * cells changes behaviour. Tune it in whole cells.
+ */
 const MIN_POST_DIST_SQ_CELLS: number = (() => {
-  // Posts are whole cells, so the threshold is compared in whole cells (truncated).
   const d = Math.trunc(TUNABLES.MIN_POST_DISTANCE / FIXED_POINT_SCALE);
   return d * d;
 })();
+
+/**
+ * QA S8: the most placements a formation can legitimately carry. A formation can only
+ * reference what was packed, so anything larger is refused outright — before any per-entry
+ * work — rather than validated entry by entry.
+ */
+export const FORMATION_SIZE_CAPS = Object.freeze({
+  fences: TUNABLES.PERIMETER_SEGMENTS,
+  traps: TUNABLES.TRAP_SLOT_CAP,
+  posts: TUNABLES.DEPLOYMENT_SLOT_CAP,
+});
+
+/** The oversized issue, or null when every list is within its cap. */
+export function oversizedIssue(lists: { readonly fences: readonly unknown[]; readonly traps: readonly unknown[]; readonly posts: readonly unknown[] }): Issue | null {
+  for (const kind of ["fences", "traps", "posts"] as const) {
+    const cap = FORMATION_SIZE_CAPS[kind];
+    if (lists[kind].length > cap) return issue("oversized", `${lists[kind].length} ${kind} placed; a formation carries at most ${cap}`, kind);
+  }
+  return null;
+}
 
 /**
  * Validate a formation against its manifest. Every rule the server enforces lives here:
@@ -91,8 +138,10 @@ const MIN_POST_DIST_SQ_CELLS: number = (() => {
 export function validateFormation(manifest: Manifest, formation: Formation, isUnlocked: AccessCheck): Validation<Formation> {
   const issues: Issue[] = [];
   if (formation.v !== FORMATION_VERSION) {
-    return { ok: false, issues: [issue("bad_count", `unsupported formation version ${String(formation.v)}`)] };
+    return { ok: false, issues: [issue("bad_version", `unsupported formation version ${String(formation.v)}`)] };
   }
+  const oversized = oversizedIssue(formation);
+  if (oversized) return { ok: false, issues: [oversized] };
   const usedRefs = new Set<string>();
   const takeRef = (ref: string): boolean => {
     if (usedRefs.has(ref)) {
@@ -108,8 +157,8 @@ export function validateFormation(manifest: Manifest, formation: Formation, isUn
       issues.push(issue("bad_cell", `'${ref}' is placed off the lattice`, ref));
       return false;
     }
-    if (isRingCell(cell) || isCoreCell(cell) || isAnyEntryCell(cell)) {
-      issues.push(issue("cell_reserved", `'${ref}' may not be placed on the fence ring, the core or an entry band`, ref));
+    if (isRingOrAnchorCell(cell) || isCoreCell(cell) || isAnyEntryCell(cell)) {
+      issues.push(issue("cell_reserved", `'${ref}' may not be placed on the fence ring, a wagon anchor, the core or an entry band`, ref));
       return false;
     }
     const k = cellKey(cell);
@@ -169,6 +218,7 @@ export function validateFormation(manifest: Manifest, formation: Formation, isUn
     }
     if (!isUnlocked(u.typeId)) issues.push(issue("type_locked", `living-unit type '${u.typeId}' is not unlocked`, u.typeId));
     if (!isUnitAlive(u)) issues.push(issue("unit_dead", `unit '${p.ref}' died earlier this trip`, p.ref));
+    if (!isDefensiveStance(p.stance)) issues.push(issue("bad_stance", `'${p.ref}' has stance ${String(p.stance)}; expected one of ${DEFENSIVE_STANCES.join(", ")}`, p.ref));
     if (!takeCell(p.cell, p.ref)) continue;
     for (const q of placedPosts) {
       if (cellDistSq(p.cell, q.cell) < MIN_POST_DIST_SQ_CELLS) {
@@ -182,7 +232,7 @@ export function validateFormation(manifest: Manifest, formation: Formation, isUn
     if (isUnitAlive(u) && !usedRefs.has(u.ref)) issues.push(issue("unit_not_posted", `living unit '${u.ref}' has no post`, u.ref));
   }
 
-  if (issues.length > 0) return { ok: false, issues };
+  if (issues.length > 0) return { ok: false, issues: capIssues(issues) };
   return { ok: true, value: normalizeFormation(formation) };
 }
 
@@ -197,7 +247,7 @@ export function normalizeFormation(f: Formation): Formation {
     v: FORMATION_VERSION,
     fences: Object.freeze([...f.fences].sort((a, b) => a.segment - b.segment).map((p) => Object.freeze({ ref: p.ref, segment: p.segment }))),
     traps: Object.freeze([...f.traps].sort(byRef).map((p) => Object.freeze({ ref: p.ref, cell: Object.freeze({ x: p.cell.x, y: p.cell.y }) }))),
-    posts: Object.freeze([...f.posts].sort(byRef).map((p) => Object.freeze({ ref: p.ref, cell: Object.freeze({ x: p.cell.x, y: p.cell.y }) }))),
+    posts: Object.freeze([...f.posts].sort(byRef).map((p) => Object.freeze({ ref: p.ref, cell: Object.freeze({ x: p.cell.x, y: p.cell.y }), stance: p.stance }))),
   });
 }
 

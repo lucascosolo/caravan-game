@@ -144,6 +144,11 @@ export function isCoreCell(cell: Cell): boolean {
 // The fence ring: PERIMETER_SEGMENTS positions around the core, each independently
 // occupied by a fence segment or left as a gap. A gap is a legitimate choice, never an
 // error — the material budget (FENCE_MATERIAL_BUDGET < PERIMETER_SEGMENTS) forces them.
+//
+// QA D2: the ring's four CORNER cells are not fence positions. They are permanent wagon
+// ANCHORS — impassable, never bought, never a gap, drawn as parked wagons — so the ring is
+// 8 × radius cells of which RING_ANCHOR_CELLS are anchors and PERIMETER_SEGMENTS are fence
+// positions. The Battlefield carries the anchors as blocked cells (resolverInput.ts).
 // ─────────────────────────────────────────────────────────────────────────────────────
 
 export const ENTRY_EDGES = ["north", "east", "south", "west"] as const;
@@ -154,22 +159,44 @@ export function isEntryEdge(value: unknown): value is EntryEdge {
 }
 
 export interface RingSegment {
-  /** 0..PERIMETER_SEGMENTS-1, clockwise from the north-west corner. */
+  /** 0..PERIMETER_SEGMENTS-1, clockwise from the cell just east of the north-west anchor. */
   readonly index: number;
   readonly cell: Cell;
-  /** The side of the circle this segment faces. Corners belong to the side their run starts on. */
+  /** The side of the circle this segment faces. Unambiguous: corners are anchors, not segments. */
   readonly edge: EntryEdge;
 }
 
 export const PERIMETER_RING_RADIUS: number = TUNABLES.PERIMETER_RING_RADIUS;
 export const PERIMETER_SEGMENTS: number = TUNABLES.PERIMETER_SEGMENTS;
+export const RING_ANCHOR_CELLS: number = TUNABLES.RING_ANCHOR_CELLS;
 
 /**
- * The ring is the square of cells at Chebyshev distance PERIMETER_RING_RADIUS from the
- * core centre, walked clockwise from its north-west corner: north side left→right, east
- * side top→bottom, south side right→left, west side bottom→top. Each side contributes
- * 2 × radius cells (its starting corner included, its ending corner excluded), so the ring
- * has exactly 8 × radius segments.
+ * The four fixed wagon anchors (QA D2): the corners of the square at Chebyshev distance
+ * PERIMETER_RING_RADIUS from the core centre, in CLOCKWISE order from the north-west
+ * (NW, NE, SE, SW) to match the ring walk. Permanent, impassable, not placeable, not a
+ * fence position, never a gap.
+ */
+export const RING_ANCHORS: readonly Cell[] = (() => {
+  const r = PERIMETER_RING_RADIUS;
+  const c = CORE_CENTER_CELL;
+  return [
+    { x: c.x - r, y: c.y - r },
+    { x: c.x + r, y: c.y - r },
+    { x: c.x + r, y: c.y + r },
+    { x: c.x - r, y: c.y + r },
+  ];
+})();
+const ANCHOR_KEYS: ReadonlySet<number> = new Set(RING_ANCHORS.map(cellKey));
+export function isAnchorCell(cell: Cell): boolean {
+  return ANCHOR_KEYS.has(cellKey(cell));
+}
+
+/**
+ * The fence positions: the square of cells at Chebyshev distance PERIMETER_RING_RADIUS
+ * from the core centre MINUS its four corners (the anchors), walked clockwise starting just
+ * east of the north-west anchor: north side left→right, east side top→bottom, south side
+ * right→left, west side bottom→top. Each side contributes 2 × radius − 1 cells (both of
+ * its corners excluded), so the ring has exactly 8 × radius − RING_ANCHOR_CELLS segments.
  */
 export const RING_SEGMENTS: readonly RingSegment[] = (() => {
   const r = PERIMETER_RING_RADIUS;
@@ -180,10 +207,10 @@ export const RING_SEGMENTS: readonly RingSegment[] = (() => {
   const bottom = c.y + r;
   const out: RingSegment[] = [];
   const push = (cell: Cell, edge: EntryEdge) => out.push({ index: out.length, cell, edge });
-  for (let x = left; x < right; x++) push({ x, y: top }, "north");
-  for (let y = top; y < bottom; y++) push({ x: right, y }, "east");
-  for (let x = right; x > left; x--) push({ x, y: bottom }, "south");
-  for (let y = bottom; y > top; y--) push({ x: left, y }, "west");
+  for (let x = left + 1; x < right; x++) push({ x, y: top }, "north");
+  for (let y = top + 1; y < bottom; y++) push({ x: right, y }, "east");
+  for (let x = right - 1; x > left; x--) push({ x, y: bottom }, "south");
+  for (let y = bottom - 1; y > top; y--) push({ x: left, y }, "west");
   return out;
 })();
 
@@ -204,8 +231,14 @@ export function ringIndexAt(cell: Cell): number | null {
   return RING_INDEX_BY_KEY.get(cellKey(cell)) ?? null;
 }
 
+/** A fence position. Anchors are NOT ring cells; see isAnchorCell / isRingOrAnchorCell. */
 export function isRingCell(cell: Cell): boolean {
   return RING_INDEX_BY_KEY.has(cellKey(cell));
+}
+
+/** The whole square: fence positions plus the four anchors. Nothing else may be placed here. */
+export function isRingOrAnchorCell(cell: Cell): boolean {
+  return isRingCell(cell) || isAnchorCell(cell);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────
@@ -242,28 +275,36 @@ export function isAnyEntryCell(cell: Cell): boolean {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────
-// Reachability on the lattice graph (4-connected). This is a VALIDATION helper — "the core
-// is reachable in principle from every edge" — not the resolver's pathfinder (chunk 10).
-// Deterministic: explicit queue order, cells visited in compareCells order.
+// Reachability on the lattice graph. PATH_CONNECTIVITY = 4 (QA D2, shared with chunk 10's
+// pathfinder): orthogonal steps only, so there is no corner cutting between two diagonally
+// touching blocked cells. The four anchors are ALWAYS blocked, whatever the caller passes.
+// This is a VALIDATION helper — "the core is reachable in principle from every edge" — not
+// the resolver's pathfinder. Deterministic: explicit queue order, neighbours in a fixed order.
 // ─────────────────────────────────────────────────────────────────────────────────────
 
+export const PATH_CONNECTIVITY: number = TUNABLES.PATH_CONNECTIVITY;
+
+/** Orthogonal neighbours in a fixed order (north, west, east, south): the 4-connected step set. */
+export function neighbours4(cell: Cell): readonly Cell[] {
+  return [
+    { x: cell.x, y: cell.y - 1 },
+    { x: cell.x - 1, y: cell.y },
+    { x: cell.x + 1, y: cell.y },
+    { x: cell.x, y: cell.y + 1 },
+  ];
+}
+
 export function isCoreReachableFrom(start: Cell, blocked: ReadonlySet<number>): boolean {
-  if (!isInBounds(start) || blocked.has(cellKey(start))) return false;
+  if (!isInBounds(start) || blocked.has(cellKey(start)) || isAnchorCell(start)) return false;
   const seen = new Set<number>([cellKey(start)]);
   const queue: Cell[] = [start];
   for (let head = 0; head < queue.length; head++) {
     const cur = queue[head]!;
     if (isCoreCell(cur)) return true;
-    const next: Cell[] = [
-      { x: cur.x, y: cur.y - 1 },
-      { x: cur.x - 1, y: cur.y },
-      { x: cur.x + 1, y: cur.y },
-      { x: cur.x, y: cur.y + 1 },
-    ];
-    for (const n of next) {
+    for (const n of neighbours4(cur)) {
       if (!isInBounds(n)) continue;
       const k = cellKey(n);
-      if (seen.has(k) || blocked.has(k)) continue;
+      if (seen.has(k) || blocked.has(k) || ANCHOR_KEYS.has(k)) continue;
       seen.add(k);
       queue.push(n);
     }
@@ -280,9 +321,11 @@ export function isCoreReachableFrom(start: Cell, blocked: ReadonlySet<number>): 
   const fail = (why: string): never => {
     throw new Error(`@caravan/circle lattice configuration is incoherent: ${why}`);
   };
+  if (RING_ANCHOR_CELLS !== RING_ANCHORS.length) fail(`RING_ANCHOR_CELLS is ${RING_ANCHOR_CELLS} but a square ring has ${RING_ANCHORS.length} corners`);
   if (RING_SEGMENTS.length !== PERIMETER_SEGMENTS) {
-    fail(`PERIMETER_SEGMENTS is ${PERIMETER_SEGMENTS} but a ring of radius ${PERIMETER_RING_RADIUS} has ${RING_SEGMENTS.length} segments (8 × radius)`);
+    fail(`PERIMETER_SEGMENTS is ${PERIMETER_SEGMENTS} but a ring of radius ${PERIMETER_RING_RADIUS} has ${RING_SEGMENTS.length} fence positions (8 × radius − ${RING_ANCHOR_CELLS} anchors)`);
   }
+  if (PATH_CONNECTIVITY !== 4) fail(`PATH_CONNECTIVITY is ${PATH_CONNECTIVITY}; only 4-connected pathing (no corner cutting) is implemented`);
   if (!(TUNABLES.FENCE_MATERIAL_BUDGET < PERIMETER_SEGMENTS)) {
     fail(`FENCE_MATERIAL_BUDGET (${TUNABLES.FENCE_MATERIAL_BUDGET}) must be below PERIMETER_SEGMENTS (${PERIMETER_SEGMENTS}) so gaps are forced`);
   }
@@ -290,6 +333,11 @@ export function isCoreReachableFrom(start: Cell, blocked: ReadonlySet<number>): 
     if (!isInBounds(s.cell)) fail(`ring segment ${s.index} is out of bounds`);
     if (isCoreCell(s.cell)) fail(`ring segment ${s.index} overlaps the core`);
     if (isAnyEntryCell(s.cell)) fail(`ring segment ${s.index} lies in an entry band`);
+    if (isAnchorCell(s.cell)) fail(`ring segment ${s.index} sits on an anchor`);
+  }
+  for (const a of RING_ANCHORS) {
+    if (!isInBounds(a)) fail("an anchor is out of bounds");
+    if (isCoreCell(a) || isAnyEntryCell(a)) fail("an anchor overlaps the core or an entry band");
   }
   for (const c of CORE_CELLS) {
     if (!isInBounds(c)) fail("core is out of bounds");

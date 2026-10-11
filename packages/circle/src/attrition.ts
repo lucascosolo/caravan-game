@@ -29,7 +29,39 @@ export class AttritionError extends Error {
   }
 }
 
+/**
+ * QA N4: an outcome comes from the resolution path, but it is still data that crossed a
+ * boundary (a job payload, a stored log). Its shape is checked before anything is read from
+ * it: exactly the three keys, arrays of {ref, hp} / strings, nothing extra at any level.
+ */
+export function assertEncounterOutcome(o: unknown): asserts o is EncounterOutcome {
+  const fail = (why: string): never => {
+    throw new AttritionError(`malformed outcome: ${why}`);
+  };
+  if (o === null || typeof o !== "object" || Array.isArray(o)) fail("must be an object");
+  const obj = o as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  if (keys.join(",") !== "fences,spentTraps,units") fail(`keys must be exactly fences, spentTraps, units; got ${keys.join(",")}`);
+  for (const kind of ["units", "fences"] as const) {
+    const list = obj[kind];
+    if (!Array.isArray(list)) fail(`${kind} must be an array`);
+    (list as unknown[]).forEach((e, i) => {
+      if (e === null || typeof e !== "object" || Array.isArray(e)) fail(`${kind}[${i}] must be an object`);
+      const entry = e as Record<string, unknown>;
+      const ek = Object.keys(entry).sort();
+      if (ek.join(",") !== "hp,ref") fail(`${kind}[${i}] keys must be exactly ref, hp; got ${ek.join(",")}`);
+      if (typeof entry["ref"] !== "string" || entry["ref"].length === 0) fail(`${kind}[${i}].ref must be a non-empty string`);
+      if (typeof entry["hp"] !== "number" || !Number.isInteger(entry["hp"]) || entry["hp"] < 0) fail(`${kind}[${i}].hp must be a non-negative integer`);
+    });
+  }
+  if (!Array.isArray(obj["spentTraps"])) fail("spentTraps must be an array");
+  (obj["spentTraps"] as unknown[]).forEach((r, i) => {
+    if (typeof r !== "string" || r.length === 0) fail(`spentTraps[${i}] must be a non-empty string`);
+  });
+}
+
 export function applyEncounterOutcome(manifest: Manifest, outcome: EncounterOutcome): Manifest {
+  assertEncounterOutcome(outcome);
   const unitHp = new Map<string, number>();
   for (const { ref, hp } of outcome.units) {
     if (unitHp.has(ref)) throw new AttritionError(`unit '${ref}' reported twice`);

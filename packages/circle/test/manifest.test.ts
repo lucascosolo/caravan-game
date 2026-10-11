@@ -25,8 +25,24 @@ describe("packing a manifest", () => {
     expect(digger.hp).toBe(digger.maxHp);
     expect(m.traps.map((t) => t.ref)).toEqual(["t0", "t1", "t2", "t3", "t4", "t5"]);
     expect(m.traps.every((t) => !t.spent)).toBe(true);
-    expect(m.fences).toHaveLength(24);
+    expect(m.fences).toHaveLength(TUNABLES.FENCE_MATERIAL_BUDGET);
     expect(m.fences.every((f) => f.hp === 300 && f.maxHp === 300 && f.tierId === "fence.brush_pile")).toBe(true);
+  });
+
+  it("QA S3: a manifest must pack at least one living unit", () => {
+    expect(issueCodes({ ...baseInput, units: [] })).toEqual(["manifest_empty"]);
+    expect(issueCodes({ units: [], traps: [], fence: null })).toEqual(["manifest_empty"]);
+    expect(issueCodes({ units: [], traps: [], fence: { tierId: "fence.brush_pile", count: TUNABLES.FENCE_MATERIAL_BUDGET } })).toEqual(["manifest_empty"]);
+    // Reported alongside the other problems, not instead of them.
+    expect(issueCodes({ units: [], traps: ["trap.landmine"], fence: null }).sort()).toEqual(["manifest_empty", "unknown_type"]);
+  });
+
+  it("QA N3: unit instance ids may not collide with the generated trap and fence refs", () => {
+    expect(issueCodes({ ...baseInput, units: [{ instanceId: "t0", typeId: "desert.dust_rider", mergeLevel: 1 }] })).toEqual(["duplicate_ref"]);
+    expect(issueCodes({ ...baseInput, units: [{ instanceId: "f3", typeId: "desert.dust_rider", mergeLevel: 1 }] })).toEqual(["duplicate_ref"]);
+    // Not a false positive: an id that merely looks similar is fine.
+    expect(issueCodes({ ...baseInput, units: [{ instanceId: "t00", typeId: "desert.dust_rider", mergeLevel: 1 }] })).toEqual([]);
+    expect(issueCodes({ ...baseInput, units: [{ instanceId: "f4", typeId: "desert.dust_rider", mergeLevel: 1 }] })).toEqual([]);
   });
 
   it("enforces the deployment slot cap — the bound on what a trip can lose", () => {

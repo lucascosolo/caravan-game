@@ -108,3 +108,13 @@ to trip structure. This is the specific way the concept drifted once already; wa
 - **Grind wall:** with `TRIPS_PER_HOUR_CAP` at 3, is free-path progress slow enough
   that the paid path stops feeling optional? Trip cap is not purchasable — but check
   its interaction with Coin earn rates.
+
+## Note from chunk 07 QA (N7) — `caravan.state` is the "on a trip" mark
+
+`unit_instance` carries no per-unit "on a trip" flag, and chunk 07 added none. The mark is
+`caravan.state = 'on_trip'`: chunk 16's fix S1 makes `performMerge`/`previewMerge` refuse
+(409 `caravan_on_trip`) unless the caravan is `in_town`, which is what stops packed units
+being merged away mid-trip. **This chunk must set `caravan.state = 'on_trip'` in the same
+transaction as `lockManifest`, before the manifest is locked**, and set it back to
+`in_town` on bank/overrun together with `closeManifest`. If the state is set after the
+lock, there is a window in which a packed unit can be merged.
