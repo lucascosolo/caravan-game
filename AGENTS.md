@@ -154,7 +154,9 @@ chunk 09, the matchmaking routes of chunk 14 (`POST /me/caravans/:id/encounters/
 `GET …/candidates`, `POST …/choose`), the trip loop of chunk 15 (`GET /me/caravans/:id/trip`,
 `POST …/trip/start`, `POST …/trip/encounters/:n/commit`, `GET …/trip/preview`, `POST …/trip/push`
 and `…/trip/bank` with `{tripId, encounterIndex}`) and chunk 13's replay
-(`GET /me/encounters/:jobId/replay`, for the caravan's player and the party's owner). `pnpm db:seed` also creates the authored cold-start
+(`GET /me/encounters/:jobId/replay`, for the caravan's player and the party's owner) and chunk 24's
+first-session guide (`GET /me/onboarding`, `POST /me/onboarding/advance {step}`, `POST /me/onboarding/skip`;
+account-level, forward-only, grants nothing; `pnpm db:seed` marks its pre-equipped accounts' guide done). `pnpm db:seed` also creates the authored cold-start
 parties (`src/matchmaking/authored.ts`, chunk 25: 12 per Reputation band, bands 0–7, owned
 by `sys_outfit_*` system accounts that cannot log in or hold Coin), so a fresh database
 serves three scoutable candidates at every band from the first search. Migrations 011 and 009

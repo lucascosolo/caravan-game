@@ -58,6 +58,9 @@ export function fakeApi(over: Partial<Api> = {}): Api {
     inboxUnread: notCalled,
     markInboxRead: notCalled,
     setInboxPreferences: notCalled,
+    onboarding: notCalled,
+    advanceOnboarding: notCalled,
+    skipOnboarding: notCalled,
     ...over,
   };
 }

@@ -29,6 +29,11 @@ async function register(request: APIRequestContext, caravanName: string): Promis
   const res = await request.post("/api/auth/register", { data: { username, password, region: "desert", caravanName } });
   expect(res.status(), await res.text()).toBe(201);
   const body = (await res.json()) as { token: string; account: { id: string }; caravan: { id: string } };
+  // A fresh account opens on the first-session guide (chunk 24); skip it through the real routes
+  // as the other specs do (onboarding.spec walks it).
+  const auth = { Authorization: `Bearer ${body.token}` };
+  expect((await request.post("/api/me/onboarding/advance", { headers: auth, data: { step: "roster" } })).status()).toBe(200);
+  expect((await request.post("/api/me/onboarding/skip", { headers: auth })).status()).toBe(200);
   return { username, password, accountId: body.account.id, caravanId: body.caravan.id, token: body.token };
 }
 

@@ -1,0 +1,26 @@
+{
+  "route": "GET /me/onboarding",
+  "status": 200,
+  "body": {
+    "onboarding": {
+      "step": "welcome",
+      "steps": [
+        "welcome",
+        "roster",
+        "outfit",
+        "scout",
+        "arrange",
+        "result",
+        "free",
+        "bank",
+        "party",
+        "done"
+      ],
+      "enrolled": true,
+      "completed": false,
+      "skipped": false,
+      "canSkip": false,
+      "updatedAt": "2026-10-11T12:00:00.000Z"
+    }
+  }
+}

@@ -35,6 +35,9 @@ import { FormationScreen } from "./FormationScreen.tsx";
 import { ResolvingScreen } from "./ResolvingScreen.tsx";
 import { TripSummary } from "./TripSummary.tsx";
 import { encounterFromCandidate, type ScoutedEncounter } from "./scoutTypes.ts";
+import { useOnboarding } from "../../onboarding/OnboardingProvider.tsx";
+import type { FormationGuideContext } from "./FormationScreen.tsx";
+import { ArrangeGuide, FreeGuide, ResultGuide, ScoutGuide, SearchGuide, showsAt, stepForMoment, type TrailMoment } from "../../onboarding/TrailGuide.tsx";
 
 const T = STRINGS.trail;
 const P = STRINGS.trip;
@@ -63,6 +66,26 @@ async function openManifest(api: Api, caravanId: string): Promise<ManifestView |
   } catch (err) {
     if (is404(err, "no_open_manifest")) return null;
     throw err;
+  }
+}
+
+/** Chunk 24: what the guide needs to know of where the Trail stands. */
+function momentOf(state: Loaded): TrailMoment {
+  switch (state.kind) {
+    case "unsearched":
+      return { kind: "arranging", encounterIndex: state.encounterIndex, searched: false, chosen: false };
+    case "menu":
+      return { kind: "arranging", encounterIndex: state.encounterIndex, searched: true, chosen: false };
+    case "ready":
+      return { kind: "arranging", encounterIndex: state.encounterIndex, searched: true, chosen: true };
+    case "resolving":
+      return { kind: "resolving", encounterIndex: state.encounterIndex };
+    case "decide":
+      return { kind: "decide", encounterIndex: state.encounter.index };
+    case "ended":
+      return { kind: "ended" };
+    default:
+      return { kind: "other" };
   }
 }
 
@@ -218,6 +241,20 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
     void load();
   }, [load]);
 
+  // ── chunk 24: the first-session guide (only inside the app's provider; tests without one see none) ──
+  const onboarding = useOnboarding();
+  const guideStep = onboarding?.active ? onboarding.step : null;
+  const moment: TrailMoment = momentOf(state);
+  const momentKey = JSON.stringify(moment);
+  const reach = onboarding?.reach;
+  useEffect(() => {
+    if (!guideStep || !reach) return;
+    const step = stepForMoment(JSON.parse(momentKey) as TrailMoment);
+    if (step) void reach(step);
+  }, [guideStep, reach, momentKey]);
+  const guiding = showsAt(guideStep, moment);
+  const isFirst = "encounterIndex" in moment && moment.encounterIndex <= 1;
+
   const title = <h1>{T.title}</h1>;
   const noticeLine = notice && (
     <p className="notice" role="status" data-testid="trail-notice">
@@ -272,6 +309,7 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
         <section data-testid="trail-unsearched" data-encounter={state.encounterIndex}>
           <h1>{T.encounter(state.encounterIndex)}</h1>
           {noticeLine}
+          {guiding && (isFirst ? <SearchGuide /> : <FreeGuide />)}
           <h2>{T.candidatesHeading}</h2>
           <p className="hint">{T.candidatesIntro}</p>
           {actionError && <ErrorBox error={actionError} />}
@@ -284,6 +322,7 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
       return (
         <>
           {noticeLine}
+          {guiding && (isFirst ? <ScoutGuide candidates={state.menu.candidates} /> : <FreeGuide />)}
           <CandidatesScreen
           encounterIndex={state.encounterIndex}
           menu={state.menu}
@@ -297,6 +336,7 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
     case "ready":
       return (
         <>
+          {guiding && !isFirst && <FreeGuide />}
           {state.initial?.committedAt && (
             <div className="notice" data-testid="committed-unsent">
               <p>{P.committedUnsent}</p>
@@ -315,6 +355,9 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
             initial={state.initial}
             scout={state.scout}
             onCommitted={() => void load()}
+            {...(guiding && isFirst
+              ? { guide: (g: FormationGuideContext) => <ArrangeGuide {...g} scout={state.scout.scout} /> }
+              : {})}
           />
         </>
       );
@@ -340,11 +383,15 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
       );
     case "decide":
       return deciding ? (
+        <>
+        {guiding && <ResultGuide encounter={state.encounter} deciding />}
         <BankOrPushScreen api={api} caravanId={state.caravanId} tripId={state.tripId} encounterIndex={state.encounter.index} onDecided={decided} onStale={stale} />
+        </>
       ) : (
         <section data-testid="encounter-results">
           <h1>{T.encounter(state.encounter.index)}</h1>
           {noticeLine}
+          {guiding && <ResultGuide encounter={state.encounter} deciding={false} />}
           <EncounterResult encounter={state.encounter} />
           <div className="actions">
             <button type="button" className="btn btn--primary btn--block" onClick={() => setDeciding(true)} data-testid="to-decision">

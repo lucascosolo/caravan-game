@@ -76,6 +76,11 @@ async function registerFreshAccount(request: APIRequestContext): Promise<{ usern
   const res = await request.post("/api/auth/register", { data: { username, password, region: "desert", caravanName: "E2E Caravan" } });
   expect(res.status(), await res.text()).toBe(201);
   const body = (await res.json()) as { token: string; account: { id: string } };
+  // Chunk 24: a fresh account starts the first-session guide; this spec is about something else, so it
+  // reads the first screen's step and skips the rest through the real routes (onboarding.spec walks it).
+  const headers = { Authorization: `Bearer ${body.token}` };
+  expect((await request.post("/api/me/onboarding/advance", { headers, data: { step: "roster" } })).status()).toBe(200);
+  expect((await request.post("/api/me/onboarding/skip", { headers })).status()).toBe(200);
   return { username, password, accountId: body.account.id, token: body.token };
 }
 

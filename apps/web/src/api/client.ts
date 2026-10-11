@@ -51,6 +51,8 @@ import { bankResultShape, encounterCommitShape, pushResultShape, stakesPreviewSh
 import { replayShape } from "./replayShapes.ts";
 import { inboxShape, inboxUnreadShape } from "./inboxShapes.ts";
 import type { InboxCategoryView, InboxMarkRequest, InboxUnreadView, InboxView } from "./inboxTypes.ts";
+import { onboardingChangeShape, onboardingShape, type OnboardingChange, type OnboardingResponse } from "../onboarding/shapes.ts";
+import type { OnboardingStep } from "../onboarding/steps.ts";
 import type { ReplayView } from "./replayTypes.ts";
 import type { BankResult, EncounterCommitResult, PushResult, StakesPreview, TripStartResult, TripStatusView } from "./tripTypes.ts";
 import type {
@@ -194,6 +196,11 @@ export interface Api {
   inboxUnread(): Promise<InboxUnreadView>;
   markInboxRead(req: InboxMarkRequest): Promise<InboxView>;
   setInboxPreferences(preferences: Partial<Record<InboxCategoryView, boolean>>): Promise<InboxView>;
+  // The first-session guide (chunk 24 routes). Account-level, forward-only; a marker of what the
+  // player has seen, never a grant. Skip is refused (409 `onboarding_first_screen`) on the first screen.
+  onboarding(): Promise<OnboardingResponse>;
+  advanceOnboarding(step: OnboardingStep): Promise<OnboardingChange>;
+  skipOnboarding(): Promise<OnboardingChange>;
 }
 
 function isErrorBody(value: unknown): value is ApiErrorBody {
@@ -298,5 +305,8 @@ export function createApi(opts: ApiOptions): Api {
     inboxUnread: () => request("GET", "/me/inbox/unread", inboxUnreadShape),
     markInboxRead: (req) => request("POST", "/me/inbox/read", inboxShape, req),
     setInboxPreferences: (preferences) => request("PUT", "/me/inbox/preferences", inboxShape, { preferences }),
+    onboarding: () => request("GET", "/me/onboarding", onboardingShape),
+    advanceOnboarding: (step) => request("POST", "/me/onboarding/advance", onboardingChangeShape, { step }),
+    skipOnboarding: () => request("POST", "/me/onboarding/skip", onboardingChangeShape),
   };
 }

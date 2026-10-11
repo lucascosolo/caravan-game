@@ -244,6 +244,101 @@ explain, unprompted, which side they play actively and which side is passive.
 town a "camp"? Does the player ever "attack" anything? Guardrail 3: can the tutorial grant
 a unit type outside the starting nodes?
 
+**Status: built** (2026-10-11, chunk 24 Maker). Build notes:
+
+- **What the first session is.** Register (the region field now reads "Permanent: chosen once for
+  this caravan and never swapped…") → **the first screen** (`onboarding/WelcomeScreen.tsx`, before
+  any tab, not skippable): defense is played live on a trip, the standing raid party works while you
+  are away and never loses a unit, the town is never raided, "your caravan rides the Desert … permanent
+  for this caravan" → **town**: take one refugee from the ordinary free menu → **outfit**: pack it, a
+  trap and a fence, ride out → **encounter 1**: search; the scout card names the smallest served party
+  (fewest raiders, then least total HP, then menu order — "a reading of the scout, not a promise"); the
+  **guided arrangement** (fence the side most raiders start on, leave its middle position open, post the
+  unit just inside the gap, lay the trap between, use the rest of the fence; then "now scout why") →
+  the **real, server-resolved result** shown as recorded → bank or push (the guide says this first trip
+  pushes once; every stake is chunk 23's itemized screen) → **encounter 2**: a free arrangement, no
+  list → **bank** → the trip summary → **"While you were out, someone else's party met a caravan"**:
+  "Raise my party from my roster" pre-fills the standing party (every unlocked roster unit up to the
+  cap, the builder's own defaults) and saves it through the ordinary `PUT /me/party` → the Party tab →
+  "Finish the guide". An overrun at either encounter ends the trip honestly: the party card then says
+  the caravan was overrun, what was lost and what never was, and to ride out again.
+- **Nothing granted, nothing special-cased.** The guide grants no Coin, unit, unlock point or access
+  (no tunable needed: there is no grant). The unit comes from the refugee drip the ordinary way, so the
+  tutorial can never reach outside the starting nodes (guardrail 3). The fights are ordinary chosen
+  candidates from chunk 14's menu, resolved by the server's resolver like any other; matchmaking and the
+  resolver are untouched and cannot see the guide. The scouting pick and the arrangement suggestions are
+  read off the scout only (`onboarding/arrangeGuide.ts`), every suggested drop goes through chunk 08's
+  `placement.ts` (`dropRefusal` = @caravan/circle's `validateFormation`), and the server re-validates the
+  commit as for any arrangement.
+- **Decision: the starting roster is the first free refugee claim.** A fresh account has 0 units and 0
+  Coin (chunk 01/18), and §24 names no starting-roster grant, so the guide does not add one. The first
+  trip is therefore one unit + one trap + up to 20 fence segments, and the standing party is pre-filled
+  from that roster after the bank. **Known, deliberate (13-punchlist D2):** with the real resolver a
+  fresh roster is overrun at band 0 far more often than not today; the guide does not depend on the
+  numbers (it never promises a hold, shows an overrun as an overrun, and continues to the passive side
+  either way). The balance pass (chunk 37) decides whether band-0 authored outfits or a starting roster
+  change; if a starting-roster grant is wanted it needs a §24/PROJECT.md decision and a tunable.
+- **Progress on the account (migration 017; 014–016 are other chunks'; renumber on merge if
+  needed).** `account_onboarding` (one row per player account; no caravan column, so a future second
+  caravan does not retrigger it): `step` ∈ welcome, roster, outfit, scout, arrange, result, free, bank,
+  party, done; `skipped_at`; `completed_at`. CHECKs pin the step list and done ⇔ completed; a trigger makes
+  it forward-only and a finished guide permanent (tested against `caravan_app`). Registration enrols the
+  account at `welcome`; accounts existing before the migration are backfilled `done` (existing players);
+  `seed.ts` marks its pre-equipped dev / e2e accounts `done`. Routes (`routes/onboarding.ts`):
+  `GET /me/onboarding`, `POST /me/onboarding/advance {step}` (forward-only; earlier / equal = 200
+  `changed: false`; unknown = 400 `invalid_step`), `POST /me/onboarding/skip` (409
+  `onboarding_first_screen` on the first screen — PHASE-2 §24 "skippable after the first screen").
+  No localStorage / sessionStorage anywhere: the client reads the server row once per sign-in
+  (`onboarding/OnboardingProvider.tsx`, fail-open: if it cannot be read the guide stays out of the way).
+- **Where it shows.** Cards sit in the normal flow above the screen they guide, never over its controls
+  (`GuideCard`: a "Guide" label, dashed border, ✓ / ○ per step, "Skip the guide" behind a confirm). Town
+  steps are in `ShellGuide` (rendered by `App.tsx` above every tab); it re-reads `/me` and the trip status
+  on each tab change and every 3 s while waiting (`GUIDE_POLL_MS`, presentation), and moves the step on
+  only from what the server says (a unit in the roster, a trip out, a trip ended). Trail cards live in
+  `TrailGuide.tsx`; `TrailScreen` maps its own state to a step (`stepForMoment`) and renders the card for
+  it. `FormationScreen` gained one optional prop, `guide`, a render slot under the circle whose edits go
+  through the screen's own `setFormation` (so autosave, the budget meter and the commit checks are the
+  ordinary ones). `App.tsx` re-keys the Party screen after the guide saved the party.
+- **Files outside the chunk's own:** `services/onboarding.ts` (enrol on register), `app.ts` (route),
+  `seed.ts` (fixtures done), `FormationScreen.tsx` (the `guide` slot), `TrailScreen.tsx` (cards + step
+  mapping), `App.tsx`, `api/client.ts` (three methods; the two hand-written fake `Api`s gained them),
+  `strings.ts` (`STRINGS.guide`, the region hint), `theme.css`, `test/migrations.test.ts` (table list),
+  `test/contract.test.ts` (+3 recordings), and the three e2e specs that register fresh accounts for
+  other purposes (`smoke`, `store`, `town`) now read past the first screen and skip the guide through
+  the real routes.
+- **Tests.** Server `test/onboarding.test.ts` (7: step list = migration CHECK + rank function; new account
+  at `welcome`, skip refused there, no caravan column; forward-only / no-op / 400; skip finishes for good;
+  the trigger against the app role; walking every step leaves Coin, units, unlock points and the ledger
+  unchanged; no row reads as done). Contract: `onboarding.json`, `onboarding-advance.json`,
+  `onboarding-skip.json`, guarded by `onboarding/shapes.ts` (the guard refuses a body whose step list
+  differs from the client's). Web: `arrangeGuide.test.ts` (4: main edge / gap geometry; fence → gap →
+  post → trap → rest each legal, the final circle passes circle's `validateFormation`; reopening a fenced
+  gap; attrition — dead units, spent traps, destroyed segments skipped), `guideModel.test.ts` (6: Trail
+  moment → step, when cards show, town facts → step, the smallest-party pick, the party pre-fill never
+  past the cap or a locked type, the recorded body's steps), `Onboarding.test.tsx` (10: first screen
+  before any tab with the copy checks and no skip and no storage writes; roster → outfit only on the
+  server's roster; skip confirm; done → no guide; unreadable → no guide; the guided arrangement on the
+  real FormationScreen; an overrun first trip said plainly, then the passive side, nothing saved for an
+  empty roster; a banked trip raising the party through the ordinary save; Trail cards + step advance;
+  a finished guide shows nothing). E2E
+  `apps/web/e2e/onboarding.spec.ts`: registers a fresh account and walks the whole path above to a bank
+  after two encounters and the raised party at 360 and 320 px (44 px targets, no sideways scroll, the
+  guardrail 0 copy checks on every card), then asserts through the API: guide `done` (not skipped), the
+  trip `banked` with decisions `pushed, banked`, one unit in the roster, a valid one-unit party, no
+  `coin_purchased` in the ledger, and after a reload and sign-in no guide.
+- **Observed results (this branch, after merging roadmap/phase-2-spec at 7063af6).** `pnpm typecheck`
+  clean; `pnpm lint` and `pnpm test:boundary` pass; web suite 330 passed / 33 files; server suite 621
+  passed, 1 skipped, 3 failed / 36 files: `qa02-round2` (the known job-queue flake, 2) and `qa15-fixes` S4
+  (1), both files 31/31 passed rerun alone; `pnpm build` passes (bundle check: battlefield.ts, fixed.ts,
+  replay.ts); `pnpm e2e` 7 passed (onboarding, formation, smoke ×2, store, town, trip). A voided first trip
+  (chunk 15 QA D3's ending) also moves the guide on to the party step.
+- **For QA.** Guardrail 0: grep `STRINGS.guide` — no "base", "camp", and the player never attacks or
+  raids (the e2e and component tests check the rendered cards). Guardrail 3: the only unit the guide
+  ever sees is one the refugee route granted. §24 DoD ("five fresh testers explain which side is active")
+  is a playtest, not something this branch can observe. Known gaps: the e2e runs on the test double (every
+  encounter held), so the real-resolver overrun path is covered by the component test (recorded overrun status) only; the
+  first screen briefly shows the town while the guide state loads (fail-open by design).
+
 ## 25. Cold-start content: authored standing parties — **M**, after 09, 14
 
 **Goal.** A pool that is never empty. Chunk 14 names an authored fallback; this chunk

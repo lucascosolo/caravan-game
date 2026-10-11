@@ -34,11 +34,16 @@ import {
 } from "../../api/shapes.ts";
 import { replayShape } from "../../api/replayShapes.ts";
 import { inboxShape, inboxUnreadShape } from "../../api/inboxShapes.ts";
+import { onboardingChangeShape, onboardingShape } from "../../onboarding/shapes.ts";
 import { bankResultShape, encounterCommitShape, pushResultShape, stakesPreviewShape, tripCapRefusalShape, tripStartShape, tripStatusShape } from "../../api/tripShapes.ts";
 
 export const CONTRACT_GUARDS: Readonly<Record<string, Guard<unknown> | null>> = {
   auth: authShape,
   "auth-login": authShape,
+  // Chunk 24: the first-session guide.
+  onboarding: onboardingShape,
+  "onboarding-advance": onboardingChangeShape,
+  "onboarding-skip": onboardingChangeShape,
   me: meShape,
   unlocks: unlocksShape,
   progression: progressionShape,

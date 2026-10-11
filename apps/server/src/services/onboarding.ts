@@ -1,6 +1,6 @@
 /**
  * Registration: one transaction creates the account-level rows (account, home town,
- * standing party, trap + siege progress) and the first caravan with its region and its
+ * standing party, trap + siege progress, chunk 24's onboarding marker) and the first caravan with its region and its
  * caravan-level living-unit progress.
  */
 import type pg from "pg";
@@ -11,6 +11,7 @@ import { hashPassword } from "../auth/password.js";
 import { createAccount, createHomeTown, createStandingParty } from "../repo/accounts.js";
 import { ACCOUNT_POOLS, createAccountPoolProgress } from "../repo/poolProgress.js";
 import { SYSTEM_USERNAME_PREFIX, hasSystemUsernamePrefix } from "../matchmaking/reservedUsername.js";
+import { enrollOnboarding } from "../onboarding/service.js";
 import { createCaravanForAccount } from "./caravans.js";
 import { badRequest, conflict } from "./errors.js";
 
@@ -80,6 +81,8 @@ export async function registerAccount(
     for (const pool of ACCOUNT_POOLS) {
       await createAccountPoolProgress(client, account.id, pool);
     }
+    // Chunk 24: a new player starts the first-session guide (account-level, PHASE-2 §24).
+    await enrollOnboarding(client, account.id);
     // First (and, in v1, only) caravan.
     const caravanInput: Parameters<typeof createCaravanForAccount>[1] = {
       accountId: account.id,

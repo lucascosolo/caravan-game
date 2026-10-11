@@ -41,6 +41,10 @@ test("open Packs, preview tier 1, buy it (sandbox), get the Coin and the cosmeti
   const reg = await request.post("/api/auth/register", { data: { username, password, region: "desert", caravanName: "Store Caravan" } });
   expect(reg.status(), await reg.text()).toBe(201);
   const auth = { Authorization: `Bearer ${((await reg.json()) as { token: string }).token}` };
+  // Chunk 24: a fresh account starts the first-session guide; this spec is about something else, so it
+  // reads the first screen's step and skips the rest through the real routes (onboarding.spec walks it).
+  expect((await request.post("/api/me/onboarding/advance", { headers: auth, data: { step: "roster" } })).status()).toBe(200);
+  expect((await request.post("/api/me/onboarding/skip", { headers: auth })).status()).toBe(200);
   const store = (await (await request.get("/api/me/store", { headers: auth })).json()) as StoreBody;
   const tier1 = store.offers.find((o) => o.tier === 1)!;
   const cosmetic = tier1.cosmetics[0]!;

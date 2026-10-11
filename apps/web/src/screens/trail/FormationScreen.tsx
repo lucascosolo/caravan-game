@@ -29,9 +29,10 @@ import {
   type Cell,
   type DefensiveStance,
   type Formation,
+  type Manifest,
 } from "@caravan/circle";
 import { TUNABLES } from "@caravan/content";
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { ApiError, type Api } from "../../api/client.ts";
 import { onViewerReset } from "../../auth/session.tsx";
 import type { FormationView, IssueView, ManifestView } from "../../api/types.ts";
@@ -104,6 +105,19 @@ export interface FormationScreenProps {
    * frozen AND queued for resolution); the Trail moves on to the fight.
    */
   readonly onCommitted?: () => void;
+  /**
+   * Chunk 24: the first-session guide's panel (encounter 1's guided arrangement), drawn under
+   * the circle. It edits through `apply`, i.e. the same placement model and autosave as a drop.
+   */
+  readonly guide?: (ctx: FormationGuideContext) => ReactNode;
+}
+
+export interface FormationGuideContext {
+  readonly manifest: Manifest;
+  readonly formation: Formation;
+  readonly locked: boolean;
+  readonly names: ReadonlyMap<string, string>;
+  readonly apply: (next: Formation) => void;
 }
 
 interface Drag {
@@ -114,7 +128,7 @@ interface Drag {
 
 type Focus = "notice" | "issues" | null;
 
-export function FormationScreen({ api, caravanId, trip, encounterIndex, initial, scout, autosaveMs = AUTOSAVE_DEBOUNCE_MS, onCommitted }: FormationScreenProps): JSX.Element {
+export function FormationScreen({ api, caravanId, trip, encounterIndex, initial, scout, autosaveMs = AUTOSAVE_DEBOUNCE_MS, onCommitted, guide }: FormationScreenProps): JSX.Element {
   const manifest = trip.survivors;
   const draftKey = `${caravanId}:${encounterIndex}:${scout.candidateId}`;
   const [formation, setFormationRaw] = useState<Formation>(() => (initial?.committedAt ? initial.formation : (localDrafts.get(draftKey) ?? initial?.formation ?? clearAll())));
@@ -575,6 +589,18 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
           <input type="checkbox" checked={showThreat} onChange={(e) => setShowThreat(e.target.checked)} /> {T.showThreat}
         </label>
       </div>
+
+      {guide?.({
+        manifest,
+        formation,
+        locked,
+        names,
+        apply: (next) => {
+          setFormation(next);
+          setRefused(null);
+          setStatus(null);
+        },
+      })}
 
       {refused && (
         <p className="notice" role="status" data-testid="drop-refused" data-code={refused.refusal.code}>
