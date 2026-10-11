@@ -299,7 +299,9 @@ describe("retire by ratio, second stage: the served share per band", () => {
     let now = Date.now();
     const chooseKind = async (authored: boolean): Promise<void> => {
       const d = await makeDefender("desert", bandCentre(0));
-      for (let tries = 0; tries < 12; tries++) {
+      // Probabilistic: with the band weighted down only one authored party of ~13 is eligible,
+      // so 12 searches missed ~4% of runs. 60 makes a miss < 1e-6 without changing the rule.
+      for (let tries = 0; tries < 60; tries++) {
         const m = await searchAt(d, now);
         now += COOLDOWN_MS;
         const pick = m.candidates.find((c) => c.owner.authored === authored);
@@ -307,7 +309,7 @@ describe("retire by ratio, second stage: the served share per band", () => {
         await withTransaction(appRole, (c) => chooseCandidate(c, d.caravan, 1, pick.candidateId, now));
         return;
       }
-      throw new Error(`no ${authored ? "authored" : "live"} candidate offered in 12 menus`);
+      throw new Error(`no ${authored ? "authored" : "live"} candidate offered in 60 menus`);
     };
     // Two served encounters, both authored: 100% > 30%. The next search in the band is weighted down.
     await chooseKind(true);
