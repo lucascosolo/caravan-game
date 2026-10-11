@@ -213,3 +213,14 @@ it. Add a bound or use BigInt.
 
 N7. Not tested: a second physical machine. Both runs were on this one container (4 cores):
 alone, and under concurrent load.
+
+## Orchestrator decisions (2026-10-11)
+
+- **D1: measure depth from the ring line, not the spawn edge.** Depth becomes the share of the distance from the outer edge of the wagon circle's ring to the core that the deepest raider closed. A raider that never crosses the ring line contributes 0. Keep the depth^1.5 loot curve. A party that is stopped at the fence then earns little or nothing on a held fight, which is what a held fight should feel like. This is a resolver change: bump RESOLVER_VERSION to 8 and regenerate the goldens. The `depthExplained` sentence must say where distance is counted from (N5).
+- **D2: deferred to the balance pass, which runs straight after this fix round.** The table is alarming: a fresh roster holds 6 of 36 at band 0, which would make onboarding miserable. Naive layouts understate a skilled player, so the balance pass will estimate skilled play by searching several formations per matchup and taking the best. It must then tune so early circles hold a fair share. Do not tune numbers in this fix round.
+- **D3: the content hash covers only what the simulation reads.** Display names, descriptions and other copy are excluded, so a copy-only deploy does not park in-flight encounters. A test pins that a description-only edit leaves the hash unchanged, and that a stat edit changes it.
+- **S5:** a golden change requires RESOLVER_VERSION to increase as an integer, and every changed golden must carry the new version. The `[resolver-bump]` tag no longer suffices on its own for golden changes. A comment edit or a decrement does not count as a bump.
+- **S1:** the running server drains the job queue in-process, with the real resolver by default. The test-double flag keeps its meaning for e2e. A fight resolved by the double must not answer 410 "past retention": answer `renderable: false` with an honest reason.
+- **N4:** enforce the content minimum cooldown in input validation, so the size budget cannot be broken by input.
+- **N7:** no action. CI runs on a different machine from local runs, which is the second-machine check we have.
+- Every other S and N item is in scope for the fixer.
