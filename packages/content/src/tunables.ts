@@ -280,6 +280,38 @@ export const TUNABLES = {
   TRAP_SLOT_CAP: 6,
 
   // ────────────────────────────────────────────────────────────────────────────────────
+  // Chunk 16 — Coin economy and merge pricing. Coin buys PACE only (GUARDRAILS §2): nothing
+  // here reaches a stat, a resolution rule, or the merge cap. Plain integer Coin amounts.
+  // ────────────────────────────────────────────────────────────────────────────────────
+
+  /** TUNABLE (chunk 16). Coin for surviving the FIRST encounter of a trip. Later encounters escalate (below). */
+  COIN_PER_ENCOUNTER_BASE: 400,
+  /** TUNABLE (chunk 16). ×1.25 per subsequent encounter, compounding, floored each step (ties to chunk 15's escalation). */
+  COIN_ENCOUNTER_ESCALATION_MULT: fpMilli(1250),
+  /** TUNABLE (chunk 16). Flat completion bonus on a banked trip — the delivery reward. */
+  COIN_PER_BANKED_TRIP: 500,
+  /** TUNABLE (chunk 16). When your standing party overruns a caravan. Deliberately below the active path: playing pays better than not playing. */
+  COIN_PER_PARTY_WIN: 300,
+  /**
+   * TUNABLE (chunk 16). Passive trickle, 200 Coin per hour, ceasing at the storage cap.
+   * Computed lazily on read from the last accrual point (no background tick). The server
+   * accrues in whole coins every COIN_TRICKLE_MS_PER_COIN ms; the two values must agree
+   * (3_600_000 == RATE_PER_HOUR × MS_PER_COIN — a server test asserts it). Change both.
+   */
+  COIN_TRICKLE_RATE_PER_HOUR: 200,
+  COIN_TRICKLE_MS_PER_COIN: 18_000,
+  /**
+   * TUNABLE (chunk 16). Coin cost of a merge, indexed by the RESULTING level (index 0 and 1
+   * unused: nothing produces a level-1 unit). Cost is PER RESULTING UNIT, so 5→3 at the same
+   * target level costs three times 2→1. Steeply escalating — THE pacing lever.
+   */
+  MERGE_COST_BY_TARGET_LEVEL: [0, 0, 250, 900, 3_000, 9_500],
+  /** Fixed by design (chunk 16). A unit occupies one deployment slot at any merge level — the entire benefit of merging. */
+  MERGE_SLOT_COST: 1,
+  /** Fixed by design (chunk 16). Earnings above the cap are discarded, and the player is warned before the trip, never silently. */
+  COIN_OVERFLOW_BEHAVIOR: "discard_with_warning",
+
+  // ────────────────────────────────────────────────────────────────────────────────────
   // Merge recipes (PROJECT.md §7). Fixed by design; listed so the guardrail test can read them.
   // ────────────────────────────────────────────────────────────────────────────────────
   MERGE_RECIPES: [
