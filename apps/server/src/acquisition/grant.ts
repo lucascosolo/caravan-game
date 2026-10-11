@@ -55,10 +55,22 @@ export function normalizeUnitTypeId(unitTypeId: unknown): string {
   return unitTypeId;
 }
 
-/** An optional non-negative integer field (a menu sequence) from a request body. */
-export function normalizeSequence(value: unknown, name: string): number | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) throw badRequest(`invalid_${name}`, `${name}, if given, must be a positive integer`);
+/** The largest menu sequence a request may name: a Postgres `integer`, so it can be compared with a row. */
+export const MAX_SEQUENCE = 2_147_483_647;
+
+/**
+ * A REQUIRED menu sequence field (`sequence` on claim, `fromSequence` on reroll and refresh)
+ * from a request body: the menu the client is looking at, as GET /refugees reported it.
+ * Required (chunk 18 QA S1) so a retry whose first attempt landed can never apply to a
+ * later menu; bounded to 1..2147483647 (S3) so it is a safe integer and fits the column.
+ */
+export function normalizeSequence(value: unknown, name: string): number {
+  if (value === undefined || value === null) {
+    throw badRequest(`invalid_${name}`, `${name} is required: the sequence of the menu you are looking at, from GET .../refugees`);
+  }
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > MAX_SEQUENCE) {
+    throw badRequest(`invalid_${name}`, `${name} must be an integer in 1..${MAX_SEQUENCE}`);
+  }
   return value;
 }
 

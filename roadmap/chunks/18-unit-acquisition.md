@@ -1,6 +1,7 @@
 # Chunk 18 — Unit acquisition: refugee drip & mercenary recruit
 
-**Depends on:** 05, 16. **Status:** built (2026-10-11); awaiting QA.
+**Depends on:** 05, 16. **Status:** built (2026-10-11); QA round 1 punch list closed
+2026-10-11 (`roadmap/qa/18-punchlist.md`), awaiting re-review.
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 ## Goal
@@ -114,14 +115,21 @@ recovery must be real, not theoretical.
 
 **Where it lives.** `apps/server/src/acquisition/{refugeeMenu,grant,refugees,recruit,index}.ts`,
 `apps/server/src/routes/acquisition.ts` (registered in `app.ts`), migration
-`006_refugee_menu`, chunk 18 block in `packages/content/src/tunables.ts`, tests in
-`apps/server/test/acquisition.test.ts` (41).
+`007_refugee_menu`, chunk 18 block in `packages/content/src/tunables.ts`, tests in
+`apps/server/test/acquisition.test.ts` (51).
 
 **Routes.** `GET /me/caravans/:id/refugees` (menu, timer, next reroll cost, balance,
-inventory); `POST .../refugees/claim {unitTypeId, sequence?}`; `POST .../refugees/reroll
-{fromSequence?}`; `GET /me/caravans/:id/recruit` (every unlocked type at its cost, locked
-types listed as not for sale); `POST .../recruit {unitTypeId, requestId?}`. 201 on a new
-instance / menu, 200 on a replay. Foreign caravan → 404 (chunk 16's convention).
+inventory; never writes past the caravan's first menu); `POST .../refugees/claim
+{unitTypeId, sequence}`; `POST .../refugees/refresh {fromSequence}` (free: take the due free
+menu); `POST .../refugees/reroll {fromSequence}`; `GET /me/caravans/:id/recruit` (every
+unlocked type at its cost, locked types listed as not for sale); `POST .../recruit
+{unitTypeId, requestId?}`. 201 on a new instance / menu, 200 on a replay. Foreign caravan →
+404 (chunk 16's convention).
+
+**`sequence` / `fromSequence` are required** (QA S1) on claim, refresh and reroll: the menu
+the client is looking at, as the GET reported it in `menu.sequence`. Absent or outside
+`1..2147483647` (S3) → 400 `invalid_sequence` / `invalid_fromSequence`, before any query. A
+retry therefore always names its menu and can never land on a later one.
 
 **The boundary.** `grant.ts#grantUnit` is the only INSERT into `unit_instance` in the
 module and calls chunk 05's `hasAccess` immediately before it, inside the transaction,
@@ -136,17 +144,37 @@ still sees exactly 3 offers). The row stores seed + the pool it drew from + the 
 `replayMenu(row)` regenerates and compares. The clock enters only as `generated_at_ms`
 for "is the free timer up".
 
-**Timer semantics (assumptions).** Lazy: the first read/claim/reroll after the interval
-generates ONE new free menu (no stockpiling), anchored at that moment; it replaces the
-current menu whether or not it was claimed and resets the reroll window. Rerolls never move
-the free timer. A due free refresh is served before a reroll is charged. Rerolling an
-unclaimed menu forfeits its offers (the view says so: `forfeitsUnclaimedOffer`). Past the
-end of `REFUGEE_REROLL_COST_SCHEDULE` the last value (600) repeats until the next free
-refresh.
+**Timer semantics (QA D1/D2, settled).** The free timer is a **fixed grid**: the caravan's
+first menu (bootstrapped by the first GET) sets the anchor, and the k-th free window opens
+at `anchor + k·interval` whatever the player's polling cadence — 16 menus a day for
+everyone. A due free refresh is **taken, never pushed**: a GET past the timer reports
+`timer.freeRefreshDue: true` and writes nothing; the player either claims the current menu
+(the next free menu is generated in the same request, anchored to its grid point) or calls
+`POST .../refugees/refresh {fromSequence}` (free, idempotent), which forfeits an unclaimed
+menu knowingly (`forfeitedOffers` in the response). One menu per take, however long the
+player was away (no stockpiling): the grid point taken is the latest one ≤ now, and the
+next window opens one interval after it. An unclaimed menu is never expired by the timer
+alone. A reroll never moves the timer and is refused 409 `free_refresh_due` (never charged)
+while a free menu is owed. Rerolling an unclaimed menu forfeits its offers (the view says
+so: `forfeitsUnclaimedOffer`). Past the end of `REFUGEE_REROLL_COST_SCHEDULE` the last value
+(600) repeats until the next free refresh. `msUntilFreeRefresh` is clamped to
+`[0, interval]` so a clock that went backwards cannot show more (N2).
+
+**Three slots, not three distinct types (N4).** A menu is always exactly
+`REFUGEE_OFFER_COUNT` slots. With a pool smaller than that (a fresh caravan has 2 starters)
+the extra slots are drawn with replacement from the same pool, so slots repeat types; the UI
+collapses duplicates into one card. The player still picks one type and gets one unit.
+
+**Reroll is cheaper than recruit on purpose (N5).** 150 (first reroll) < 600 (mercenary)
+whenever *any* type on the menu would do: the reroll buys time, not a specific type, and
+whatever it offers is from the same pool at the same odds — GUARDRAILS §2-consistent. Do
+not "fix" this by raising the reroll price toward recruit.
 
 **Idempotency.** Claim causation `refugee_claim:<caravan>:<sequence>` (8 concurrent
-claims → 1 instance); reroll `refugee_reroll:<caravan>:<from>` (retry with the same
-`fromSequence` charged once); recruit `recruit:<caravan>:<requestId>` when the client
+claims → 1 instance; a retry across a free refresh replays); reroll
+`refugee_reroll:<caravan>:<from>` (retry with the same `fromSequence` charged once); refresh
+writes no ledger event and replays (200) when the menu after `fromSequence` is a free one;
+recruit `recruit:<caravan>:<requestId>` when the client
 sends one, else a fresh uuid per purchase (buying the same type repeatedly is legitimate:
 no cooldown, no limit).
 
@@ -164,3 +192,22 @@ the 2 starters reached the type is on every menu: 6 h. Recovery is real.
 the pool is ≤ 3 types; at 8 types the wanted type arrives every 4 h on average. A reroll
 at 150/300/600 is 0.75/1.5/3 h of trickle; a mercenary at 600 is 3 h. The paid path is a
 convenience against a free path that is itself fast; nothing is gated on paying.
+
+## QA round 1 closed (2026-10-11)
+
+Punch list: `roadmap/qa/18-punchlist.md` (D1, D2, S1–S3, N1–N5 all `[closed]`). What changed:
+
+- **The free timer is taken, never pushed (D1), on a fixed grid (D2).** Migration 007 (in
+  place) adds `window_opened_at_ms` — the grid point a menu's window belongs to; a reroll
+  copies its opener's. GET never writes past the bootstrap; `timer.freeRefreshDue` says a
+  menu is owed. New free, idempotent `POST .../refugees/refresh {fromSequence}` takes it
+  (`forfeitedOffers` when the current menu was unclaimed); a claim of the current menu takes
+  it in the same request. Reroll while due → 409 `free_refresh_due`, unpaid.
+- **Sequence fields required and bounded (S1/S3):** `normalizeSequence` in `grant.ts`,
+  `MAX_SEQUENCE` 2147483647. Concurrent `{}` rerolls are 400s and charge nothing.
+- **`menu_corrupt` (N3):** `menuView` and the reroll replay throw `AppError(409,
+  'menu_corrupt')` naming the caravan instead of a bare `Error`.
+- **Regressions:** `test/acquisition.test.ts` "QA round 1 punch list" (10 tests, from the
+  reviewer's `det.ts` / `probe.mts`: the golden sha256 of 5 000 draws, the double-tap reroll,
+  the lost-response claim retry, the claim racing the timer, clock skew, replay of every
+  stored row, the junk-request sweep).

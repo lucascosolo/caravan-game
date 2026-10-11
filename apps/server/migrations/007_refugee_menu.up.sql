@@ -4,8 +4,15 @@
 -- caravan, never reused). The CURRENT menu is the highest sequence. Every row carries the
 -- seed the draw used and the exact unlocked pool it was drawn from, so any menu can be
 -- replayed from stored state alone (GUARDRAILS §1: randomness only in which options are
--- offered, seeded and reproducible). The wall clock enters only as `generated_at_ms`, which
--- the free timer compares against; it never touches what was offered.
+-- offered, seeded and reproducible). The wall clock enters only as `generated_at_ms` (when
+-- the row was written) and `window_opened_at_ms` (the free-timer grid point the row's reroll
+-- window belongs to); neither touches what was offered.
+--
+-- The free timer is a FIXED GRID (chunk 18 QA D2): the caravan's first menu sets the anchor
+-- and every later free menu sits on `anchor + k * REFUGEE_REFRESH_INTERVAL`, however late it
+-- was taken — so the rate is one free menu per interval for everyone, whatever their polling
+-- cadence. A free menu's `window_opened_at_ms` is its grid point (<= generated_at_ms); a
+-- reroll's is copied from the free menu that opened its window.
 --
 -- `origin` says what produced the menu: the free timer ('free') or a Coin reroll
 -- ('reroll'). `window_sequence` is the sequence of the free menu that opened the current
@@ -29,6 +36,8 @@ CREATE TABLE refugee_menu (
   -- Exactly REFUGEE_OFFER_COUNT type ids, in slot order. Replay output.
   offered_type_ids    jsonb       NOT NULL,
   generated_at_ms     bigint      NOT NULL,
+  -- The grid point of the free window this menu belongs to (QA D2). Replay-irrelevant.
+  window_opened_at_ms bigint      NOT NULL,
   claimed_type_id     text,
   claimed_instance_id uuid,
   claimed_at_ms       bigint,
@@ -42,6 +51,9 @@ CREATE TABLE refugee_menu (
   CONSTRAINT refugee_menu_pool_is_array       CHECK (jsonb_typeof(pool_type_ids) = 'array'),
   CONSTRAINT refugee_menu_offers_is_array     CHECK (jsonb_typeof(offered_type_ids) = 'array'),
   CONSTRAINT refugee_menu_generated_at_nonneg CHECK (generated_at_ms >= 0),
+  CONSTRAINT refugee_menu_window_at_nonneg    CHECK (window_opened_at_ms >= 0),
+  -- A free menu is never written before its own grid point.
+  CONSTRAINT refugee_menu_free_after_window   CHECK (origin <> 'free' OR window_opened_at_ms <= generated_at_ms),
   -- One pick per menu, all three columns set together or none.
   CONSTRAINT refugee_menu_claim_all_or_none   CHECK (
     (claimed_type_id IS NULL AND claimed_instance_id IS NULL AND claimed_at_ms IS NULL) OR

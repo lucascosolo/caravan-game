@@ -43,7 +43,7 @@ export interface UnitInstanceRow {
   created_at: Date;
 }
 
-/** Chunk 18: one refugee menu (see migration 006). jsonb columns come back parsed. */
+/** Chunk 18: one refugee menu (see migration 007). jsonb columns come back parsed. */
 export interface RefugeeMenuRow {
   caravan_id: string;
   sequence: number;
@@ -53,6 +53,8 @@ export interface RefugeeMenuRow {
   pool_type_ids: string[];
   offered_type_ids: string[];
   generated_at_ms: number;
+  /** The free-timer grid point this menu's window belongs to (QA D2); the next free window opens one interval later. */
+  window_opened_at_ms: number;
   claimed_type_id: string | null;
   claimed_instance_id: string | null;
   claimed_at_ms: number | null;
