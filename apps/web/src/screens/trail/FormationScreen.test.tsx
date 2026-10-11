@@ -8,7 +8,7 @@ import { ApiError, type Api } from "../../api/client.ts";
 import type { IsoCanvasProps } from "../../iso/index.ts";
 import { survivorsManifest } from "../../test/circleFixtures.ts";
 import { FormationScreen } from "./FormationScreen.tsx";
-import { fixturePartyFor } from "./scoutFixture.ts";
+import { fixtureEncounter } from "./scoutFixture.ts";
 
 // The canvas needs WebGL; in jsdom it is replaced by buttons that fire the same callbacks
 // the real one fires from taps. Placement logic is in placement.ts and tested there.
@@ -48,6 +48,9 @@ function fakeApi(over: Partial<Api> = {}): Api {
     saveFormation: notCalled,
     formation: notCalled,
     commitFormation: notCalled,
+    searchCandidates: notCalled,
+    candidates: notCalled,
+    chooseCandidate: notCalled,
     ...over,
   };
 }
@@ -65,7 +68,7 @@ function formationView(f: Formation, committedAt: string | null) {
   return { formation: { manifestId: "m1", encounterIndex: 3, formation: f, hash: "h", gaps: [...formationGaps(f)], committedAt } };
 }
 
-const scout = { encounterIndex: 3, party: fixturePartyFor(3), source: "fixture" as const, ownerLabel: null };
+const scout = fixtureEncounter(3);
 
 describe("FormationScreen", () => {
   it("shows what survives truthfully: a dead unit, a spent trap, a chipped and a destroyed segment, and the attackers", () => {
@@ -79,7 +82,7 @@ describe("FormationScreen", () => {
     expect(tray.getByTestId("fence-tray-line")).toHaveTextContent(`${TUNABLES.FENCE_MATERIAL_BUDGET - 1} in the wagon · 0 on the ring · 1 destroyed · ${TUNABLES.FENCE_MATERIAL_BUDGET} packed`);
     expect(tray.getByTestId("tray-fence-f1")).toHaveTextContent("120 / 300 HP");
     expect(tray.getByTestId("tray-fence-f0")).toHaveTextContent("Destroyed earlier this trip");
-    expect(screen.getByTestId("iso-canvas").getAttribute("data-attackers")).toBe(String(scout.party.units.length));
+    expect(screen.getByTestId("iso-canvas").getAttribute("data-attackers")).toBe(String(scout.scout.units.length));
     // Both ratings for a defender, defense emphasized.
     const pair = tray.getAllByRole("group", { name: /Offense 95, Defense 55/ })[0]!;
     expect(pair.querySelector(".statpair__stat--big .statpair__lbl")?.textContent).toBe("Defense");

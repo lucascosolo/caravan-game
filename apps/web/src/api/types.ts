@@ -184,6 +184,50 @@ export interface FormationBody {
   readonly posts: readonly { readonly ref: string; readonly cell: { readonly x: number; readonly y: number }; readonly stance: DefensiveStanceView }[];
 }
 
+// ── Matchmaking & scouting (chunk 14 routes: apps/server/src/routes/matchmaking.ts) ────
+
+/** The scouting view of a party, exactly as the server builds it (`scoutParty`, @caravan/circle). */
+export type PartyScoutView = import("@caravan/circle").PartyScoutView;
+
+export interface BandView {
+  readonly index: number;
+  readonly low: number;
+  readonly high: number;
+}
+
+/** One offered candidate: everything the defender can read before choosing. */
+export interface CandidateView {
+  readonly candidateId: string;
+  readonly partyId: string;
+  readonly owner: { readonly accountId: string; readonly displayName: string; readonly authored: boolean };
+  readonly reputation: { readonly rating: number; readonly band: BandView; readonly gapFromCaravan: number; readonly sandbagEarnMultiplier: number };
+  readonly scout: PartyScoutView;
+}
+
+/** `POST .../search` (201) and `GET .../candidates` → `{ menu }`. */
+export interface CandidateMenuView {
+  readonly tripId: string;
+  readonly encounterIndex: number;
+  readonly searchSeq: number;
+  readonly caravan: { readonly rating: number; readonly ratingPool: "living"; readonly band: BandView };
+  readonly centre: number;
+  readonly escalation: { readonly applied: number; readonly perEncounter: number; readonly nextEncounter: number };
+  readonly bandWidthUsed: number;
+  readonly widened: boolean;
+  readonly usedAuthoredFallback: boolean;
+  readonly candidates: readonly CandidateView[];
+  readonly searchedAtMs: number;
+  /** The reroll is free and gated by time only; `availableAtMs` is when the next search opens. */
+  readonly reroll: { readonly gate: "time"; readonly cooldownSeconds: number; readonly availableAtMs: number; readonly available: boolean };
+  readonly chosen: { readonly candidateId: string; readonly chosenAt: string } | null;
+}
+
+/** `POST .../choose` → the menu marked chosen plus the chosen candidate. */
+export interface ChoiceView {
+  readonly menu: CandidateMenuView;
+  readonly chosen: CandidateView;
+}
+
 /** `PUT|GET /caravans/:id/encounters/:n/formation` and `.../commit` → `{ formation }`. */
 export interface FormationView {
   readonly manifestId: string;

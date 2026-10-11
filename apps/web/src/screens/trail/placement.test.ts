@@ -20,7 +20,7 @@ import {
   unplacedTraps,
   unpostedUnits,
 } from "./placement.ts";
-import { fixturePartyFor } from "./scoutFixture.ts";
+import { fixtureScoutFor } from "./scoutFixture.ts";
 
 const inner = { x: 12, y: 12 }; // inside the ring, off the core
 const inner2 = { x: 13, y: 18 };
@@ -103,7 +103,7 @@ describe("placement model", () => {
     m.fences.forEach((x, i) => (f = placeFence(f, x.ref, i)));
     expect(formationGaps(f)).toHaveLength(RING_SEGMENTS.length - TUNABLES.FENCE_MATERIAL_BUDGET);
     expect(fenceRuns(f)).toEqual([{ from: 0, to: TUNABLES.FENCE_MATERIAL_BUDGET - 1 }]);
-    const party = fixturePartyFor(1);
+    const party = fixtureScoutFor(1);
     const reports = edgeReports(m, f, party);
     expect(reports.map((r) => r.edge)).toEqual(["north", "east", "south", "west"]);
     expect(reports.reduce((s, r) => s + r.gaps, 0)).toBe(formationGaps(f).length);

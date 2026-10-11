@@ -1,6 +1,6 @@
 # Chunk 08 — Encounter formation UI
 
-**Depends on:** 07, 05, 14. **Status:** not started.
+**Depends on:** 07, 05, 14. **Status:** built (2026-10-11; see "Build notes" at the end).
 Read `/roadmap/GUARDRAILS.md` in full first, including §0 on which way round the game runs.
 
 > **This is the game's primary gameplay screen.** Everything else in the project
@@ -119,3 +119,97 @@ Layout constants come from chunk 07 (`GRID_WIDTH`, `PERIMETER_SEGMENTS`,
 - **No pay-to-win:** does any surface offer to buy fence material, extra slots, a
   repair, a resupply, or a re-arrange with Coin? There must be none — any of them
   would sell power or erase attrition.
+
+## Build notes (Maker, 2026-10-11)
+
+**Where it lives.** `apps/web/src/iso/` is the shared isometric renderer; `apps/web/src/screens/trail/`
+is the Trail tab (candidates → formation). Strings in `src/strings.ts` (`trail.*`), styles in
+`src/theme.css` (rem sizes; the 44px target is `--tap` = 2.75rem).
+
+**The renderer (`src/iso`, PixiJS 8.6.6, reused by chunks 17 and 22 — never reimplemented):**
+- `projection.ts` — pure: 2:1 projection (`TILE_W` 48 / `TILE_H` 24), `unproject` (exact
+  inverse), `cellToWorld` (cell centre), `fixedToWorld` (the chunk 10 log's fixed-point
+  positions → world; the replay hook for chunk 22), `snapToCell` (floor), `depthKey`
+  (painter's order over row + column, with a layer tie-break), the camera (`fitCamera`,
+  `panCamera`, `zoomCameraAbout`, `pinchCamera`, `clampCamera`; `ZOOM_MIN` 0.12 so a 360px
+  phone fits the lattice). `hit.ts` — pure hit test (posts > traps > fences > attackers).
+- `scene.ts` — the one PixiJS scene: the island (three inert decorative tiers with cliff
+  faces and fixed scrub, water under it; the resolver never sees any of it), the flat 32×32
+  play area, the lattice overlay (alpha 0 unless `state.drag` is set; fades at 6/s, instant
+  under `prefers-reduced-motion`), the core, the four anchors as parked wagons, entity
+  layers in `zIndex = depthKey` order, overlays: aggro/leash/attack-range as true-radius
+  ellipses (hold → attack range only; reserve → aggro + leash + range), the attacker's entry
+  bands tinted, open ring positions as soft lattice-coloured outlines (never a warning
+  colour), ring positions highlighted while a fence is dragged. Entity positions are WORLD
+  points, not cells, so a replay feeds interpolated positions straight in.
+- `skins.ts` — the skin seam: `SkinRegistry` keyed by type id; chunk 08 ships
+  `PLACEHOLDER_SKINS` (affinity = shape, Okabe–Ito fills, initials glyph, HP bar, merge
+  badge, stance mark). `SpriteSkin` is reserved for chunk 26; the scene refuses it until then.
+- `IsoCanvas.tsx` — React wrapper: pan (one pointer), pinch (two), wheel zoom, entity drag
+  (`onDragBegin/Move/End` as snapped cells), tap on entity/cell (the no-drag placement
+  path: select a chip, tap a cell). `touch-action: none`, pointer events only, no hover.
+  Imperative handle `clientToCell` / `cellToClient` for drags that start in the DOM tray;
+  the same handle is published as `window.__isoDebug` (the e2e aims drops with it).
+  `onUnavailable` fires if WebGL is missing and the DOM lists carry on.
+
+**The screen (`src/screens/trail`):**
+- `TrailScreen.tsx` — manifest (chunk 07) → `GET …/candidates` (chunk 14): 404
+  `no_open_manifest` = in town; 404 `no_trip` = packed but the trip is not open (chunk 15
+  opens it); 404 `no_search` = the Search button; menu unchosen = `CandidatesScreen`; menu
+  chosen = `FormationScreen` against that candidate's `scout`.
+- `CandidatesScreen.tsx` — the three candidates with owner, band, gap, earn multiplier, a
+  full `ScoutPanel` each, "Face …"; the reroll button shows a live countdown to
+  `reroll.availableAtMs` and is disabled until then; a 409 `reroll_cooldown` is shown with
+  its exact message and `availableAtMs`. No Coin anywhere (tested).
+- `ScoutPanel.tsx` — every field of the server's `PartyScoutView` (@caravan/circle
+  `scoutParty`): per unit type, affinity, merge level, HP, targeting stance, edge, exact
+  start cell, offense and defense as two numbers (offense emphasized — the rating in use),
+  speed, range, cooldown, the one ability with cooldown and a healer's finite charges; per
+  siege piece what it counters, accelerates/bypasses, the multiplier, the exact tiers/traps
+  affected; edges used; slots used. DOM, so it is the text alternative to the canvas.
+- `ManifestTray.tsx` — survivors as the constraint: units at real HP (dead marked, not
+  draggable), traps (spent marked; "fires once; does not re-arm"), fence material as
+  remaining / on the ring / destroyed / packed with "next segment" (healthiest first) and
+  the damaged ones listed so the player can put them where it matters least.
+- `placement.ts` — pure edits over chunk 07's `Formation`: place/move/remove fence (ring
+  position), trap, post; stance; `canDropAt` (ring/anchor/core/entry band/occupancy/
+  MIN_POST_DISTANCE — a UI affordance only); `fenceBudget`; `edgeReports` (attackers per
+  edge, open positions per side, posts whose reach touches that side); `itemize` /
+  `fenceRuns` for the commit confirmation. **There is deliberately no local
+  `validateFormation` call**: legality is the server's to decide (chunk 06 QA convention);
+  `PUT …/formation` and `…/commit` return the issue list and the screen shows it verbatim.
+- `FormationScreen.tsx` — the sticky canvas, radii/threat toggles, budget meter + open
+  positions + per-edge approach-vs-coverage lines (information, never a verdict), selection
+  panel with the three-stance picker (QA D1) and "take back", the tray, the scouting report
+  (open by default, above the commit controls), server issues, save draft, commit through
+  a real modal (`CommitDialog.tsx`: portal into `<body>`, shell `inert`, focus trapped,
+  Escape, focus restored to the opener, `aria-describedby`) that itemizes every placed
+  thing, fence runs, the open-position count, traps held back and each post's stance.
+- `guards.ts` — every payload shape-checked at the boundary → `ApiError(0, "bad_payload")`.
+- `scoutFixture.ts` — three fixture parties run through `scoutParty`, **component tests
+  only** (nothing outside `*.test.*` imports it).
+
+**Tunables used as proposed:** PROJECTION 2:1, DEPTH_SORT row+column painter's, GRID_VISIBILITY
+drag-only with fade, SHOW_AGGRO_LEASH_OVERLAY on + toggle, SHOW_THREAT_OVERLAY on + toggle,
+TOUCH_TARGET_MIN 44px. **Not built:** FORMATION_PRESETS (save/recall named arrangements) —
+deferred; a draft is re-savable, which covers the per-encounter case. The lattice/ring
+geometry comes from the resolver via @caravan/circle, never re-declared.
+
+**Tests.** `pnpm --filter @caravan/web test`: 8 files, 47 tests — projection/depth/snap/
+camera/hit (pure), placement model, ScoutPanel (field-by-field against the fixture
+views), FormationScreen (carry-forward shown truthfully, tap-to-place, stance, take back,
+server issues verbatim, modal commit → save then commit, bad_payload), TrailScreen (search
+→ three candidates → reroll gate → choose → formation; 409 reroll_cooldown; no_trip state;
+bad menu). `pnpm e2e`: `formation.spec.ts` on the real server and WebGL canvas (search,
+scout each candidate, countdown visible, choose, drag a fence to ring 0 and a rider to
+(13,13), Hold, tap-place the second rider, save, commit a 27-gap circle, server agrees,
+reload shows it locked). `scripts/e2e.mjs` seeds a run-unique account, packs via the API
+and opens the trip with chunk 14's `createTrip` SQL (the trip route is chunk 15's).
+
+**Decisions / flags for QA.**
+- Posted-unit defense is shown as `scaleInt(type.defense, mergeStatMult(level))`, matching
+  what chunk 07's `toBattlefield` hands the resolver; attacker ratings are the view's.
+- The canvas is `position: sticky` so a drag from the tray always has the ground in view;
+  everything in the screen has `scroll-margin-top` so focus/scroll-into-view lands below it.
+- Siege has no cell in the model; the scene draws it beside the party's first entry edge.
+- `pnpm e2e` leaves one `e2e_formation_<base36>` account per run in the e2e database.

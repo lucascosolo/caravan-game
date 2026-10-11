@@ -85,7 +85,8 @@ responsive, wrappable for app stores later without a rewrite).
 - `packages/content` — unit/trap/siege/ability data and the tunables registry.
 - `apps/server` — Node, Postgres, the event ledger and job queue.
 - `apps/web` — the client. PixiJS for the camp and battle views, which are canvas
-  rendering rather than DOM.
+  rendering rather than DOM. `apps/web/src/iso` is the ONE isometric renderer (chunk 08):
+  the wagon circle, the town (17) and the replay (22) all draw through it — never a second one.
 
 The client **never runs the simulation** — it renders a stored log.
 
@@ -133,7 +134,7 @@ pnpm dev:web                 # Vite dev server on http://127.0.0.1:5173; /api/* 
 
 pnpm --filter @caravan/web typecheck | test | build   # tsc; vitest + testing-library (jsdom); vite build → apps/web/dist
 pnpm --filter @caravan/web e2e                        # Playwright smoke vs a running server (needs CARAVAN_API_URL + a seeded DB)
-pnpm e2e                     # the same, self-contained: seeds E2E_DATABASE_URL, starts the BUILT server on :3917, runs the e2e, stops it (run `pnpm build` first)
+pnpm e2e                     # the same, self-contained: seeds E2E_DATABASE_URL (dev + a run-unique formation account, packed and put on the trail), starts the BUILT server on :3917, runs the e2e, stops it (run `pnpm build` first)
 
 pnpm determinism             # resolver determinism harness (chunk 10 started it; chunk 13 adds goldens): every fixture scenario 100× byte-identical in-process, then 3 separate Node processes compared by sha256; refuses golden-log changes without a RESOLVER_VERSION bump
 pnpm --filter @caravan/resolver test   # the resolver alone: 53 tests, no DB, no network, ~3 s

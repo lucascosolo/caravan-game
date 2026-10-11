@@ -8,7 +8,7 @@
  */
 import { formationFromJson, manifestFromJson, type Formation, type Manifest } from "@caravan/circle";
 import { ApiError } from "../../api/client.ts";
-import type { FormationView, ManifestView } from "../../api/types.ts";
+import type { CandidateMenuView, CandidateView, ChoiceView, FormationView, ManifestView } from "../../api/types.ts";
 import { STRINGS } from "../../strings.ts";
 
 export class BadPayload extends ApiError {
@@ -46,6 +46,65 @@ export function guardManifest(raw: unknown): TripState {
     throw new BadPayload(err instanceof Error ? err.message : "manifest body");
   }
   return { view: m as unknown as ManifestView, packed, survivors };
+}
+
+// ── matchmaking (chunk 14) ───────────────────────────────────────────────────────────
+
+function isBand(v: unknown): boolean {
+  return isObject(v) && Number.isInteger(v["index"]) && Number.isInteger(v["low"]) && Number.isInteger(v["high"]);
+}
+
+function checkCandidate(c: unknown, where: string): asserts c is CandidateView {
+  if (!isObject(c) || typeof c["candidateId"] !== "string" || typeof c["partyId"] !== "string") throw new BadPayload(`${where}.candidateId`);
+  const owner = c["owner"];
+  if (!isObject(owner) || typeof owner["displayName"] !== "string" || typeof owner["authored"] !== "boolean") throw new BadPayload(`${where}.owner`);
+  const rep = c["reputation"];
+  if (!isObject(rep) || !Number.isInteger(rep["rating"]) || !isBand(rep["band"]) || !Number.isInteger(rep["gapFromCaravan"]) || !Number.isInteger(rep["sandbagEarnMultiplier"])) {
+    throw new BadPayload(`${where}.reputation`);
+  }
+  const scout = c["scout"];
+  if (!isObject(scout) || scout["v"] !== 1 || !Array.isArray(scout["units"]) || !Array.isArray(scout["siege"]) || !Array.isArray(scout["edges"])) throw new BadPayload(`${where}.scout`);
+  for (const [i, u] of (scout["units"] as unknown[]).entries()) {
+    if (!isObject(u)) throw new BadPayload(`${where}.scout.units[${i}]`);
+    for (const k of ["ref", "typeId", "displayName", "affinity", "stance", "edge"]) if (typeof u[k] !== "string") throw new BadPayload(`${where}.scout.units[${i}].${k}`);
+    for (const k of ["mergeLevel", "offense", "defense", "hp", "moveSpeed", "attackRange", "attackCooldown"]) if (!Number.isInteger(u[k])) throw new BadPayload(`${where}.scout.units[${i}].${k}`);
+    const cell = u["cell"];
+    if (!isObject(cell) || !Number.isInteger(cell["x"]) || !Number.isInteger(cell["y"])) throw new BadPayload(`${where}.scout.units[${i}].cell`);
+    const ab = u["ability"];
+    if (!isObject(ab) || typeof ab["archetype"] !== "string" || typeof ab["displayName"] !== "string" || !Number.isInteger(ab["cooldown"])) throw new BadPayload(`${where}.scout.units[${i}].ability`);
+  }
+  for (const [i, s] of (scout["siege"] as unknown[]).entries()) {
+    if (!isObject(s) || typeof s["typeId"] !== "string" || typeof s["displayName"] !== "string" || !isObject(s["counters"]) || typeof s["effect"] !== "string" || !Array.isArray(s["targetTypeIds"])) {
+      throw new BadPayload(`${where}.scout.siege[${i}]`);
+    }
+  }
+  const us = scout["unitSlots"];
+  const ss = scout["siegeSlots"];
+  if (!isObject(us) || !Number.isInteger(us["used"]) || !Number.isInteger(us["cap"]) || !isObject(ss) || !Number.isInteger(ss["used"]) || !Number.isInteger(ss["cap"])) throw new BadPayload(`${where}.scout.slots`);
+}
+
+export function guardMenu(raw: unknown): CandidateMenuView {
+  if (!isObject(raw) || !isObject(raw["menu"])) throw new BadPayload("menu");
+  const m = raw["menu"];
+  if (typeof m["tripId"] !== "string" || !Number.isInteger(m["encounterIndex"]) || !Number.isInteger(m["searchSeq"])) throw new BadPayload("menu.tripId");
+  const caravan = m["caravan"];
+  if (!isObject(caravan) || !Number.isInteger(caravan["rating"]) || !isBand(caravan["band"])) throw new BadPayload("menu.caravan");
+  if (!Number.isInteger(m["centre"]) || !Number.isInteger(m["bandWidthUsed"]) || typeof m["widened"] !== "boolean" || typeof m["usedAuthoredFallback"] !== "boolean") throw new BadPayload("menu.band");
+  const reroll = m["reroll"];
+  if (!isObject(reroll) || reroll["gate"] !== "time" || !Number.isInteger(reroll["cooldownSeconds"]) || !Number.isInteger(reroll["availableAtMs"]) || typeof reroll["available"] !== "boolean") {
+    throw new BadPayload("menu.reroll");
+  }
+  if (!(m["chosen"] === null || (isObject(m["chosen"]) && typeof m["chosen"]["candidateId"] === "string"))) throw new BadPayload("menu.chosen");
+  if (!Array.isArray(m["candidates"])) throw new BadPayload("menu.candidates");
+  (m["candidates"] as unknown[]).forEach((c, i) => checkCandidate(c, `menu.candidates[${i}]`));
+  return m as unknown as CandidateMenuView;
+}
+
+export function guardChoice(raw: unknown): ChoiceView {
+  if (!isObject(raw)) throw new BadPayload("choice");
+  const menu = guardMenu({ menu: raw["menu"] });
+  checkCandidate(raw["chosen"], "choice.chosen");
+  return { menu, chosen: raw["chosen"] };
 }
 
 export interface FormationState {

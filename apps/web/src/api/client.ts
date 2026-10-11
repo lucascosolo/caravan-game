@@ -13,6 +13,8 @@
 import type {
   AuthResponse,
   ApiErrorBody,
+  CandidateMenuView,
+  ChoiceView,
   FormationBody,
   FormationView,
   IssueView,
@@ -34,6 +36,8 @@ export class ApiError extends Error {
     message: string,
     /** Chunk 07's validation errors carry every issue at once; surfaced exactly, never summarized. */
     public readonly issues: readonly IssueView[] = [],
+    /** Any further fields of the error body (chunk 14's `reroll_cooldown` carries `availableAtMs`). */
+    public readonly body: Readonly<Record<string, unknown>> = {},
   ) {
     super(message);
     this.name = "ApiError";
@@ -69,6 +73,11 @@ export interface Api {
   saveFormation(caravanId: string, encounterIndex: number, formation: FormationBody): Promise<{ formation: FormationView }>;
   formation(caravanId: string, encounterIndex: number): Promise<{ formation: FormationView }>;
   commitFormation(caravanId: string, encounterIndex: number): Promise<{ formation: FormationView }>;
+  // Matchmaking & scouting (chunk 14 routes). The reroll is free and time-gated: a 409
+  // `reroll_cooldown` carries `availableAtMs`; nothing here can shorten it.
+  searchCandidates(caravanId: string, encounterIndex: number): Promise<{ menu: CandidateMenuView }>;
+  candidates(caravanId: string, encounterIndex: number): Promise<{ menu: CandidateMenuView }>;
+  chooseCandidate(caravanId: string, encounterIndex: number, candidateId: string): Promise<ChoiceView>;
 }
 
 function isErrorBody(value: unknown): value is ApiErrorBody {
@@ -106,7 +115,7 @@ export function createApi(opts: ApiOptions): Api {
       if (res.status === 401) opts.onUnauthorized?.();
       if (isErrorBody(parsed)) {
         const issues = (parsed as { issues?: unknown }).issues;
-        throw new ApiError(res.status, parsed.error, parsed.message, Array.isArray(issues) ? (issues as IssueView[]) : []);
+        throw new ApiError(res.status, parsed.error, parsed.message, Array.isArray(issues) ? (issues as IssueView[]) : [], parsed as unknown as Record<string, unknown>);
       }
       throw new ApiError(res.status, "http_error", `${res.status} ${res.statusText}`.trim());
     }
@@ -126,5 +135,8 @@ export function createApi(opts: ApiOptions): Api {
     saveFormation: (caravanId, n, formation) => request("PUT", `/caravans/${encodeURIComponent(caravanId)}/encounters/${n}/formation`, formation),
     formation: (caravanId, n) => request("GET", `/caravans/${encodeURIComponent(caravanId)}/encounters/${n}/formation`),
     commitFormation: (caravanId, n) => request("POST", `/caravans/${encodeURIComponent(caravanId)}/encounters/${n}/formation/commit`),
+    searchCandidates: (caravanId, n) => request("POST", `/me/caravans/${encodeURIComponent(caravanId)}/encounters/${n}/search`),
+    candidates: (caravanId, n) => request("GET", `/me/caravans/${encodeURIComponent(caravanId)}/encounters/${n}/candidates`),
+    chooseCandidate: (caravanId, n, candidateId) => request("POST", `/me/caravans/${encodeURIComponent(caravanId)}/encounters/${n}/choose`, { candidateId }),
   };
 }

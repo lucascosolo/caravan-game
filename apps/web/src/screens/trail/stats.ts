@@ -102,19 +102,22 @@ export function defenderCard(u: ManifestUnit): UnitCard | null {
   };
 }
 
-/** A scouted attacker: every field of the party entry, offense emphasized; defense shown from its type. */
+/**
+ * A scouted attacker: every field of the server's `ScoutUnit`, offense emphasized (it is
+ * `ratingInUse`); defense shown beside it for comparison. `hp` is its max HP at this merge
+ * level — a standing party is a template and always arrives whole.
+ */
 export function attackerCard(u: ScoutedUnit): UnitCard {
-  const t = getUnitType(u.typeId);
   return {
     ref: u.ref,
     typeId: u.typeId,
-    displayName: t?.displayName ?? u.typeId,
+    displayName: u.displayName,
     affinity: u.affinity,
     mergeLevel: u.mergeLevel,
     hp: u.hp,
-    maxHp: u.maxHp,
+    maxHp: u.hp,
     offense: u.offense,
-    defense: t ? t.defense : 0,
+    defense: u.defense,
     emphasis: "offense",
     lines: [
       { label: S.moveSpeed, value: fixedToText(u.moveSpeed) },

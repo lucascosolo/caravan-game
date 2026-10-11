@@ -1,22 +1,22 @@
 /**
- * Fixture standing parties for the scouting panel (chunk 08), used by scoutFeed.ts until
- * chunk 14 serves real matchmade parties. Built from @caravan/content the way chunk 09's
- * snapshot will be (hp = type hp × merge multiplier; offense is the type's offense; the
- * ability is the type's one ability), so the panel is exercised against the real shape.
+ * Fixture candidates for COMPONENT TESTS ONLY (chunk 08). The app itself reads the three
+ * scoutable candidates chunk 14 serves; nothing in src/ outside *.test.* imports this.
  *
- * Deterministic: the party for encounter N is `FIXTURES[(N - 1) % 3]`. No randomness —
- * what the player scouts is exactly what they will arrange against.
+ * Built the way the server builds a candidate's `scout`: a chunk 09 `Party` run through
+ * @caravan/circle's `scoutParty`, so the panel is exercised against the real shape and a
+ * field added to ScoutUnit shows up here untouched. Deterministic: encounter N gets
+ * `FIXTURE_PARTIES[(N − 1) % 3]`.
  */
-import { ENTRY_BAND_DEPTH, GRID_HEIGHT, GRID_WIDTH, type Cell, type EntryEdge } from "@caravan/circle";
-import { getSiegeType, getUnitType, mergeStatMult, scaleInt } from "@caravan/content";
-import { PARTY_VERSION, type Party, type PartyUnit } from "@caravan/resolver";
+import { ENTRY_BAND_DEPTH, GRID_HEIGHT, GRID_WIDTH, scoutParty, type Cell, type EntryEdge, type Party, type PartyScoutView, type TargetingStance } from "@caravan/circle";
+import type { CandidateView } from "../../api/types.ts";
+import type { ScoutedEncounter } from "./scoutTypes.ts";
 
 interface UnitSpec {
   readonly typeId: string;
   readonly mergeLevel: number;
-  readonly stance: PartyUnit["stance"];
+  readonly stance: TargetingStance;
   readonly edge: EntryEdge;
-  /** Position along the edge, 0..GRID-1; the depth into the band is fixed at the outermost row. */
+  /** Position along the edge, 0..GRID-1; the depth is the outermost row of the band. */
   readonly along: number;
 }
 
@@ -35,38 +35,11 @@ function entryCell(edge: EntryEdge, along: number): Cell {
   }
 }
 
-function unit(ref: string, spec: UnitSpec): PartyUnit {
-  const t = getUnitType(spec.typeId);
-  if (!t) throw new Error(`scout fixture names unknown unit type '${spec.typeId}'`);
-  const maxHp = scaleInt(t.hp, mergeStatMult(spec.mergeLevel));
-  return {
-    ref,
-    typeId: spec.typeId,
-    mergeLevel: spec.mergeLevel,
-    stance: spec.stance,
-    entry: { edge: spec.edge, cell: entryCell(spec.edge, spec.along) },
-    hp: maxHp,
-    maxHp,
-    affinity: t.affinity,
-    offense: t.offense,
-    moveSpeed: t.moveSpeed,
-    attackRange: t.attackRange,
-    attackCooldown: t.attackCooldown,
-    ability: t.ability,
-  };
-}
-
-function siege(ref: string, typeId: string): Party["siege"][number] {
-  const s = getSiegeType(typeId);
-  if (!s) throw new Error(`scout fixture names unknown siege type '${typeId}'`);
-  return { ref, typeId, counters: s.counters };
-}
-
 function party(units: readonly UnitSpec[], siegeIds: readonly string[]): Party {
   return {
-    v: PARTY_VERSION,
-    units: units.map((u, i) => unit(`a${i}`, u)),
-    siege: siegeIds.map((id, i) => siege(`s${i}`, id)),
+    v: 1,
+    units: units.map((u, i) => ({ ref: `a${i}`, typeId: u.typeId, mergeLevel: u.mergeLevel, stance: u.stance, edge: u.edge, cell: entryCell(u.edge, u.along) })),
+    siege: siegeIds.map((typeId) => ({ typeId })),
   };
 }
 
@@ -103,7 +76,22 @@ export const FIXTURE_PARTIES: readonly Party[] = [
   ),
 ];
 
-export function fixturePartyFor(encounterIndex: number): Party {
+export function fixtureScoutFor(encounterIndex: number): PartyScoutView {
   const i = Math.max(0, (encounterIndex - 1) % FIXTURE_PARTIES.length);
-  return FIXTURE_PARTIES[i]!;
+  return scoutParty(FIXTURE_PARTIES[i]!);
+}
+
+export function fixtureCandidate(encounterIndex: number, candidateId = `${"c".repeat(31)}${encounterIndex % 10}`): CandidateView {
+  return {
+    candidateId,
+    partyId: `party-${encounterIndex}`,
+    owner: { accountId: "00000000-0000-4000-8000-000000000000", displayName: `Fixture outfit ${encounterIndex}`, authored: true },
+    reputation: { rating: 1000 + encounterIndex * 10, band: { index: 1, low: 1000, high: 1099 }, gapFromCaravan: -encounterIndex * 10, sandbagEarnMultiplier: 1024 },
+    scout: fixtureScoutFor(encounterIndex),
+  };
+}
+
+export function fixtureEncounter(encounterIndex: number): ScoutedEncounter {
+  const c = fixtureCandidate(encounterIndex);
+  return { encounterIndex, candidateId: c.candidateId, owner: c.owner, reputation: c.reputation, scout: c.scout, source: "fixture" };
 }

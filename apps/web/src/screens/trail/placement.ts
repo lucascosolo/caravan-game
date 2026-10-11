@@ -239,7 +239,7 @@ export function edgeReports(m: Manifest, f: Formation, party: ScoutedParty | nul
       });
       if (watches) postsWatching++;
     }
-    return { edge, attackers: party ? party.units.filter((u) => u.entry.edge === edge).length : 0, ringPositions: side.length, gaps, postsWatching };
+    return { edge, attackers: party ? party.units.filter((u) => u.edge === edge).length : 0, ringPositions: side.length, gaps, postsWatching };
   });
 }
 

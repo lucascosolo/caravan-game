@@ -1,26 +1,30 @@
 /**
- * The scouting view of an attacking party, client side (chunk 08).
+ * The scouting view of an attacking party, client side (chunk 08, wired to chunk 14).
  *
- * Shape: the resolver's `Party` (packages/resolver/src/input.ts) — the standing-party
- * snapshot chunk 09 stores and chunk 14 serves as an encounter. The client imports the
- * TYPE from @caravan/resolver (it never runs the simulation; AGENTS.md "the client never
- * runs the simulation"). EVERYTHING in the party is shown (GUARDRAILS §4): any field
- * present in `PartyUnit` and absent from the scouting panel is a legibility bug.
+ * Shape: `PartyScoutView` from @caravan/circle — `scoutParty(party)` — which is EXACTLY
+ * what the server stores on each matchmaking candidate (`candidate.scout`) and what the
+ * party's owner previews. The client reads the type and never rebuilds the view itself.
+ * EVERYTHING in it is shown (GUARDRAILS §4): any field present in `ScoutUnit` or
+ * `ScoutSiege` and absent from the scouting panel is a legibility bug.
  */
-import type { Party, PartySiege, PartyUnit } from "@caravan/resolver";
+import type { PartyScoutView, ScoutSiege, ScoutUnit } from "@caravan/circle";
+import type { CandidateView } from "../../api/types.ts";
 
-export type ScoutedParty = Party;
-export type ScoutedUnit = PartyUnit;
-export type ScoutedSiege = PartySiege;
+export type ScoutedParty = PartyScoutView;
+export type ScoutedUnit = ScoutUnit;
+export type ScoutedSiege = ScoutSiege;
 
+/** The party this encounter is arranged against: the CHOSEN matchmaking candidate. */
 export interface ScoutedEncounter {
   readonly encounterIndex: number;
-  readonly party: ScoutedParty;
-  /**
-   * Where this party came from. `fixture` until chunk 14 (matchmaking) lands — the screen
-   * says so in a hint, so nobody mistakes a fixture for a matched opponent.
-   */
+  readonly candidateId: string;
+  readonly owner: CandidateView["owner"];
+  readonly reputation: CandidateView["reputation"];
+  readonly scout: ScoutedParty;
+  /** `matchmaking` in the app; `fixture` only in component tests (scoutFixture.ts). */
   readonly source: "fixture" | "matchmaking";
-  /** A label for the party's owner, when matchmaking provides one. */
-  readonly ownerLabel: string | null;
+}
+
+export function encounterFromCandidate(encounterIndex: number, c: CandidateView): ScoutedEncounter {
+  return { encounterIndex, candidateId: c.candidateId, owner: c.owner, reputation: c.reputation, scout: c.scout, source: "matchmaking" };
 }

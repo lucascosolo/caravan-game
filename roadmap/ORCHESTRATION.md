@@ -1490,3 +1490,60 @@ field-by-field scout comparison, whether any code can re-resolve a party after t
 reroll gate's immunity to any Coin surface, and whether chunk 15 can drive
 `createTrip → search → choose → commitFormation → enqueueChosenEncounter` without touching
 `encounter_candidates` directly.
+
+### 2026-10-11 — Chunk 08 (encounter formation UI + shared isometric renderer): `not started` → `built`
+
+**Built** in a worktree branched from `56a4305` (Merge chunk 06), then merged with
+`roadmap/phase-2-spec` at `e91c082` (chunk 14) mid-task on the coordinator's instruction,
+so the screen is wired to the real matchmaking routes rather than the fixture seam it
+started on. Full notes in the chunk file's "Build notes".
+
+- **Renderer** (`apps/web/src/iso`, PixiJS 8.6.6; the ONE isometric scene for chunks 08/17/22):
+  pure 2:1 projection + inverse, painter's depth over row+column, lattice snap, camera
+  (fit/pan/pinch/wheel/clamp), pure hit test; the island with three inert decorative tiers
+  and cliff faces, the flat 32×32 play area, the core, the four anchors as parked wagons;
+  lattice overlay visible ONLY while something is dragged (fade; instant under
+  reduced-motion); entity layers in depth order; aggro/leash/attack-range as true-radius
+  ellipses per stance; entry-band threat tint; open ring positions as soft outlines. Skin
+  seam: `SkinRegistry` keyed by type id with placeholder shapes (affinity = shape); sprites
+  reserved for chunk 26. Entity positions are world points, so chunk 22 interpolates the
+  chunk 10 log straight in (`fixedToWorld`). React wrapper owns every gesture: pan, pinch,
+  entity drag, tap-to-place (no hover anywhere), `touch-action: none`.
+- **Trail tab** (`apps/web/src/screens/trail`): manifest (07) → candidates (14) →
+  search / three fully scouted candidates with the free time-gated reroll countdown /
+  choose → formation against the chosen candidate's `PartyScoutView`. Scouting panel shows
+  every field of the view (DOM, the text alternative to the canvas). Manifest tray shows
+  survivors truthfully (dead/spent/destroyed marked, real HP, fence remaining/on ring/
+  destroyed/packed). Fence placement on the 28 ring positions with the budget meter and
+  open positions reported per edge against the attacker's approach — never a warning.
+  Trap/post placement by drag or tap, the three-stance picker (QA D1), radii drawn while
+  dragging. Legality is the server's: no local `validateFormation`; the PUT/commit issue
+  lists are shown verbatim. Commit through a real modal (portal, inert shell, focus trap,
+  restore) that itemizes everything placed. Every payload shape-guarded → `bad_payload`.
+- **Chunk 06 QA conventions adopted:** payload guards, real modal, rem sizes, strings
+  externalized, no client-side derivation of server-decided validity.
+- **Seed / e2e plumbing:** `seed.ts` honours `SEED_USERNAME`/`SEED_PASSWORD`; `scripts/e2e.mjs`
+  seeds a run-unique account, packs via the API and opens the trip with chunk 14's
+  `createTrip` SQL (the trip route is chunk 15's), then runs the Playwright flow on the
+  real WebGL canvas: search → scout each candidate → countdown visible → choose → drag a
+  fence and a rider → Hold → tap-place → save → commit a 27-gap circle → server agrees →
+  reload shows it locked.
+
+**Test output:** `pnpm --filter @caravan/web test` → 8 files, 47 tests passing;
+`pnpm --filter @caravan/web typecheck` and `pnpm build` clean (486 kB JS / 154 kB gzip
+incl. PixiJS); `pnpm e2e` against a migrated `caravan_dev_c08` → 2 passed (smoke 1.0s,
+formation 15.7s); root `pnpm typecheck`, `pnpm lint`, `pnpm test:boundary` clean;
+`pnpm --filter @caravan/server test` against `caravan_test_c08` → 24 files, 448 tests.
+
+**Not built / flags:** FORMATION_PRESETS deferred (drafts are re-savable). Posted-unit
+defense shown merge-scaled to match `toBattlefield`. The canvas is sticky with
+`scroll-margin-top` on the screen's content so nothing scrolls under it. The `window.__isoDebug`
+handle is a test hook (harmless in production). Pointer capture is deliberately NOT taken
+on tray drags: capture re-targets the pointer-up and the browser then fires a `click` on
+the chip, undoing the drop's selection. `pnpm e2e` leaves one `e2e_formation_*` account per
+run in the e2e database.
+
+**Next:** adversarial QA against the chunk checklist — field-by-field scout coverage against
+`PartyScoutView`, "has it drifted into a set-and-forget base editor" (it is per encounter,
+keyed by the chosen candidate), gap framing, no blended power number, no Coin surface, and
+the direct-API bypasses chunk 07/14 cover server-side.

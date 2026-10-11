@@ -105,7 +105,7 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
       const st = formation.posts.find((p) => p.ref === drag.ref)?.stance ?? "guard";
       return { aggroRadius: c.aggroRadius, leashDistance: c.leashDistance, attackRange: c.attackRange, stance: st };
     })();
-    const usedEdges = [...new Set(scout.party.units.map((u) => u.entry.edge))];
+    const usedEdges = [...scout.scout.edges];
     const siegeByEdge = new Map<string, number>();
     return {
       fences: formation.fences.flatMap((p) => {
@@ -135,20 +135,21 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
           },
         ];
       }),
-      attackers: scout.party.units.map((u) => ({
+      attackers: scout.scout.units.map((u) => ({
         id: u.ref,
-        pos: cellToWorld(u.entry.cell),
+        pos: cellToWorld(u.cell),
         typeId: u.typeId,
         mergeLevel: u.mergeLevel,
         stance: u.stance,
-        hpFraction: u.maxHp > 0 ? u.hp / u.maxHp : 0,
+        // A standing party is a template: it always arrives whole.
+        hpFraction: 1,
       })),
-      siege: scout.party.siege.map((s) => {
+      siege: scout.scout.siege.map((s) => {
         // Siege has no cell in the model; draw it beside the edge most of the party uses, spaced out.
         const edge = usedEdges[0] ?? "north";
         const n = siegeByEdge.get(edge) ?? 0;
         siegeByEdge.set(edge, n + 1);
-        return { id: s.ref, typeId: s.typeId, edge, along: 0.3 + n * 0.12 };
+        return { id: s.typeId, typeId: s.typeId, edge, along: 0.3 + n * 0.12 };
       }),
       drag:
         drag && kindOfRef(manifest, drag.ref)
@@ -171,7 +172,7 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
 
   const budget = fenceBudget(manifest, formation);
   const gaps = formationGaps(formation).length;
-  const reports = edgeReports(manifest, formation, scout.party);
+  const reports = edgeReports(manifest, formation, scout.scout);
 
   // ── drags that start in the tray ────────────────────────────────────────────────────
   const dragRef = useRef<Drag | null>(null);
@@ -385,7 +386,10 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
       {/* The full scouting report sits above the commit controls: nothing is committed without it on screen. */}
       <details open className="scout-details">
         <summary className="btn btn--block">{T.scoutHeading}</summary>
-        <ScoutPanel encounter={scout} />
+        <p data-testid="facing-line">
+          {T.chosenLine(scout.owner.displayName)} {T.candidateRating(scout.reputation.rating, scout.reputation.band.low, scout.reputation.band.high)}
+        </p>
+        <ScoutPanel scout={scout.scout} source={scout.source} />
       </details>
 
       {serverIssues.length > 0 && (
