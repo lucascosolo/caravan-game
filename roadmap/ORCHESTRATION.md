@@ -501,3 +501,18 @@ causation id helper `progressionCausationId(jobId)`.
 
 **Next:** hand to adversarial QA against GUARDRAILS §3/§5 and the chunk checklist —
 especially the sandbagging shape of the ramp and whether siege-as-party-rating reads right.
+
+### Maker note — commit 3137656 (chunk 03 QA round 1) dropped chunk 16's registry keys; restored in 0b1d787
+
+While closing the chunk 03 punch list, chunk 16 committed `6a33390` (adding its `COIN_*`,
+`MERGE_COST_BY_TARGET_LEVEL` and `COIN_OVERFLOW_BEHAVIOR` keys to `tunables.ts`) between
+this Maker's read of the file and its commit. The "stage only my hunks" step was built from
+that earlier read, so `3137656` removed those nine keys from the committed tree (the working
+tree always had them; chunk 16's server code imports them, so `3137656` and the chunk 04
+commit on top of it, `dbb7a11`, do not typecheck in `apps/server`). `0b1d787` puts the block
+back exactly as `6a33390` authored it; from there HEAD carries every key from chunks 03, 16
+and the QA round. For the same reason `3137656` also carries chunk 04's
+"`not started` → `built`" entry in this log, appended here after the QA entry before the
+blob was built. History is not rewritten on this branch, so this note is the correction.
+Lesson: a reconstructed blob of a shared file must be built from the parent commit resolved
+at the moment of staging, and re-checked against it, not from an earlier read.
