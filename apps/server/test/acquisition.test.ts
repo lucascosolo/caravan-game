@@ -703,11 +703,15 @@ describe("the unlock web is the only access gate (GUARDRAILS §3) — the centra
       const src = readFileSync(f, "utf8");
       expect(src, f).not.toMatch(/entitle|billing|purchase_record|coin_purchased|\bpacks?\b|premium|subscription|stripe/i);
     }
-    // The only writers of `unit_acquired` in src are acquisition/ (plus the vocabulary in ledger/events.ts).
+    // The only writers of `unit_acquired` in src are acquisition/ (plus the vocabulary in ledger/events.ts)
+    // and, since chunk 25 QA D3, the authored set's roster story — system accounts only, source
+    // "authored_set", types reached through spendUnlockPoints first (authored.test.ts checks access).
     const srcRoot = join(__dirname, "../src");
     const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(d, e.name)) : e.name.endsWith(".ts") ? [join(d, e.name)] : []));
     const writers = walk(srcRoot).filter((f) => /type:\s*["']unit_acquired["']/.test(readFileSync(f, "utf8")));
-    expect(writers.map((f) => f.replace(srcRoot, ""))).toEqual(["/acquisition/grant.ts"]);
+    expect(writers.map((f) => f.replace(srcRoot, "")).sort()).toEqual(["/acquisition/grant.ts", "/matchmaking/authored.ts"]);
+    const authored = readFileSync(join(srcRoot, "matchmaking/authored.ts"), "utf8");
+    expect(authored.match(/type:\s*["']unit_acquired["'][^}]*\}/g)?.every((m) => /source: "authored_set"/.test(m))).toBe(true);
   });
 });
 

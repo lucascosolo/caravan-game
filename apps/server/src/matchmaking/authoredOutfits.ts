@@ -3,6 +3,13 @@
  * system-owned cold-start parties. Pure data. Theming follows packages/content: Old West
  * settlers, outlaws, frontier industry and animals only — no Indigenous content.
  *
+ * HUMAN-REVIEWED LIST. Every name and flavour line here is shown to players and must be
+ * read by a person before it ships — a word-list test (matchmaking-pure.test.ts) catches
+ * the obvious, not the subtle: "Chinook Raiders" passed the first list (chunk 25 QA S7;
+ * Chinook is an Indigenous nation, and the chinook wind is named for it). Avoid place, wind
+ * and weather names borrowed from Indigenous languages or peoples; when unsure, pick
+ * another name. Add any word that slipped through to the test's list.
+ *
  * Grouped by the region whose roster the outfit rides with; `authoredPartySpecs()` assigns
  * them band-major (three per region per band). Adding a band (AUTHORED_REPUTATION_CEILING)
  * needs OUTFITS_PER_REGION_PER_BAND more names per region, and the specs refuse to build
@@ -53,7 +60,7 @@ export const AUTHORED_OUTFITS: Readonly<Record<RegionId, readonly AuthoredOutfit
     o("The Grange Riders", "A farmers' association that voted to stop asking nicely."),
     o("Railhead Rowdies", "Track gangs between contracts, with company tools and no company."),
     o("Drover's Rest Outfit", "They run the only roadhouse for fifty miles. The rates are theirs."),
-    o("Chinook Raiders", "A warm wind out of nowhere, gone before the snow remembers."),
+    o("Thaw Wind Raiders", "A warm wind out of nowhere, gone before the snow remembers."),
     o("Section Line Syndicate", "Surveyors who learned where every wagon has to pass."),
     o("Bluestem Brigade", "Hide in grass tall enough to lose a horse. You won't lose them."),
     o("Thunderhead Company", "The storm you watched coming all afternoon."),

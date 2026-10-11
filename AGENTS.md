@@ -154,9 +154,12 @@ chunk 09 and the matchmaking routes of chunk 14 (`POST /me/caravans/:id/encounte
 `GET …/candidates`, `POST …/choose`). `pnpm db:seed` also creates the authored cold-start
 parties (`src/matchmaking/authored.ts`, chunk 25: 12 per Reputation band, bands 0–7, owned
 by `sys_outfit_*` system accounts that cannot log in or hold Coin), so a fresh database
-serves three scoutable candidates at every band from the first search. Migration 009 refuses
-to roll back while system accounts exist: `DELETE FROM account WHERE is_system` first if a
-`db:reset` of a seeded database is really wanted (the test suite does this itself).
+serves three scoutable candidates at every band from the first search. Migrations 011 and 009
+refuse to roll back while system accounts exist, and a multi-step `db:rollback N` or
+`db:reset` runs every down step in ONE transaction, so a refusal rolls back nothing. Before
+a `db:reset` (or a rollback past 011) of a seeded database, run
+`DELETE FROM account WHERE is_system` as the owner role, then `pnpm db:reset && pnpm db:seed`
+(the test suite empties `account` itself before its reset).
 
 **Web client** (`apps/web`, chunk 06 scaffold): Vite + React 18 + TypeScript strict. A
 typed `fetch` wrapper (`src/api/client.ts`) carries the bearer token from in-memory session

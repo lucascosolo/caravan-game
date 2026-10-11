@@ -485,6 +485,15 @@ export const TUNABLES = {
    * menu at the widest pass. Releases by itself as live parties are served.
    */
   AUTHORED_OVER_SHARE_WEIGHT_BP: 2500,
+  /**
+   * TUNABLE (chunk 25 QA D1/D2). Cold-start fairness: when authored parties FILL a menu (the
+   * widest pass, and the outside-band fallback), they are drawn seeded from the N nearest
+   * the band centre (ties by party id), never from the whole widest band — so a fresh
+   * player at 1000 meets parties about a band away at most, and rerolls above the authored
+   * ceiling still vary. Stored with each menu (encounter_candidates.draw_rules) so a change
+   * never alters a replay.
+   */
+  AUTHORED_FILL_NEAREST_N: 6,
 
   // ────────────────────────────────────────────────────────────────────────────────────
   // Chunk 16 — Coin economy and merge pricing. Coin buys PACE only (GUARDRAILS §2): nothing

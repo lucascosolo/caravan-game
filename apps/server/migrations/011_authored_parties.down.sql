@@ -1,5 +1,19 @@
+-- Chunk 25 QA S1: rolling this migration back would drop the is_system guards (the flag
+-- could be cleared, a system account could be credited Coin) while the system accounts
+-- still exist. Refuse, exactly like 009: delete them first (DELETE FROM account WHERE
+-- is_system) if the rollback is really wanted. migrate.ts runs a multi-step rollback in one
+-- transaction, so this refusal leaves every migration applied.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM account WHERE is_system) THEN
+    RAISE EXCEPTION 'migration 011 cannot be rolled back while system (is_system) accounts exist; delete them first (DELETE FROM account WHERE is_system)'
+      USING ERRCODE = 'check_violation';
+  END IF;
+END
+$$;
 DROP TABLE IF EXISTS authored_party;
-DROP INDEX IF EXISTS encounter_candidates_chosen_centre_idx;
+DROP INDEX IF EXISTS account_system_idx;
+DROP INDEX IF EXISTS encounter_candidates_band_chosen_idx;
 CREATE OR REPLACE FUNCTION encounter_candidates_guard_update() RETURNS trigger AS $$
 BEGIN
   IF NEW.trip_id <> OLD.trip_id OR NEW.encounter_index <> OLD.encounter_index OR NEW.search_seq <> OLD.search_seq
@@ -18,6 +32,11 @@ BEGIN
 END
 $$ LANGUAGE plpgsql;
 ALTER TABLE encounter_candidates DROP CONSTRAINT IF EXISTS encounter_candidates_authored_served_is_object;
+ALTER TABLE encounter_candidates DROP CONSTRAINT IF EXISTS encounter_candidates_band_nonneg;
+ALTER TABLE encounter_candidates DROP CONSTRAINT IF EXISTS encounter_candidates_draw_rules_is_object;
+ALTER TABLE encounter_candidates DROP COLUMN IF EXISTS authored_weighted_down;
+ALTER TABLE encounter_candidates DROP COLUMN IF EXISTS draw_rules;
+ALTER TABLE encounter_candidates DROP COLUMN IF EXISTS band;
 ALTER TABLE encounter_candidates DROP COLUMN IF EXISTS authored_served;
 DROP TRIGGER IF EXISTS ledger_event_guard_system_coin ON ledger_event;
 DROP FUNCTION IF EXISTS ledger_event_guard_system_coin();

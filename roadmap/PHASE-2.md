@@ -180,16 +180,12 @@ content engine never starts.
 scoutable candidates at every band, and the resolver's inputs for an authored encounter
 are indistinguishable in shape from a live one.
 
-**QA checks.** Guardrail 1: is the authored pool selection seeded from stored state?
-Is an authored party indistinguishable to the resolver and to matchmaking's draw (same
-row type, same snapshot shape, nothing in the resolver input marks it), while being
-**visibly labelled to the player** (`owner.authored: true` on the candidate; legibility
-beats disguise — chunk 14 QA D3)?
-**QA checks.** Guardrail 1: is the authored pool selection seeded from stored state? Can
-a player tell an authored party from a live one anywhere other than the owner name?
-(Chunk 14 QA D3 amends the second check to: indistinguishable to the resolver and to
-matchmaking's draw; visibly labelled to the player — `owner.authored` stays published,
-legibility beats disguise.)
+**QA checks.** Guardrail 1: is the authored pool selection seeded from stored state? Is
+an authored party indistinguishable to the resolver and to matchmaking's draw (same row
+type, same snapshot shape, nothing in the resolver input marks it), while being **visibly
+labelled to the player** (`owner.authored: true` and the outfit's name on the candidate;
+legibility beats disguise — chunk 14 QA D3 amended the original "can a player tell an
+authored party from a live one" check to this)?
 
 **Status: built** (2026-10-11). 96 authored parties — 12 per display band, bands 0–7
 (`REPUTATION_FLOOR` 100 to `AUTHORED_REPUTATION_CEILING` 2200, both tunables; the band
@@ -203,10 +199,15 @@ stages: chunk 14's draw-pool cap, plus the served-encounter share per band over 
 rolling window of chosen candidates (`AUTHORED_SERVED_SHARE_WINDOW` 40,
 `AUTHORED_OVER_SHARE_WEIGHT_BP` 2500), counted from `encounter_candidates`, stored on
 the menu row, replayable. System accounts: login refused, `is_system` permanent
-(migration 010 trigger), prefix reserved at registration, zero Coin, every credit path
+(migration 011 trigger), prefix reserved at registration, zero Coin, every credit path
 refuses (`SystemAccountCreditError` + ledger trigger). `seedAuthoredParties` is
 idempotent and versioned (`AUTHORED_SET_VERSION`, `authored_party` table) and updates a
 changed party in place. Closes chunk 14 QA B1, B2, S4, S5, N1, N2. See ORCHESTRATION.md.
+QA round 1 (`roadmap/qa/25-punchlist.md`) closed: authored parties that FILL a menu come
+seeded from the `AUTHORED_FILL_NEAREST_N` (6) nearest the centre (cold-start fairness, D1/D2),
+the served-share weight applies to the authored count actually eligible (S3), menus store
+their band, draw rules and weighted flag (S4, N2) and only the pool the draw could pick (S5),
+authored rosters are ledger events (D3), and no account id reaches the client (D4).
 
 ## 26. Art and animation asset pipeline — **L**, parallel with 08, lands before 17
 

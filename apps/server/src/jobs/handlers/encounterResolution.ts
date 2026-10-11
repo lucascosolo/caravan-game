@@ -84,6 +84,21 @@ export async function enqueueEncounterResolution(
   if (input.party.ownerAccountId !== input.partyOwnerAccountId) {
     throw new Error(`party snapshot belongs to account ${input.party.ownerAccountId}, not ${input.partyOwnerAccountId}`);
   }
+  // Chunk 25 QA N1: when matchmaking stored a CHOSEN candidate for this encounter, that
+  // candidate's snapshot is the only party this encounter may be fought against — the
+  // input must equal it byte for byte (canonical JSON), owner included. Callers without a
+  // chosen row (chunk 02's own tests, which take their own snapshot) are unaffected.
+  const chosen = await client.query<{ snapshot: Json; owner_account_id: string | null }>(
+    `SELECT c -> 'snapshot' AS snapshot, c -> 'owner' ->> 'accountId' AS owner_account_id
+       FROM encounter_candidates ec CROSS JOIN LATERAL jsonb_array_elements(ec.candidates) c
+      WHERE ec.trip_id::text = $1 AND ec.encounter_index = $2 AND ec.chosen_at IS NOT NULL
+        AND c ->> 'candidateId' = ec.chosen_candidate_id`,
+    [input.tripId, input.encounterIndex],
+  );
+  const chosenRow = chosen.rows[0];
+  if (chosenRow && (canonicalJson(chosenRow.snapshot) !== canonicalJson(input.party as unknown as Json) || chosenRow.owner_account_id !== input.partyOwnerAccountId)) {
+    throw new Error(`encounter ${id}: the party snapshot is not the chosen candidate's; a chosen encounter is fought only against the snapshot the defender scouted`);
+  }
   const party = input.party;
   const jobInput: EncounterJobInput = {
     tripId: input.tripId,

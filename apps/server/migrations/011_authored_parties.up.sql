@@ -20,6 +20,19 @@
 --       with the menu so the draw replays from the row alone (GUARDRAILS §1). NULL on rows
 --       written before this migration (replay treats it as "not weighted"). Immutable like
 --       every other replay input (the update guard is redefined to cover it).
+--
+--   encounter_candidates.band / draw_rules / authored_weighted_down (chunk 25 QA S4, N2)
+--       `band` is the display band of the search centre, so the served-share query walks
+--       one index range per band instead of a centre range; `draw_rules` holds the
+--       authored-draw tunables the menu was drawn under ({maxShareBp, overShareWeightBp,
+--       fillNearestN}) and `authored_weighted_down` whether the served-share weight changed
+--       that draw, so retuning a number never changes what an old row replays to. NULL only
+--       on rows written before this migration. Immutable.
+--
+--   account_system_idx (chunk 25 QA S5)
+--       The matchmaking pool scan is a UNION ALL of the live parties in the reputation
+--       range (pool_progress (pool, reputation)) and the system accounts' parties (this
+--       partial index), so neither branch scans the whole party table.
 
 -- ---------------------------------------------------------------------------------
 CREATE FUNCTION account_guard_is_system() RETURNS trigger AS $$
@@ -61,8 +74,14 @@ CREATE TRIGGER ledger_event_guard_system_coin
 -- ---------------------------------------------------------------------------------
 ALTER TABLE encounter_candidates
   ADD COLUMN authored_served jsonb,
+  ADD COLUMN band integer,
+  ADD COLUMN draw_rules jsonb,
+  ADD COLUMN authored_weighted_down boolean,
   ADD CONSTRAINT encounter_candidates_authored_served_is_object
-    CHECK (authored_served IS NULL OR jsonb_typeof(authored_served) = 'object');
+    CHECK (authored_served IS NULL OR jsonb_typeof(authored_served) = 'object'),
+  ADD CONSTRAINT encounter_candidates_band_nonneg CHECK (band IS NULL OR band >= 0),
+  ADD CONSTRAINT encounter_candidates_draw_rules_is_object
+    CHECK (draw_rules IS NULL OR jsonb_typeof(draw_rules) = 'object');
 
 CREATE OR REPLACE FUNCTION encounter_candidates_guard_update() RETURNS trigger AS $$
 BEGIN
@@ -71,7 +90,8 @@ BEGIN
      OR NEW.band_width_used <> OLD.band_width_used OR NEW.pool <> OLD.pool
      OR NEW.excluded_party_ids <> OLD.excluded_party_ids OR NEW.skipped_party_ids <> OLD.skipped_party_ids
      OR NEW.candidates <> OLD.candidates OR NEW.searched_at_ms <> OLD.searched_at_ms OR NEW.created_at <> OLD.created_at
-     OR NEW.authored_served IS DISTINCT FROM OLD.authored_served THEN
+     OR NEW.authored_served IS DISTINCT FROM OLD.authored_served OR NEW.band IS DISTINCT FROM OLD.band
+     OR NEW.draw_rules IS DISTINCT FROM OLD.draw_rules OR NEW.authored_weighted_down IS DISTINCT FROM OLD.authored_weighted_down THEN
     RAISE EXCEPTION 'encounter_candidates (trip %, encounter %, search %) is a stored menu and is immutable', OLD.trip_id, OLD.encounter_index, OLD.search_seq
       USING ERRCODE = 'check_violation';
   END IF;
@@ -83,8 +103,13 @@ BEGIN
 END
 $$ LANGUAGE plpgsql;
 
--- The served-share query walks chosen rows newest first, within a band of centres.
-CREATE INDEX encounter_candidates_chosen_centre_idx ON encounter_candidates (centre, chosen_at DESC) WHERE chosen_at IS NOT NULL;
+-- The served-share query walks one band's chosen rows newest first, in its total order
+-- (chosen_at DESC, trip_id, encounter_index DESC), and stops after the window (QA S4).
+CREATE INDEX encounter_candidates_band_chosen_idx
+  ON encounter_candidates (band, chosen_at DESC, trip_id, encounter_index DESC) WHERE chosen_at IS NOT NULL;
+
+-- The pool scan's system branch (QA S5): every system account, without a scan of account.
+CREATE INDEX account_system_idx ON account (id) WHERE is_system;
 
 -- ---------------------------------------------------------------------------------
 -- The content-drop hook's bookkeeping: which version of the authored set each system
