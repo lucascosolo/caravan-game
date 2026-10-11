@@ -175,13 +175,13 @@ describe("PartyScreen — QA-17", () => {
   });
 
   it("N3: feed outcomes are worded for the player, never the raw kind", async () => {
-    const partyFeed = vi.fn(async () => ({ entries: [entry(3, "placeholder_unresolved"), entry(2, "core_overrun"), entry(1, "something_new")], nextBefore: 0, hasMore: false }));
+    const partyFeed = vi.fn(async () => ({ entries: [entry(3, "placeholder_unresolved"), entry(2, "caravan_overrun"), entry(1, "something_new")], nextBefore: 0, hasMore: false }));
     render(<PartyScreen api={api({ partyFeed })} />);
     const feed = await screen.findByTestId("party-feed");
     await within(feed).findByText("Outcome: not fought out yet");
     expect(feed).toHaveTextContent("Outcome: your party overran the caravan");
     expect(feed).toHaveTextContent("Outcome: recorded");
-    expect(feed.textContent).not.toMatch(/placeholder_unresolved|core_overrun|something_new/);
+    expect(feed.textContent).not.toMatch(/placeholder_unresolved|caravan_overrun|something_new/);
   });
 
   it("S7: the siege toggle labels are at least a touch target tall", async () => {
