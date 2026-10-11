@@ -70,7 +70,7 @@ async function grant(p: Player, pool: UnlockPool, points: number, caravanId: str
     const n = (rungCounters[key] = (rungCounters[key] ?? 0) + 1);
     const rung = 21 - n;
     if (rung < 1) throw new Error(`test fixture: more than 20 grants for ${key}`);
-    await appendEvents(c, `test:grant:${p.accountId}:${pool}:${rung}`, [
+    await appendEvents(c, `test:grant:${key}:${rung}`, [
       { type: "unlock_points_granted", accountId: p.accountId, caravanId: pool === "living" ? caravanId : null, payload: { pool, points, rung } },
     ]);
   });
