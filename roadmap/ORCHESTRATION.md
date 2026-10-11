@@ -1940,3 +1940,12 @@ parties ≈ 7.5 s), `matchmaking-pure.test.ts` 21. `pnpm typecheck`, `pnpm lint`
 **Next:** adversarial QA of chunk 25 against GUARDRAILS §0/§1/§3 and PHASE-2 §25's checks
 (amended per 14-D3); chunk 24 (onboarding) and chunk 19 (destroy Coin lost to `is_system`
 owners) build on this.
+
+### Orchestrator note — model switch after a rate limit
+
+The session's model limit was reached mid-batch; four agents stopped (chunk 17 Maker, chunk 20
+fixer, chunk 08 and chunk 11 reviewers). The session moved to a different model. The two
+Makers were relaunched inside their existing worktrees so their uncommitted work carries over;
+the two reviews restarted from scratch because they had only begun reading. Commits from here
+on carry the new model's Co-Authored-By trailer. Chunk 25 merged at ecbc300 with its authored
+migration renumbered to 011 (010 is the store).
