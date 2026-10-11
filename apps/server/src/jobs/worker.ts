@@ -86,19 +86,27 @@ export function dryRunJob(handlers: HandlerRegistry, job: ResolutionJobRow): Han
 
 /**
  * A job enqueued against one resolver version must not be resolved by another (GUARDRAILS
- * §1: the replay is only meaningful against the resolver that produced it). Retryable, so
- * a worker running the right version can still pick it up during a rolling deploy.
+ * §1: the replay is only meaningful against the resolver that produced it). The version
+ * is REQUIRED (QA-02 R2-S1): a missing, null, non-integer or string version is a mismatch,
+ * never a wildcard. Defense in depth: the lease already filters on the version (R2-S2) and
+ * the schema refuses a job without one, so this fires only if one of those is bypassed.
+ * Retryable, so a worker running the right version can still pick the job up.
  */
 export function assertResolverVersionMatches(job: ResolutionJobRow): void {
   const expected = (job.input as JsonObject)["resolverVersion"];
-  if (expected !== undefined && expected !== RESOLVER_VERSION) {
+  if (typeof expected !== "number" || !Number.isInteger(expected)) {
+    throw new Error(
+      `resolver version mismatch: job ${job.id} has no integer input.resolverVersion (got ${JSON.stringify(expected)}), this worker runs v${RESOLVER_VERSION}`,
+    );
+  }
+  if (expected !== RESOLVER_VERSION) {
     throw new Error(`resolver version mismatch: job ${job.id} was enqueued for resolver v${String(expected)}, this worker runs v${RESOLVER_VERSION}`);
   }
 }
 
-/** Lease and run at most one job. */
+/** Lease and run at most one job. Leases only jobs enqueued for this process's RESOLVER_VERSION (QA-02 R2-S2). */
 export async function runOnce(pool: pg.Pool, opts: WorkerOptions): Promise<RunOutcome> {
-  const leased = await leaseNextJob(pool, opts.workerId, opts.visibilityTimeoutMs ?? JOB_VISIBILITY_TIMEOUT_MS);
+  const leased = await leaseNextJob(pool, opts.workerId, opts.visibilityTimeoutMs ?? JOB_VISIBILITY_TIMEOUT_MS, RESOLVER_VERSION);
   if (!leased) return { kind: "idle" };
   const fence: LeaseFence = { workerId: opts.workerId, attempts: leased.attempts };
   const backoff = opts.retryBackoffMs ?? retryBackoffMs;

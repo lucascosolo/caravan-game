@@ -75,3 +75,33 @@ BEGIN
   EXECUTE format('GRANT UPDATE (%s) ON TABLE pool_progress TO caravan_app', cols);
 END
 $$;
+
+-- ---------------------------------------------------------------------------------
+-- Job status moves only through the owner's writers (QA-02 R2-S3)
+-- ---------------------------------------------------------------------------------
+-- resolution_job.status, the lease (leased_by, lease_expires_at), the attempt counter that
+-- fences completion, and the requeue audit columns are written only by the SECURITY
+-- DEFINER functions resolution_job_{lease,complete,fail,park,requeue} (migration 002),
+-- which run as the owner. The app role keeps UPDATE on the remaining columns (the guard
+-- trigger still polices those) and EXECUTE on the writers. Same catalog-driven pattern as
+-- above, so a later column needs no edit here.
+REVOKE UPDATE ON TABLE resolution_job FROM caravan_app;
+DO $$
+DECLARE
+  cols text;
+BEGIN
+  SELECT string_agg(quote_ident(column_name), ', ' ORDER BY ordinal_position) INTO cols
+    FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'resolution_job'
+     AND column_name NOT IN ('status', 'leased_by', 'attempts', 'lease_expires_at',
+                             'requeued_at', 'requeued_by', 'requeue_count');
+  EXECUTE format('GRANT UPDATE (%s) ON TABLE resolution_job TO caravan_app', cols);
+END
+$$;
+GRANT EXECUTE ON FUNCTION
+  resolution_job_lease(text, integer, integer),
+  resolution_job_complete(text, jsonb, text, integer),
+  resolution_job_fail(text, integer, text, integer, text),
+  resolution_job_park(text, integer, text, text),
+  resolution_job_requeue(text, integer, text)
+TO caravan_app;

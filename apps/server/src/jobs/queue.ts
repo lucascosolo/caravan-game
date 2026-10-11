@@ -13,7 +13,22 @@
  * the transaction rolls back, nothing is written. The next lease (or the operator) gets
  * the job. Parked is terminal for workers; only `requeueParkedJob` moves it, back to
  * 'queued'. The attempt counter fences failure bookkeeping the same way.
+ *
+ * STATUS WRITERS (QA-02 R2-S3). lease / complete / fail / park / requeue are thin calls to
+ * the SECURITY DEFINER SQL functions resolution_job_{lease,complete,fail,park,requeue}
+ * (migration 002). The app role has no UPDATE privilege on status, the lease, attempts or
+ * the requeue audit columns (db/roles.sql), so these functions are the only way a job's
+ * state moves, and the guard trigger checks every transition they make. Each runs inside
+ * the caller's transaction; a row lock a writer takes is held to COMMIT, exactly as the
+ * inline UPDATEs they replaced.
+ *
+ * VERSION-SCOPED LEASING (QA-02 R2-S2). A lease is for one resolver version: the worker
+ * passes the version it runs, and the lease only ever returns jobs enqueued for exactly
+ * that version. A job for another version is invisible to this worker — never leased,
+ * never charged an attempt, never parked — so a rolling deploy with mixed versions is
+ * safe. Every job carries input.resolverVersion (CHECK, QA-02 R2-S1).
  */
+import { RESOLVER_VERSION } from "@caravan/resolver";
 import type pg from "pg";
 import type { Queryable } from "../db/pool.js";
 import type { JobStatus, ResolutionJobRow } from "../db/types.js";
@@ -103,42 +118,27 @@ export async function getJob(db: Queryable, id: string): Promise<ResolutionJobRo
 }
 
 /**
- * Lease the next ready job, oldest first: queued and past its next_attempt_at, or leased
- * with an expired lease. SKIP LOCKED lets any number of workers call this concurrently
- * without serializing on each other. Returns null when nothing is ready. A job whose
- * lease would exceed max_attempts is parked instead and the search continues.
+ * Lease the next ready job for a worker running `resolverVersion` (default: this
+ * process's RESOLVER_VERSION), oldest first: queued and past its next_attempt_at, or
+ * leased with an expired lease, and enqueued for exactly that version (QA-02 R2-S2).
+ * SKIP LOCKED lets any number of workers call this concurrently without serializing on
+ * each other. Returns null when nothing is ready. A job whose lease would exceed
+ * max_attempts is parked instead (with no worker recorded, QA-02 R2-N1) and the search
+ * continues. Lease expiry is clock_timestamp()-based (QA-02 R2-N2), like the fence.
  */
 export async function leaseNextJob(
   db: Queryable,
   workerId: string,
   visibilityTimeoutMs: number = JOB_VISIBILITY_TIMEOUT_MS,
+  resolverVersion: number = RESOLVER_VERSION,
 ): Promise<ResolutionJobRow | null> {
-  // Loop only to skip over rows that get parked on this pass.
-  for (;;) {
-    const res = await db.query<ResolutionJobRow>(
-      `WITH next AS (
-         SELECT id FROM resolution_job
-         WHERE (status = 'queued' AND next_attempt_at <= now())
-            OR (status = 'leased' AND lease_expires_at < now())
-         ORDER BY created_at, id
-         FOR UPDATE SKIP LOCKED
-         LIMIT 1
-       )
-       UPDATE resolution_job j SET
-         attempts         = j.attempts + 1,
-         status           = CASE WHEN j.attempts + 1 > j.max_attempts THEN 'parked'::job_status ELSE 'leased'::job_status END,
-         leased_by        = $1,
-         lease_expires_at = CASE WHEN j.attempts + 1 > j.max_attempts THEN NULL ELSE now() + ($2::int * interval '1 millisecond') END,
-         last_error       = CASE WHEN j.attempts + 1 > j.max_attempts THEN coalesce(j.last_error, 'lease expired') ELSE j.last_error END
-       FROM next WHERE j.id = next.id
-       RETURNING j.*`,
-      [workerId, visibilityTimeoutMs],
-    );
-    const row = res.rows[0];
-    if (!row) return null;
-    if (row.status === "leased") return row;
-    // parked on this pass; look for another
-  }
+  if (!Number.isInteger(resolverVersion)) throw new RangeError("resolverVersion must be an integer");
+  const res = await db.query<ResolutionJobRow>("SELECT * FROM resolution_job_lease($1, $2::int, $3::int)", [
+    workerId,
+    visibilityTimeoutMs,
+    resolverVersion,
+  ]);
+  return res.rows[0] ?? null;
 }
 
 /**
@@ -163,14 +163,12 @@ export async function lockJobForCompletion(client: pg.PoolClient, jobId: string,
 
 /** Record completion. Fenced like lockJobForCompletion; throws if the fence no longer holds. */
 export async function markJobCompleted(client: pg.PoolClient, jobId: string, result: JsonObject, fence: LeaseFence): Promise<ResolutionJobRow> {
-  const res = await client.query<ResolutionJobRow>(
-    `UPDATE resolution_job SET status = 'completed', result = $2::jsonb, completed_at = now(),
-       lease_expires_at = NULL, last_error = NULL
-     WHERE id = $1 AND status = 'leased' AND leased_by = $3 AND attempts = $4
-       AND lease_expires_at > clock_timestamp()
-     RETURNING *`,
-    [jobId, canonicalJson(result), fence.workerId, fence.attempts],
-  );
+  const res = await client.query<ResolutionJobRow>("SELECT * FROM resolution_job_complete($1, $2::jsonb, $3, $4::int)", [
+    jobId,
+    canonicalJson(result),
+    fence.workerId,
+    fence.attempts,
+  ]);
   const row = res.rows[0];
   if (!row) throw new Error(`job ${jobId}: completion fence lost (lease expired or re-leased); nothing committed`);
   return row;
@@ -195,16 +193,13 @@ export async function markJobFailed(
   opts: { workerId?: string; backoffMs?: number } = {},
 ): Promise<ResolutionJobRow | null> {
   const backoff = opts.backoffMs ?? retryBackoffMs(fenceAttempt);
-  const res = await db.query<ResolutionJobRow>(
-    `UPDATE resolution_job SET
-       status = CASE WHEN attempts >= max_attempts THEN 'parked'::job_status ELSE 'queued'::job_status END,
-       lease_expires_at = NULL,
-       next_attempt_at = now() + ($4::int * interval '1 millisecond'),
-       last_error = $3
-     WHERE id = $1 AND status = 'leased' AND attempts = $2 AND ($5::text IS NULL OR leased_by = $5)
-     RETURNING *`,
-    [jobId, fenceAttempt, error.slice(0, 2000), backoff, opts.workerId ?? null],
-  );
+  const res = await db.query<ResolutionJobRow>("SELECT * FROM resolution_job_fail($1, $2::int, $3, $4::int, $5::text)", [
+    jobId,
+    fenceAttempt,
+    error.slice(0, 2000),
+    Math.max(0, Math.round(backoff)),
+    opts.workerId ?? null,
+  ]);
   return res.rows[0] ?? null;
 }
 
@@ -216,34 +211,37 @@ export async function markJobParked(
   error: string,
   opts: { workerId?: string } = {},
 ): Promise<ResolutionJobRow | null> {
-  const res = await db.query<ResolutionJobRow>(
-    `UPDATE resolution_job SET status = 'parked', lease_expires_at = NULL, last_error = $3
-     WHERE id = $1 AND status = 'leased' AND attempts = $2 AND ($4::text IS NULL OR leased_by = $4)
-     RETURNING *`,
-    [jobId, fenceAttempt, error.slice(0, 2000), opts.workerId ?? null],
-  );
+  const res = await db.query<ResolutionJobRow>("SELECT * FROM resolution_job_park($1, $2::int, $3, $4::text)", [
+    jobId,
+    fenceAttempt,
+    error.slice(0, 2000),
+    opts.workerId ?? null,
+  ]);
   return res.rows[0] ?? null;
 }
+
+/** Who a requeue is recorded as when the caller does not say (QA-02 R2-S3). */
+export const DEFAULT_REQUEUED_BY = "operator";
 
 /**
  * Operator path (QA-02 B1c): put a parked job back in the queue. The attempt counter
  * never decreases (trigger), so the budget is extended instead: max_attempts becomes
  * attempts + extraAttempts (default JOB_MAX_ATTEMPTS). last_error is kept for the record
- * until the next attempt overwrites it. Returns null unless the job is parked.
+ * until the next attempt overwrites it. The row records who did it and when
+ * (requeued_by / requeued_at / requeue_count, QA-02 R2-S3); pass `requeuedBy` to name
+ * the operator. Returns null unless the job is parked, so a concurrent double requeue
+ * hands the row to exactly one caller.
  */
 export async function requeueParkedJob(
   db: Queryable,
   jobId: string,
-  opts: { extraAttempts?: number } = {},
+  opts: { extraAttempts?: number; requeuedBy?: string } = {},
 ): Promise<ResolutionJobRow | null> {
   const extra = opts.extraAttempts ?? JOB_MAX_ATTEMPTS;
   if (!Number.isInteger(extra) || extra < 1) throw new RangeError("extraAttempts must be a positive integer");
-  const res = await db.query<ResolutionJobRow>(
-    `UPDATE resolution_job SET status = 'queued', max_attempts = attempts + $2, next_attempt_at = now(),
-       leased_by = NULL, lease_expires_at = NULL
-     WHERE id = $1 AND status = 'parked' RETURNING *`,
-    [jobId, extra],
-  );
+  const by = opts.requeuedBy ?? DEFAULT_REQUEUED_BY;
+  if (typeof by !== "string" || by.length === 0) throw new RangeError("requeuedBy must be a non-empty string");
+  const res = await db.query<ResolutionJobRow>("SELECT * FROM resolution_job_requeue($1, $2::int, $3)", [jobId, extra, by]);
   return res.rows[0] ?? null;
 }
 

@@ -40,13 +40,27 @@ N4. [closed] Move src/jobs/tunables.ts constants into a documented server-side i
 
 # Round 2 — B1 re-check (commit e139871): B1 holds. Remaining:
 
+Round 2 closed by the Maker (see ORCHESTRATION.md "chunk 02 QA round 2 closed"); every
+item is `[closed]` with its regression in `apps/server/test/qa02-round2.test.ts` (the
+probe's reproductions) unless noted.
+
 ## Should-fix
-R2-S1. worker.ts:93-94 treats a *missing* `input.resolverVersion` as a match. Require the key; add CHECK `resolution_job.input ? 'resolverVersion'` with `jsonb_typeof = 'number'` in migration 002.
-R2-S2. A wrong-version worker leases the job and burns attempts; during a rolling deploy old workers park every new-version job. `leaseNextJob` takes `resolverVersion` and filters `(input->>'resolverVersion')::int = $n` so skewed workers never lease it.
-R2-S3. `requeueParkedJob` writes no audit and the app role can do the same with raw UPDATE. Add `requeued_at`/`requeued_by`/`requeue_count` columns set by the function; REVOKE UPDATE(status) from caravan_app and make the lease/complete/fail/park/requeue status writers SECURITY DEFINER SQL functions (owner), so status changes only flow through them.
-R2-S4. Transition trigger permits what the fence forbids. Defense in depth: `completed` requires `OLD.status='leased'`; a new lease (`leased` from non-leased, or a changed `leased_by`) requires `NEW.attempts > OLD.attempts`; `status<>'queued' OR max_attempts >= attempts`.
+R2-S1. [closed] worker.ts:93-94 treats a *missing* `input.resolverVersion` as a match. Require the key; add CHECK `resolution_job.input ? 'resolverVersion'` with `jsonb_typeof = 'number'` in migration 002.
+R2-S2. [closed] A wrong-version worker leases the job and burns attempts; during a rolling deploy old workers park every new-version job. `leaseNextJob` takes `resolverVersion` and filters `(input->>'resolverVersion')::int = $n` so skewed workers never lease it.
+R2-S3. [closed] `requeueParkedJob` writes no audit and the app role can do the same with raw UPDATE. Add `requeued_at`/`requeued_by`/`requeue_count` columns set by the function; REVOKE UPDATE(status) from caravan_app and make the lease/complete/fail/park/requeue status writers SECURITY DEFINER SQL functions (owner), so status changes only flow through them.
+R2-S4. [closed] Transition trigger permits what the fence forbids. Defense in depth: `completed` requires `OLD.status='leased'`; a new lease (`leased` from non-leased, or a changed `leased_by`) requires `NEW.attempts > OLD.attempts`; `status<>'queued' OR max_attempts >= attempts`.
 
 ## Nits
-R2-N1. Park-on-exhaustion sets `leased_by` to a worker that never ran it; set NULL.
-R2-N2. `leaseNextJob` uses `now()`; use `clock_timestamp()` for symmetry with the fence.
-R2-N3. `result` may be non-NULL on a non-completed row; CHECK `status='completed' OR result IS NULL`.
+R2-N1. [closed] Park-on-exhaustion sets `leased_by` to a worker that never ran it; set NULL.
+R2-N2. [closed] `leaseNextJob` uses `now()`; use `clock_timestamp()` for symmetry with the fence.
+R2-N3. [closed] `result` may be non-NULL on a non-completed row; CHECK `status='completed' OR result IS NULL`.
+
+## Closure notes (Maker, round 2)
+
+- **R2-S1** CHECK `resolution_job_input_has_resolver_version`: `jsonb_is_integer(input->'resolverVersion')` and in int4 range (the lease casts it). `assertResolverVersionMatches` now throws on a missing / null / string / non-integer version (defense in depth behind the CHECK and R2-S2). Every direct `enqueueJob` in the test suites now stamps `resolverVersion`; `enqueueEncounterResolution` already did.
+- **R2-S2** `leaseNextJob(db, workerId, visibilityTimeoutMs, resolverVersion = RESOLVER_VERSION)` — the lease filters `(input->>'resolverVersion')::integer = $n`, for queued and expired-leased rows alike. A skewed job is never leased, charged no attempt, never parked, and does not block current-version jobs behind it; a worker on its version takes it. The round-1 B1a regression was rewritten for this (it used to expect three failures and a park).
+- **R2-S3** Migration 002 now defines `resolution_job_{lease,complete,fail,park,requeue}` as SECURITY DEFINER (owner, `search_path = pg_catalog, public`); `queue.ts` keeps its exported names/signatures and calls them. `db/roles.sql` revokes table-level UPDATE on `resolution_job` and re-grants every column except `status, leased_by, attempts, lease_expires_at, requeued_at, requeued_by, requeue_count` (catalog-driven, like S1), and grants EXECUTE on the five writers. `requeueParkedJob` gained an optional `requeuedBy` (default `"operator"`, exported as `DEFAULT_REQUEUED_BY`) and the row records `requeued_at / requeued_by / requeue_count`. A raw `UPDATE … SET status` from the app role is `42501`.
+- **R2-S4** Trigger: `completed` only from `leased`, by the same `leased_by`, at the same `attempts`; becoming `leased`, changing `leased_by` or moving `lease_expires_at` requires `attempts` to grow; `parked` only from `leased` (or `parked`). The budget rule is a CHECK, `resolution_job_queued_has_budget: status <> 'queued' OR attempts < max_attempts` — strict rather than `>=`, because the lease parks at `attempts + 1 > max_attempts`, so a queued row at `attempts = max_attempts` could only ever park. The probe's "parked → queued by raw UPDATE, re-parks on next lease" is now refused outright.
+- **R2-N1** The exhausted-lease park sets `leased_by = NULL` (and `lease_expires_at = NULL`); the worker that did run the attempt still loses its fence.
+- **R2-N2** The lease function uses `clock_timestamp()` for readiness and expiry (and completion stamps `completed_at` with it): a lease taken 120 ms into a transaction is ready by, and expires relative to, that moment.
+- **R2-N3** CHECK `resolution_job_result_only_when_completed: status = 'completed' OR (result IS NULL AND completed_at IS NULL)`.

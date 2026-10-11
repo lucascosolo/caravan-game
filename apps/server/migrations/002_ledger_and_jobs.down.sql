@@ -1,3 +1,8 @@
+DROP FUNCTION IF EXISTS resolution_job_requeue(text, integer, text);
+DROP FUNCTION IF EXISTS resolution_job_park(text, integer, text, text);
+DROP FUNCTION IF EXISTS resolution_job_fail(text, integer, text, integer, text);
+DROP FUNCTION IF EXISTS resolution_job_complete(text, jsonb, text, integer);
+DROP FUNCTION IF EXISTS resolution_job_lease(text, integer, integer);
 DROP TRIGGER IF EXISTS resolution_job_guard_truncate ON resolution_job;
 DROP TRIGGER IF EXISTS resolution_job_guard_delete ON resolution_job;
 DROP TRIGGER IF EXISTS resolution_job_guard ON resolution_job;

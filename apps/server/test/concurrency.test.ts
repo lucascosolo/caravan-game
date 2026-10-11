@@ -8,6 +8,7 @@
  * In every case: no job commits more than once, balances equal the sum of the log, and
  * the party template is byte-identical afterwards.
  */
+import { RESOLVER_VERSION } from "@caravan/resolver";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withTransaction } from "../src/db/pool.js";
 import { PLACEHOLDER_HANDLERS, enqueueEncounterResolution } from "../src/jobs/handlers/encounterResolution.js";
@@ -129,7 +130,7 @@ describe("many resolutions for one account at once", () => {
     for (let i = 0; i < JOBS; i++) {
       const amount = 1 + (i % 7);
       expectedCoin += amount;
-      await enqueueJob(pool, { id: `busy:${i}`, kind: "test_coin", accountId, caravanId: i % 2 === 0 ? caravanA : caravanB, input: { amount } });
+      await enqueueJob(pool, { id: `busy:${i}`, kind: "test_coin", accountId, caravanId: i % 2 === 0 ? caravanA : caravanB, input: { amount, resolverVersion: RESOLVER_VERSION } });
     }
     const outcomes = await runWorkers(WORKERS);
     expect(outcomes.filter((o) => o.kind === "completed").length).toBe(JOBS);
@@ -173,7 +174,7 @@ describe("lease expiry under load (QA-02 B1)", () => {
 
   it("with 5ms leases and 20-40ms handlers every attempt loses cleanly: nothing commits, jobs park with 'lease expired'", async () => {
     for (let i = 0; i < JOBS; i++) {
-      await enqueueJob(pool, { id: `steal:${i}`, kind: "test_coin", accountId, caravanId, input: { amount: 3 }, maxAttempts: 4 });
+      await enqueueJob(pool, { id: `steal:${i}`, kind: "test_coin", accountId, caravanId, input: { amount: 3, resolverVersion: RESOLVER_VERSION }, maxAttempts: 4 });
     }
     const outcomes = await runWorkers(5, { visibilityTimeoutMs: 5, beforeComplete: slowHandler });
     expect(outcomes.filter((o) => o.kind === "completed").length).toBe(0);

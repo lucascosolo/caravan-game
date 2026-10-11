@@ -28,11 +28,12 @@ import {
   lockJobForCompletion,
   markJobCompleted,
   markJobFailed,
+  markJobParked,
   requeueParkedJob,
   retryBackoffMs,
 } from "../src/jobs/queue.js";
 import { JOB_RETRY_BACKOFF_BASE_MS, JOB_RETRY_BACKOFF_MAX_MS } from "../src/jobs/tunables.js";
-import { drain, runOnce, verifyJobReplay, type HandlerRegistry } from "../src/jobs/worker.js";
+import { assertResolverVersionMatches, drain, runOnce, verifyJobReplay, type HandlerRegistry } from "../src/jobs/worker.js";
 import { coinCreditDraft } from "../src/ledger/coin.js";
 import { appendEvents, isAccountAppendLockHeld, listEventsByCausation, lockAccountsForAppend } from "../src/ledger/ledger.js";
 import { maybeSnapshot, readLiveProjection, verifyProjection } from "../src/ledger/projection.js";
@@ -76,7 +77,7 @@ async function cap(accountId: string): Promise<{ balance: number; cap: number }>
   return { balance: r.coin_balance, cap: r.coin_storage_cap };
 }
 const coinJob = (id: string, acct: Acct, amount: number, extra: { maxAttempts?: number } = {}) =>
-  enqueueJob(app, { id, kind: "coin", accountId: acct.accountId, caravanId: acct.caravanId, input: { amount }, ...extra });
+  enqueueJob(app, { id, kind: "coin", accountId: acct.accountId, caravanId: acct.caravanId, input: { amount, resolverVersion: RESOLVER_VERSION }, ...extra });
 
 beforeAll(async () => {
   await truncateAll(owner);
@@ -161,7 +162,7 @@ describe("B1: completion is fenced on the lease", () => {
     expect((await listEventsByCausation(app, "b1:parked")).length).toBe(1);
   });
 
-  it("B1a: a job enqueued for another resolver version is failed, not resolved by this worker", async () => {
+  it("B1a / R2-S2: a job enqueued for another resolver version is never leased by this worker; a worker on that version takes it", async () => {
     await withTransaction(app, (c) =>
       enqueueEncounterResolution(c, { tripId: "skew", encounterIndex: 0, defenderAccountId: C.accountId, defenderCaravanId: C.caravanId, partyOwnerAccountId: D.accountId, formation: { fences: [], traps: [], posts: [] } }),
     );
@@ -169,12 +170,19 @@ describe("B1: completion is fenced on the lease", () => {
     await owner.query("ALTER TABLE resolution_job DISABLE TRIGGER resolution_job_guard");
     await owner.query("UPDATE resolution_job SET input = jsonb_set(input, '{resolverVersion}', '99') WHERE id = 'encounter:skew:0'");
     await owner.query("ALTER TABLE resolution_job ENABLE TRIGGER resolution_job_guard");
-    const outcomes = await drain(app, { workerId: "skewed", handlers, retryBackoffMs: noBackoff });
-    expect(outcomes.map((o) => o.kind)).toEqual(["failed", "failed", "failed"]);
+    // Round 1 failed it three times and parked it; round 2 (R2-S2) makes it invisible to a
+    // worker on another version: no attempt burned, nothing parked during a rolling deploy.
+    await drain(app, { workerId: "skewed", handlers, retryBackoffMs: noBackoff });
     const job = (await getJob(app, "encounter:skew:0"))!;
-    expect(job.status).toBe("parked");
-    expect(job.last_error).toMatch(/resolver version mismatch.*v99.*v0/);
+    expect(job).toMatchObject({ status: "queued", attempts: 0, leased_by: null, last_error: null });
     expect((await listEventsByCausation(app, job.id)).length).toBe(0);
+    // A worker that does run v99 leases it at once.
+    const v99 = (await leaseNextJob(app, "v99-worker", 60_000, 99))!;
+    expect(v99).toMatchObject({ id: "encounter:skew:0", attempts: 1, leased_by: "v99-worker" });
+    // (No v99 handler here: park it so it does not sit leased for the rest of the file.)
+    expect(await markJobParked(app, v99.id, v99.attempts, "test: no v99 resolver in this suite", { workerId: "v99-worker" })).not.toBeNull();
+    // Defense in depth: were a mismatched job to reach a worker anyway, the check still fires.
+    expect(() => assertResolverVersionMatches(job)).toThrow(/resolver version mismatch.*v99.*v0/);
   });
 });
 
@@ -234,8 +242,8 @@ describe("S5: one lock order for the ledger", () => {
   });
 
   it("two workers resolving mirror-image two-account jobs at once never deadlock", async () => {
-    await enqueueJob(app, { id: "s5:ab", kind: "two_coin", accountId: A.accountId, caravanId: A.caravanId, input: { amount: 1, other: B.accountId } });
-    await enqueueJob(app, { id: "s5:ba", kind: "two_coin", accountId: B.accountId, caravanId: B.caravanId, input: { amount: 1, other: A.accountId } });
+    await enqueueJob(app, { id: "s5:ab", kind: "two_coin", accountId: A.accountId, caravanId: A.caravanId, input: { amount: 1, other: B.accountId, resolverVersion: RESOLVER_VERSION } });
+    await enqueueJob(app, { id: "s5:ba", kind: "two_coin", accountId: B.accountId, caravanId: B.caravanId, input: { amount: 1, other: A.accountId, resolverVersion: RESOLVER_VERSION } });
     const outcomes = (await Promise.all([0, 1].map((i) => drain(app, { workerId: `s5w${i}`, handlers, retryBackoffMs: noBackoff })))).flat();
     expect(outcomes.filter((o) => o.kind !== "completed")).toEqual([]);
     for (const id of ["s5:ab", "s5:ba"]) {
@@ -267,7 +275,7 @@ describe("S5: one lock order for the ledger", () => {
 describe("S6: the worker clamps handler credits to the cap", () => {
   it("an over-cap credit from a pure handler commits clamped, records the overflow, and still verifies on replay", async () => {
     const { cap: capv } = await cap(C.accountId); // C is at cap after the S5 race
-    const { job } = await enqueueJob(app, { id: "s6:over", kind: "coin", accountId: C.accountId, caravanId: C.caravanId, input: { amount: capv } });
+    const { job } = await enqueueJob(app, { id: "s6:over", kind: "coin", accountId: C.accountId, caravanId: C.caravanId, input: { amount: capv, resolverVersion: RESOLVER_VERSION } });
     const outcome = await runOnce(app, { workerId: "w", handlers, retryBackoffMs: noBackoff });
     expect(outcome.kind).toBe("completed");
     const [ev] = await listEventsByCausation(app, job.id);
@@ -281,7 +289,7 @@ describe("S6: the worker clamps handler credits to the cap", () => {
   it("a batch with two credits to one account consumes the room in order", async () => {
     const acct = await register("room");
     const { cap: capv } = await cap(acct.accountId);
-    const { job } = await enqueueJob(app, { id: "s6:two", kind: "two_coin", accountId: acct.accountId, caravanId: acct.caravanId, input: { amount: capv - 10, other: acct.accountId } });
+    const { job } = await enqueueJob(app, { id: "s6:two", kind: "two_coin", accountId: acct.accountId, caravanId: acct.caravanId, input: { amount: capv - 10, other: acct.accountId, resolverVersion: RESOLVER_VERSION } });
     expect((await runOnce(app, { workerId: "w", handlers, retryBackoffMs: noBackoff })).kind).toBe("completed");
     const evs = await listEventsByCausation(app, job.id);
     expect(evs.map((e) => [e.payload["amount"], e.payload["overflowDiscarded"] ?? 0])).toEqual([
@@ -358,7 +366,7 @@ describe("S2: a caravan id must belong to the event's account", () => {
       (await insert("INSERT INTO ledger_event (event_type, account_id, caravan_id, causation_id, causation_seq, payload) VALUES ('reputation_changed',$1,$2,'s2:x',0,'{\"pool\":\"living\",\"delta\":4,\"reason\":\"x\"}')", [A.accountId, B.caravanId]))?.code,
     ).toBe("23503");
     expect((await insert("INSERT INTO ledger_event (event_type, account_id, caravan_id, causation_id, causation_seq, payload) VALUES ('trip_started',$1,$2,'s2:y',0,'{}')", [A.accountId, B.caravanId]))?.code).toBe("23503");
-    expect((await insert("INSERT INTO resolution_job (id, kind, account_id, caravan_id, input, max_attempts) VALUES ('s2:job','coin',$1,$2,'{\"amount\":1}',3)", [A.accountId, B.caravanId]))?.code).toBe("23503");
+    expect((await insert("INSERT INTO resolution_job (id, kind, account_id, caravan_id, input, max_attempts) VALUES ('s2:job','coin',$1,$2,'{\"amount\":1,\"resolverVersion\":0}',3)", [A.accountId, B.caravanId]))?.code).toBe("23503");
     const rep = await app.query<{ reputation: number }>("SELECT reputation FROM pool_progress WHERE caravan_id = $1", [B.caravanId]);
     expect(rep.rows[0]!.reputation).toBe((await readLiveProjection(app, B.accountId)).caravanPools[B.caravanId]!.reputation);
     expect((await verifyProjection(app, B.accountId)).ok).toBe(true);
