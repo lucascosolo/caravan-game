@@ -292,6 +292,11 @@ export const TUNABLES = {
    * The ring is the square of cells at exactly this radius: 8 × radius cells, of which the
    * RING_ANCHOR_CELLS corners are fixed wagon anchors and the rest are fence positions, so
    * PERIMETER_SEGMENTS below must equal 8 × radius − RING_ANCHOR_CELLS and a test asserts it.
+   *
+   * The geometry itself (ring cells, anchors, core, entry bands) is OWNED by
+   * @caravan/resolver (battlefield.ts) because a stored replay depends on it; these registry
+   * values mirror it for the UI and the circle model, and @caravan/circle asserts at import
+   * that the two agree.
    */
   PERIMETER_RING_RADIUS: 4,
   /**
@@ -324,6 +329,32 @@ export const TUNABLES = {
   MIN_POST_DISTANCE: fp(1),
   /** TUNABLE (chunk 07 / chunk 09 START_POSITION_BAND). Attackers start in the outermost N cells of their chosen edge. */
   ENTRY_BAND_DEPTH: 2,
+
+  // ────────────────────────────────────────────────────────────────────────────────────
+  // Chunk 10 — the resolver's tick loop and movement. The resolver never reads this
+  // registry: @caravan/circle's resolverTunables() hands these to it as plain input.
+  // ────────────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * TUNABLE (chunk 10) — but FIXED FOREVER once golden logs exist: changing it invalidates
+   * every stored replay. Ticks per second. 20 is fine enough for smooth playback, coarse
+   * enough to keep logs small. Must divide 1000 so content's millisecond durations convert
+   * to whole ticks without drift.
+   */
+  TICK_RATE: 20,
+  /** TUNABLE (chunk 10). Stalemate threshold, in seconds because that is what a player experiences. TICK_CAP = this × TICK_RATE (3,600), derived, never authored. */
+  BATTLE_LENGTH_CAP_SECONDS: 180,
+  /**
+   * TUNABLE (chunk 10). Paths are recomputed every 500 ms (= 10 ticks at TICK_RATE 20) — a
+   * fixed interval, never event-timing-dependent — and immediately on target change or a
+   * fence break. In milliseconds like every duration here; the resolver converts to ticks.
+   */
+  PATH_RECOMPUTE_INTERVAL: ms(500),
+  // PATH_CONNECTIVITY (4) lives in the chunk 07 block above; the resolver accepts only 4.
+  /** TUNABLE (chunk 10). 0.35 cells. Used for attack-range and ability-radius checks (chunks 11–12), never for collision — units overlap freely. */
+  UNIT_RADIUS: fpMilli(350),
+  /** TUNABLE (chunk 13, consumed from chunk 10). A full-state keyframe every 5 s (= 100 ticks) so playback can seek and truncation is detectable. */
+  LOG_KEYFRAME_INTERVAL: seconds(5),
 
   // ────────────────────────────────────────────────────────────────────────────────────
   // Chunk 16 — Coin economy and merge pricing. Coin buys PACE only (GUARDRAILS §2): nothing

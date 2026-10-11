@@ -19,7 +19,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { issueSession } from "../src/auth/sessions.js";
 import { withTransaction } from "../src/db/pool.js";
-import { DEFAULT_HANDLERS, PLACEHOLDER_HANDLERS, enqueueEncounterResolution } from "../src/jobs/handlers/encounterResolution.js";
+import { DEFAULT_HANDLERS, ENCOUNTER_RESOLUTION_WIRED, PLACEHOLDER_HANDLERS, enqueueEncounterResolution } from "../src/jobs/handlers/encounterResolution.js";
 import {
   JobInputConflictError,
   enqueueJob,
@@ -182,12 +182,12 @@ describe("B1: completion is fenced on the lease", () => {
     // (No v99 handler here: park it so it does not sit leased for the rest of the file.)
     expect(await markJobParked(app, v99.id, v99.attempts, "test: no v99 resolver in this suite", { workerId: "v99-worker" })).not.toBeNull();
     // Defense in depth: were a mismatched job to reach a worker anyway, the check still fires.
-    expect(() => assertResolverVersionMatches(job)).toThrow(/resolver version mismatch.*v99.*v0/);
+    expect(() => assertResolverVersionMatches(job)).toThrow(new RegExp(`resolver version mismatch.*v99.*v${RESOLVER_VERSION}`));
   });
 });
 
 describe("S9: no resolver, no resolution", () => {
-  it.skipIf(RESOLVER_VERSION >= 1)("the production handler parks the encounter with a clear last_error instead of writing a placeholder outcome", async () => {
+  it.skipIf(ENCOUNTER_RESOLUTION_WIRED)("the production handler parks the encounter with a clear last_error instead of writing a placeholder outcome", async () => {
     await withTransaction(app, (c) =>
       enqueueEncounterResolution(c, { tripId: "s9", encounterIndex: 0, defenderAccountId: C.accountId, defenderCaravanId: C.caravanId, partyOwnerAccountId: D.accountId, formation: { fences: [], traps: [], posts: [] } }),
     );
@@ -195,7 +195,7 @@ describe("S9: no resolver, no resolution", () => {
     expect(outcomes.map((o) => o.kind)).toEqual(["parked"]);
     const job = (await getJob(app, "encounter:s9:0"))!;
     expect(job).toMatchObject({ status: "parked", attempts: 1 });
-    expect(job.last_error).toMatch(/no resolver.*RESOLVER_VERSION 0/);
+    expect(job.last_error).toMatch(new RegExp(`no resolver.*RESOLVER_VERSION ${RESOLVER_VERSION}`));
     expect((await listEventsByCausation(app, job.id)).length).toBe(0);
     // The same job resolves under the explicitly-registered placeholder (tests only).
     expect(await requeueParkedJob(app, job.id)).not.toBeNull();

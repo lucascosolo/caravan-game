@@ -130,7 +130,8 @@ pnpm db:seed                 # idempotent dev account: dev / devpassword, region
 
 pnpm dev                     # Fastify on http://127.0.0.1:3000 (PORT/HOST override), tsx watch
 
-pnpm determinism              # chunk 13 harness gate: runs the resolver `determinism` script if present (pending until 13), then refuses golden-log changes without a RESOLVER_VERSION bump
+pnpm determinism             # resolver determinism harness (chunk 10 started it; chunk 13 adds goldens): every fixture scenario 100× byte-identical in-process, then 3 separate Node processes compared by sha256; refuses golden-log changes without a RESOLVER_VERSION bump
+pnpm --filter @caravan/resolver test   # the resolver alone: 53 tests, no DB, no network, ~3 s
 pnpm test:boundary           # resolver dependency-boundary check (zero deps, imports stay inside packages/resolver/src)
 pnpm build                   # esbuild → apps/server/dist (index.js, db/migrate.js, seed.js); workspace packages inlined, npm deps external
 pnpm start                   # run the built server: node apps/server/dist/index.js

@@ -2,12 +2,15 @@
  * The encounter-resolution job: enqueue side (snapshot + formation_committed event) and
  * the pure handler the worker runs.
  *
- * The handler's outcome is a PLACEHOLDER until the resolver exists (chunks 10–13). The
+ * The handler's outcome is a PLACEHOLDER until the resolver is wired in (chunk 13). The
  * placeholder is exported for tests; the production DEFAULT_HANDLERS entry refuses to run
- * while RESOLVER_VERSION < 1 (QA-02 S9), so no permanent resolution of nothing is written.
- * TODO(chunk-13): call @caravan/resolver on input.formation + input.party and map its
- * outcome to coin/unit/reputation events here, and bump RESOLVER_VERSION to >= 1. Nothing
- * else about this file changes then: the snapshotting, the events' scopes and the
+ * while ENCOUNTER_RESOLUTION_WIRED is false (QA-02 S9), so no permanent resolution of
+ * nothing is written. The gate is a server-side flag, NOT `RESOLVER_VERSION`: chunk 10
+ * shipped the resolver core at RESOLVER_VERSION 1 (movement and breaching only — no combat,
+ * no end conditions, no outcome), so the version alone does not mean "an encounter can be
+ * resolved". TODO(chunk-13): call @caravan/resolver on input.formation + input.party, map
+ * its outcome to coin/unit/reputation events here, and flip ENCOUNTER_RESOLUTION_WIRED.
+ * Nothing else about this file changes then: the snapshotting, the events' scopes and the
  * resolver-version stamp are already in place.
  */
 import { RESOLVER_VERSION } from "@caravan/resolver";
@@ -138,20 +141,23 @@ export const placeholderEncounterResolutionHandler: JobHandler = (job) => {
   return { events, result: { outcome, resolverVersion: RESOLVER_VERSION } };
 };
 
-/** The resolver version below which no real resolver exists (chunk 13 bumps it to >= 1). */
-export const FIRST_REAL_RESOLVER_VERSION = 1;
+/**
+ * Whether the production handler runs the real resolver. False until chunk 13 maps a
+ * resolver outcome to events; while false, every encounter job parks (QA-02 S9).
+ */
+export const ENCOUNTER_RESOLUTION_WIRED = false;
 
 /**
- * Pure. The production handler. Until chunk 13 lands a resolver (RESOLVER_VERSION >= 1)
- * it refuses to resolve anything: the job parks with a clear last_error rather than
- * committing a permanent, replayable "resolution" of nothing (QA-02 S9).
+ * Pure. The production handler. Until chunk 13 wires the resolver in it refuses to resolve
+ * anything: the job parks with a clear last_error rather than committing a permanent,
+ * replayable "resolution" of nothing (QA-02 S9).
  * TODO(chunk-13): call @caravan/resolver on input.formation + input.party and map its
  * outcome to coin/unit/reputation events here, replacing the placeholder body.
  */
 export const encounterResolutionHandler: JobHandler = (job) => {
-  if (RESOLVER_VERSION < FIRST_REAL_RESOLVER_VERSION) {
+  if (!ENCOUNTER_RESOLUTION_WIRED) {
     throw new NonRetryableJobError(
-      `no resolver: RESOLVER_VERSION ${RESOLVER_VERSION} is the pre-chunk-13 placeholder; encounter ${job.id} cannot be resolved until the resolver ships`,
+      `no resolver: RESOLVER_VERSION ${RESOLVER_VERSION} is not wired into the encounter handler (chunk 13); encounter ${job.id} cannot be resolved until it is`,
     );
   }
   return placeholderEncounterResolutionHandler(job);

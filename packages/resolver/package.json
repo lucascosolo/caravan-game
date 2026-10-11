@@ -10,14 +10,18 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint . && node scripts/lint-selftest.mjs"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "lint": "eslint . && node scripts/lint-selftest.mjs",
+    "test": "vitest run",
+    "determinism": "node scripts/determinism.mjs"
   },
   "dependencies": {},
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@types/node": "^22.19.0",
     "eslint": "^9.39.4",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.56.0"
+    "typescript-eslint": "^8.56.0",
+    "vitest": "^3.2.4"
   }
 }

@@ -1,3 +1,4 @@
+import { TUNABLES } from "@caravan/content";
 import { describe, expect, it } from "vitest";
 import { AttritionError, applyEncounterOutcome, assertEncounterOutcome, manifestSummary, validateFormation, type EncounterOutcome } from "../src/index.js";
 import { ALLOW_ALL, arrange, fullPack } from "./fixtures.js";
@@ -40,7 +41,7 @@ describe("carry-forward attrition", () => {
     if (!res.ok) expect(res.issues.map((i) => i.code)).toEqual(["unit_dead"]);
     expect(validateFormation(m3, arrange(m3), ALLOW_ALL).ok).toBe(true);
     expect(arrange(m3).posts).toHaveLength(7);
-    expect(manifestSummary(m3)).toEqual({ unitsAlive: 7, unitsDead: 1, trapsUnspent: 6, trapsSpent: 0, fencesIntact: 20, fencesDestroyed: 0 });
+    expect(manifestSummary(m3)).toEqual({ unitsAlive: 7, unitsDead: 1, trapsUnspent: 6, trapsSpent: 0, fencesIntact: TUNABLES.FENCE_MATERIAL_BUDGET, fencesDestroyed: 0 });
   });
 
   it("destroyed fence segments are gone; damaged ones keep their reduced HP", () => {
@@ -53,7 +54,7 @@ describe("carry-forward attrition", () => {
     const res = validateFormation(m3, arrange(m1), ALLOW_ALL);
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.issues.map((i) => i.code)).toEqual(["fence_destroyed"]);
-    expect(arrange(m3).fences).toHaveLength(19);
+    expect(arrange(m3).fences).toHaveLength(TUNABLES.FENCE_MATERIAL_BUDGET - 1);
     expect(validateFormation(m3, arrange(m3), ALLOW_ALL).ok).toBe(true);
   });
 

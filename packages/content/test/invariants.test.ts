@@ -381,8 +381,13 @@ describe("unit stats stay inside the registry bounds and use rates, not ticks", 
     };
     walk(CONTENT);
     walk(TUNABLES);
-    for (const k of keys) expect(k.toLowerCase()).not.toContain("tick");
-    for (const k of Object.keys(TUNABLES)) expect(k.toUpperCase()).not.toContain("TICK");
+    // The one exception: TICK_RATE itself is the resolver's clock (chunk 10), the thing every
+    // millisecond duration is converted AGAINST. Every other key, including the resolver's
+    // own intervals, is authored in ms and converted by the resolver at setup.
+    for (const k of keys) if (k !== "TICK_RATE") expect(k.toLowerCase()).not.toContain("tick");
+    for (const k of Object.keys(TUNABLES)) if (k !== "TICK_RATE") expect(k.toUpperCase()).not.toContain("TICK");
+    expect(TUNABLES.TICK_RATE).toBe(20);
+    expect(1000 % TUNABLES.TICK_RATE).toBe(0);
   });
 });
 

@@ -1,3 +1,4 @@
+import { TUNABLES } from "@caravan/content";
 import { describe, expect, it } from "vitest";
 import {
   applyEncounterOutcome,
@@ -41,7 +42,7 @@ describe("formation snapshots", () => {
   it("round-trip: parse(serialize(f)) equals normalize(f)", () => {
     const parsed = parseFormation(serializeFormation(f));
     expect(serializeFormation(parsed)).toBe(serializeFormation(f));
-    expect(parsed.fences).toHaveLength(20);
+    expect(parsed.fences).toHaveLength(TUNABLES.FENCE_MATERIAL_BUDGET);
     expect(parsed.posts.map((p) => p.ref)).toEqual([...f.posts.map((p) => p.ref)].sort());
   });
 

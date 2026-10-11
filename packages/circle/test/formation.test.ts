@@ -27,15 +27,15 @@ describe("formation validation", () => {
     const f = arrange(m, 4);
     const res = validateFormation(m, f, ALLOW_ALL);
     expect(res.ok).toBe(true);
-    expect(f.fences).toHaveLength(20);
-    expect(formationGaps(f)).toEqual([0, 1, 2, 3, 24, 25, 26, 27]);
+    expect(f.fences).toHaveLength(TUNABLES.FENCE_MATERIAL_BUDGET);
+    expect(formationGaps(f)).toEqual([0, 1, 2, 3, 24, 25, 26, 27]); // 28 segments − 20 budget = 8 gaps
     // The gap can go anywhere; a different read of the attacker, a different gap.
     expect(validateFormation(m, arrange(m, 20), ALLOW_ALL).ok).toBe(true);
     expect(formationGaps(arrange(m, 20))).toEqual([12, 13, 14, 15, 16, 17, 18, 19]);
     // Placing fewer segments than packed is fine too: holding material back is a choice.
     const sparse = { ...f, fences: f.fences.filter((p) => p.segment % 2 === 0) };
     expect(validateFormation(m, sparse, ALLOW_ALL).ok).toBe(true);
-    expect(formationGaps(sparse)).toHaveLength(28 - sparse.fences.length);
+    expect(formationGaps(sparse)).toHaveLength(TUNABLES.PERIMETER_SEGMENTS - sparse.fences.length);
   });
 
   it("QA D1: every post carries a defensive stance; guard, hold and reserve are legal, anything else is not", () => {

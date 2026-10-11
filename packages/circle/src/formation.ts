@@ -34,6 +34,7 @@ import { capIssues, issue, type Issue, type Validation } from "./issues.js";
 import {
   cellDistSq,
   cellKey,
+  isAnchorCell,
   isAnyEntryCell,
   isCell,
   isCoreCell,
