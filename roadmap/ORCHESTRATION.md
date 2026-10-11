@@ -2657,3 +2657,15 @@ files, 589 tests passed; `@caravan/content` 82, `@caravan/web` 217 passed; root 
 ## 2026-10-11 — chunk 29 merged; device push deferred
 
 Chunk 29's in-app inbox is merged; its migration was renumbered 017 → 015 on merge (014 is chunk 15's void path, 016 goes to the chunk 13 fix round, 017 to chunk 24 onboarding). Decision: device push (web push and native push) is deferred to the app-store wrapper chunk. The in-app inbox, which §29 calls "the fallback and the record", is the play-test scope. Rejected: building a service worker and VAPID setup now. A play test runs with the app open, and push adds hosting and permission work that has no deploy target yet. The final review may challenge this. Also fixed on merge: the Party feed's outcome strings were keyed on the resolver's internal end reasons (`core_overrun`, `tick_cap`), not the outcome kinds the server sends, so every real strike read "Outcome: recorded".
+
+## 2026-10-11 — play-test scope
+
+Decision: "feature complete, ready for a play test" means the PHASE-2 "Shippable" gate (22, 23, 24, 25, 29, 30, 32, 36) plus chunk 37's offline balance harness and a tuning pass. The play test itself is a web (PWA-shaped) build with the app open.
+
+In scope, with these cuts:
+- **Chunk 30 (accounts):** guest-first play, linking to the existing username and password, deletion that anonymizes this account's side of encounter logs, JSON export, session revocation, a device list, and rate-limited login. Sign in with Apple and Google waits for chunk 34, since there is no store listing yet.
+- **Chunk 32 (telemetry):** server-side analytics off the ledger, with an admin-only dashboard. It must be in before any external tester plays.
+- **Chunk 36 (performance):** the scheduled retention job, which compacts expired logs to the results summary, the matchmaking indexes with explain plans, and a local load test.
+- **Chunk 37:** the matchup sweep and the standing probes as a tool, then a tuning pass recorded in BALANCE-LOG.md. The closed alpha is the play test itself and is not built here.
+
+Out of scope for the play test: 26 (art pipeline; the iso renderer's placeholder shapes stay), 27 (audio and haptics), 31, 33, 34, 35 and 38, and all of group C. Rejected: holding the play test for art and audio. The question a play test answers is whether the loop is fun, and that can be judged with legible placeholder art. The final review may challenge any of these cuts.
