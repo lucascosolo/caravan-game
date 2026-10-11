@@ -70,7 +70,7 @@ export interface ReplayModel {
   scene(at: number): IsoSceneState;
 }
 
-export type OpenReplay = { readonly ok: true; readonly model: ReplayModel } | { readonly ok: false; readonly reason: string; readonly noLog: boolean };
+export type OpenReplay = { readonly ok: true; readonly model: ReplayModel } | { readonly ok: false; readonly reason: string; readonly noLog: boolean; readonly compacted?: true };
 
 /** How long a mark stays over the thing a row reported, in seconds of fight time. */
 const MARK_SECONDS = 0.75;
@@ -179,6 +179,8 @@ function lineFor(e: LogEvent, names: readonly string[], view: ReplayView, tickRa
  * the log, and a log whose ending disagrees with the outcome the server recorded.
  */
 export function openReplay(view: ReplayView): OpenReplay {
+  // PHASE-2 §36: the log was compacted to its results summary (past retention) — nothing to play, by design.
+  if (view.compacted) return { ok: false, reason: view.reason ?? T.compactedReason, noLog: false, compacted: true };
   if (view.log === null || view.log === undefined) return { ok: false, reason: view.reason ?? T.noLogReason, noLog: true };
   if (!view.renderable) return { ok: false, reason: view.reason ?? T.notRenderableReason, noLog: false };
   let replay: Replay;

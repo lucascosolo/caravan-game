@@ -20,10 +20,11 @@
     "db:status": "pnpm --filter @caravan/server db:status",
     "test:boundary": "node scripts/resolver-boundary-check.mjs",
     "determinism": "node scripts/determinism.mjs",
+    "perf:resolver": "pnpm --filter @caravan/resolver run budget",
     "build": "node scripts/build.mjs && pnpm --filter @caravan/web build",
     "start": "node apps/server/dist/index.js",
     "smoke": "node scripts/smoke-server.mjs",
-    "ci": "pnpm typecheck && pnpm lint && pnpm test:boundary && pnpm test && pnpm determinism && pnpm build"
+    "ci": "pnpm typecheck && pnpm lint && pnpm test:boundary && pnpm test && pnpm determinism && pnpm perf:resolver && pnpm build"
   },
   "devDependencies": {
     "esbuild": "0.28.2",

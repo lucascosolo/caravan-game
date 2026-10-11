@@ -92,11 +92,12 @@ export function ReplayPlayer({ jobId, api: apiProp, settled = null, autoPlay = f
 function ReplayBody({ view, settled, autoPlay }: { readonly view: ReplayView; readonly settled: ReplaySettled | null; readonly autoPlay: boolean }): JSX.Element {
   const opened = useMemo(() => openReplay(view), [view]);
   if (!opened.ok) {
+    const archived = opened.compacted === true;
     return (
-      <div data-testid="replay-not-renderable" data-no-log={opened.noLog ? "true" : "false"}>
+      <div data-testid="replay-not-renderable" data-no-log={opened.noLog ? "true" : "false"} data-compacted={archived ? "true" : "false"}>
         <section className="card" role="status">
-          <h3>{opened.noLog ? T.noLogTitle : T.cannotPlayTitle}</h3>
-          <p>{opened.noLog ? T.noLogBody : T.cannotPlayBody}</p>
+          <h3>{archived ? T.compactedTitle : opened.noLog ? T.noLogTitle : T.cannotPlayTitle}</h3>
+          <p>{archived ? T.compactedBody : opened.noLog ? T.noLogBody : T.cannotPlayBody}</p>
           <p className="hint" data-testid="replay-reason">
             {T.reason(opened.reason)}
           </p>
@@ -113,7 +114,10 @@ function Summary({ view, model, settled, testId = "replay-summary", heading = T.
   const o = view.outcome;
   const v = view.viewer;
   const pct = o ? Math.round((o.depth * 100) / DEPTH_ONE) : 0;
-  const t = model?.tally;
+  // PHASE-2 §36: with no log to read, a compacted fight's tally is the one the server kept.
+  const kept = model ? null : (view.compacted?.tally ?? null);
+  const t = model?.tally ?? kept ?? undefined;
+  const deepestName = model?.deepestName ?? kept?.deepest?.displayName ?? null;
   return (
     <section className="card" data-testid={testId} data-outcome={o?.kind ?? ""}>
       <h3>{heading}</h3>
@@ -123,7 +127,7 @@ function Summary({ view, model, settled, testId = "replay-summary", heading = T.
       {o && (
         <>
           <p data-testid="replay-depth">
-            {T.depth(pct, v)} {model?.deepestName ? T.deepest(model.deepestName) : null}
+            {T.depth(pct, v)} {deepestName ? T.deepest(deepestName) : null}
           </p>
           <p className="hint" data-testid="replay-depth-explained">
             {T.depthExplained}

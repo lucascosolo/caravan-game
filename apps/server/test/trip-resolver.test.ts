@@ -559,11 +559,12 @@ describe("encounter_log guards, retention and the content stamp", () => {
 
   it("LOG_RETENTION: older than 30 days AND outside the caravan's newest 50 is pruned; either window alone keeps it — on the database clock, by the app role, through encounter_log_prune only", async () => {
     expect(retentionMatchesTunables(await encounterLogRetention(pool))).toBe(true);
-    expect(await encounterLogRetention(pool)).toEqual({ days: TUNABLES.LOG_RETENTION_DAYS, minPerCaravan: TUNABLES.LOG_RETENTION_MIN_PER_CARAVAN });
+    expect(await encounterLogRetention(pool)).toEqual({ days: TUNABLES.LOG_RETENTION_DAYS, minPerCaravan: TUNABLES.LOG_RETENTION_MIN_PER_CARAVAN, sizeBudgetBytes: TUNABLES.LOG_SIZE_BUDGET_BYTES });
     const d = await registerPlayer();
     const mk = async (k: number, ageDays: number) => {
       const id = `encounter:00000000-0000-4000-8000-${String(k).padStart(12, "0")}:1`;
-      await pool.query("INSERT INTO resolution_job (id, kind, account_id, caravan_id, input, max_attempts) VALUES ($1, 'encounter_resolution', $2, $3, $4::jsonb, 3)", [id, d.accountId, d.caravanId, JSON.stringify({ resolverVersion: RESOLVER_VERSION })]);
+      // PHASE-2 §36: only a COMPLETED job's log is compacted (its summary is read from the result).
+      await pool.query("INSERT INTO resolution_job (id, kind, account_id, caravan_id, input, max_attempts, status, result, completed_at) VALUES ($1, 'encounter_resolution', $2, $3, $4::jsonb, 3, 'completed', '{\"outcome\": null}'::jsonb, now())", [id, d.accountId, d.caravanId, JSON.stringify({ resolverVersion: RESOLVER_VERSION })]);
       // Backdated rows can only be made by the owner with the guards off (the insert guard stamps now()).
       await ownerUnguarded(
         `INSERT INTO encounter_log (job_id, caravan_id, defender_account_id, party_owner_account_id, resolver_version, log_format, encoding, log, raw_bytes, stored_bytes, log_sha256, formation_sha256, survivors_sha256, party_sha256, content_hash, created_at)
@@ -582,6 +583,8 @@ describe("encounter_log guards, retention and the content stamp", () => {
     expect((await expectDbError(pool, "DELETE FROM encounter_log WHERE job_id = $1", [ids[10]]))?.message).toMatch(/newest 50/);
     expect(await pruneEncounterLogs(appRole, d.caravanId)).toBe(2); // the two oldest fall outside the newest 50
     expect(await count()).toBe(50);
+    // PHASE-2 §36: compacted to their results summary, not deleted (retention.test.ts covers the rest).
+    expect((await pool.query("SELECT job_id FROM encounter_log_summary WHERE caravan_id = $1 ORDER BY job_id", [d.caravanId])).rows.map((r) => r.job_id)).toEqual([ids[48], ids[49]]);
     expect(await pruneEncounterLogs(appRole, d.caravanId)).toBe(0); // the newest 50 stay however old
   });
 

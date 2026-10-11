@@ -74,26 +74,65 @@ export async function storeEncounterLog(client: pg.PoolClient, a: EncounterLogAr
 }
 
 /**
- * LOG_RETENTION for one caravan (encounter_log_prune): delete logs older than the retention
- * days that are not among the caravan's newest N, by the database clock. Returns the number of
- * rows removed. The window is the constant row, never a parameter.
+ * LOG_RETENTION for one caravan (encounter_log_prune): COMPACT (PHASE-2 §36, migration 021) the
+ * caravan's logs older than the retention days that are not among its newest N, and any log over
+ * LOG_SIZE_BUDGET, to their results summary (encounter_log_summary), by the database clock. Only
+ * completed jobs' logs (the summary is read from the job's result). Returns the number of rows
+ * compacted. The window and the budget are the constant row, never a parameter.
  */
 export async function pruneEncounterLogs(db: Queryable, caravanId: string): Promise<number> {
   const res = await db.query<{ n: number }>("SELECT encounter_log_prune($1) AS n", [caravanId]);
   return res.rows[0]?.n ?? 0;
 }
 
-/** The retention row the database enforces (a test pins it to TUNABLES). */
-export async function encounterLogRetention(db: Queryable): Promise<{ days: number; minPerCaravan: number }> {
-  const res = await db.query<{ days: number; min_per_caravan: number }>("SELECT days, min_per_caravan FROM encounter_log_retention WHERE singleton");
-  const r = res.rows[0];
-  if (!r) throw new Error("encounter_log_retention is empty");
-  return { days: r.days, minPerCaravan: r.min_per_caravan };
+/**
+ * PHASE-2 §36: the scheduled retention sweep's one step (encounter_log_retention_sweep) — the
+ * same rule as the prune, across every caravan, oldest first, at most `limit` (1..5000) rows.
+ * Returns the number compacted; the caller loops while it returns `limit`.
+ */
+export async function sweepEncounterLogRetention(db: Queryable, limit: number): Promise<number> {
+  const res = await db.query<{ n: number }>("SELECT encounter_log_retention_sweep($1) AS n", [limit]);
+  return res.rows[0]?.n ?? 0;
 }
 
-/** Whether the database's retention row equals the tunables (LOG_RETENTION_DAYS, LOG_RETENTION_MIN_PER_CARAVAN). */
-export function retentionMatchesTunables(r: { days: number; minPerCaravan: number }): boolean {
-  return r.days === TUNABLES.LOG_RETENTION_DAYS && r.minPerCaravan === TUNABLES.LOG_RETENTION_MIN_PER_CARAVAN;
+/** The retention row the database enforces (a test pins it to TUNABLES). */
+export async function encounterLogRetention(db: Queryable): Promise<{ days: number; minPerCaravan: number; sizeBudgetBytes: number }> {
+  const res = await db.query<{ days: number; min_per_caravan: number; size_budget_bytes: number }>("SELECT days, min_per_caravan, size_budget_bytes FROM encounter_log_retention WHERE singleton");
+  const r = res.rows[0];
+  if (!r) throw new Error("encounter_log_retention is empty");
+  return { days: r.days, minPerCaravan: r.min_per_caravan, sizeBudgetBytes: r.size_budget_bytes };
+}
+
+/** Whether the database's retention row equals the tunables (LOG_RETENTION_DAYS, LOG_RETENTION_MIN_PER_CARAVAN, LOG_SIZE_BUDGET_BYTES). */
+export function retentionMatchesTunables(r: { days: number; minPerCaravan: number; sizeBudgetBytes?: number }): boolean {
+  return (
+    r.days === TUNABLES.LOG_RETENTION_DAYS &&
+    r.minPerCaravan === TUNABLES.LOG_RETENTION_MIN_PER_CARAVAN &&
+    (r.sizeBudgetBytes === undefined || r.sizeBudgetBytes === TUNABLES.LOG_SIZE_BUDGET_BYTES)
+  );
+}
+
+/** A compacted replay's results summary (migration 021). */
+export interface EncounterLogSummaryRow {
+  job_id: string;
+  caravan_id: string;
+  defender_account_id: string;
+  party_owner_account_id: string;
+  reason: "retention" | "size_budget";
+  resolver_version: number;
+  log_format: number;
+  raw_bytes: number;
+  stored_bytes: number;
+  log_sha256: string;
+  content_hash: string;
+  log_created_at: Date;
+  compacted_at: Date;
+  summary: { outcome: Record<string, unknown> | null; tally: Record<string, unknown> | null };
+}
+
+export async function findEncounterLogSummary(db: Queryable, jobId: string): Promise<EncounterLogSummaryRow | null> {
+  const res = await db.query<EncounterLogSummaryRow>("SELECT * FROM encounter_log_summary WHERE job_id = $1", [jobId]);
+  return res.rows[0] ?? null;
 }
 
 export async function findEncounterLog(db: Queryable, jobId: string): Promise<EncounterLogRow | null> {

@@ -282,21 +282,33 @@ async function loadPool(db: Queryable, centre: number, excludeAccountIds: readon
   return res.rows;
 }
 
+/**
+ * The recent-opponent exclusion's query (PHASE-2 §36; parameters: account id, limit). The inner
+ * query finds the account's newest `limit` CHOSEN menus by key only — caravan_account_idx →
+ * trip_caravan_idx → `encounter_candidates_chosen_recent_idx (trip_id, chosen_at DESC,
+ * encounter_index DESC) INCLUDE (search_seq) WHERE chosen_at IS NOT NULL` (migration 021), an
+ * index-only read that never touches the menus' (large, TOASTed) `candidates` — and only then
+ * are those `limit` menus' candidate lists expanded to find the chosen party. Before §36 the
+ * expansion ran over EVERY chosen menu the account ever had, then sorted (EXPLAINs in
+ * apps/server/db/explain/). Same rows, same order: a chosen id names exactly one candidate of
+ * its menu (encounter_candidates_chosen_was_offered), so each chosen menu yields one party.
+ */
+export const RECENT_OPPONENTS_SQL = `SELECT (SELECT c ->> 'partyId' FROM jsonb_array_elements(ec.candidates) c WHERE c ->> 'candidateId' = ec.chosen_candidate_id LIMIT 1) AS party_id
+       FROM (SELECT x.trip_id, x.encounter_index, x.search_seq, x.chosen_at
+               FROM caravan cv
+               JOIN trip t ON t.caravan_id = cv.id
+               JOIN encounter_candidates x ON x.trip_id = t.id AND x.chosen_at IS NOT NULL
+              WHERE cv.account_id = $1
+              ORDER BY x.chosen_at DESC, x.trip_id, x.encounter_index DESC
+              LIMIT $2) k
+       JOIN encounter_candidates ec ON ec.trip_id = k.trip_id AND ec.encounter_index = k.encounter_index AND ec.search_seq = k.search_seq
+      ORDER BY k.chosen_at DESC, k.trip_id, k.encounter_index DESC`;
+
 /** The last RECENT_OPPONENT_EXCLUSION parties this ACCOUNT committed to, newest first, across all its caravans and trips. */
 export async function recentOpponentPartyIds(db: Queryable, accountId: string, limit: number = RECENT_OPPONENT_EXCLUSION): Promise<string[]> {
   if (limit <= 0) return [];
-  const res = await db.query<{ party_id: string }>(
-    `SELECT c ->> 'partyId' AS party_id
-       FROM encounter_candidates ec
-       JOIN trip t ON t.id = ec.trip_id
-       JOIN caravan cv ON cv.id = t.caravan_id
-       CROSS JOIN LATERAL jsonb_array_elements(ec.candidates) c
-      WHERE cv.account_id = $1 AND ec.chosen_at IS NOT NULL AND c ->> 'candidateId' = ec.chosen_candidate_id
-      ORDER BY ec.chosen_at DESC, ec.trip_id, ec.encounter_index DESC
-      LIMIT $2`,
-    [accountId, limit],
-  );
-  return res.rows.map((r) => r.party_id);
+  const res = await db.query<{ party_id: string | null }>(RECENT_OPPONENTS_SQL, [accountId, limit]);
+  return res.rows.flatMap((r) => (r.party_id === null ? [] : [r.party_id]));
 }
 
 function requireNextEncounter(manifest: { encounters_resolved: number; closed_at: Date | null }, encounterIndex: number): void {

@@ -93,6 +93,8 @@ export const CONTRACT_GUARDS: Readonly<Record<string, Guard<unknown> | null>> = 
   replay: replayShape,
   "replay-owner": replayShape,
   "replay-no-log": replayShape,
+  // PHASE-2 §36: the same fight after its log was compacted to its results summary.
+  "replay-compacted": replayShape,
   // Chunk 29's inbox: the struck party's owner (a real-resolver strike), the badge, a mark-all, and every other category.
   inbox: inboxShape,
   "inbox-unread": inboxUnreadShape,

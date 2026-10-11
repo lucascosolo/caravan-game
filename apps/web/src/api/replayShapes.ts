@@ -7,8 +7,8 @@
  * checksum, every row's arity and ids, the keyframe schedule, and that interpolating the
  * rows reproduces every keyframe. A log it refuses never renders (the player says why).
  */
-import { ShapeError, array, boolean, integer, literal, nullable, object, string, type Guard } from "./shape.ts";
-import type { ReplayFenceLabelView, ReplayOutcomeView, ReplayTrapLabelView, ReplayUnitLabelView, ReplayView } from "./replayTypes.ts";
+import { ShapeError, array, boolean, integer, literal, nullable, object, optional, string, type Guard } from "./shape.ts";
+import type { ReplayCompactedView, ReplayFenceLabelView, ReplayOutcomeView, ReplayTrapLabelView, ReplayUnitLabelView, ReplayView } from "./replayTypes.ts";
 
 const ID = string({ maxLength: 160 });
 const REF = string({ maxLength: 128 });
@@ -61,6 +61,29 @@ const fenceLabel: Guard<ReplayFenceLabelView> = object({
 
 const trapLabel: Guard<ReplayTrapLabelView> = object({ i: INDEX, ref: REF, typeId: ID, x: FIXED_POS, y: FIXED_POS, displayName: NAME });
 
+const COUNT = integer({ min: 0, max: 10_000 });
+
+/** PHASE-2 §36: the results summary kept when the log was compacted. */
+const compacted: Guard<ReplayCompactedView> = object({
+  reason: literal("retention", "size_budget"),
+  compactedAt: string({ maxLength: 64 }),
+  logCreatedAt: string({ maxLength: 64 }),
+  tally: nullable(
+    object({
+      raiders: COUNT,
+      raidersFallen: COUNT,
+      defenders: COUNT,
+      defendersFallen: COUNT,
+      fences: COUNT,
+      fencesBroken: COUNT,
+      traps: COUNT,
+      trapsSprung: COUNT,
+      coreReached: boolean(),
+      deepest: nullable(object({ side: literal("attacker", "defender"), typeId: ID, displayName: NAME })),
+    }),
+  ),
+});
+
 export const replayShape: Guard<ReplayView> = object({
   jobId: ID,
   viewer: literal("caravan", "party_owner"),
@@ -74,4 +97,5 @@ export const replayShape: Guard<ReplayView> = object({
   outcome: nullable(outcome),
   labels: object({ units: array(unitLabel, UNITS), fences: array(fenceLabel, FENCES), traps: array(trapLabel, TRAPS) }),
   log: opaqueLog,
+  compacted: optional(nullable(compacted)),
 });

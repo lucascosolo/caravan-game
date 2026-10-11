@@ -120,3 +120,11 @@ GRANT EXECUTE ON FUNCTION
   encounter_log_write(text, text, integer, uuid, uuid, uuid, integer, integer, text, bytea, integer, text, text, text, text, text),
   encounter_log_prune(uuid)
 TO caravan_app;
+
+-- PHASE-2 §36 (migration 021): a log past LOG_RETENTION or over LOG_SIZE_BUDGET is COMPACTED to
+-- its results summary, never just deleted. encounter_log_summary is written only by the owner's
+-- compaction (encounter_log_compact_rows, reached through encounter_log_prune and the scheduled
+-- encounter_log_retention_sweep; it reads the log row and the job's immutable result, nothing the
+-- caller passes) — the app role has no INSERT, UPDATE or DELETE on it.
+REVOKE INSERT, UPDATE, DELETE ON TABLE encounter_log_summary FROM caravan_app;
+GRANT EXECUTE ON FUNCTION encounter_log_retention_sweep(integer) TO caravan_app;
