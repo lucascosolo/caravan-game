@@ -129,11 +129,16 @@ pnpm --filter @caravan/server exec tsx src/db/migrate.ts roles   # caravan_app r
 pnpm db:seed                 # idempotent dev account: dev / devpassword, region desert
 
 pnpm dev                     # Fastify on http://127.0.0.1:3000 (PORT/HOST override), tsx watch
+pnpm dev:web                 # Vite dev server on http://127.0.0.1:5173; /api/* proxied to the server on :3000 (CARAVAN_API_URL overrides)
+
+pnpm --filter @caravan/web typecheck | test | build   # tsc; vitest + testing-library (jsdom); vite build → apps/web/dist
+pnpm --filter @caravan/web e2e                        # Playwright smoke vs a running server (needs CARAVAN_API_URL + a seeded DB)
+pnpm e2e                     # the same, self-contained: seeds E2E_DATABASE_URL, starts the BUILT server on :3917, runs the e2e, stops it (run `pnpm build` first)
 
 pnpm determinism             # resolver determinism harness (chunk 10 started it; chunk 13 adds goldens): every fixture scenario 100× byte-identical in-process, then 3 separate Node processes compared by sha256; refuses golden-log changes without a RESOLVER_VERSION bump
 pnpm --filter @caravan/resolver test   # the resolver alone: 53 tests, no DB, no network, ~3 s
 pnpm test:boundary           # resolver dependency-boundary check (zero deps, imports stay inside packages/resolver/src)
-pnpm build                   # esbuild → apps/server/dist (index.js, db/migrate.js, seed.js); workspace packages inlined, npm deps external
+pnpm build                   # esbuild → apps/server/dist (index.js, db/migrate.js, seed.js); workspace packages inlined, npm deps external; then vite build → apps/web/dist
 pnpm start                   # run the built server: node apps/server/dist/index.js
 pnpm smoke                   # start the built server against SMOKE_DATABASE_URL, assert GET /health, stop
 pnpm ci                      # the CI job, step for step: typecheck, lint, test:boundary, test, determinism, build
@@ -141,14 +146,28 @@ pnpm ci                      # the CI job, step for step: typecheck, lint, test:
 
 Migrations are plain SQL pairs in `apps/server/migrations/NNN_name.{up,down}.sql`, run by
 `apps/server/src/db/migrate.ts`. Server routes so far: `POST /auth/register`,
-`POST /auth/login`, `POST /auth/logout`, `GET /me`, `GET /health` (bearer token auth).
+`POST /auth/login`, `POST /auth/logout`, `GET /me`, `GET /health` (bearer token auth), plus
+the ledger, progression, circle, economy and unlock routes of chunks 02–07 and 16
+(`GET /unlocks/webs`, `GET /me/unlocks`, `POST /me/unlocks/spend`).
+
+**Web client** (`apps/web`, chunk 06 scaffold): Vite + React 18 + TypeScript strict. A
+typed `fetch` wrapper (`src/api/client.ts`) carries the bearer token from in-memory session
+state only — no localStorage, no cookies. A hand-rolled hash router (`src/shell/router.tsx`)
+and an app shell with a thumb-sized bottom tab bar (Town / Trail / Party / Webs). Every
+player-facing string lives in `src/strings.ts`; the theme is CSS variables in
+`src/theme.css` with an Okabe–Ito (colourblind-safe) palette, and affinities / node states
+are always carried by a shape or a word as well as a colour. The client renders server
+state; it never runs the simulation and never decides affordability or eligibility itself.
 
 ### CI (chunk 21)
 
 `.github/workflows/ci.yml` runs on every push and pull request: install with a frozen
 lockfile, `typecheck`, `lint` (resolver isolation rules plus their self-test),
 `test:boundary`, `test` against a Postgres 16 service container, `determinism`, `build`,
-then migrates the test database and smoke-runs the built server. `pnpm ci` is the same
+then migrates the test database and smoke-runs the built server. Since chunk 06 the
+recursive `typecheck` / `test` / `build` steps include the web client, and a final step
+installs Playwright's Chromium and runs `pnpm e2e` (built client against the built server
+on the seeded test database). `pnpm ci` is the same
 sequence locally. The resolver lint rules live in `packages/resolver/eslint.config.js`;
 `packages/resolver/lint-fixtures/` must stay in sync with them (every line of
 `violations.ts` from line 3 on must error; `allowed.ts` must be clean), which

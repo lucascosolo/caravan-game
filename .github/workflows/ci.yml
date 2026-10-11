@@ -63,6 +63,8 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # `pnpm typecheck` / `pnpm test` / `pnpm build` are recursive and include the web
+      # client (apps/web: tsc, vitest + testing-library in jsdom, vite build) since chunk 06.
       - name: Typecheck
         run: pnpm typecheck
 
@@ -78,7 +80,7 @@ jobs:
       - name: Determinism harness (chunk 13; pending until it lands)
         run: pnpm determinism
 
-      - name: Build runnable server output
+      - name: Build runnable server output and the web client
         run: pnpm build
 
       - name: Migrate the test database for the smoke run
@@ -90,6 +92,14 @@ jobs:
         run: pnpm smoke
         env:
           SMOKE_DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+
+      - name: Install Playwright Chromium (web smoke e2e, chunk 06)
+        run: pnpm --filter @caravan/web exec playwright install --with-deps chromium
+
+      - name: Web smoke e2e (built client + built server, seeded test database)
+        run: pnpm e2e
+        env:
+          E2E_DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
 
       - name: Upload build output
         if: success()

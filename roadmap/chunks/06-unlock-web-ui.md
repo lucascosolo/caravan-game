@@ -1,6 +1,6 @@
 # Chunk 06 — Unlock web UI
 
-**Depends on:** 05. **Status:** not started.
+**Depends on:** 05. **Status:** built (2026-10-11; see "Build notes" at the end).
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 ## Goal
@@ -34,15 +34,15 @@ every cost, and everything a node grants, before spending a single point.
 
 ## Definition of done
 
-- [ ] All three webs browsable; whole graph visible including unreachable nodes.
-- [ ] Each node shows: name, cost, prerequisites, full stats of what it grants,
+- [x] All three webs browsable; whole graph visible including unreachable nodes.
+- [x] Each node shows: name, cost, prerequisites, full stats of what it grants,
       and its current state (locked / affordable / reached).
-- [ ] Point balance and next-rung progress are visible on each web.
-- [ ] Purchase flow shows cost and confirms before committing.
-- [ ] UI copy distinguishes **access** from **owning an instance** unambiguously.
-- [ ] Trap/siege webs labelled account-level; living web labelled caravan/region-scoped.
-- [ ] Node layout is stable across sessions and reloads.
-- [ ] Client never decides affordability or eligibility on its own — it displays
+- [x] Point balance and next-rung progress are visible on each web.
+- [x] Purchase flow shows cost and confirms before committing.
+- [x] UI copy distinguishes **access** from **owning an instance** unambiguously.
+- [x] Trap/siege webs labelled account-level; living web labelled caravan/region-scoped.
+- [x] Node layout is stable across sessions and reloads.
+- [x] Client never decides affordability or eligibility on its own — it displays
       server state and the server re-validates every purchase.
 
 ## QA guardrail checks for this chunk
@@ -60,3 +60,46 @@ every cost, and everything a node grants, before spending a single point.
   the web with Coin? There must be none.
 - **Determinism:** does the displayed web ever differ between two loads for the same
   player?
+
+## Build notes (2026-10-11, Maker)
+
+Built as `apps/web/src/screens/webs/*` on the new client scaffold (see AGENTS.md "Web
+client"). What QA should know:
+
+- **Server state only.** The screen reads `GET /me/unlocks` (every node with `cost`,
+  `reached`, `affordable`, `missing`), `GET /me/progression` (ladder rung, next rung and
+  what it grants) and `GET /me` (caravan names). The client computes no affordability; it
+  renders the node's own `cost` and state. There is no shared tier table on the client —
+  costs are per pool (chunk 05 QA D1) and read from each node's payload.
+- **Spend flow.** Tap a node → bottom sheet (full stat block, prerequisites by name, the
+  "grants access, does not give you one" line) → `Unlock access to X for N pts` (rendered
+  only when the server flagged the node affordable) → modal confirm quoting cost, points
+  available and the remainder → `POST /me/unlocks/spend {pool, nodeId, caravanId?}`
+  (caravanId only for the living web) → re-fetch all three reads. No optimistic update.
+  A refusal shows the server's exact `message` with `<status> <code>` under it (tested
+  with a 409 `insufficient_points`).
+- **Locked nodes show their stats** (`SHOW_LOCKED_NODE_STATS`): the stat block comes from
+  `@caravan/content` (public, pure data) via `catalogue.ts`; fixed-point values are
+  converted to decimal text there, display-only, integer arithmetic.
+- **Layout** (`WEB_LAYOUT`): rather than authored coordinates, the graph is laid out by
+  tier (one row per tier, top-down, nodes in authored order within a row) with
+  prerequisite edges drawn from measured card positions. A pure function of the authored
+  node list, so identical across loads and players; authored coordinates can replace it
+  later without touching the data shape. Decision taken because the webs are ≤10 nodes
+  and ≤3 per tier, where a layered layout reads cleanly in portrait.
+- **Scope labels.** Trap/siege: "Account-level: shared by every caravan you will ever
+  run." Living: "Caravan-level, <Region> only: belongs to “<caravan>” and does not transfer
+  to another caravan."
+- **State is never colour-only:** reached ✓ / affordable → / locked ⊘ plus the word, plus
+  border style; affinities are square / triangle / circle plus the word.
+- **Tests:** `apps/web/src/screens/webs/WebsScreen.test.tsx` (6): every node of every pool
+  rendered with its cost including unaffordable and unreachable ones (per-pool curve
+  asserted: siege tier 2 = 8, trap tier 4 = 10); a locked node's full stat block and the
+  access-not-instance copy; confirm-before-spend (no POST on open, none on cancel, exactly
+  one on confirm with the server's body shape, bearer header, then a second GET and the
+  re-fetched state shown); caravanId on a living spend; exact 409 message surfaced; load
+  error with retry. Plus `api/client.test.ts` (error body, 401 hook, no storage) and the
+  router. `e2e/smoke.spec.ts` logs in as the seeded `dev` account and checks both webs,
+  a locked capstone's cost and stat sheet.
+- **Not built, deliberately:** nothing offers to buy points or nodes with Coin; there is no
+  client-side `checkSpend` preview (the server's `affordable` flag is the preview).

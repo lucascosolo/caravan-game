@@ -1,0 +1,10 @@
+{
+  "name": "Caravan Vaults",
+  "short_name": "Caravan",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1b1a17",
+  "theme_color": "#1b1a17",
+  "icons": []
+}
