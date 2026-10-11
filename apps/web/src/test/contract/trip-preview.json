@@ -52,6 +52,17 @@
         "alive": true,
         "diedAtEncounter": null,
         "mergeLevelOnDeath": 1
+      },
+      {
+        "ref": "00000000-0000-4000-8000-000000000004",
+        "typeId": "desert.dust_rider",
+        "mergeLevel": 3,
+        "hp": 818,
+        "maxHp": 968,
+        "damage": 150,
+        "alive": true,
+        "diedAtEncounter": null,
+        "mergeLevelOnDeath": 2
       }
     ],
     "ifOverrun": {
@@ -68,6 +79,12 @@
           "typeId": "desert.dust_rider",
           "mergeLevel": 1,
           "hp": 470
+        },
+        {
+          "ref": "00000000-0000-4000-8000-000000000004",
+          "typeId": "desert.dust_rider",
+          "mergeLevel": 3,
+          "hp": 818
         }
       ],
       "unitsDeMergedNotDestroyed": [],

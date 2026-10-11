@@ -20,9 +20,11 @@ import { DEFAULT_HANDLERS, makeEncounterResolutionHandler, type EncounterJobInpu
 import { getJob, leaseNextJob, markJobFailed } from "../src/jobs/queue.js";
 import { drain, runOnce, verifyJobReplay } from "../src/jobs/worker.js";
 import type { LedgerEventRow } from "../src/ledger/events.js";
+import { NO_LOG_REASON } from "../src/routes/replay.js";
 import { encounterLogRetention, pruneEncounterLogs, retentionMatchesTunables } from "../src/replay/store.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
 import { PARTY_LOOT_FULL_MAX, partyLoot, partyLootShare } from "../src/trip/loot.js";
+import { chosenEncounterTerms } from "../src/trip/stakes.js";
 import { productionEncounterResolver, resolverInputFromJob } from "../src/trip/outcome.js";
 import { ContentHashMismatchError, RESOLUTION_CONTENT_HASH, resolutionContentHash, resolveWithResolver } from "../src/trip/resolverAdapter.js";
 import { CONTENT } from "@caravan/content";
@@ -182,7 +184,7 @@ afterAll(async () => {
 
 describe("PARTIAL_LOOT_CURVE (pure)", () => {
   it("full on an overrun, nothing on a stalemate, full × depth^1.5 on a wipe — integer, monotone, never above full", () => {
-    expect(partyLoot("caravan_overrun", FIXED_ONE, 400)).toBe(400);
+    expect(partyLoot("caravan_overrun", FIXED_ONE, 400)).toBe(0); // chunk 15 QA S4: paid by the transfer + party win instead
     expect(partyLoot("stalemate", 900, 400)).toBe(0);
     expect(partyLoot("stalemate", FIXED_ONE, 400)).toBe(0);
     expect(partyLoot("caravan_held", FIXED_ONE, 400)).toBe(400);
@@ -202,7 +204,7 @@ describe("PARTIAL_LOOT_CURVE (pure)", () => {
       prev = l;
     }
     expect(TUNABLES.STALEMATE_LOOT_SHARE).toBe(0);
-    expect(TUNABLES.FULL_CLEAR_LOOT_SHARE).toBe(FIXED_ONE);
+    expect(Object.keys(TUNABLES)).not.toContain("FULL_CLEAR_LOOT_SHARE"); // chunk 15 QA S4: an overrun pays the transfer + party win, not loot
   });
 });
 
@@ -237,7 +239,11 @@ async function runTrip(d: Player): Promise<string[]> {
       const label = log.units.find((l) => l.ref === u.ref && l.side === "defender")!;
       expect(last.units[label.u]!.hp, u.ref).toBe(u.hp);
     }
-    expect(outcome.loot).toBe(partyLoot(outcome.kind as never, outcome.depth, coinForEncounter(n, 0)));
+    // Chunk 15 QA S4: `full` is the encounter's Coin at the CHOSEN row's band (a player owner), stamped at enqueue.
+    const terms = await chosenEncounterTerms(pool, input.tripId, n);
+    expect(input.partyLootFull).toBe(coinForEncounter(n, terms.band));
+    expect(outcome.loot).toBe(partyLoot(outcome.kind as never, outcome.depth, coinForEncounter(n, terms.band)));
+    if (outcome.kind !== "caravan_held") expect(outcome.loot).toBe(0);
     expect((job.result as { replay: { sha256: string } }).replay.sha256).toBe(row.log_sha256);
     expect(JSON.stringify(job.result)).not.toContain('"events"'); // the log itself is not in job.result
 
@@ -259,6 +265,14 @@ async function runTrip(d: Player): Promise<string[]> {
     const statusRes = await call(d, "GET", `/me/caravans/${d.caravanId}/trip`);
     expect(statusRes.statusCode, statusRes.body).toBe(200);
     const status = statusRes.json();
+    // The owner is credited exactly the reported loot for a hold (capped: credited + discarded = loot), nothing else.
+    const ownerCredits = (await pool.query<LedgerEventRow>("SELECT * FROM ledger_event WHERE causation_id = $1 AND account_id = $2 ORDER BY causation_seq", [`transfer:${jobId}`, ownerId])).rows;
+    if (outcome.kind === "caravan_held" && outcome.loot > 0) {
+      expect(ownerCredits.map((e) => e.payload["reason"])).toEqual(["party_loot"]);
+      expect(Number(ownerCredits[0]!.payload["amount"]) + Number(ownerCredits[0]!.payload["overflowDiscarded"] ?? 0)).toBe(outcome.loot);
+    } else if (outcome.kind === "stalemate") {
+      expect(ownerCredits).toEqual([]);
+    }
     if (outcome.kind === "caravan_overrun") {
       // The trip is over: the manifest closed, the caravan is back in town (chunk 19 applies the losses).
       const overrun = await pool.query("SELECT end_reason FROM trip WHERE id = $1", [input.tripId]);
@@ -398,7 +412,7 @@ describe("GET /me/encounters/:jobId/replay", () => {
         await forgeStoredLog(jobId, forged);
         const res = await call(d, "GET", `/me/encounters/${jobId}/replay`);
         expect(res.statusCode, label).toBe(200);
-        expect(res.json(), label).toMatchObject({ renderable: false, labels: null });
+        expect(res.json(), label).toMatchObject({ renderable: false, labels: { units: [], fences: [], traps: [] } });
         expect(res.json().reason, label).toMatch(/sha256 .* does not match/);
       }
       // N1: a body that will not even decompress is a verdict, not a 500.
@@ -458,7 +472,7 @@ describe("GET /me/encounters/:jobId/replay", () => {
     const res = await call(d, "GET", `/me/encounters/${noLogId}/replay`);
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ renderable: false, log: null, outcome: expect.any(Object) });
-    expect(res.json().reason).toMatch(/no tick log was recorded .* 'test-double'/);
+    expect(res.json()).toMatchObject({ reason: NO_LOG_REASON, resolvedBy: "test-double", labels: { units: [], fences: [], traps: [] } });
   });
 });
 

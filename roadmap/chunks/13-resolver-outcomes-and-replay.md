@@ -301,6 +301,9 @@ seam shape and wired-handler test, qa02 TRUNCATE expectation (resolution_job is 
 FK-referenced: plain TRUNCATE → 0A000, CASCADE → the guard's 23514), migrations table list.
 
 **Hand-offs.**
+- **[closed — chunk 15 fixer]** loot is credited at settle (held fights only); an overrun reports loot 0
+  and pays chunk 19's transfer + party win instead (FULL_CLEAR_LOOT_SHARE removed); `full` is the chosen
+  row's band schedule, stamped as `partyLootFull`. See roadmap/qa/15-punchlist.md.
 - **Chunk 19 / QA-15 S4**: `outcome.loot` is computed and recorded, never credited. Credit it
   (capped by the owner's storage cap; nothing for an authored/system owner) in the settle
   transaction, under the job's causation id, as the chunk 09 note asks.
@@ -317,7 +320,7 @@ FK-referenced: plain TRUNCATE → 0A000, CASCADE → the guard's 23514), migrati
 
 ## Build notes (QA-13 fix round 1) — `RESOLVER_VERSION` 7 → 8, LOG_FORMAT v1 → v2
 
-Closes the punch list in `roadmap/qa/13-punchlist.md` (S1–S6, D1, D3, N1–N6; D2 deferred to the
+Migration is 016 (014 is chunk 15's, 015 the inbox). Closes the punch list in `roadmap/qa/13-punchlist.md` (S1–S6, D1, D3, N1–N6; D2 deferred to the
 balance pass, no balance number changed; N7 no action).
 
 - **DEPTH_METRIC from the ring line (D1).** UI sentence: *"How far the deepest raider got inside
@@ -342,7 +345,7 @@ balance pass, no balance number changed; N7 no action).
   can catch: the replay route compares sha256(stored text) with the row's `log_sha256` AND with the
   immutable `job.result.replay.sha256`, and the row's format / version with the body; any mismatch
   is `renderable: false`. v1 logs are not readable (`renderable: false`, "not readable").
-- **encounter_log is insert-once, by the resolution path only (S4, migration 015).** The app role
+- **encounter_log is insert-once, by the resolution path only (S4, migration 016).** The app role
   has no INSERT / UPDATE / DELETE on it. `encounter_log_write` (SECURITY DEFINER) is the one
   writer: the caller must hold the job's live lease at its attempt; the BEFORE INSERT guard checks
   the job is a LEASED encounter job and that caravan, defender, party owner, resolver version and
@@ -364,8 +367,11 @@ balance pass, no balance number changed; N7 no action).
   drains the queue in-process: kicked by every commit, and polled every
   `ENCOUNTER_WORKER_POLL_MS` (1 s). `index.ts` builds the app with `encounterWorker: true` — the
   real resolver by default; `CARAVAN_TEST_RESOLVER=double` swaps in the double's handlers (same
-  meaning for e2e). Tests build apps without it and drain by hand. A fight resolved by a resolver
-  that writes no tick log answers `renderable: false` with the reason, not 410.
+  meaning for e2e). The loop passes the trip loop's `TRIP_SETTLE_HOOKS` (settle in the completion
+  transaction, void on park — chunk 15 QA). Tests build apps without it and drain by hand. A fight
+  resolved by a resolver that writes no tick log answers `renderable: false` with `NO_LOG_REASON`
+  and `resolvedBy`, not 410. The route always sends `labels` (empty lists when unrenderable) for the
+  chunk 22 replay player, whose guard no longer requires `depthExplained`.
 - **Content stamp (D3).** `resolutionContent()` is a whitelist projection of the stats the
   simulation reads (`RESOLUTION_STAT_KEYS`), never the copy (`displayName`, `flavor`,
   ability `description`, `regionId`); a test pins that every content key is one or the other, that

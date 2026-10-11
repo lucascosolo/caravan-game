@@ -400,11 +400,13 @@ export const TUNABLES = {
    * Fixed shape (chunk 13). The party owner's loot when the party is WIPED (the caravan held):
    * full × depth^1.5, computed integer-only as floor(full × d × isqrt(d × 1024) / 1024²) with
    * d = depth (0..1024) — sub-linear, so a near miss is worth meaningfully less than a clear but
-   * not nothing, and never more than full. The two values below are the tunable ends.
+   * not nothing, and never more than full. STALEMATE_LOOT_SHARE below is the tunable end; `full` is the encounter's Coin value at the
+   * caravan's band from the chosen menu row (chunk 16 coinForEncounter(n, band)), stamped at enqueue.
    */
   PARTIAL_LOOT_CURVE: "full_x_depth_pow_1_5",
-  /** TUNABLE (chunk 13). FULL_CLEAR_LOOT on an overrun, as a share of the encounter's Coin value (chunk 16), fixed-point: 1024 = 100 %. */
-  FULL_CLEAR_LOOT_SHARE: fp(1),
+  // FULL_CLEAR_LOOT (chunk 13's table) has no knob of its own (chunk 15 QA S4): on an overrun the
+  // owner is paid chunk 19's transfer of the trip's unbanked Coin plus COIN_PER_PARTY_WIN, both
+  // capped by their headroom — the depth-scaled loot is 0 there, so a clear is never paid twice.
   /** TUNABLE (chunk 13). STALEMATE_LOOT, fixed-point share: 0 — a party that cannot win cannot stall for value (the safety valve favours the caravan). */
   STALEMATE_LOOT_SHARE: fp(0),
   /** TUNABLE (chunk 13). LOG_SIZE_BUDGET: a stored (gzip-compressed) replay above this is a format problem, not a storage bill. Measured in the resolver's budget test. */

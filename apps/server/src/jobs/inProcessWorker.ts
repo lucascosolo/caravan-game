@@ -16,11 +16,13 @@
  * process. Errors are logged, never thrown into a request.
  *
  * Nothing about resolution changes here: the worker (jobs/worker.ts) still runs the pure handler
- * and commits events, the stored replay and the completion in one transaction.
+ * and commits events, the stored replay and the completion in one transaction, then runs the
+ * trip loop's settle hooks (chunk 15 QA: settle in the completion transaction, void a trip whose
+ * job parks) — the app passes TRIP_SETTLE_HOOKS for the real resolver and the double alike.
  */
 import { hostname } from "node:os";
 import type pg from "pg";
-import { drain, type HandlerRegistry, type RunOutcome } from "./worker.js";
+import { drain, type HandlerRegistry, type RunOutcome, type WorkerOptions } from "./worker.js";
 
 /** Operational, not balance: how often an idle server looks for ready jobs. */
 export const ENCOUNTER_WORKER_POLL_MS = 1000;
@@ -34,6 +36,8 @@ export interface EncounterWorkerLoopOptions {
   /** Delay between a commit's kick and the drain (the double waits so a client sees "resolving"). */
   readonly kickDelayMs?: number;
   readonly retryBackoffMs?: (attempts: number) => number;
+  /** The trip loop's settle hooks (trip/service.ts TRIP_SETTLE_HOOKS): settle at resolution, void on park. */
+  readonly hooks?: Pick<WorkerOptions, "afterCompleted" | "afterParked">;
   readonly onError: (err: unknown) => void;
   /** Called with every outcome other than idle (logging). */
   readonly onOutcome?: (outcome: RunOutcome) => void;
@@ -88,6 +92,8 @@ export class EncounterWorkerLoop {
             workerId: this.workerId,
             handlers: this.opts.handlers,
             ...(this.opts.retryBackoffMs ? { retryBackoffMs: this.opts.retryBackoffMs } : {}),
+            ...(this.opts.hooks ?? {}),
+            onHookError: (err) => this.opts.onError(err),
           });
           if (this.opts.onOutcome) for (const o of outcomes) this.opts.onOutcome(o);
         } while (this.again && !this.stopped);

@@ -1,6 +1,6 @@
 # Chunk 15 — Trip loop
 
-**Depends on:** 07, 13, 14. **Status:** built (fight outcome consumed through the `EncounterOutcome` seam until chunk 13; see Build notes).
+**Depends on:** 07, 13, 14. **Status:** QA'd — fixes closed (S4 settle at resolution + owner loot credited, D3 void path, S6, N2, N4, N5, N7; migration 014); D2 / D4 doc edits open (see `roadmap/qa/15-punchlist.md`).
 Read `/roadmap/GUARDRAILS.md` in full first, including §0 on which way round the game runs.
 
 ## Goal
@@ -20,8 +20,9 @@ owns attrition, trip state, and the trip cap.
 4. On surviving: **bank** (end trip, deliver, keep everything earned) or **push**
    (matchmaking serves the next attacker; the caravan carries forward whatever damage
    and losses it has — **no repair, no resupply, no healing until the trip ends**).
-5. Trip ends on: **voluntary bank, the caravan being overrun, or** — favorably —
-   a tick-cap stalemate at which the attackers withdraw.
+5. Trip ends on: **voluntary bank or the caravan being overrun.** A tick-cap stalemate
+   (the attackers withdraw) counts as surviving: bank or push, as after a held fight
+   (QA D4). The hourly trip cap is per account, shared by all its caravans (QA D2).
 
 **Critical framing — this is not a map or travel layer.** There is **no geography, no
 route-picking, no spatial overworld, no travel timer**. Do not build one. A trip is a
@@ -67,7 +68,7 @@ to trip structure. This is the specific way the concept drifted once already; wa
       difficulty.
 - [ ] Attrition carries forward: unit damage and deaths, destroyed fence segments, and
       spent traps all persist with no repair or restock.
-- [ ] Trip ends on bank, being overrun, or stalemate-then-bank. Each path returns the
+- [ ] Trip ends on bank or being overrun; a stalemate is survived (bank or push). Each path returns the
       caravan to town.
 - [ ] Manifest edits refused for the whole trip, server-side.
 - [ ] Trip cap enforced: one use per trip regardless of encounter count; regen works.
@@ -307,3 +308,26 @@ or the route file; `enqueueChosenEncounter` called only by the trip loop).
 - The search gate in `searchCandidates` bites only when the trip loop has a row for n−1 (chunk
   14's own tests advance the manifest counter by hand and are unaffected); the trip loop's own
   commit path is strict, and `trip_encounter`'s insert trigger enforces order in the DB.
+
+## QA fixes (chunk 15 fixer, after chunk 13) — roadmap/qa/15-punchlist.md
+
+- **S4 / chunk 19 S3 — settle at resolution.** `runOnce` / `drain` accept `afterCompleted` (inside the
+  completion transaction, in a SAVEPOINT: a failing settle rolls back alone, the resolution still
+  commits, the lazy settle retries) and `afterParked`. `TRIP_SETTLE_HOOKS` (trip/service.ts) wires
+  `settleResolvedJobTx` / `voidTripForParkedJob`; `scheduleInlineDrain` passes them. Lazy settle stays.
+  No production worker process exists yet; the hooks apply wherever a worker runs.
+- **Owner loot credited** (`trip/loot.ts`, settle step 3b). One rule: held → depth-scaled loot of
+  `coinForEncounter(n, chosen-row band)` (`partyLootFull`, stamped into the job input at commit; 0 for a
+  system owner), credited as `coin_earned` `party_loot` under `transfer:<jobId>`, capped; overrun →
+  chunk 19's transfer + party win, loot 0 (`FULL_CLEAR_LOOT_SHARE` removed); stalemate → nothing. The
+  reported `outcome.loot` equals what is requested. Feed: `lootCoin`.
+- **D3 — void path.** A parked job (worker hook or any read) voids the trip: `trip.end_reason = 'voided'`,
+  `trip_voided` (`trip:<id>:voided`) with the job's last error, banked as of the last survived encounter
+  exactly as a bank (Coin under `trip:<id>:bank`, per-death de-merges, refit; nothing for k = 0), nothing
+  of the voided fight applied, cap use not refunded. Trip view `ending.kind = "voided"` (the web client
+  does not render this kind yet). `POST trip/start` → 409 `resolver_unavailable` only when
+  `ENCOUNTER_RESOLUTION_WIRED` is false and no CARAVAN_TEST_RESOLVER double is installed.
+- **S6** `tripId` via `isUuid`. **N2** `bankNow` / `harderThanThisEncounter` omitted before the first
+  survival. **N4** the raw formation-commit route needs an open trip and a chosen candidate.
+  **N5** `trip_banked.balanceAfter`, returned by a replayed bank. **N7** `trip_cap_use` (migration 014).
+- Tests: `test/qa15-fixes.test.ts` (13); trip / stakes / trip-resolver / circle / qa07 / party updated.

@@ -33,6 +33,7 @@ import { ENTRY_BAND_DEPTH } from "@caravan/circle";
 import { addUnit, alongOf, canDropAt, configKey, countsByEdge, depthOf, edgeLength, moveTo, removeUnit, setEdge, setStance, setStart, toggleSiege } from "./partyModel.ts";
 import { formatWhen, humanizeIssue } from "../../shell/issues.ts";
 import { keepDraft, keptDraft } from "./draftStore.ts";
+import { WatchFight } from "../replay/WatchFight.tsx";
 
 const T = STRINGS.party;
 
@@ -505,6 +506,17 @@ export function PartyScreen(props: PartyScreenProps = {}): JSX.Element {
                 <div className="card__line hint">
                   {T.feedCoin(e.coinEarned)} · {T.feedReputation(e.reputationDelta)} · {T.feedLadder(e.ladderPointsGained)} · {formatWhen(e.occurredAt)}
                 </div>
+                {/* Chunk 22: the owner watches where their party struck, from its own side. */}
+                {e.jobId !== null && e.encounterIndex !== null && (
+                  <WatchFight
+                    jobId={e.jobId}
+                    encounterIndex={e.encounterIndex}
+                    label={T.feedWatch}
+                    api={api}
+                    settled={{ coin: e.coinEarned, reputation: e.reputationDelta, ladder: e.ladderPointsGained }}
+                    testId={`feed-watch-${e.seq}`}
+                  />
+                )}
               </li>
             ))}
           </ul>

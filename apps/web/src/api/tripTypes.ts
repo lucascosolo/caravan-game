@@ -29,6 +29,17 @@ export interface UnitRefView {
   readonly typeId: string;
   readonly mergeLevel: number;
 }
+/**
+ * A unit that died on the trip and is de-merged for it (the server's `DeMergedUnit`,
+ * apps/server/src/trip/stakes.ts): one level, floored, so `toLevel === fromLevel` at level 1.
+ */
+export interface DeMergedUnitView {
+  readonly ref: string;
+  readonly typeId: string;
+  readonly fromLevel: number;
+  readonly toLevel: number;
+  readonly diedAtEncounter: number;
+}
 export interface TrapRefView {
   readonly ref: string;
   readonly typeId: string;
@@ -63,8 +74,8 @@ export interface RestoredView {
   readonly unitsHealed: readonly (UnitRefView & { readonly hpAtBank: number; readonly maxHp: number })[];
   readonly trapsRestocked: number;
   readonly fenceSegmentsRebuilt: number;
-  /** Units that died on the trip: each loses one merge level (chunk 19 applies it). */
-  readonly deMergePending: readonly string[];
+  /** Units that died on the trip, each de-merged one level (floored) by the bank itself (chunk 19). */
+  readonly deMerged: readonly DeMergedUnitView[];
 }
 
 export interface BankedEndingView {
@@ -156,12 +167,18 @@ export interface StakesPreview {
     readonly deliveryBonus: number;
     readonly total: number;
     readonly forecast: { readonly balance: number; readonly cap: number; readonly room: number; readonly prospectiveEarn: number; readonly wouldCredit: number; readonly wouldDiscard: number; readonly atCap: boolean };
+    /** Banking de-merges every unit that died on this trip, exactly as listed (the same plan the bank applies). */
+    readonly unitsDeMerged: readonly DeMergedUnitView[];
   };
   readonly units: readonly StakesUnitView[];
   readonly ifOverrun: {
     readonly coinLost: number;
     readonly unitsLostOutright: readonly (UnitRefView & { readonly hp: number })[];
-    readonly unitsDeMergedNotDestroyed: readonly (UnitRefView & { readonly mergeLevelAfter: number })[];
+    readonly unitsDeMergedNotDestroyed: readonly DeMergedUnitView[];
+    /** A unit alive now that dies in the fight the caravan falls in: "de_merged_not_destroyed". */
+    readonly unitDyingInTheFinalFight: string;
+    /** Where the lost Coin goes: "overrunning_party_owner_capped" (destroyed for an authored party). */
+    readonly coinGoesTo: string;
   };
   readonly traps: { readonly remaining: readonly TrapRefView[]; readonly spent: readonly TrapRefView[] };
   readonly fences: {

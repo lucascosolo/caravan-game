@@ -4,12 +4,20 @@
  *
  *   town → outfit → pack and ride out → search → choose → arrange (tap-to-place on the real
  *   canvas) → commit → resolving → results → bank-or-push (every stake on screen) → push →
- *   encounter 2 (attrition carried: the trap is spent, the fence broken, the riders hurt) →
- *   commit → results → bank → trip summary → town shows the trip-cap use spent.
+ *   encounter 2 (attrition carried: the trap is spent, the fence broken, the riders hurt; the
+ *   double's script kills one rider and the caravan holds) → bank-or-push shows the death's
+ *   de-merge on the bank card, the overrun card and the push confirm → push → encounter 3
+ *   (one rider left to post) → bank (the confirm restates the de-merge) → trip summary →
+ *   town shows the trip-cap use spent. A banked three-encounter trip (PHASE-2 §23 DoD).
+ *   Chunk 22: at the first results, "Watch the fight" opens the replay player (the double
+ *   records no log: the not-renderable state), then once more with a recorded real-resolver
+ *   body played on the canvas.
  *
  * The account is run-unique and starts in town (scripts/e2e.mjs seeds it): trips are history
  * and never reset, so a reused account could not start from town.
  */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 
 const USERNAME = process.env["E2E_TRIP_USERNAME"] ?? "dev";
@@ -53,14 +61,19 @@ async function chooseFirstCandidate(page: Page, n: number): Promise<void> {
   await page.waitForFunction(() => !!(window as unknown as { __isoDebug?: IsoDebug }).__isoDebug?.cellToClient({ x: 13, y: 13 }));
 }
 
-async function postRiders(page: Page): Promise<void> {
+async function postRiders(page: Page, alive = 2): Promise<void> {
   const riders = page.locator('[data-testid^="tray-unit-"]');
   await expect(riders).toHaveCount(2);
+  // A dead rider is listed but cannot be posted (its button is disabled): post the living.
+  const living: number[] = [];
+  for (let i = 0; i < 2; i++) if (await riders.nth(i).getByRole("button").isEnabled()) living.push(i);
+  expect(living).toHaveLength(alive);
   const cells = [
     { x: 13, y: 13 },
     { x: 18, y: 18 },
-  ];
-  for (const [i, cell] of cells.entries()) {
+  ].slice(0, alive);
+  for (const [k, cell] of cells.entries()) {
+    const i = living[k]!;
     await riders.nth(i).getByRole("button").click();
     // Posted through the DOM placement picker (chunk 08 QA D3): the same drop the canvas makes.
     const picker = page.getByTestId("placement-picker");
@@ -80,8 +93,8 @@ async function commit(page: Page): Promise<void> {
   await expect(page.getByTestId("encounter-results")).toBeVisible({ timeout: 20_000 });
 }
 
-test("a full trip: outfit, ride out, two encounters with a push between, bank, summary, and the trip cap spent in town", async ({ page, request }) => {
-  test.setTimeout(150_000);
+test("a full trip: outfit, ride out, three encounters (a rider dies at the second), bank, summary, and the trip cap spent in town", async ({ page, request }) => {
+  test.setTimeout(200_000);
   await page.setViewportSize({ width: 360, height: 640 });
   await page.goto("/");
   await page.getByLabel("Username").fill(USERNAME);
@@ -131,9 +144,56 @@ test("a full trip: outfit, ride out, two encounters with a push between, bank, s
   await expect(r1.getByTestId("result-damaged")).toContainText("Dust Rider · Level 1 · HP 620 → 470 of 620");
   await expect(r1.getByTestId("result-traps")).toContainText("Spike Pit");
   await expect(r1.getByTestId("result-fences")).toContainText("Brush Pile #1");
-  await expect(r1.getByTestId("watch-fight")).toBeDisabled();
-  await expect(r1.getByTestId("watch-fight")).toContainText("replay coming");
   await fitsPortrait(page);
+
+  // ── chunk 22: Watch the fight. The e2e server resolves with chunk 15's test double, which
+  // records no log: the player says so plainly (never "expired", never a blank canvas), shows
+  // the server's recorded outcome, fits 360 and 320 px, and Close lands back on the results. ──
+  await r1.getByTestId("watch-fight").click();
+  const replay = page.getByRole("dialog", { name: "Encounter 1: the fight" });
+  const noLog = replay.getByTestId("replay-not-renderable");
+  await expect(noLog).toHaveAttribute("data-no-log", "true");
+  await expect(noLog).toContainText("No replay was recorded for this fight");
+  await expect(replay.getByTestId("replay-reason")).toHaveText("Reason: no replay log was recorded for this fight");
+  await expect(replay.getByTestId("replay-outcome")).toHaveText("Your caravan held.");
+  await expect(replay.getByTestId("replay-depth-explained")).toContainText("How far the deepest raider got");
+  await expect(replay.getByTestId("replay-loot")).toContainText(/Loot reported for the raiding party's owner: \d+ Coin\./);
+  await expect(replay.getByTestId("iso-canvas")).toHaveCount(0);
+  await fitsPortrait(page);
+  await page.setViewportSize({ width: 320, height: 640 });
+  await fitsPortrait(page);
+  await page.setViewportSize({ width: 360, height: 640 });
+  await replay.getByTestId("replay-close").click();
+  await expect(replay).toHaveCount(0);
+  await expect(r1.getByTestId("result-outcome")).toHaveText("The caravan held.");
+
+  // The same button with a REAL log: the e2e server's double has none, so the replay body the
+  // server suite recorded from a real-resolver fight (src/test/contract/replay.json) is served
+  // for this one request. The built client reads it with the resolver's replay reader and
+  // draws it through the iso renderer on a real canvas; play at 4×, skip to the end.
+  const recorded = JSON.parse(readFileSync(fileURLToPath(new URL("../src/test/contract/replay.json", import.meta.url)), "utf8")) as { body: { outcome: { kind: string } } };
+  await page.route("**/api/me/encounters/*/replay", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(recorded.body) }));
+  await r1.getByTestId("watch-fight").click();
+  const real = page.getByRole("dialog", { name: "Encounter 1: the fight" });
+  const player = real.getByTestId("replay-player");
+  await expect(player).toBeVisible();
+  await expect(real.getByTestId("iso-canvas")).toBeVisible();
+  await expect(real.getByTestId("replay-outcome")).toHaveText("Your caravan held.");
+  await real.getByTestId("replay-speed-4").click();
+  await real.getByTestId("replay-play").click();
+  await expect.poll(async () => Number(await real.getByTestId("replay-scrub").inputValue()), { timeout: 8_000 }).toBeGreaterThan(130);
+  await real.getByTestId("replay-play").click();
+  await expect(real.getByTestId("replay-feed")).toContainText("hit");
+  const scrubBox = await real.getByTestId("replay-scrub").boundingBox();
+  expect(scrubBox!.height).toBeGreaterThanOrEqual(43.5);
+  await real.getByTestId("replay-to-end").click();
+  await expect(real.getByTestId("replay-end-card")).toHaveAttribute("data-outcome", recorded.body.outcome.kind);
+  await expect(real.getByTestId("replay-end-card")).toContainText("Your caravan held.");
+  await page.setViewportSize({ width: 320, height: 640 });
+  await fitsPortrait(page);
+  await page.setViewportSize({ width: 360, height: 640 });
+  await real.getByTestId("replay-close").click();
+  await page.unroute("**/api/me/encounters/*/replay");
 
   // ── bank or push: every stake on screen, then push ──
   await page.getByTestId("to-decision").click();
@@ -163,30 +223,70 @@ test("a full trip: outfit, ride out, two encounters with a push between, bank, s
   await expect(page.getByTestId("fence-tray-line")).toContainText("1 destroyed");
   await postRiders(page);
   await commit(page);
-  await expect(page.getByTestId("encounter-result-2").getByTestId("result-damaged")).toContainText("HP 470 → 320 of 620");
+  // The double's encounter-2 script: the lowest-ref rider dies, the other takes 150; the caravan holds.
+  const r2 = page.getByTestId("encounter-result-2");
+  await expect(r2.getByTestId("result-outcome")).toHaveText("The caravan held.");
+  await expect(r2.getByTestId("result-killed")).toContainText("Dust Rider · Level 1");
+  await expect(r2.getByTestId("result-damaged")).toContainText("HP 470 → 320 of 620");
+
+  // ── bank or push after a death the caravan survived: the de-merge on both cards ──
+  await page.getByTestId("to-decision").click();
+  const decide2 = page.getByTestId("bank-or-push");
+  await expect(decide2).toHaveAttribute("data-encounter", "2");
+  await expect(decide2.getByTestId("stake-units")).toContainText("Dead since encounter 2");
+  await expect(decide2.getByTestId("stake-bank")).toContainText("Units that died lose a merge level when you bank:");
+  await expect(decide2.getByTestId("stake-bank")).toContainText("Dust Rider · stays L1 (level 1 is the floor)");
+  await expect(decide2.getByTestId("stake-overrun-demerged")).toContainText("Dust Rider · stays L1 (level 1 is the floor)");
+  await expect(decide2.getByTestId("stake-overrun-coin-goes")).toContainText("It goes to the raiders' owner");
+  await expect(decide2.getByTestId("stake-overrun-final-fight")).toBeVisible();
+  await fitsPortrait(page);
+  await page.setViewportSize({ width: 320, height: 568 });
+  await fitsPortrait(page);
+  await page.setViewportSize({ width: 360, height: 640 });
+  await page.getByTestId("push-open").click();
+  const push2 = page.getByRole("dialog", { name: "Push on to encounter 3?" });
+  await expect(push2.getByTestId("push-quote")).toContainText("1 living unit stay at risk, and 1 dead unit loses a level");
+  await push2.getByTestId("push-confirm").click();
+
+  // ── encounter 3: one rider left ──
+  await chooseFirstCandidate(page, 3);
+  await postRiders(page, 1);
+  await commit(page);
+  await expect(page.getByTestId("encounter-result-3").getByTestId("result-damaged")).toContainText("HP 320 → 170 of 620");
 
   // ── bank → summary → town ──
   await page.getByTestId("to-decision").click();
-  await expect(page.getByTestId("bank-or-push")).toHaveAttribute("data-encounter", "2");
+  await expect(page.getByTestId("bank-or-push")).toHaveAttribute("data-encounter", "3");
   await page.getByTestId("bank-open").click();
   const bank = page.getByRole("dialog", { name: "Bank the trip?" });
   await expect(bank.getByTestId("bank-quote")).toContainText(/The trip ends\. \d+ Coin is banked in the town, safe for good\./);
+  await expect(bank.getByTestId("bank-quote-refit")).toContainText("but 1 unit that died loses a merge level:");
+  await expect(bank).not.toContainText("fully refitted");
+  await expect(bank.getByTestId("bank-quote-demerged")).toContainText("Dust Rider · stays L1 (level 1 is the floor)");
+  await fitsPortrait(page);
+  await page.setViewportSize({ width: 320, height: 568 });
+  await fitsPortrait(page);
+  await page.setViewportSize({ width: 360, height: 640 });
   await bank.getByTestId("bank-confirm").click();
   const summary = page.getByTestId("trip-summary");
   await expect(summary).toBeVisible();
-  await expect(summary.getByTestId("summary-banked")).toContainText("Banked after 2 encounters. The caravan is home.");
+  await expect(summary.getByTestId("summary-banked")).toContainText("Banked after 3 encounters. The caravan is home.");
   await expect(summary.getByTestId("summary-credited")).toContainText(/\d+ Coin banked/);
   await expect(summary.getByTestId("summary-balance")).toContainText(/Banked Coin in town is now \d+\./);
-  await expect(summary.getByTestId("encounter-result-1")).toBeVisible();
-  await expect(summary.getByTestId("encounter-result-2")).toBeVisible();
+  await expect(summary.getByTestId("summary-bank-demerged")).toContainText("Dust Rider · stays L1 (level 1 is the floor)");
+  for (const n of [1, 2, 3]) await expect(summary.getByTestId(`encounter-result-${n}`)).toBeVisible();
   await fitsPortrait(page);
+  // The same screens at the narrowest phone width this client supports.
+  await page.setViewportSize({ width: 320, height: 568 });
+  await fitsPortrait(page);
+  await page.setViewportSize({ width: 360, height: 640 });
   await summary.getByTestId("summary-to-town").click();
 
   await expect(page.getByTestId("town-screen")).toBeVisible();
   await expect(page.getByTestId("caravan-state")).toHaveAttribute("data-state", "in_town");
   await expect(page.getByTestId("trip-cap")).toContainText("Trips available: 2 of 3. The next trip returns in");
 
-  // The server agrees: one trip-cap use for the whole two-encounter trip, banked once.
+  // The server agrees: one trip-cap use for the whole three-encounter trip, banked once.
   const login = await request.post("/api/auth/login", { data: { username: USERNAME, password: PASSWORD } });
   const { token } = (await login.json()) as { token: string };
   const auth = { Authorization: `Bearer ${token}` };
@@ -198,5 +298,5 @@ test("a full trip: outfit, ride out, two encounters with a push between, bank, s
   expect(status.cap.available).toBe(2);
   expect(status.trip.phase).toBe("ended");
   expect(status.trip.endReason).toBe("banked");
-  expect(status.trip.encounters.map((e) => e.decision)).toEqual(["pushed", "banked"]);
+  expect(status.trip.encounters.map((e) => e.decision)).toEqual(["pushed", "pushed", "banked"]);
 });

@@ -29,7 +29,7 @@ import { LEDGER_EVENT_TYPES, canonicalJson, type Json } from "../src/ledger/even
 import { listEventsForAccount } from "../src/ledger/ledger.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
 import { partySaveLimiter } from "../src/routes/party.js";
-import { appRolePool, expectDbError, testPool, truncateAll, unique } from "./helpers.js";
+import { appRolePool, expectDbError, testPool, truncateAll, unique, commitFormationInTown } from "./helpers.js";
 
 const pool = testPool();
 let appRole: pg.Pool;
@@ -59,7 +59,8 @@ async function giveUnits(p: Player, n: number, typeId = "desert.dust_rider", mer
 function call(p: Player, method: "GET" | "POST" | "PUT", url: string, payload?: unknown): Promise<LightMyRequestResponse> {
   const opts: InjectOptions = { method, url, headers: { authorization: `Bearer ${p.token}` } };
   if (payload !== undefined) opts.payload = payload as NonNullable<InjectOptions["payload"]>;
-  return app.inject(opts);
+  // Chunk 15 QA N4: the raw commit route is trip-only now; chunk 07's model tests commit through the service.
+  return commitFormationInTown(appRole, p.caravanId, method, url).then((r) => (r as unknown as LightMyRequestResponse | null) ?? app.inject(opts));
 }
 
 const north = entryBand("north");

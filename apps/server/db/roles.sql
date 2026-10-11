@@ -107,7 +107,7 @@ GRANT EXECUTE ON FUNCTION
 TO caravan_app;
 
 -- ---------------------------------------------------------------------------------
--- Replays are written once, by the resolution path only (QA-13 S4, migration 015)
+-- Replays are written once, by the resolution path only (QA-13 S4, migration 016)
 -- ---------------------------------------------------------------------------------
 -- encounter_log: no direct INSERT, UPDATE or DELETE for the app role. A replay is written by
 -- encounter_log_write() (fenced on the job's live lease, checked against the job by the insert

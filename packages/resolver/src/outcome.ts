@@ -41,9 +41,9 @@
  * as distance — a raider gets deep by breaking through and by outliving the posts.
  *
  * Loot is NOT here. The resolver reports kind and depth; the party OWNER's loot
- * (PARTIAL_LOOT_CURVE: full × depth^1.5 on a wipe, full on an overrun, nothing on a
- * stalemate) is computed by the server from them and the encounter's Coin value, and
- * credited there or not at all. The resolver never sees Coin.
+ * (PARTIAL_LOOT_CURVE: full × depth^1.5 on a wipe, nothing on a stalemate; an overrun pays
+ * the trip's Coin transfer + the party win instead) is computed by the server from them and
+ * the encounter's Coin value, and credited there or not at all. The resolver never sees Coin.
  */
 import { CORE_ORIGIN, CORE_SIZE, PERIMETER_RING_RADIUS } from "./battlefield.js";
 import { FIXED_POINT_SCALE } from "./fixed.js";

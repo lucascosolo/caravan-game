@@ -5,12 +5,14 @@
  * on this screen is computed by the client:
  *
  *   - unbanked Coin: the total and each encounter's share (trip state, never the balance);
- *   - banking now: encounter Coin + delivery bonus, and the overflow forecast against the
- *     store's room right now (what would be credited, what discarded);
+ *   - banking now: encounter Coin + delivery bonus, the overflow forecast against the
+ *     store's room right now (what would be credited, what discarded), and every unit that
+ *     died on the trip with the level the bank drops it to (`bankNow.unitsDeMerged`);
  *   - every packed unit: alive or dead (since which encounter), HP and damage carried, and
  *     the merge level it would drop to on death;
- *   - if overrun at the next encounter: all unbanked Coin lost, which units are lost outright
- *     (alive now), which are de-merged instead (already dead);
+ *   - if overrun at the next encounter: all unbanked Coin lost and where it goes, which units
+ *     are lost outright (alive now; one that dies in that last fight is de-merged instead), which
+ *     are de-merged instead (already dead), each with its level change;
  *   - traps still armed / spent, fence segments intact (with damage) / destroyed;
  *   - the next encounter: its reward, the bank total if survived, its difficulty (chunk 14's
  *     escalation) and that its party arrives fresh;
@@ -22,13 +24,13 @@
  * the server replays it, never decides twice. There is nothing to buy here (GUARDRAILS §2).
  */
 import { FIXED_ONE } from "@caravan/content";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, type Api } from "../../api/client.ts";
-import type { BankResult, PushResult, StakesPreview } from "../../api/tripTypes.ts";
+import type { BankResult, DeMergedUnitView, PushResult, StakesPreview } from "../../api/tripTypes.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { Modal } from "../../shell/Modal.tsx";
 import { STRINGS } from "../../strings.ts";
-import { fenceLabel, trapTypeName, unitLabel } from "./tripNames.ts";
+import { fenceLabel, trapTypeName, unitLabel, unitTypeName } from "./tripNames.ts";
 
 const T = STRINGS.trip;
 
@@ -43,6 +45,25 @@ export interface BankOrPushScreenProps {
   /** The survived encounter this decision is about. */
   readonly encounterIndex: number;
   readonly onDecided: (d: Decided) => void;
+  /**
+   * The decision was closed elsewhere (another tab, or a lost answer that did go through):
+   * the Trail re-reads the trip and shows its current phase (chunk 23 QA S3). Absent, the
+   * closed banner carries no way on.
+   */
+  readonly onStale?: () => void;
+}
+
+/** One line per de-merged unit: "Dust Rider · L4 → L3". */
+export function DeMergedList({ units, testId }: { readonly units: readonly DeMergedUnitView[]; readonly testId: string }): JSX.Element {
+  return (
+    <ul className="plain" data-testid={testId}>
+      {units.map((u) => (
+        <li key={u.ref} data-testid={`${testId}-${u.ref}`}>
+          {T.levelChange(unitTypeName(u.typeId), u.fromLevel, u.toLevel)}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 /** Grouped trap names: "Spike Pit ×2, Snare". */
@@ -77,6 +98,16 @@ export function Stakes({ preview }: { readonly preview: StakesPreview }): JSX.El
         <p data-testid="stake-bank-forecast" className={f.wouldDiscard > 0 ? "error" : undefined} role={f.wouldDiscard > 0 ? "alert" : undefined}>
           {f.wouldDiscard > 0 ? T.bankForecastOverflow(f.wouldCredit, f.wouldDiscard, f.balance, f.cap) : T.bankForecastFits(f.wouldCredit, f.balance, f.cap)}
         </p>
+        {p.bankNow.unitsDeMerged.length === 0 ? (
+          <p className="hint" data-testid="stake-bank-demerged-none">
+            {T.bankDemergedNone}
+          </p>
+        ) : (
+          <>
+            <p>{T.bankDemergedHeading}</p>
+            <DeMergedList units={p.bankNow.unitsDeMerged} testId="stake-bank-demerged" />
+          </>
+        )}
       </section>
 
       <section className="card" data-testid="stake-units">
@@ -97,22 +128,28 @@ export function Stakes({ preview }: { readonly preview: StakesPreview }): JSX.El
         <p>
           <strong>{T.overrunCoin(p.ifOverrun.coinLost)}</strong>
         </p>
+        {p.ifOverrun.coinLost > 0 && (
+          <p className="hint" data-testid="stake-overrun-coin-goes">
+            {T.overrunCoinGoesTo(p.ifOverrun.coinGoesTo)}
+          </p>
+        )}
         <p>{T.overrunLost}</p>
         <ul className="plain" data-testid="stake-overrun-lost">
           {p.ifOverrun.unitsLostOutright.length === 0 ? <li className="hint">{T.none}</li> : p.ifOverrun.unitsLostOutright.map((u) => <li key={u.ref}>{unitLabel(u)}</li>)}
         </ul>
+        {p.ifOverrun.unitsLostOutright.length > 0 && T.overrunFinalFight(p.ifOverrun.unitDyingInTheFinalFight) !== "" && (
+          <p className="hint" data-testid="stake-overrun-final-fight">
+            {T.overrunFinalFight(p.ifOverrun.unitDyingInTheFinalFight)}
+          </p>
+        )}
         <p>{T.overrunDemerged}</p>
-        <ul className="plain" data-testid="stake-overrun-demerged">
-          {p.ifOverrun.unitsDeMergedNotDestroyed.length === 0 ? (
+        {p.ifOverrun.unitsDeMergedNotDestroyed.length === 0 ? (
+          <ul className="plain" data-testid="stake-overrun-demerged">
             <li className="hint">{T.none}</li>
-          ) : (
-            p.ifOverrun.unitsDeMergedNotDestroyed.map((u) => (
-              <li key={u.ref}>
-                {unitLabel(u)} · {T.unitDemerge(u.mergeLevel, u.mergeLevelAfter)}
-              </li>
-            ))
-          )}
-        </ul>
+          </ul>
+        ) : (
+          <DeMergedList units={p.ifOverrun.unitsDeMergedNotDestroyed} testId="stake-overrun-demerged" />
+        )}
       </section>
 
       <section className="card" data-testid="stake-traps">
@@ -178,37 +215,80 @@ export function Stakes({ preview }: { readonly preview: StakesPreview }): JSX.El
   );
 }
 
-type Confirm = { readonly kind: "bank" | "push"; readonly preview: StakesPreview | null; readonly lost: ApiError | null };
+type Confirm = {
+  readonly kind: "bank" | "push";
+  readonly preview: StakesPreview | null;
+  /** The confirm's own re-read failed (chunk 23 QA N2): shown inside the modal, with Retry. */
+  readonly readError: ApiError | null;
+  readonly lost: ApiError | null;
+};
 
-export function BankOrPushScreen({ api, caravanId, tripId, encounterIndex, onDecided }: BankOrPushScreenProps): JSX.Element {
+export function BankOrPushScreen({ api, caravanId, tripId, encounterIndex, onDecided, onStale: onStaleProp }: BankOrPushScreenProps): JSX.Element {
+  // Held in a ref so a parent's fresh closure each render never re-runs the initial read.
+  const staleRef = useRef(onStaleProp);
+  staleRef.current = onStaleProp;
+  const hasStale = onStaleProp !== undefined;
+  const onStale = useCallback((): void => staleRef.current?.(), []);
   const [preview, setPreview] = useState<StakesPreview | null>(null);
   const [loadError, setLoadError] = useState<ApiError | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
 
-  const load = useCallback(async (): Promise<StakesPreview | null> => {
-    setLoadError(null);
+  /** Is this preview still about the decision this screen was opened for? */
+  const isOpen = useCallback((p: StakesPreview): boolean => p.decisionOpen && p.decisionFor === encounterIndex && p.tripId === tripId, [encounterIndex, tripId]);
+
+  const read = useCallback(async (): Promise<{ preview: StakesPreview } | { error: ApiError }> => {
     try {
-      const p = await api.tripPreview(caravanId);
-      setPreview(p);
-      return p;
+      return { preview: await api.tripPreview(caravanId) };
     } catch (err) {
-      setLoadError(asApiError(err));
-      return null;
+      return { error: asApiError(err) };
     }
   }, [api, caravanId]);
+
+  const load = useCallback(async (): Promise<void> => {
+    setLoadError(null);
+    const r = await read();
+    if ("error" in r) {
+      // No open trip any more (404 no_trip): the decision was closed elsewhere.
+      if (r.error.status === 404 && hasStale) onStale();
+      else setLoadError(r.error);
+      return;
+    }
+    setPreview(r.preview);
+    // Chunk 23 QA S3: decided elsewhere → the Trail re-reads the trip and shows where it is now.
+    if (!isOpen(r.preview) && hasStale) onStale();
+  }, [read, isOpen, onStale, hasStale]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  const reread = async (kind: "bank" | "push"): Promise<void> => {
+    setConfirm({ kind, preview: null, readError: null, lost: null });
+    // Re-read the stakes before quoting them (README §4).
+    const r = await read();
+    if ("error" in r) {
+      if (r.error.status === 404 && hasStale) {
+        setConfirm(null);
+        onStale();
+        return;
+      }
+      setConfirm((c) => (c && c.kind === kind ? { ...c, readError: r.error } : c));
+      return;
+    }
+    setPreview(r.preview);
+    if (!isOpen(r.preview) && hasStale) {
+      setConfirm(null);
+      onStale();
+      return;
+    }
+    setConfirm((c) => (c && c.kind === kind ? { ...c, preview: r.preview } : c));
+  };
+
   const open = async (kind: "bank" | "push"): Promise<void> => {
     setError(null);
-    setConfirm({ kind, preview: null, lost: null });
-    // Re-read the stakes before quoting them (README §4).
-    const fresh = await load();
-    setConfirm((c) => (c && c.kind === kind ? { ...c, preview: fresh } : c));
+    await reread(kind);
   };
 
   const decide = async (): Promise<void> => {
@@ -223,6 +303,10 @@ export function BankOrPushScreen({ api, caravanId, tripId, encounterIndex, onDec
       if (e.status === 0) {
         // The decision may have landed; the same body replays it, never decides twice.
         setConfirm((c) => (c ? { ...c, lost: e } : c));
+      } else if ((e.status === 409 || e.status === 404) && hasStale) {
+        // Decided elsewhere (or the trip is over): lead on to where the trip stands now.
+        setConfirm(null);
+        onStale();
       } else {
         setConfirm(null);
         setError(e);
@@ -251,7 +335,7 @@ export function BankOrPushScreen({ api, caravanId, tripId, encounterIndex, onDec
       </section>
     );
   }
-  const open_ = preview.decisionOpen && preview.decisionFor === encounterIndex && preview.tripId === tripId;
+  const open_ = isOpen(preview);
   const quote = confirm?.preview ?? null;
   const alive = (p: StakesPreview): number => p.units.filter((u) => u.alive).length;
 
@@ -263,9 +347,14 @@ export function BankOrPushScreen({ api, caravanId, tripId, encounterIndex, onDec
       <p className="hint">{T.decideIntro}</p>
       {loadError && <ErrorBox error={loadError} heading={T.decideLoadFailed} onRetry={() => void load()} />}
       {!open_ && (
-        <p className="error" role="alert" data-testid="decide-closed">
-          {T.decideClosed}
-        </p>
+        <div className="error" role="alert" data-testid="decide-closed">
+          <p>{T.decideClosed}</p>
+          {hasStale && (
+            <button type="button" className="btn btn--primary btn--block" onClick={onStale} data-testid="decide-back-to-trail">
+              {T.decideBackToTrail}
+            </button>
+          )}
+        </div>
       )}
 
       <Stakes preview={preview} />
@@ -295,7 +384,7 @@ export function BankOrPushScreen({ api, caravanId, tripId, encounterIndex, onDec
               <button
                 type="button"
                 className="btn btn--primary"
-                disabled={busy || !quote || !quote.decisionOpen}
+                disabled={busy || !quote || !isOpen(quote)}
                 onClick={() => void decide()}
                 data-testid={confirm.kind === "bank" ? "bank-confirm" : "push-confirm"}
               >
@@ -304,23 +393,36 @@ export function BankOrPushScreen({ api, caravanId, tripId, encounterIndex, onDec
             </>
           }
         >
-          {!quote ? (
+          {confirm.readError ? (
+            <div data-testid="confirm-read-error">
+              <ErrorBox error={confirm.readError} heading={T.confirmLoadFailed} onRetry={() => void reread(confirm.kind)} />
+            </div>
+          ) : !quote ? (
             <p className="hint" role="status">
               {STRINGS.app.loading}
             </p>
           ) : confirm.kind === "bank" ? (
             <>
               <p data-testid="bank-quote">{T.bankConfirmBody(quote.bankNow.total, quote.bankNow.forecast.wouldCredit, quote.bankNow.forecast.wouldDiscard)}</p>
-              <p className="hint">{T.bankConfirmRefit}</p>
+              {quote.bankNow.unitsDeMerged.length === 0 ? (
+                <p className="hint" data-testid="bank-quote-refit">
+                  {T.bankConfirmRefit}
+                </p>
+              ) : (
+                <>
+                  <p data-testid="bank-quote-refit">{T.bankConfirmRefitDemerged(quote.bankNow.unitsDeMerged.length)}</p>
+                  <DeMergedList units={quote.bankNow.unitsDeMerged} testId="bank-quote-demerged" />
+                </>
+              )}
             </>
           ) : (
             <>
-              <p data-testid="push-quote">{T.pushConfirmBody(quote.ifOverrun.coinLost, alive(quote))}</p>
+              <p data-testid="push-quote">{T.pushConfirmBody(quote.ifOverrun.coinLost, alive(quote), quote.ifOverrun.unitsDeMergedNotDestroyed.length)}</p>
               <p>{T.nextReward(quote.nextEncounter.reward)}</p>
               <p className="hint">{T.pushConfirmNoRepair}</p>
             </>
           )}
-          {quote && !quote.decisionOpen && <p className="error">{T.decideClosed}</p>}
+          {quote && !isOpen(quote) && <p className="error">{T.decideClosed}</p>}
           {confirm.lost && (
             <div className="error" role="alert" data-testid="decision-unconfirmed">
               <div>{T.decisionUnconfirmed}</div>

@@ -112,7 +112,7 @@ the owner role could simply disable, so the server never runs as the owner:
 `encounter_log` (chunk 13 replays) is write-once even for the app role: no INSERT / UPDATE / DELETE
 grant; rows go in only through `encounter_log_write()` (SECURITY DEFINER, fenced on the job's
 live lease, checked against the job) and leave only through `encounter_log_prune()` (the
-retention rule, migration 015). `caravan_app` is created and granted by `apps/server/db/roles.sql` (idempotent; a role is
+retention rule, migration 016). `caravan_app` is created and granted by `apps/server/db/roles.sql` (idempotent; a role is
 cluster-level, so it is a script, not a migration). `pnpm db:migrate` and `pnpm db:reset`
 apply it after migrating; `pnpm --filter @caravan/server exec tsx src/db/migrate.ts roles`
 applies it alone (no `db:roles` script yet: `apps/server/package.json` belongs to chunk 02's
@@ -178,7 +178,7 @@ number of server processes may run it (the queue's lease and completion fence ma
 workers safe). Tests build apps without it and call `drain` themselves.
 
 **`CARAVAN_TEST_RESOLVER=double` (dev / test only, chunk 23).** Swaps chunk 15's deterministic
-test double (`apps/server/test/trip-double.ts`, via `src/dev/testResolver.ts`) in for the real
+test double (`apps/server/src/dev/tripDouble.ts`, via `src/dev/testResolver.ts`) in for the real
 resolver in that in-process worker, for predictable e2e outcomes: every encounter is held, each
 posted unit loses 150 HP, at encounter 1 the first laid trap fires and every placed fence segment
 breaks. The double writes no tick log, so its fights' replays answer `renderable: false` with the

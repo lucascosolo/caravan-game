@@ -2,7 +2,7 @@
  * Chunk 15 — the trip loop. Trip start (trip cap, caravan.state, trip_started), the
  * encounter chain through chunk 14's search/choose and chunk 07's arrangement, resolution
  * through the trip loop's seam (src/trip/outcome.ts) with the deterministic double in
- * trip-double.ts, settle-exactly-once (attrition, progression, unbanked Coin), bank / push /
+ * src/dev/tripDouble.ts, settle-exactly-once (attrition, progression, unbanked Coin), bank / push /
  * overrun / stalemate, NO repair between encounters, the bank-or-push stakes preview, and
  * idempotency under retries and races (double bank, bank racing push, two starts, settles
  * racing). Production resolves with the real resolver since chunk 13 (ENCOUNTER_RESOLUTION_WIRED);
@@ -36,7 +36,7 @@ import { ENCOUNTER_OUTCOME_KINDS, EncounterOutcomeError, assertTripEncounterOutc
 import { ENCOUNTER_OUTCOME_KINDS as PROGRESSION_KINDS } from "../src/progression/outcome.js";
 import { settleEncounter, startTrip, type StakesPreview, type TripStatusView } from "../src/trip/service.js";
 import { appRolePool, expectDbError, testPool, truncateAll, unique } from "./helpers.js";
-import { doubleHandlers, type EncounterPlan } from "./trip-double.js";
+import { doubleHandlers, type EncounterPlan } from "../src/dev/tripDouble.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const pool = testPool();
@@ -416,7 +416,7 @@ describe("the encounter chain: attrition carries forward, nothing is repaired, b
     expect(p).toMatchObject({ tripId, encountersSurvived: 1, decisionOpen: true, decisionFor: 1 });
     expect(p.unbankedCoin).toEqual({ total: coinForEncounter(1, BAND), byEncounter: [{ index: 1, coin: coinForEncounter(1, BAND) }] });
     expect(p.bankNow).toMatchObject({ encounterCoin: coinForEncounter(1, BAND), deliveryBonus: coinForDelivery(1), total: coinForBankedTrip(1, BAND) });
-    expect(p.bankNow.forecast.prospectiveEarn).toBe(coinForBankedTrip(1, BAND));
+    expect(p.bankNow!.forecast.prospectiveEarn).toBe(coinForBankedTrip(1, BAND));
     expect(p.units.length).toBe(3);
     for (const u of p.units) {
       const mu = m.units.find((x) => x.ref === u.ref)!;
@@ -486,7 +486,8 @@ describe("the encounter chain: attrition carries forward, nothing is repaired, b
     const heal: EncounterPlan = { kind: "caravan_held", tamper: (o) => ({ ...o, units: o.units.map((u) => ({ ...u, hp: u.hp + 1 })) }) };
     await worker(doubleHandlers({ 3: heal }));
     expect((await getJob(pool, jobId))!.status).toBe("parked");
-    expect((await status(d)).trip).toMatchObject({ phase: "resolution_unavailable", currentEncounter: 3 });
+    // (No trip read here: since chunk 15 QA D3 a read of a parked encounter VOIDS the trip — its
+    // own describe below. This test requeues the job by hand instead, as an operator would.)
     expect(await survivors(d)).toEqual(m);
     // Re-armed trap / an unplaced trap: same.
     await pool.query("SELECT resolution_job_requeue($1, 3, 'test')", [jobId]);
@@ -698,7 +699,7 @@ describe("the production handler is wired (chunk 13)", () => {
     const job = await getJob(pool, jobId);
     const input = job!.input as Record<string, unknown>;
     expect(Object.keys(input.formation as object).sort()).toEqual(["fences", "posts", "traps", "v"]);
-    expect(Object.keys(input).sort()).toEqual(["contentHash", "defenderAccountId", "defenderCaravanId", "encounterIndex", "formation", "party", "partyOwnerAccountId", "resolverVersion", "survivors", "tripId"]);
+    expect(Object.keys(input).sort()).toEqual(["contentHash", "defenderAccountId", "defenderCaravanId", "encounterIndex", "formation", "party", "partyLootFull", "partyOwnerAccountId", "resolverVersion", "survivors", "tripId"]);
     expect(input.survivors).toEqual(before1(await survivors(d)));
     await worker(DEFAULT_HANDLERS);
     expect((await getJob(pool, jobId))!.status).toBe("completed");

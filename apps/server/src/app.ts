@@ -5,6 +5,7 @@ import { createPool } from "./db/pool.js";
 import type { InlineEncounterWorker } from "./dev/testResolver.js";
 import { DEFAULT_HANDLERS } from "./jobs/handlers/encounterResolution.js";
 import { EncounterWorkerLoop } from "./jobs/inProcessWorker.js";
+import { TRIP_SETTLE_HOOKS } from "./trip/service.js";
 import { acquisitionRoutes } from "./routes/acquisition.js";
 import { authRoutes } from "./routes/auth.js";
 import { circleRoutes } from "./routes/circle.js";
@@ -66,6 +67,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
           name: inline ? inline.name : "resolver",
           handlers: inline ? inline.handlers : DEFAULT_HANDLERS,
           kickDelayMs: inline ? inline.delayMs : 0,
+          hooks: TRIP_SETTLE_HOOKS,
           // The double keeps its chunk 23 timing: resolved INLINE_WORKER_DELAY_MS after the commit's kick (so a
           // client sees "resolving"), not raced by a 1 s poll; its poll only sweeps up what a kick missed.
           ...(inline ? { retryBackoffMs: () => 0, pollMs: DOUBLE_POLL_MS } : {}),

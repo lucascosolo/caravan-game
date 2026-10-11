@@ -6,7 +6,7 @@
   "description": "The client: Vite + React, web-first and mobile-shaped. Renders server state and stored battle logs; never runs the simulation.",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/check-bundle.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",

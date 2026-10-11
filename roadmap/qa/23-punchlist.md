@@ -16,7 +16,7 @@ key. A double tap on Bank sends one POST (the server log shows a single `/trip/b
 
 ## Should-fix
 
-S1. **Bank-or-push breaks as soon as a unit has died but the caravan held.** The server sends
+S1. **[closed]** **Bank-or-push breaks as soon as a unit has died but the caravan held.** The server sends
 `ifOverrun.unitsDeMergedNotDestroyed` as `DeMergedUnit` `{ref, typeId, fromLevel, toLevel,
 diedAtEncounter}` (apps/server/src/trip/stakes.ts:98-104, service.ts:698,777). The client
 guard requires `{mergeLevel, mergeLevelAfter}` (apps/web/src/api/tripShapes.ts:164;
@@ -30,7 +30,7 @@ first appear. Fix: type and guard the list as `{ref, typeId, fromLevel, toLevel,
 and render `fromLevel → toLevel` (BankOrPushScreen.tsx:109-112). Add a contract recording of a
 preview with a dead unit, which the double can produce by pushing, or by a plan with `kill`.
 
-S2. **Banking's de-merges are not shown before the bank, in the confirm, or after it.**
+S2. **[closed]** **Banking's de-merges are not shown before the bank, in the confirm, or after it.**
 - Before: `bankNow.unitsDeMerged` (service.ts:684-685,771; this is chunk 15 QA S7, now landed)
   is neither typed nor rendered. The "Bank now" card (BankOrPushScreen.tsx:74-80) quotes only
   Coin.
@@ -50,7 +50,7 @@ in the Bank card, a one-line restatement in the bank confirm ("N units that died
 level"), and the same list in the banked summary from `restored.deMerged`. Drop
 `deMergePending` from the types and guards.
 
-S3. **A decision closed elsewhere leaves a dead end.** Scenario (observed at 320×568): tab A is
+S3. **[closed]** **A decision closed elsewhere leaves a dead end.** Scenario (observed at 320×568): tab A is
 on bank-or-push for encounter 1, and tab B (or a lost answer that did go through) pushes.
 In tab A, "Bank and go home" opens a modal that quotes 525 Coin and "Everything packed comes
 home…", then says "This decision is no longer open", with Bank it disabled. After cancelling,
@@ -64,7 +64,7 @@ returns 409, call the Trail's `load()` (pass an `onStale` callback). Failing tha
 "Back to the trail" button that does. TripFlow.test.tsx:214 asserts only the banner; extend it
 to assert the way forward.
 
-S4. **The unit test enshrines the wrong wire shape.** TripFlow.test.tsx:260-278 builds
+S4. **[closed]** **The unit test enshrines the wrong wire shape.** TripFlow.test.tsx:260-278 builds
 `unitsDeMergedNotDestroyed: [{…, mergeLevel, mergeLevelAfter}]` by hand and renders `<Stakes>`
 directly, which bypasses the guard. That is why S1 and S2 passed CI. Fix: build dead-unit
 previews by mutating a recorded contract body and parsing it through `stakesPreviewShape`, as
@@ -74,13 +74,13 @@ with non-empty `bankNow.unitsDeMerged`, `ifOverrun.unitsDeMergedNotDestroyed` an
 
 ## Decisions (orchestrator)
 
-D1. **Where de-merge-on-bank sits on the screen.** Banking is not free once anything has died.
+D1. **[closed]** **Where de-merge-on-bank sits on the screen.** Banking is not free once anything has died.
 Today the only signal is the "Your units" card ("Dead since encounter N · Loses a merge level:
 3 → 2"), which reads as though it applies only to an overrun. Recommendation: the Bank card
 and the overrun card each carry their own unit list (bank: `bankNow.unitsDeMerged`; overrun:
 lost outright plus de-merged), so the two choices compare side by side.
 
-D2. **Overrun nuance the server sends but the client drops.**
+D2. **[closed]** **Overrun nuance the server sends but the client drops.**
 - `ifOverrun.coinGoesTo: "overrunning_party_owner_capped"` is not shown. The player sees "Lose
   all X Coin" but not that it goes to the party's owner (or is destroyed for an authored party).
 - `unitDyingInTheFinalFight: "de_merged_not_destroyed"` is not shown either, so "Lost outright
@@ -88,7 +88,7 @@ D2. **Overrun nuance the server sends but the client drops.**
 
 Decide whether either belongs on the prompt. Recommendation: one hint line each (copy only).
 
-D3. **The DoD says "a banked three-encounter trip".** trip.spec.ts rides two encounters (push
+D3. **[closed]** **The DoD says "a banked three-encounter trip".** trip.spec.ts rides two encounters (push
 once, then bank). The double cannot produce an overrun or a death that the caravan survives
 within the e2e's depth, so the e2e never exercises the overrun summary or any de-merge. Either
 extend the e2e to three encounters (and, after S1, a fourth or fifth with a death the caravan
@@ -96,24 +96,24 @@ survives), or amend the DoD.
 
 ## Nits
 
-N1. The intro copy is wrong: "staying out earns nothing but the next encounter's Coin"
+N1. **[closed]** The intro copy is wrong: "staying out earns nothing but the next encounter's Coin"
 (strings.ts:429). Pushing also raises the delivery bonus (125 × encounters, chunk 15 QA D1), and
 `nextEncounter.bankTotalIfSurvived` includes it. Reword, e.g. "…earns the next encounter's Coin
 and a bigger delivery bonus, nothing else".
 
-N2. If the confirm's fresh re-read fails, the modal stays on "Loading…" forever with the confirm
+N2. **[closed]** If the confirm's fresh re-read fails, the modal stays on "Loading…" forever with the confirm
 disabled (BankOrPushScreen.tsx:210-211,298,307). The error renders behind the modal. Show the
 error, with Retry, inside the modal.
 
-N3. On a re-login, the summary shows "Your last trip" without the town balance after the bank
+N3. **[closed]** On a re-login, the summary shows "Your last trip" without the town balance after the bank
 (`lastBank` is session state, TrailScreen.tsx:82,246). This is harmless, but the summary could read
 the balance from `/me/economy` so a returning player sees the same screen.
 
-N4. The push confirm counts living units ("2 living units stay at risk") but does not name the
+N4. **[closed]** The push confirm counts living units ("2 living units stay at risk") but does not name the
 already-dead units that an overrun would de-merge (BankOrPushScreen.tsx:318). After S1, add
 "and N dead units lose a level" when the list is non-empty.
 
-N5. Production code imports test code: `apps/server/src/dev/testResolver.ts` imports
+N5. **[closed]** Production code imports test code: `apps/server/src/dev/testResolver.ts` imports
 `../../test/trip-double.js`, so the test double is bundled into `apps/server/dist/index.js`.
 It is gated by the env refusal, but the bundle ships a scripted resolver. Consider moving
 the double under `src/dev/`, or excluding it from the production build.
@@ -130,3 +130,19 @@ test resolver is installed (ORCHESTRATION chunk 23 note), or `pnpm e2e` breaks.
 - **D3: extend the e2e, do not amend the definition of done.** `trip.spec.ts` banks after three encounters. The de-merge and overrun paths are covered by web tests fed from server-generated contract fixtures (add a contract case with a death, a de-merge on bank and an overrun), not by hand-built shapes. Chunk 13 is now wired, so the e2e still uses `CARAVAN_TEST_RESOLVER=double` for predictable outcomes. The double may need a per-encounter script (for example, kill a unit at encounter 2) to produce a death the e2e can see.
 - **N5: fix.** Move the test double into `apps/server/src/dev/` so the production bundle no longer imports from `test/`. The test files import it from there. The production refusal stays.
 - Every S and N item is in scope for the fixer.
+
+## Fixes (2026-10-11, fixer)
+
+- **S1 closed.** `DeMergedUnitView {ref, typeId, fromLevel, toLevel, diedAtEncounter}` typed and guarded for `ifOverrun.unitsDeMergedNotDestroyed` (tripTypes.ts, tripShapes.ts); rendered "Dust Rider · L3 → L2".
+- **S2 closed.** `bankNow.unitsDeMerged` typed, required and listed in the Bank card; the bank confirm says "refitted …, but N units that died lose a merge level" plus the list ("fully refitted" only when nobody died); the summary lists `restored.deMerged`. `deMergePending` is gone; the bank answer's `restored.deMerged` is required (no `orEmpty`), the stored ending's stays tolerant.
+- **S3 closed.** BankOrPushScreen takes `onStale`: a stale preview (open/decisionFor/tripId), a 404, or a 409 on the decision makes the Trail re-read the trip and show its phase with a "decided elsewhere" notice; the closed banner carries "Back to the trail" as the fallback.
+- **S4 closed.** The contract test packs a level-3 veteran that dies at encounter 2 (caravan held) and dies again in the overrun trip, so trip-preview-2 / trip-bank / trip-status-banked / trip-status-overrun carry non-empty de-merge lists. TripFlow tests edit recorded bodies before the guard (`previewFromRecorded`); new `api/tripShapes.test.ts` parses every list and rejects the old and the missing shapes.
+- **D1 closed.** Bank card and overrun card each list their own units with the level change; bank confirm restates the bank list; the summary repeats what was applied.
+- **D2 closed.** One hint line each: where lost Coin goes (`coinGoesTo`: "to the raiders' owner … the rest is lost to the trail"), and that a unit dying in the last fight is de-merged, not lost; "Lost outright" now reads "if still standing when the caravan falls".
+- **D3 closed.** trip.spec.ts banks after three encounters. The dev double's encounter-2 script (`killLowestRefPosts: 1`) kills one rider while the caravan holds; the e2e checks the de-merge on both cards, the push and bank confirms and the summary, at 360 px and 320 px.
+- **N1 closed.** Intro: "earns the next encounter's Coin and a bigger delivery bonus, nothing else".
+- **N2 closed.** The confirm's re-read error shows inside the modal with Retry; confirm stays disabled.
+- **N3 closed.** An ended trip reads `/me/economy`, so a returning player's summary shows the town balance.
+- **N4 closed.** Push confirm adds "and N dead units lose a level" when the list is non-empty.
+- **N5 closed.** The double moved to `apps/server/src/dev/tripDouble.ts`; testResolver.ts and the server tests import it from there; the production refusal is unchanged. (Stale comments naming `test/trip-double.ts` remain in src/jobs/handlers/encounterResolution.ts and src/trip/outcome.ts, left for the chunk 15 fixer's files.)
+- Also: formation.spec.ts's no-purchase scan flaked when the draw served "Rail Bull Gang" ("…when the pay stopped"); the scan now skips authored flavour lines.

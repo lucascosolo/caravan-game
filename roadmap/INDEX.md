@@ -56,11 +56,11 @@ building the mirror image of this game is the easiest mistake available.
 | 12 | [Unit abilities](chunks/12-unit-abilities.md) | Six deterministic ability archetypes firing on automatic cooldowns, one per unit type. | 11 | done |
 | 13 | [Resolver outcomes & replay](chunks/13-resolver-outcomes-and-replay.md) | End conditions, depth-scaled loot, the event/waypoint replay log, and the determinism harness. | 12 | built |
 | 14 | [Matchmaking & scouting](chunks/14-matchmaking-and-scouting.md) | Reputation-banded selection of standing parties as encounters; 3 fully-scoutable candidates, free time-gated reroll, escalating difficulty. | 04, 09 | done |
-| 15 | [Trip loop](chunks/15-trip-loop.md) | Encounter chaining, bank/push, carry-forward attrition with no resupply, hourly trip cap. | 07, 13, 14 | built (outcome via seam until 13) |
+| 15 | [Trip loop](chunks/15-trip-loop.md) | Encounter chaining, bank/push, carry-forward attrition with no resupply, hourly trip cap. | 07, 13, 14 | done |
 | 16 | [Economy: Coin](chunks/16-economy-coin.md) | Earn/spend/passive trickle/storage cap, and the merge system it pays for. | 02, 03 | done |
 | 17 | [Home town](chunks/17-home-town.md) | The safe settlement: static merge board, the mine visualizing passive Coin, outfitting a caravan, and navigation. Never attacked. | 03, 08, 16 | done |
 | 18 | [Unit acquisition](chunks/18-unit-acquisition.md) | Refugee drip (choice of 3, Coin reroll) and mercenary recruit (exact pick, Coin) — both gated by the web. | 05, 16 | done |
-| 19 | [Stakes & loss wiring](chunks/19-stakes-and-loss.md) | Per-death merge-level regression, total loss when overrun, unbanked-Coin transfer to the winning party's owner. | 13, 15, 16 | QA'd (fixes merged; S3 waits on chunk 15 S4) |
+| 19 | [Stakes & loss wiring](chunks/19-stakes-and-loss.md) | Per-death merge-level regression, total loss when overrun, unbanked-Coin transfer to the winning party's owner. | 13, 15, 16 | done (S3 closed with chunk 15 S4) |
 | 20 | [Monetization packs](chunks/20-monetization-packs.md) | Weekly rotating $5/$10/$25 packs, fixed and previewed contents, sandboxed purchase flow. | 16 | done |
 
 ---
@@ -102,7 +102,7 @@ after the ladders cap. [PHASE-2.md](PHASE-2.md) specs all of that, in three grou
 | B. Replayability systems | 39–45 | Each needs a short PROJECT.md amendment first. |
 | C. The deferred list | 46–49 | Multi-caravan, prestige, recycling, campaign (research-gated). After A is `done`. |
 
-Status notes: **21** (build, CI, deploy pipeline) — `done` 2026-10-11 — verified by the live workflow runs on this branch (runs 2–5 green; run 6 red on the known chunk 16/03 ordering issue, fixed in 0b1d787). Deploy step deferred until a hosting target is chosen. **25** (cold-start content: authored standing parties) — `built` 2026-10-11 — 96 system-owned parties across bands 0–7, served-share retirement, system-account guards; closes chunk 14 QA B1/B2/S4/S5/N1/N2. See PHASE-2.md §25 and ORCHESTRATION.md.
+Status notes: **21** (build, CI, deploy pipeline) — `done` 2026-10-11 — verified by the live workflow runs on this branch (runs 2–5 green; run 6 red on the known chunk 16/03 ordering issue, fixed in 0b1d787). Deploy step deferred until a hosting target is chosen. **25** (cold-start content: authored standing parties) — `built` 2026-10-11 — 96 system-owned parties across bands 0–7, served-share retirement, system-account guards; closes chunk 14 QA B1/B2/S4/S5/N1/N2. See PHASE-2.md §25 and ORCHESTRATION.md. **22** (replay player and post-fight summary) — `built` 2026-10-11 — plays stored logs with the resolver's replay READER only (`@caravan/resolver/replay`; the web build's bundle check fails on any simulation module), through the one iso renderer, for both the caravan's player (Trail results) and the party's owner (Party results feed); a double-resolved fight is now 200 `renderable: false` (no log), not 410. See PHASE-2.md §22.
 
 Status for these chunks is tracked in PHASE-2.md until a chunk is assigned, at which
 point it gets its own `chunks/NN-*.md` brief and a row in the table above.

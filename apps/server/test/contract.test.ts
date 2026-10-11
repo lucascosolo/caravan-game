@@ -20,6 +20,7 @@
  * calendar, their SHAPE (which the client's guards check) does not.
  */
 import { entryBand, type PartyConfig } from "@caravan/circle";
+import { readReplay, replaySeal, type ReplayLog } from "@caravan/resolver";
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
@@ -30,11 +31,13 @@ import { buildApp } from "../src/app.js";
 import { withTransaction } from "../src/db/pool.js";
 import { appendCoinCredits } from "../src/economy/coin.js";
 import { appendEvents } from "../src/ledger/ledger.js";
+import { DEFAULT_HANDLERS } from "../src/jobs/handlers/encounterResolution.js";
 import { drain } from "../src/jobs/worker.js";
+import { NO_LOG_REASON } from "../src/routes/replay.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
 import { TRIP_CAP_REGEN_MS, TRIPS_PER_HOUR_CAP } from "../src/trip/cap.js";
 import { appRolePool, testPool, truncateAll } from "./helpers.js";
-import { doubleHandlers } from "./trip-double.js";
+import { doubleHandlers } from "../src/dev/tripDouble.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.resolve(here, "../../web/src/test/contract");
@@ -80,17 +83,25 @@ function blankIds(v: unknown): unknown {
   return v;
 }
 
+/**
+ * Chunk 22: a replay body's `log` and `labels` are positional — `units[i].u === i`, rows refer
+ * to units, fences and traps by index, and the checksum covers the rows — so they keep the
+ * server's order (and stay readable by `readReplay` after the renaming below).
+ */
+const KEEP_ORDER_KEYS = new Set(["log", "labels"]);
+
 /** Arrays of objects carrying random ids are re-ordered by their content with the ids blanked, so the order is stable. */
-function orderArrays(v: unknown): unknown {
+function orderArrays(v: unknown, key = ""): unknown {
+  if (KEEP_ORDER_KEYS.has(key)) return v;
   if (Array.isArray(v)) {
-    const items = v.map(orderArrays);
+    const items = v.map((x) => orderArrays(x));
     if (items.every((x) => x && typeof x === "object" && !Array.isArray(x))) {
       const hasRandomId = items.some((x) => Object.values(x as object).some((y) => typeof y === "string" && UUID.test(y)));
       if (hasRandomId) return [...items].sort((a, b) => (JSON.stringify(blankIds(a)) < JSON.stringify(blankIds(b)) ? -1 : JSON.stringify(blankIds(a)) > JSON.stringify(blankIds(b)) ? 1 : 0));
     }
     return items;
   }
-  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, orderArrays(x)]));
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, orderArrays(x, k)]));
   return v;
 }
 
@@ -136,7 +147,18 @@ function normalise(body: unknown): unknown {
     if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x, k)]));
     return v;
   };
-  return walk(orderArrays(body), "");
+  return resealReplay(walk(orderArrays(body), ""));
+}
+
+/**
+ * QA-13 S3: LOG_FORMAT v2's seal covers the labels (refs are uuids), so a renamed log is re-sealed —
+ * exactly what a forger would do; the web plays the fixture with readReplay, and the server's own
+ * sha256 check (not exercised by a fixture) is what tells a forged log from the stored one.
+ */
+function resealReplay(body: unknown): unknown {
+  const log = (body as { log?: unknown } | null)?.log as (ReplayLog & Record<string, unknown>) | null | undefined;
+  if (log && typeof log === "object" && log.format === "caravan-replay") return { ...(body as object), log: { ...log, check: replaySeal(log) } };
+  return body;
 }
 
 // ── the recorded routes ───────────────────────────────────────────────────────────────
@@ -163,9 +185,9 @@ async function register(username: string): Promise<Player & { auth: LightMyReque
   return { token: body.token, accountId: body.account.id, caravanId: body.caravan.id, units: [], auth: res };
 }
 
-async function giveUnits(p: Player, typeIds: readonly string[]): Promise<string[]> {
+async function giveUnits(p: Player, typeIds: readonly string[], mergeLevel = 1): Promise<string[]> {
   const ids: string[] = [];
-  for (const unitTypeId of typeIds) ids.push((await createUnitInstance(pool, { caravanId: p.caravanId, unitTypeId, mergeLevel: 1 })).id);
+  for (const unitTypeId of typeIds) ids.push((await createUnitInstance(pool, { caravanId: p.caravanId, unitTypeId, mergeLevel })).id);
   p.units.push(...ids);
   return ids;
 }
@@ -250,7 +272,10 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     await record("cosmetics", "GET /me/cosmetics", await call(p, "GET", "/me/cosmetics"), 200);
 
     // The trail: pack, ride out (chunk 15's start), search, read, choose, arrange, commit.
-    const posted = riders.slice(0, 2);
+    // Chunk 23 QA S4: a merged veteran rides too, so the de-merge it takes for dying shows a
+    // real level change (3 → 2 on the bank, 2 → 1 on the overrun), not just the level-1 floor.
+    const [veteran] = await giveUnits(p, ["desert.dust_rider"], 3);
+    const posted = [...riders.slice(0, 2), veteran!];
     await record("manifest-pack", "POST /caravans/:id/manifest", await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: posted, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 20 } }), 201);
     await record("manifest", "GET /caravans/:id/manifest", await call(p, "GET", `/caravans/${p.caravanId}/manifest`), 200);
     const tripUrl = `/me/caravans/${p.caravanId}/trip`;
@@ -272,7 +297,9 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     await record("formation-commit", "POST /caravans/:id/encounters/:n/formation/commit", await call(p, "POST", `/caravans/${p.caravanId}/encounters/1/formation/commit`), 200);
 
     // Chunk 23: the trip loop's routes as the trip client reads them, resolved by chunk 15's
-    // deterministic double (encounter 1: held, every post takes 150, the trap fires, the fence breaks).
+    // deterministic double (encounter 1: held, every post takes 150, the trap fires, the fence
+    // breaks; encounter 2: held, but the veteran dies — chunk 23 QA S1/S2/S4: a death the caravan
+    // survives, so the preview, the bank and the banked ending all carry a de-merge).
     const resolve = (plans: Parameters<typeof doubleHandlers>[0], fallback?: Parameters<typeof doubleHandlers>[1]) =>
       drain(appRole, { workerId: "contract", handlers: doubleHandlers(plans, fallback), retryBackoffMs: () => 0 });
     await record("trip-commit", "POST /me/caravans/:id/trip/encounters/:n/commit", await call(p, "POST", `${tripUrl}/encounters/1/commit`), 202);
@@ -291,10 +318,11 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     const formation2 = { v: 2, fences: [{ ref: "f1", segment: 1 }], traps: [], posts: formation.posts };
     expect((await call(p, "PUT", `/caravans/${p.caravanId}/encounters/2/formation`, formation2)).statusCode).toBe(200);
     expect((await call(p, "POST", `${tripUrl}/encounters/2/commit`)).statusCode).toBe(202);
-    await resolve({}, { kind: "caravan_held", unitDamage: 150 });
+    await resolve({ 2: { kind: "caravan_held", unitDamage: 150, kill: [veteran!] } });
     await record("trip-preview-2", "GET /me/caravans/:id/trip/preview", await call(p, "GET", `${tripUrl}/preview`), 200);
     await record("trip-bank", "POST /me/caravans/:id/trip/bank", await call(p, "POST", `${tripUrl}/bank`, { tripId: started.tripId, encounterIndex: 2 }), 200);
-    await record("trip-status-banked", "GET /me/caravans/:id/trip", await call(p, "GET", tripUrl), 200);
+    const banked = (await record("trip-status-banked", "GET /me/caravans/:id/trip", await call(p, "GET", tripUrl), 200)) as { trip: { encounters: { result: { jobId: string } | null }[] } };
+    const doubleJobId = banked.trip.encounters[0]!.result!.jobId;
 
     // A second trip that is overrun at its first encounter (a fifth party: two are recent opponents now).
     const e = await register("contract_owner_e");
@@ -308,7 +336,8 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     expect((await call(p, "POST", `/me/caravans/${p.caravanId}/encounters/1/choose`, { candidateId: c3.candidateId })).statusCode).toBe(200);
     expect((await call(p, "PUT", `/caravans/${p.caravanId}/encounters/1/formation`, formation)).statusCode).toBe(200);
     expect((await call(p, "POST", `${tripUrl}/encounters/1/commit`)).statusCode).toBe(202);
-    await resolve({ 1: { kind: "caravan_overrun", unitDamage: 400, kill: [ordered[0]!] } });
+    // The veteran (level 2 since the bank) dies in the fight the caravan falls in: de-merged to 1, not destroyed.
+    await resolve({ 1: { kind: "caravan_overrun", unitDamage: 400, kill: [veteran!] } });
     await record("trip-status-overrun", "GET /me/caravans/:id/trip", await call(p, "GET", tripUrl), 200);
 
     // The cap: one more use spent (fixture: the owner role moves the stored timestamp forward
@@ -333,6 +362,37 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     const granted = bought.cosmeticsGranted[0]!;
     const equipped = (await record("cosmetics-equip", "POST /me/cosmetics/equip", await call(p, "POST", "/me/cosmetics/equip", { cosmeticId: granted }), 200)) as { slot: string };
     await record("cosmetics-unequip", "POST /me/cosmetics/unequip", await call(p, "POST", "/me/cosmetics/unequip", { slot: equipped.slot }), 200);
+
+    // Chunk 22: the replay route, recorded after the storefront for the same reason. A fight
+    // the test double resolved has no log: 200, renderable false, no log, said why.
+    const noLog = (await record("replay-no-log", "GET /me/encounters/:jobId/replay (double, no log)", await call(p, "GET", `/me/encounters/${encodeURIComponent(doubleJobId)}/replay`), 200)) as Record<string, unknown>;
+    expect(noLog).toMatchObject({ viewer: "caravan", renderable: false, reason: NO_LOG_REASON, log: null, stored: null });
+    // A fight the REAL resolver fought (a fresh caravan, its first encounter): what the replay
+    // player plays, for the caravan's player and for the party's owner.
+    const byName = new Map<string, Player>([...owners.map((o, i) => [`contract_owner_${"abc"[i]}`, o] as const), ["contract_owner_d", d], ["contract_owner_e", e]]);
+    const v = await register("contract_viewer");
+    const diggers = await giveUnits(v, ["desert.well_digger", "desert.well_digger"]);
+    expect((await call(v, "POST", `/caravans/${v.caravanId}/manifest`, { units: diggers, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 20 } })).statusCode).toBe(201);
+    const vTrip = `/me/caravans/${v.caravanId}/trip`;
+    expect((await call(v, "POST", `${vTrip}/start`)).statusCode).toBe(201);
+    const sv = (await call(v, "POST", `/me/caravans/${v.caravanId}/encounters/1/search`)).json() as { menu: { candidates: { candidateId: string; owner: { displayName: string } }[] } };
+    const cv = [...sv.menu.candidates].sort((a, b) => (a.owner.displayName < b.owner.displayName ? -1 : 1))[0]!;
+    const fought = byName.get(cv.owner.displayName)!;
+    expect(fought, cv.owner.displayName).toBeDefined();
+    expect((await call(v, "POST", `/me/caravans/${v.caravanId}/encounters/1/choose`, { candidateId: cv.candidateId })).statusCode).toBe(200);
+    const vPosts = [...diggers].sort().map((ref, i) => ({ ref, cell: { x: 13 + i * 5, y: 13 }, stance: i === 0 ? "hold" : "guard" }));
+    const vFormation = { v: 2, fences: [0, 1, 2, 3, 4, 5].map((segment) => ({ ref: `f${segment}`, segment })), traps: [{ ref: "t0", cell: { x: 14, y: 12 } }], posts: vPosts };
+    expect((await call(v, "PUT", `/caravans/${v.caravanId}/encounters/1/formation`, vFormation)).statusCode).toBe(200);
+    const commit = (await call(v, "POST", `${vTrip}/encounters/1/commit`)).json() as { jobId: string };
+    const replayUrl = `/me/encounters/${encodeURIComponent(commit.jobId)}/replay`;
+    expect((await call(v, "GET", replayUrl)).statusCode).toBe(409);
+    expect(await drain(appRole, { workerId: "contract-real", handlers: DEFAULT_HANDLERS, retryBackoffMs: () => 0 })).toHaveLength(1);
+    const mine = (await record("replay", "GET /me/encounters/:jobId/replay", await call(v, "GET", replayUrl), 200)) as { viewer: string; renderable: boolean; log: unknown };
+    const theirs = (await record("replay-owner", "GET /me/encounters/:jobId/replay (party owner)", await call(fought, "GET", replayUrl), 200)) as { viewer: string; log: unknown };
+    expect(mine).toMatchObject({ viewer: "caravan", renderable: true });
+    expect(theirs.viewer).toBe("party_owner");
+    // The recorded (renamed) log is still a valid replay: the web suite plays it.
+    expect(() => readReplay((normalise(mine) as { log: unknown }).log)).not.toThrow();
 
     // Write the fixtures (only when they changed, so a rerun leaves the tree clean).
     mkdirSync(OUT, { recursive: true });

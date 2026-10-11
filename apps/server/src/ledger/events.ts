@@ -29,6 +29,8 @@ export const LEDGER_EVENT_TYPES = [
   "stop_resolved",
   "trip_banked",
   "trip_overrun",
+  /** Chunk 15 QA D3 (migration 014): an encounter's resolution parked; the trip ended as of its last survived encounter. */
+  "trip_voided",
   "encounter_resolved",
   "formation_committed",
   "standing_party_saved",
@@ -60,6 +62,7 @@ export const LEDGER_EVENT_SCOPE: Readonly<Record<LedgerEventType, LedgerScope>> 
   stop_resolved: "caravan",
   trip_banked: "caravan",
   trip_overrun: "caravan",
+  trip_voided: "caravan",
   encounter_resolved: "caravan",
   formation_committed: "caravan",
   standing_party_saved: "account",

@@ -14,7 +14,7 @@
  * "whichever is larger" of the two windows. The prune runs for the caravan just written to,
  * inside the same transaction; nothing ticks in the background.
  *
- * WRITE ONCE, BY THE RESOLUTION PATH ONLY (QA-13 S4, migration 015). The app role has no
+ * WRITE ONCE, BY THE RESOLUTION PATH ONLY (QA-13 S4, migration 016). The app role has no
  * INSERT, UPDATE or DELETE on encounter_log. A row goes in through `encounter_log_write`
  * (SECURITY DEFINER: the caller must hold the job's live lease at its attempt; the insert guard
  * checks caravan, defender, party owner, resolver version and content hash against the job, and

@@ -21,7 +21,7 @@ import type { CaravanRow } from "../db/types.js";
 import { findCaravanById } from "../repo/caravans.js";
 import { AppError, badRequest } from "../services/errors.js";
 import { TripCapExhaustedError } from "../trip/cap.js";
-import { bankTrip, commitEncounter, parseDecision, pushTrip, settleEncounter, stakesPreview, startTrip, tripStatus } from "../trip/service.js";
+import { bankTrip, commitEncounter, encounterResolverAvailable, parseDecision, pushTrip, settleEncounter, stakesPreview, startTrip, tripStatus } from "../trip/service.js";
 import { isUuid } from "../util/uuid.js";
 import { requireAuth } from "./require-auth.js";
 
@@ -48,7 +48,10 @@ export async function tripRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: CaravanParams }>("/me/caravans/:caravanId/trip/start", { preHandler: requireAuth }, async (req, reply) => {
     const caravan = await ownCaravan(req);
     const nowMs = Date.now();
-    const started = await withTransaction(app.db, (client) => startTrip(client, caravan, nowMs));
+    // Chunk 15 QA D3: refused 409 resolver_unavailable only when no resolver can ever take the
+    // encounter (production handler unwired and no CARAVAN_TEST_RESOLVER double installed).
+    const resolverAvailable = encounterResolverAvailable(app.inlineEncounterWorker !== null);
+    const started = await withTransaction(app.db, (client) => startTrip(client, caravan, nowMs, { resolverAvailable }));
     return reply.code(201).send({ tripId: started.trip.id, manifestId: started.trip.manifest_id, cap: started.cap.after, status: await tripStatus(app.db, caravan, nowMs) });
   });
 
@@ -56,7 +59,8 @@ export async function tripRoutes(app: FastifyInstance): Promise<void> {
     const caravan = await ownCaravan(req);
     const n = encounterIndex(req.params.n);
     const { job, created } = await withTransaction(app.db, (client) => commitEncounter(client, caravan, n, commitFormation));
-    // QA-13 S1: the in-process worker resolves it shortly after this answer (the real resolver; the double under CARAVAN_TEST_RESOLVER).
+    // QA-13 S1: the in-process worker resolves it shortly after this answer (the real resolver; the double under
+    // CARAVAN_TEST_RESOLVER) and settles in its completion transaction / voids a trip whose job parks (TRIP_SETTLE_HOOKS).
     app.encounterWorker?.kick();
     return reply.code(created ? 202 : 200).send({ jobId: job.id, jobStatus: job.status, created });
   });

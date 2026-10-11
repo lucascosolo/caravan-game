@@ -32,7 +32,7 @@ import {
 } from "@caravan/circle";
 import { FIXED_ONE } from "@caravan/content";
 import type { ReplayLog } from "@caravan/resolver";
-import { partyLootForEncounter } from "./loot.js";
+import { partyLoot } from "./loot.js";
 
 /** The three end conditions (chunk 13). Same vocabulary as chunk 04's progression. */
 export const ENCOUNTER_OUTCOME_KINDS = ["caravan_held", "caravan_overrun", "stalemate"] as const;
@@ -50,10 +50,12 @@ export type EncounterOutcomeKind = (typeof ENCOUNTER_OUTCOME_KINDS)[number];
  *               the core that it closed" (0 outside the ring line). Only an overrun is 1024.
  *               It scales the PARTY OWNER's loot; the caravan's encounter Coin does not depend on it.
  *   endTick     the tick the end condition was met on (TICK_CAP − 1 for a stalemate).
- *   loot        the party owner's loot for this encounter (trip/loot.ts): full on an overrun,
- *               full × depth^1.5 on a wipe, 0 on a stalemate; full = the encounter's Coin value.
- *               REPORTED here and in the events; credited by the settle path (chunk 19), never
- *               by the resolver.
+ *   loot        the party owner's loot for this encounter (trip/loot.ts): full × depth^1.5 on a
+ *               wipe; 0 on an overrun (the owner is paid chunk 19's transfer + party win
+ *               instead) and on a stalemate. full = the encounter's Coin value at the chosen
+ *               menu row's band, 0 for a system owner (job input `partyLootFull`). Reported here
+ *               and in the events; the trip loop's settle credits exactly this amount to the
+ *               owner, capped by their headroom (chunk 15 QA S4) — never the resolver.
  *   units       remaining HP per posted unit ref (instance id); 0 = died this encounter.
  *               Omitted units are unchanged.
  *   spentTraps  refs of traps that fired this encounter.
@@ -169,10 +171,11 @@ export function assertOutcomeWithinFight(input: EncounterResolverInput, o: Resol
 
 /**
  * Run a resolver, refuse anything malformed it returns, and add the party owner's loot
- * (trip/loot.ts, from kind and depth and the encounter's Coin value — the same rule for
- * every resolver). Returns the outcome and the resolver's replay log (null if it has none).
+ * (trip/loot.ts, from kind and depth and `lootFull` — the encounter's Coin value as stamped in
+ * the job input, `partyLootFullFromJob` — the same rule for every resolver; the resolver
+ * itself never sees it). Returns the outcome and the resolver's replay log (null if it has none).
  */
-export function resolveEncounter(resolver: EncounterResolver, input: EncounterResolverInput): { outcome: EncounterOutcome; log: ReplayLog | null } {
+export function resolveEncounter(resolver: EncounterResolver, input: EncounterResolverInput, lootFull: number): { outcome: EncounterOutcome; log: ReplayLog | null } {
   const { outcome: out, log } = resolver.resolve(input);
   assertResolvedFight(out);
   assertOutcomeWithinFight(input, out);
@@ -181,7 +184,7 @@ export function resolveEncounter(resolver: EncounterResolver, input: EncounterRe
     kind: out.kind,
     depth: out.depth,
     endTick: out.endTick,
-    loot: partyLootForEncounter(out.kind, out.depth, input.encounterIndex),
+    loot: partyLoot(out.kind, out.depth, lootFull),
     units: out.units.map((u) => ({ ref: u.ref, hp: u.hp })),
     spentTraps: [...out.spentTraps],
     fences: out.fences.map((f) => ({ ref: f.ref, hp: f.hp })),
@@ -198,6 +201,20 @@ export function resolveEncounter(resolver: EncounterResolver, input: EncounterRe
  */
 export const JOB_SURVIVORS_KEY = "survivors" as const;
 export const JOB_CONTENT_HASH_KEY = "contentHash" as const;
+/**
+ * Chunk 15 QA S4: the party owner's FULL loot for this encounter, stamped at enqueue by the
+ * trip loop (trip/service.ts commitEncounter): coinForEncounter(n, band of the chosen menu
+ * row), or 0 for a system owner. The handler derives the reported loot from it; the resolver
+ * never sees it.
+ */
+export const JOB_LOOT_FULL_KEY = "partyLootFull" as const;
+
+/** Read the stamped full loot. Throws on a trip-loop job without one (it cannot be paid correctly). */
+export function partyLootFullFromJob(input: Record<string, unknown>): number {
+  const v = input[JOB_LOOT_FULL_KEY];
+  if (typeof v !== "number" || !Number.isSafeInteger(v) || v < 0) throw new EncounterOutcomeError(`job input has no ${JOB_LOOT_FULL_KEY} stamp (a non-negative integer), got ${JSON.stringify(v ?? null)}`);
+  return v;
+}
 
 /** Parse a job input (EncounterJobInput) into the resolver's input. Throws on anything malformed. */
 export function resolverInputFromJob(input: Record<string, unknown>): EncounterResolverInput {

@@ -17,8 +17,8 @@
  * Status, in order (QA-13 S1 / N1 / N2):
  *   - not yet resolved                         → 409 not_resolved (poll again)
  *   - parked (resolution unavailable)           → 409 resolution_unavailable (stop polling)
- *   - resolved, but no tick log was recorded     → 200, renderable: false, log: null, with the reason
- *     (a resolver that writes none — the dev/test double)
+ *   - resolved, but no tick log was recorded     → 200, renderable: false, log: null, NO_LOG_REASON,
+ *     `resolvedBy` (a resolver that writes none — the dev/test double), empty labels
  *   - resolved with a log that has been pruned   → 410 replay_expired (LOG_RETENTION)
  *   - otherwise                                  → 200 with the log; renderable says whether this
  *     server's reader accepts it, and `reason` why not.
@@ -51,6 +51,11 @@ const JOB_ID = /^encounter:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
  * strings (apps/web/src/strings.ts `replay.depthExplained`), not here.
  */
 export const DEPTH_MEASURE = { scale: DEPTH_SCALE, measuredFrom: "ring_line", lootCurve: "depth_pow_1_5" } as const;
+
+/** Chunk 22 / QA-13 S1: why a fight resolved without a stored log (the dev/test double) has no replay. */
+export const NO_LOG_REASON = "no replay log was recorded for this fight";
+
+const NO_LABELS = { units: [], fences: [], traps: [] } as const;
 
 const notFound = () => new AppError(404, "no_replay", "replay not found");
 
@@ -128,8 +133,9 @@ export async function replayRoutes(app: FastifyInstance): Promise<void> {
         resolverVersion: null,
         logFormat: null,
         renderable: false,
-        reason: `no tick log was recorded for this encounter: it was resolved by '${result.resolver ?? "unknown"}', which writes none`,
-        labels: null,
+        reason: NO_LOG_REASON,
+        resolvedBy: result.resolver ?? null,
+        labels: NO_LABELS,
         stored: null,
         log: null,
       });
@@ -139,7 +145,7 @@ export async function replayRoutes(app: FastifyInstance): Promise<void> {
 
     const stored = { rawBytes: row.raw_bytes, storedBytes: row.stored_bytes, encoding: row.encoding, sha256: row.log_sha256, contentHash: row.content_hash, createdAt: row.created_at.toISOString() };
     const unrenderable = (reason: string, log: unknown = null) =>
-      send({ ...base, resolverVersion: row.resolver_version, logFormat: row.log_format, renderable: false, reason, labels: null, stored, log });
+      send({ ...base, resolverVersion: row.resolver_version, logFormat: row.log_format, renderable: false, reason, labels: NO_LABELS, stored, log });
 
     // N1: an undecodable body is a verdict, not a 500.
     let text: string;

@@ -53,6 +53,14 @@
                 "hpBefore": 620,
                 "hpAfter": 470,
                 "maxHp": 620
+              },
+              {
+                "ref": "00000000-0000-4000-8000-000000000006",
+                "typeId": "desert.dust_rider",
+                "mergeLevel": 3,
+                "hpBefore": 968,
+                "hpAfter": 818,
+                "maxHp": 968
               }
             ],
             "unitsUnhurt": [],
@@ -77,12 +85,22 @@
           "index": 2,
           "outcome": "caravan_held",
           "depth": 512,
-          "deaths": [],
+          "deaths": [
+            "00000000-0000-4000-8000-000000000006"
+          ],
           "coinAccrued": 1347,
           "decision": "banked",
           "result": {
             "jobId": "encounter:00000000-0000-4000-8000-000000000002:2",
-            "unitsKilled": [],
+            "unitsKilled": [
+              {
+                "ref": "00000000-0000-4000-8000-000000000006",
+                "typeId": "desert.dust_rider",
+                "mergeLevel": 3,
+                "hpBefore": 818,
+                "maxHp": 968
+              }
+            ],
             "unitsDamaged": [
               {
                 "ref": "00000000-0000-4000-8000-000000000004",
@@ -118,7 +136,15 @@
         "credited": 2597,
         "discarded": 0,
         "restored": {
-          "deMerged": [],
+          "deMerged": [
+            {
+              "ref": "00000000-0000-4000-8000-000000000006",
+              "typeId": "desert.dust_rider",
+              "toLevel": 2,
+              "fromLevel": 3,
+              "diedAtEncounter": 2
+            }
+          ],
           "unitsHealed": [
             {
               "ref": "00000000-0000-4000-8000-000000000004",
@@ -133,6 +159,13 @@
               "typeId": "desert.dust_rider",
               "hpAtBank": 320,
               "mergeLevel": 1
+            },
+            {
+              "ref": "00000000-0000-4000-8000-000000000006",
+              "maxHp": 968,
+              "typeId": "desert.dust_rider",
+              "hpAtBank": 0,
+              "mergeLevel": 3
             }
           ],
           "trapsRestocked": 1,

@@ -23,11 +23,26 @@
           "mergeLevel": 1,
           "hpAtBank": 320,
           "maxHp": 620
+        },
+        {
+          "ref": "00000000-0000-4000-8000-000000000004",
+          "typeId": "desert.dust_rider",
+          "mergeLevel": 3,
+          "hpAtBank": 0,
+          "maxHp": 968
         }
       ],
       "trapsRestocked": 1,
       "fenceSegmentsRebuilt": 1,
-      "deMerged": []
+      "deMerged": [
+        {
+          "ref": "00000000-0000-4000-8000-000000000004",
+          "typeId": "desert.dust_rider",
+          "fromLevel": 3,
+          "toLevel": 2,
+          "diedAtEncounter": 2
+        }
+      ]
     },
     "replayed": false
   }

@@ -34,12 +34,14 @@ export interface PartyFeedEntry {
   /** Exactly as the resolution wrote it (chunk 13 defines the shape); `outcomeKind` is its `kind` when present. */
   outcome: Json | null;
   outcomeKind: string | null;
-  /** Everything the resolution credited to the owner, summed (transfer + party win). 0 when nothing was. */
+  /** Everything the resolution credited to the owner, summed (transfer + party win on an overrun; loot on a held fight). 0 when nothing was. */
   coinEarned: number;
   /** Of `coinEarned`: the overrun caravan's unbanked Coin transferred to the owner (chunk 19). */
   coinTransferred: number;
   /** Of `coinEarned`: the party-win credit (COIN_PER_PARTY_WIN, reason `party_win`; chunk 19 QA D1). */
   partyWinCoin: number;
+  /** Of `coinEarned`: the depth-scaled loot of a HELD fight (reason `party_loot`; chunk 15 QA S4). Never paid with the two above. */
+  lootCoin: number;
   /** What the owner's storage cap discarded from those credits (their `overflowDiscarded`, summed; chunk 19 QA S2). */
   coinDiscardedAtCap: number;
   reputationDelta: number;
@@ -71,7 +73,8 @@ export async function listPartyFeed(db: Queryable, accountId: string, opts: { be
 
   // A resolution's owner-side effects live under three causation ids: the job's own (what the
   // worker committed), `progression:<jobId>` (chunk 15's settle runs chunk 04's writer under
-  // it) and `transfer:<jobId>` (chunk 19's overrun Coin transfer). All three map back to the
+  // it) and `transfer:<jobId>` (chunk 19's overrun Coin transfer + party win, or chunk 15 QA
+  // S4's loot for a held fight — never both: one batch per job). All three map back to the
   // served entry; nothing else is joined.
   const causeOf = new Map<string, string>();
   for (const e of served) {
@@ -109,6 +112,7 @@ export async function listPartyFeed(db: Queryable, accountId: string, opts: { be
     let coinEarned = 0;
     let coinTransferred = 0;
     let partyWinCoin = 0;
+    let lootCoin = 0;
     let coinDiscardedAtCap = 0;
     let reputationDelta = 0;
     let ladderPointsGained = 0;
@@ -119,6 +123,7 @@ export async function listPartyFeed(db: Queryable, accountId: string, opts: { be
         coinDiscardedAtCap += int(s.payload["overflowDiscarded"]) ?? 0;
         if (s.event_type === "coin_transferred_to_party_owner") coinTransferred += amount;
         else if (s.payload["reason"] === "party_win") partyWinCoin += amount;
+        else if (s.payload["reason"] === "party_loot") lootCoin += amount;
       }
       else if (s.event_type === "reputation_changed" && s.payload["pool"] === "siege") reputationDelta += int(s.payload["delta"]) ?? 0;
       else if (s.event_type === "ladder_progress_gained" && s.payload["pool"] === "siege") ladderPointsGained += int(s.payload["pointsDelta"]) ?? 0;
@@ -146,6 +151,7 @@ export async function listPartyFeed(db: Queryable, accountId: string, opts: { be
       coinEarned,
       coinTransferred,
       partyWinCoin,
+      lootCoin,
       coinDiscardedAtCap,
       reputationDelta,
       ladderPointsGained,

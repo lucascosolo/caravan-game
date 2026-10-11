@@ -1,6 +1,6 @@
 /**
  * DEV / TEST ONLY (chunk 23): `CARAVAN_TEST_RESOLVER=double` installs chunk 15's
- * deterministic test double (test/trip-double.ts) as the encounter resolver and runs the job
+ * deterministic test double (src/dev/tripDouble.ts) as the encounter resolver and runs the job
  * worker inline, so a running server can carry a whole trip end to end — the Playwright trip
  * e2e needs it — before chunk 13 wires @caravan/resolver. Chunk 13 replaces the double with
  * the real resolver (`productionEncounterResolver`) and flips ENCOUNTER_RESOLUTION_WIRED; this
@@ -14,12 +14,14 @@
  * The plan is fixed (no knobs from the environment): every encounter is HELD; each posted
  * unit takes DOUBLE_UNIT_DAMAGE, the first laid trap fires at encounter 1 and every placed
  * fence segment at encounter 1 is broken — so a pushed trip visibly carries attrition into
- * encounter 2. The double is pure (index → plan, plus the job input), so the fight's outcome
- * is still a function of the job input alone.
+ * encounter 2. At encounter 2 the posted unit with the lowest ref dies (chunk 23 QA D3), so
+ * the e2e sees a death the caravan survives: the de-merge on bank and in the overrun stakes.
+ * The double is pure (index → plan, plus the job input), so the fight's outcome is still a
+ * function of the job input alone.
  */
-import { doubleHandlers, type EncounterPlan } from "../../test/trip-double.js";
+import { doubleHandlers, type EncounterPlan } from "./tripDouble.js";
 import { drain } from "../jobs/worker.js";
-import type { HandlerRegistry } from "../jobs/worker.js";
+import type { HandlerRegistry, WorkerOptions } from "../jobs/worker.js";
 import type pg from "pg";
 
 export const TEST_RESOLVER_ENV = "CARAVAN_TEST_RESOLVER";
@@ -30,6 +32,7 @@ export const INLINE_WORKER_DELAY_MS = 400;
 
 export const DOUBLE_PLANS: Record<number, EncounterPlan> = {
   1: { kind: "caravan_held", unitDamage: DOUBLE_UNIT_DAMAGE, spendTraps: 1, fenceDamage: 1_000_000 },
+  2: { kind: "caravan_held", unitDamage: DOUBLE_UNIT_DAMAGE, killLowestRefPosts: 1 },
 };
 export const DOUBLE_FALLBACK: EncounterPlan = { kind: "caravan_held", unitDamage: DOUBLE_UNIT_DAMAGE };
 
@@ -60,9 +63,12 @@ export function inlineWorkerFromEnv(env: Readonly<Record<string, string | undefi
   return { name: "test-double", handlers: doubleHandlers(DOUBLE_PLANS, DOUBLE_FALLBACK), delayMs: INLINE_WORKER_DELAY_MS };
 }
 
-/** Resolve every ready job now (after the configured delay). Errors are reported, never thrown into a request. */
-export function scheduleInlineDrain(pool: pg.Pool, worker: InlineEncounterWorker, onError: (err: unknown) => void): void {
+/**
+ * Resolve every ready job now (after the configured delay). Errors are reported, never thrown into a request.
+ * `hooks` (chunk 15 QA S4/D3): the trip loop's settle / void hooks, run by the worker (WorkerOptions).
+ */
+export function scheduleInlineDrain(pool: pg.Pool, worker: InlineEncounterWorker, onError: (err: unknown) => void, hooks: Pick<WorkerOptions, "afterCompleted" | "afterParked"> = {}): void {
   setTimeout(() => {
-    drain(pool, { workerId: `inline-${worker.name}`, handlers: worker.handlers, retryBackoffMs: () => 0 }).catch(onError);
+    drain(pool, { workerId: `inline-${worker.name}`, handlers: worker.handlers, retryBackoffMs: () => 0, ...hooks, onHookError: onError }).catch(onError);
   }, worker.delayMs);
 }
