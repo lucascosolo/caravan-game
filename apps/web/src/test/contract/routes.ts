@@ -35,6 +35,7 @@ import {
 import { recentFightsShape, replayShape } from "../../api/replayShapes.ts";
 import { accountViewShape, deleteResultShape, devicesShape, exportShape, linkResultShape, revokeOthersShape } from "../../api/accountShapes.ts";
 import { inboxMarkResultShape, inboxShape, inboxStrikeLinesShape, inboxUnreadShape } from "../../api/inboxShapes.ts";
+import { analyticsSettingsShape, dashboardShape, telemetryIngestShape } from "../../api/telemetryShapes.ts";
 import { onboardingChangeShape, onboardingShape } from "../../onboarding/shapes.ts";
 import { bankResultShape, encounterCommitShape, pushResultShape, stakesPreviewShape, tripCapRefusalShape, tripStartShape, tripStatusShape } from "../../api/tripShapes.ts";
 
@@ -113,6 +114,12 @@ export const CONTRACT_GUARDS: Readonly<Record<string, Guard<unknown> | null>> = 
   export: exportShape,
   "account-delete": deleteResultShape,
   "inbox-preferences": inboxShape,
+  // Chunk 32: the usage-data setting, a telemetry batch's answer, and the admin dashboard
+  // (recorded by apps/server/test/telemetry.test.ts over its seeded history).
+  analytics: analyticsSettingsShape,
+  "analytics-put": analyticsSettingsShape,
+  telemetry: telemetryIngestShape,
+  "admin-dashboard": dashboardShape,
 };
 
 /** Null when `body` passes the route's guard (or the route has none); else the guard's reason. */

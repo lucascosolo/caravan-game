@@ -14,7 +14,9 @@
     "db:reset": "tsx src/db/migrate.ts reset",
     "db:status": "tsx src/db/migrate.ts status",
     "db:seed": "tsx src/seed.ts",
-    "ledger:rebuild": "tsx src/ledger/rebuild.ts"
+    "ledger:rebuild": "tsx src/ledger/rebuild.ts",
+    "admin": "tsx src/admin.ts",
+    "explain:analytics": "WRITE_EXPLAIN=1 vitest run test/telemetry-scale.test.ts"
   },
   "dependencies": {
     "@caravan/circle": "workspace:*",

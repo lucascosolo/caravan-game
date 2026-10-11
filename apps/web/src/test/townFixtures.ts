@@ -72,6 +72,10 @@ export function fakeApi(over: Partial<Api> = {}): Api {
     onboarding: notCalled,
     advanceOnboarding: notCalled,
     skipOnboarding: notCalled,
+    analyticsSettings: notCalled,
+    setAnalyticsOptOut: notCalled,
+    sendTelemetry: notCalled,
+    adminDashboard: notCalled,
     ...over,
   };
 }

@@ -1,0 +1,23 @@
+-- chunk 32: pool-served over the synthetic history in test/telemetry-scale.test.ts (30-day window)
+Sort
+  Sort Key: b.band
+  InitPlan 2 (returns $1)
+    ->  Result
+          InitPlan 1 (returns $0)
+            ->  Limit
+                  ->  Index Only Scan Backward using encounter_candidates_band_chosen_idx on encounter_candidates encounter_candidates_1
+                        Index Cond: (band IS NOT NULL)
+  ->  HashAggregate
+        Group Key: b.band
+        ->  Nested Loop
+              ->  Nested Loop
+                    ->  Function Scan on generate_series b
+                    ->  Bitmap Heap Scan on encounter_candidates
+                          Recheck Cond: ((band = b.band) AND (chosen_at >= '2026-09-11 22:01:49.946+00'::timestamp with time zone) AND (chosen_at < '2026-10-11 22:01:49.946+00'::timestamp with time zone))
+                          ->  Bitmap Index Scan on encounter_candidates_band_chosen_idx
+                                Index Cond: ((band = b.band) AND (chosen_at >= '2026-09-11 22:01:49.946+00'::timestamp with time zone) AND (chosen_at < '2026-10-11 22:01:49.946+00'::timestamp with time zone))
+              ->  Memoize
+                    Cache Key: encounter_candidates.chosen_candidate_id, encounter_candidates.candidates
+                    Cache Mode: binary
+                    ->  Function Scan on jsonb_array_elements c
+                          Filter: (encounter_candidates.chosen_candidate_id = (value ->> 'candidateId'::text))

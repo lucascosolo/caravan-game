@@ -174,7 +174,7 @@ and `…/trip/bank` with `{tripId, encounterIndex}`) and chunk 13's replay
 otherwise 200 with `renderable` — false, with a reason, for a log that fails its sha256 / reader
 check or for a fight resolved without a tick log) and chunk 24's
 first-session guide (`GET /me/onboarding`, `POST /me/onboarding/advance {step}`, `POST /me/onboarding/skip`;
-account-level, forward-only, grants nothing; `pnpm db:seed` marks its pre-equipped accounts' guide done). `pnpm db:seed` also creates the authored cold-start
+account-level, forward-only, grants nothing; `pnpm db:seed` marks its pre-equipped accounts' guide done) and chunk 32's telemetry (`GET/PUT /me/analytics {optedOut}`, `POST /me/telemetry` screen flow + crash reports, and the admin-only `GET /admin/dashboard` — 404 for non-admins; grant with `pnpm --filter @caravan/server admin grant <username>`, which uses MIGRATE_DATABASE_URL). `pnpm db:seed` also creates the authored cold-start
 parties (`src/matchmaking/authored.ts`, chunk 25: 12 per Reputation band, bands 0–7, owned
 by `sys_outfit_*` system accounts that cannot log in or hold Coin), so a fresh database
 serves three scoutable candidates at every band from the first search. Migrations 011 and 009

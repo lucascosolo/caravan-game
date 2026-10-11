@@ -132,3 +132,22 @@ REVOKE INSERT, UPDATE, DELETE ON TABLE account_erasure_active FROM caravan_app;
 REVOKE INSERT, UPDATE, DELETE ON TABLE account_erasure_audit FROM caravan_app;
 -- account_erase takes the caller's RAW bearer token as proof (only its hash is stored).
 GRANT EXECUTE ON FUNCTION account_erase(uuid, text) TO caravan_app;
+
+-- Chunk 32: the admin flag is read-only for the app role
+-- ---------------------------------------------------------------------------------
+-- account_admin decides who may read /admin/*. The server only ever READS it; the operator
+-- CLI (src/admin.ts) writes it over the owner connection. Without INSERT /
+-- UPDATE / DELETE here, no player route — and no bug in one — can grant or revoke admin.
+-- (An account's deletion still cascades: referential actions run as the table owner.)
+-- Client telemetry rows are insert-only for the app (deleted only on opt-out or cascade).
+-- Guarded by to_regclass so this script still applies to a database rolled back below 021.
+DO $$
+BEGIN
+  IF to_regclass('public.account_admin') IS NOT NULL THEN
+    REVOKE INSERT, UPDATE, DELETE ON TABLE account_admin FROM caravan_app;
+  END IF;
+  IF to_regclass('public.analytics_client_event') IS NOT NULL THEN
+    REVOKE UPDATE ON TABLE analytics_client_event FROM caravan_app;
+  END IF;
+END
+$$;

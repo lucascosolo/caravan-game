@@ -20,6 +20,7 @@ import { partyRoutes } from "./routes/party.js";
 import { progressionRoutes } from "./routes/progression.js";
 import { storeRoutes } from "./routes/store.js";
 import { replayRoutes } from "./routes/replay.js";
+import { telemetryRoutes } from "./routes/telemetry.js";
 import { tripRoutes } from "./routes/trip.js";
 import { unlockRoutes } from "./routes/unlocks.js";
 import { AppError } from "./services/errors.js";
@@ -135,5 +136,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(replayRoutes);
   await app.register(inboxRoutes);
   await app.register(onboardingRoutes);
+  // Chunk 32: client telemetry (screen flow, crashes), the opt-out, and the admin-only dashboard.
+  await app.register(telemetryRoutes);
   return app;
 }

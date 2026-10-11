@@ -24,6 +24,7 @@ import { formatWhen } from "../../shell/issues.ts";
 import { navigate } from "../../shell/router.tsx";
 import { STRINGS } from "../../strings.ts";
 import { WatchFight } from "../replay/WatchFight.tsx";
+import { AnalyticsToggle } from "./AnalyticsToggle.tsx";
 
 const T = STRINGS.inbox;
 
@@ -151,6 +152,8 @@ export function InboxScreen(props: InboxScreenProps = {}): JSX.Element {
             </label>
           ))}
         </div>
+        {/* Chunk 32: the usage-data opt-out lives with the other settings. */}
+        <AnalyticsToggle api={api} />
       </details>
     </section>
   );

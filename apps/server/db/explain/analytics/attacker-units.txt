@@ -1,0 +1,22 @@
+-- chunk 32: attacker-units over the synthetic history in test/telemetry-scale.test.ts (30-day window)
+Sort
+  Sort Key: ((count(*))::integer) DESC, ((u.value ->> 'typeId'::text))
+  CTE enc
+    ->  Nested Loop
+          ->  Bitmap Heap Scan on trip_encounter te
+                Recheck Cond: ((settled_at >= '2026-09-11 22:01:49.946+00'::timestamp with time zone) AND (settled_at < '2026-10-11 22:01:49.946+00'::timestamp with time zone))
+                ->  Bitmap Index Scan on trip_encounter_settled_at_idx
+                      Index Cond: ((settled_at >= '2026-09-11 22:01:49.946+00'::timestamp with time zone) AND (settled_at < '2026-10-11 22:01:49.946+00'::timestamp with time zone))
+          ->  Limit
+                ->  Index Scan using resolution_job_pkey on resolution_job
+                      Index Cond: (id = te.job_id)
+          SubPlan 1
+            ->  Index Scan using account_pkey on account a
+                  Index Cond: (id = ((resolution_job.input ->> 'partyOwnerAccountId'::text))::uuid)
+  ->  HashAggregate
+        Group Key: ((u.value ->> 'typeId'::text))
+        ->  HashAggregate
+              Group Key: e.trip_id, e.encounter_index, e.outcome_kind, e.authored, (u.value ->> 'typeId'::text)
+              ->  Nested Loop
+                    ->  CTE Scan on enc e
+                    ->  Function Scan on jsonb_array_elements u

@@ -1,0 +1,9 @@
+{
+  "route": "POST /me/telemetry",
+  "status": 202,
+  "body": {
+    "accepted": 1,
+    "dropped": 0,
+    "optedOut": false
+  }
+}

@@ -1,0 +1,848 @@
+{
+  "route": "GET /admin/dashboard",
+  "status": 200,
+  "body": {
+    "generatedAt": "2026-01-01T00:00:00.000Z",
+    "window": {
+      "from": "2026-01-01T00:00:00.000Z",
+      "to": "2026-01-01T00:00:00.000Z",
+      "days": 30
+    },
+    "tuning": [
+      {
+        "n": 1,
+        "number": "Damage formula coefficients and the full type/affinity matrix",
+        "tunables": [
+          "DAMAGE_FORMULA",
+          "AFFINITY_ADVANTAGE_MULT",
+          "AFFINITY_DISADVANTAGE_MULT",
+          "MERGE_MULT_PER_LEVEL"
+        ],
+        "panels": [
+          "defenderUnits",
+          "attackerUnits",
+          "overrunByBand"
+        ],
+        "metric": "Win rate by unit type on each side: no type should predict the outcome far from the field's average; overrun rate should sit level across bands."
+      },
+      {
+        "n": 2,
+        "number": "Garrison aggro radius and leash distance",
+        "tunables": [
+          "AGGRO_RADIUS_DEFAULT",
+          "LEASH_DISTANCE_DEFAULT",
+          "LEASH_HYSTERESIS_MULT"
+        ],
+        "panels": [
+          "stances",
+          "defenderUnits"
+        ],
+        "metric": "Held rate per defensive stance (guard / hold / reserve): a stance that always or never holds says the leash or aggro is off."
+      },
+      {
+        "n": 3,
+        "number": "Deployment slot count",
+        "tunables": [
+          "DEPLOYMENT_SLOT_CAP",
+          "PARTY_SLOT_CAP",
+          "SIEGE_SLOT_CAP"
+        ],
+        "panels": [
+          "slots"
+        ],
+        "metric": "Posted units and raiders per encounter, with held rate: if nearly every circle fills every slot, the cap binds; if held rate climbs steeply with count, it decides fights."
+      },
+      {
+        "n": 4,
+        "number": "Fence segment HP and unlock-web cost",
+        "tunables": [
+          "FENCE_SEGMENT_HP_DEFAULT",
+          "FENCE_HIT_SEGMENT_CAP",
+          "FENCE_MATERIAL_BUDGET"
+        ],
+        "panels": [
+          "slots",
+          "unlockPurchases"
+        ],
+        "metric": "Fence segments placed per encounter against held rate (the 'fences' rows), and which fence nodes players buy and how soon."
+      },
+      {
+        "n": 5,
+        "number": "Trap damage/effect values and unlock-web costs",
+        "tunables": [
+          "TRAP_DAMAGE_MIN",
+          "TRAP_DAMAGE_MAX",
+          "TRAP_SLOW_MAGNITUDE_DEFAULT",
+          "TRAP_ROOT_DURATION_DEFAULT",
+          "TRAP_SLOT_CAP"
+        ],
+        "panels": [
+          "traps",
+          "unlockPurchases"
+        ],
+        "metric": "Pick and held rate per trap type, and trap-pool node purchases."
+      },
+      {
+        "n": 6,
+        "number": "Siege equipment effect values and unlock-web costs",
+        "tunables": [
+          "SIEGE_FENCE_DAMAGE_MULT",
+          "SIEGE_TRAP_NULLIFY",
+          "STRUCTURE_BREAKER_MULT_DEFAULT"
+        ],
+        "panels": [
+          "siege",
+          "unlockPurchases"
+        ],
+        "metric": "Pick and overrun rate per siege type in the served parties, and siege-pool node purchases."
+      },
+      {
+        "n": 7,
+        "number": "Ladder point curves per pool",
+        "tunables": [
+          "LADDER_*"
+        ],
+        "panels": [
+          "ladder"
+        ],
+        "metric": "How many owners sit at each rung per pool now, and rungs crossed in the window: a pile-up at one rung is a wall in the curve."
+      },
+      {
+        "n": 8,
+        "number": "Unlock web node counts and structure",
+        "tunables": [
+          "LIVING_UNITS_PER_REGION",
+          "TRAP_TYPES",
+          "SIEGE_TYPES",
+          "FENCE_TIERS"
+        ],
+        "panels": [
+          "unlockPurchases",
+          "ladder"
+        ],
+        "metric": "Which nodes are bought (and which never are) per pool, against the points the ladder has granted."
+      },
+      {
+        "n": 9,
+        "number": "Weekly pack Coin amounts per tier, and the combined weekly cap",
+        "tunables": [
+          "PACK_COIN_BY_TIER",
+          "PACK_TIER_PRICES_CENTS",
+          "WEEKLY_PAY_CEILING"
+        ],
+        "panels": [
+          "grindWall",
+          "packFunnel"
+        ],
+        "metric": "WEEKLY_PAY_CEILING against free weekly earn per active-player decile (the grind-wall probe): the paid path must stay optional at every decile; and the store funnel per tier."
+      },
+      {
+        "n": 10,
+        "number": "Coin storage cap value",
+        "tunables": [
+          "COIN_STORAGE_CAP"
+        ],
+        "panels": [
+          "storageCap",
+          "earnBySource"
+        ],
+        "metric": "Share of players at or near the cap now, and Coin the cap discarded per source in the window."
+      },
+      {
+        "n": 11,
+        "number": "Coin earn rates (per encounter, per completed trip, passive trickle)",
+        "tunables": [
+          "COIN_PER_ENCOUNTER_BASE",
+          "COIN_ENCOUNTER_ESCALATION_MULT",
+          "COIN_ENCOUNTER_BAND_SCALE_BP",
+          "COIN_DELIVERY_PER_ENCOUNTER",
+          "COIN_PER_PARTY_WIN",
+          "COIN_TRICKLE_RATE_PER_HOUR"
+        ],
+        "panels": [
+          "earnBySource",
+          "grindWall",
+          "bankVsPush",
+          "tripLength"
+        ],
+        "metric": "Coin by source, free weekly earn by decile, and whether players push past encounter 1 (push rate by encounter, trip length): a bank-at-1 habit means the escalation does not pay."
+      },
+      {
+        "n": 12,
+        "number": "Trips-per-hour cap value",
+        "tunables": [
+          "TRIPS_PER_HOUR_CAP",
+          "TRIP_CAP_REGEN_MS"
+        ],
+        "panels": [
+          "tripCap",
+          "sessionLength"
+        ],
+        "metric": "Share of trip starts that took the last available use, against session length: frequent last-use starts in short sessions mean the cap ends sessions."
+      },
+      {
+        "n": 13,
+        "number": "Refugee drip refresh interval and mercenary recruit Coin cost",
+        "tunables": [
+          "REFUGEE_REFRESH_INTERVAL_MINUTES",
+          "REFUGEE_REROLL_COST_SCHEDULE",
+          "MERCENARY_COST_BASE"
+        ],
+        "panels": [
+          "refugees",
+          "spendByReason"
+        ],
+        "metric": "Free menus, rerolls and claims per day, and Coin spent on refugee_reroll and mercenary_recruit."
+      },
+      {
+        "n": 14,
+        "number": "Tick cap / stalemate threshold",
+        "tunables": [
+          "BATTLE_LENGTH_CAP_SECONDS",
+          "TICK_RATE",
+          "STALEMATE_LOOT_SHARE"
+        ],
+        "panels": [
+          "tickCap",
+          "bankVsPush"
+        ],
+        "metric": "Fights ending at or near the tick cap, by outcome, and the stalemate share per encounter index."
+      }
+    ],
+    "tunableValues": {
+      "DAMAGE_FORMULA": "offense * offense / (offense + defense)",
+      "AFFINITY_ADVANTAGE_MULT": 1280,
+      "AFFINITY_DISADVANTAGE_MULT": 819,
+      "MERGE_MULT_PER_LEVEL": 1280,
+      "AGGRO_RADIUS_DEFAULT": 4096,
+      "LEASH_DISTANCE_DEFAULT": 6144,
+      "LEASH_HYSTERESIS_MULT": 819,
+      "DEPLOYMENT_SLOT_CAP": 8,
+      "PARTY_SLOT_CAP": 8,
+      "SIEGE_SLOT_CAP": 3,
+      "FENCE_SEGMENT_HP_DEFAULT": 400,
+      "FENCE_HIT_SEGMENT_CAP": 512,
+      "FENCE_MATERIAL_BUDGET": 20,
+      "TRAP_DAMAGE_MIN": 60,
+      "TRAP_DAMAGE_MAX": 250,
+      "TRAP_SLOW_MAGNITUDE_DEFAULT": 409,
+      "TRAP_ROOT_DURATION_DEFAULT": 1500,
+      "TRAP_SLOT_CAP": 6,
+      "SIEGE_FENCE_DAMAGE_MULT": 4096,
+      "SIEGE_TRAP_NULLIFY": true,
+      "STRUCTURE_BREAKER_MULT_DEFAULT": 5120,
+      "LADDER_GAIN_DEFENSE_HELD": 25,
+      "LADDER_GAIN_LOSS": 10,
+      "LADDER_GAIN_STALEMATE": 10,
+      "LADDER_GAIN_WIN": 30,
+      "LADDER_POINTS_TO_RUNG": [
+        0,
+        100,
+        282,
+        519,
+        800,
+        1118,
+        1469,
+        1852,
+        2262,
+        2700,
+        3162,
+        3648,
+        4156,
+        4687,
+        5238,
+        5809,
+        6400,
+        7009,
+        7636,
+        8281,
+        8944
+      ],
+      "LADDER_RUNGS_PER_POOL": 20,
+      "LIVING_UNITS_PER_REGION": 8,
+      "TRAP_TYPES": 6,
+      "SIEGE_TYPES": 5,
+      "FENCE_TIERS": 4,
+      "PACK_COIN_BY_TIER": [
+        6000,
+        14000,
+        40000
+      ],
+      "PACK_TIER_PRICES_CENTS": [
+        500,
+        1000,
+        2500
+      ],
+      "WEEKLY_PAY_CEILING": 60000,
+      "COIN_STORAGE_CAP": 50000,
+      "COIN_PER_ENCOUNTER_BASE": 400,
+      "COIN_ENCOUNTER_ESCALATION_MULT": 1382,
+      "COIN_ENCOUNTER_BAND_SCALE_BP": 5000,
+      "COIN_DELIVERY_PER_ENCOUNTER": 125,
+      "COIN_PER_PARTY_WIN": 300,
+      "COIN_TRICKLE_RATE_PER_HOUR": 200,
+      "TRIPS_PER_HOUR_CAP": 3,
+      "TRIP_CAP_REGEN_MS": 1200000,
+      "REFUGEE_REFRESH_INTERVAL_MINUTES": 90,
+      "REFUGEE_REROLL_COST_SCHEDULE": [
+        150,
+        300,
+        600
+      ],
+      "MERCENARY_COST_BASE": 600,
+      "BATTLE_LENGTH_CAP_SECONDS": 180,
+      "TICK_RATE": 20,
+      "STALEMATE_LOOT_SHARE": 0
+    },
+    "panels": {
+      "tripLength": [
+        {
+          "endReason": "banked",
+          "encounters": 1,
+          "trips": 2
+        },
+        {
+          "endReason": "overrun",
+          "encounters": 2,
+          "trips": 1
+        }
+      ],
+      "bankVsPush": [
+        {
+          "encounterIndex": 1,
+          "settled": 3,
+          "held": 2,
+          "overrun": 0,
+          "stalemate": 1,
+          "pushed": 1,
+          "banked": 2,
+          "undecided": 0,
+          "pushRateBp": 3333,
+          "overrunRateBp": 0
+        },
+        {
+          "encounterIndex": 2,
+          "settled": 1,
+          "held": 0,
+          "overrun": 1,
+          "stalemate": 0,
+          "pushed": 0,
+          "banked": 0,
+          "undecided": 0,
+          "pushRateBp": null,
+          "overrunRateBp": 10000
+        }
+      ],
+      "overrunByBand": [
+        {
+          "band": 3,
+          "encounters": 4,
+          "held": 2,
+          "overrun": 1,
+          "stalemate": 1,
+          "overrunRateBp": 2500
+        }
+      ],
+      "defenderUnits": {
+        "settled": 4,
+        "rows": [
+          {
+            "typeId": "desert.dust_rider",
+            "appearances": 4,
+            "wins": 2,
+            "pickRateBp": 10000,
+            "winRateBp": 5000
+          }
+        ]
+      },
+      "attackerUnits": {
+        "settled": 4,
+        "rows": [
+          {
+            "typeId": "desert.dust_rider",
+            "appearances": 4,
+            "wins": 1,
+            "pickRateBp": 10000,
+            "winRateBp": 2500,
+            "live": 4
+          },
+          {
+            "typeId": "desert.well_digger",
+            "appearances": 4,
+            "wins": 1,
+            "pickRateBp": 10000,
+            "winRateBp": 2500,
+            "live": 4
+          }
+        ]
+      },
+      "stances": [
+        {
+          "stance": "guard",
+          "posts": 8,
+          "held": 4,
+          "heldRateBp": 5000
+        }
+      ],
+      "slots": [
+        {
+          "side": "fences",
+          "count": 0,
+          "encounters": 1,
+          "held": 0,
+          "heldRateBp": 0
+        },
+        {
+          "side": "fences",
+          "count": 1,
+          "encounters": 3,
+          "held": 2,
+          "heldRateBp": 6666
+        },
+        {
+          "side": "posted",
+          "count": 2,
+          "encounters": 4,
+          "held": 2,
+          "heldRateBp": 5000
+        },
+        {
+          "side": "raiders",
+          "count": 2,
+          "encounters": 4,
+          "held": 2,
+          "heldRateBp": 5000
+        },
+        {
+          "side": "traps",
+          "count": 0,
+          "encounters": 1,
+          "held": 0,
+          "heldRateBp": 0
+        },
+        {
+          "side": "traps",
+          "count": 1,
+          "encounters": 3,
+          "held": 2,
+          "heldRateBp": 6666
+        }
+      ],
+      "traps": {
+        "settled": 4,
+        "rows": [
+          {
+            "typeId": "trap.spike_pit",
+            "appearances": 3,
+            "wins": 2,
+            "pickRateBp": 7500,
+            "winRateBp": 6666
+          }
+        ]
+      },
+      "siege": {
+        "settled": 4,
+        "rows": [
+          {
+            "typeId": "siege.battering_wagon",
+            "appearances": 4,
+            "wins": 1,
+            "pickRateBp": 10000,
+            "winRateBp": 2500
+          }
+        ]
+      },
+      "tickCap": {
+        "capTicks": 3600,
+        "nearCapTicks": 3240,
+        "rows": [
+          {
+            "outcomeKind": "caravan_held",
+            "fights": 2,
+            "nearCap": 0,
+            "atCap": 0,
+            "maxEndTick": 600,
+            "medianEndTick": 600
+          },
+          {
+            "outcomeKind": "caravan_overrun",
+            "fights": 1,
+            "nearCap": 0,
+            "atCap": 0,
+            "maxEndTick": 600,
+            "medianEndTick": 600
+          },
+          {
+            "outcomeKind": "stalemate",
+            "fights": 1,
+            "nearCap": 1,
+            "atCap": 0,
+            "maxEndTick": 3599,
+            "medianEndTick": 3599
+          }
+        ]
+      },
+      "ladder": {
+        "levels": [
+          {
+            "pool": "living",
+            "level": 0,
+            "owners": 13
+          },
+          {
+            "pool": "siege",
+            "level": 0,
+            "owners": 13
+          },
+          {
+            "pool": "trap",
+            "level": 0,
+            "owners": 12
+          },
+          {
+            "pool": "trap",
+            "level": 1,
+            "owners": 1
+          }
+        ],
+        "gained": [
+          {
+            "pool": "living",
+            "events": 4,
+            "points": 85,
+            "rungs": 0
+          },
+          {
+            "pool": "siege",
+            "events": 4,
+            "points": 60,
+            "rungs": 0
+          },
+          {
+            "pool": "trap",
+            "events": 4,
+            "points": 115,
+            "rungs": 1
+          }
+        ]
+      },
+      "unlockPurchases": [
+        {
+          "pool": "trap",
+          "nodeId": "trap.test_node",
+          "purchases": 1,
+          "points": 2
+        }
+      ],
+      "mergeSpend": {
+        "byDay": [
+          {
+            "day": "2026-01-01",
+            "merges": 2,
+            "coin": 1150
+          }
+        ],
+        "byLevel": [
+          {
+            "toLevel": 2,
+            "merges": 1,
+            "coin": 250
+          },
+          {
+            "toLevel": 3,
+            "merges": 1,
+            "coin": 900
+          }
+        ]
+      },
+      "spendByReason": [
+        {
+          "reason": "merge",
+          "events": 2,
+          "coin": 1150
+        },
+        {
+          "reason": "refugee_reroll",
+          "events": 1,
+          "coin": 150
+        },
+        {
+          "reason": "test_activity",
+          "events": 3,
+          "coin": 0
+        }
+      ],
+      "refugees": [
+        {
+          "day": "2026-01-01",
+          "freeMenus": 1,
+          "rerolls": 1,
+          "claims": 0,
+          "caravans": 1
+        }
+      ],
+      "earnBySource": [
+        {
+          "type": "coin_earned",
+          "reason": "encounter_survived",
+          "events": 2,
+          "coin": 2000,
+          "discarded": 0
+        },
+        {
+          "type": "coin_earned",
+          "reason": "party_loot",
+          "events": 2,
+          "coin": 706,
+          "discarded": 0
+        },
+        {
+          "type": "coin_earned",
+          "reason": "party_win",
+          "events": 1,
+          "coin": 300,
+          "discarded": 0
+        },
+        {
+          "type": "coin_earned",
+          "reason": "test_setup",
+          "events": 1,
+          "coin": 5000,
+          "discarded": 0
+        },
+        {
+          "type": "coin_earned",
+          "reason": "trip_banked",
+          "events": 2,
+          "coin": 250,
+          "discarded": 0
+        },
+        {
+          "type": "coin_purchased",
+          "reason": "pack_purchase",
+          "events": 1,
+          "coin": 6000,
+          "discarded": 0
+        },
+        {
+          "type": "coin_transferred_to_party_owner",
+          "reason": "caravan_overrun",
+          "events": 1,
+          "coin": 1000,
+          "discarded": 0
+        }
+      ],
+      "storageCap": {
+        "accounts": 13,
+        "nearCap": 0,
+        "atCap": 0,
+        "nearCapPercent": 90,
+        "cap": 50000,
+        "discarded": 0
+      },
+      "tripCap": {
+        "starts": 3,
+        "accounts": 3,
+        "tookLastUse": 0,
+        "tookLastUseBp": 0,
+        "capPerHour": 3
+      },
+      "grindWall": {
+        "weekIndex": 0,
+        "weekFrom": "2026-01-01T00:00:00.000Z",
+        "weekTo": "2026-01-01T00:00:00.000Z",
+        "weeklyPayCeiling": 60000,
+        "freeWeeklyEarnEstimate": 55000,
+        "deciles": [
+          {
+            "decile": 1,
+            "players": 1,
+            "minFree": 0,
+            "maxFree": 0,
+            "avgFree": 0,
+            "avgPaid": 0,
+            "payers": 0,
+            "ceilingToFreeBp": null
+          },
+          {
+            "decile": 2,
+            "players": 1,
+            "minFree": 1125,
+            "maxFree": 1125,
+            "avgFree": 1125,
+            "avgPaid": 0,
+            "payers": 0,
+            "ceilingToFreeBp": 533333
+          },
+          {
+            "decile": 3,
+            "players": 1,
+            "minFree": 1125,
+            "maxFree": 1125,
+            "avgFree": 1125,
+            "avgPaid": 0,
+            "payers": 0,
+            "ceilingToFreeBp": 533333
+          }
+        ]
+      },
+      "packFunnel": {
+        "viewers": 2,
+        "storeViewers": 1,
+        "buyers": 1,
+        "tiers": [
+          {
+            "tier": 1,
+            "reserved": 1,
+            "settled": 1,
+            "buyers": 1,
+            "cents": 500
+          }
+        ]
+      },
+      "sessionLength": {
+        "sessions": 3,
+        "players": 2,
+        "medianMs": 60000,
+        "maxMs": 600000,
+        "screens": 6,
+        "gapMs": 1800000,
+        "buckets": [
+          {
+            "label": "<1m",
+            "sessions": 1
+          },
+          {
+            "label": "1–5m",
+            "sessions": 1
+          },
+          {
+            "label": "5–15m",
+            "sessions": 1
+          },
+          {
+            "label": "15–30m",
+            "sessions": 0
+          },
+          {
+            "label": "30–60m",
+            "sessions": 0
+          },
+          {
+            "label": "≥60m",
+            "sessions": 0
+          }
+        ]
+      },
+      "retention": {
+        "cohortFrom": "2026-01-01T00:00:00.000Z",
+        "cohortTo": "2026-01-01T00:00:00.000Z",
+        "days": [
+          {
+            "day": 1,
+            "eligible": 2,
+            "returned": 1,
+            "rateBp": 5000
+          },
+          {
+            "day": 7,
+            "eligible": 2,
+            "returned": 1,
+            "rateBp": 5000
+          },
+          {
+            "day": 30,
+            "eligible": 1,
+            "returned": 1,
+            "rateBp": 10000
+          }
+        ]
+      },
+      "screens": [
+        {
+          "screen": "town",
+          "views": 4,
+          "viewers": 2
+        },
+        {
+          "screen": "packs",
+          "views": 1,
+          "viewers": 1
+        },
+        {
+          "screen": "trail",
+          "views": 1,
+          "viewers": 1
+        }
+      ],
+      "crashes": [
+        {
+          "errorName": "TypeError",
+          "stackHash": "0badc0de",
+          "screen": "trail",
+          "reports": 1,
+          "reporters": 1
+        }
+      ],
+      "poolHealth": {
+        "candidatesPerSearch": 3,
+        "maxAuthoredShareBp": 3000,
+        "bands": [
+          {
+            "band": 0,
+            "low": 100,
+            "high": 399,
+            "liveParties": 0,
+            "authoredParties": 0,
+            "caravans": 0,
+            "served": 0,
+            "servedAuthored": 0,
+            "liveShareBp": null,
+            "servedAuthoredShareBp": null,
+            "alarm": "empty"
+          },
+          {
+            "band": 1,
+            "low": 400,
+            "high": 699,
+            "liveParties": 0,
+            "authoredParties": 0,
+            "caravans": 0,
+            "served": 0,
+            "servedAuthored": 0,
+            "liveShareBp": null,
+            "servedAuthoredShareBp": null,
+            "alarm": "empty"
+          },
+          {
+            "band": 2,
+            "low": 700,
+            "high": 999,
+            "liveParties": 1,
+            "authoredParties": 0,
+            "caravans": 1,
+            "served": 3,
+            "servedAuthored": 0,
+            "liveShareBp": 10000,
+            "servedAuthoredShareBp": 0,
+            "alarm": "empty"
+          },
+          {
+            "band": 3,
+            "low": 1000,
+            "high": 1299,
+            "liveParties": 3,
+            "authoredParties": 0,
+            "caravans": 12,
+            "served": 1,
+            "servedAuthored": 0,
+            "liveShareBp": 10000,
+            "servedAuthoredShareBp": 0,
+            "alarm": "ok"
+          }
+        ],
+        "alarms": 3
+      }
+    }
+  }
+}

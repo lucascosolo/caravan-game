@@ -756,6 +756,136 @@ anything about matchmaking or earnings? It must not.
 
 ## 32. Telemetry and balance instrumentation — **M**, before any external playtest
 
+**Status: built** (2026-10-11, chunk 32 Maker). Build notes:
+
+- **Migration 021** (`021_telemetry`; renumbered 018 → 020 → 021 on merges, since main's 018–020 are
+  taken — renumber again on merge if needed): `account_admin (account_id, granted_by, granted_at)` — the admin flag, one row or none per
+  account, kept off `account` so no `SELECT *` a player route reads can carry it;
+  `account_analytics (account_id, analytics_id, opted_out)` — a RANDOM opaque id (never derived from
+  the account id; immutable by trigger) and the opt-out; `analytics_client_event (analytics_id, kind,
+  screen, error_name, stack_hash, occurred_at, received_at)` — closed vocabularies enforced by CHECK
+  (screen `^[a-z_]{1,24}$`, error class `^[A-Za-z]{1,24}$`, stack hash 8 hex, crash ⇔ class + hash,
+  never in the future). Rows cascade from the account through `account_analytics`, so chunk 30's
+  deletion has nothing to chase. Plus eight indexes for the aggregates (ledger_event (event_type,
+  occurred_at) and (account_id, occurred_at), trip (ended_at), trip_encounter (settled_at),
+  refugee_menu (created_at), pack_purchase (purchased_at), account (created_at) of players). No
+  encounter_candidates (chosen_at) index: it pulled the matchmaker's served-share query off chunk
+  25's band index (qa25-scale caught it); the pool-health served query instead walks that band
+  index once per band (`generate_series(0, max(band))` × a LATERAL subquery fenced with `OFFSET 0`,
+  so the planner keeps the per-band index range rather than a merge join over a full scan).
+- **Cascade.** account_admin and account_analytics reference account ON DELETE CASCADE, and
+  analytics_client_event references account_analytics (analytics_id) ON DELETE CASCADE, so
+  `DELETE FROM account` (main's per-file test reset, chunk 30's deletion) leaves no analytics row;
+  `telemetry.test.ts` deletes an account and checks both tables.
+- **Admin access.** `db/roles.sql` revokes INSERT/UPDATE/DELETE on `account_admin` from
+  `caravan_app` (SELECT only; guarded by `to_regclass` so the script applies below 021), so no route
+  — and no bug in one — can grant admin. The flag is set by the operator CLI
+  `pnpm --filter @caravan/server admin grant <username> [--by <label>] | revoke <username> | list`
+  (`src/admin.ts`, built to `dist/admin.js`), which connects with `MIGRATE_DATABASE_URL` (owner).
+  `/admin/*` answers **404** `not_found` to no token, a bad token and a non-admin (never 401/403);
+  `GET /admin/dashboard?days=1..120&week=<pack week>` is the only admin route and only reads.
+- **Server-side analytics** (`src/analytics/queries.ts`, assembled by `dashboard.ts`): derived from
+  the ledger and the tables play already writes; nothing new is tracked server-side. Panels: trip
+  length (encounters settled per ended trip × end reason), bank versus push by encounter index (with
+  stalemates), overrun rate by the caravan's Reputation band (its living rating at search time, the
+  matchmaker's `bandOf`), unit pick and win rates for posted units (win = held) and for raiders in
+  served parties (win = overrun; live vs authored), trap and siege usage, posts by stance, slot fill
+  (posted / raiders / traps / fence segments per encounter with held rate), fight length against the
+  tick cap, ladder rungs now and gained, unlock-node purchases, merge spend per day and per level,
+  Coin spent by reason, refugee menus per day (free / reroll / claimed), Coin by source with what the
+  cap discarded, storage-cap pressure, trip-cap pressure (starts that took the last use), the
+  **grind-wall probe** (free weekly Coin per active-player decile — active = started a trip that
+  pack week — against `WEEKLY_PAY_CEILING`, with paid Coin and payers per decile), the pack funnel
+  (opened the game → opened the store (screen flow) → reserved / settled per tier), session length
+  (screen events split by a 30-minute gap), day-1/7/30 return (cohort = players created in the last
+  90 days; a return is one of the account's OWN ledger actions or a screen event in
+  [created + N d, created + N+1 d)), screen views, crash reports, and **pool health** (live vs
+  authored servable parties per band of the owner's siege Reputation, caravans per band, served
+  authored share in the window, and an alarm per band: `empty` below CANDIDATES_PER_SEARCH parties,
+  `no_live` authored only, `authored_over_share` above AUTHORED_PARTY_MAX_SHARE_BP). Rates are basis
+  points computed in TS; all integers.
+- **Bounded cost.** Every windowed query reads through a 020 index; the resolution job and the
+  chosen menu are reached by key through `LATERAL … LIMIT 1`, and the settled-encounter CTE is
+  `MATERIALIZED` (inlined, the planner walked trip_encounter's whole primary key for a free sort
+  order). `test/telemetry-scale.test.ts` writes a two-year synthetic history (3 000 accounts,
+  30 000 trips with jobs and menus, 300 000 ledger events, 200 000 client events, refugee menus,
+  pack purchases), ANALYZEs and EXPLAINs every exported `*_SQL` over a 30-day window: no Seq Scan
+  and no condition-less index scan of any event-shaped table (ledger_event, trip, trip_encounter,
+  resolution_job, encounter_candidates, refugee_menu, pack_purchase, analytics_client_event). Only
+  the "now" panels (ladder levels, pool health, accounts near the cap, the opted-out set) scan state
+  tables of one row per player / party / caravan. The plans are checked in under
+  `apps/server/db/explain/analytics/*.txt` (`pnpm --filter @caravan/server explain:analytics`
+  rewrites them); the whole dashboard over that history built in ~0.4–1.1 s locally.
+- **Client telemetry** (`apps/web/src/telemetry/`): screen flow (the route, or `welcome`) and crash
+  reports (window `error` / `unhandledrejection` and the render error boundary) — a crash is a closed
+  error class plus an FNV-1a hash of its first three stack frames with URLs stripped, never the
+  message. Batched in memory (5 s after the first event, ≤ 25 per request, a failed send is dropped,
+  no storage of any kind, no third-party SDK), sent to `POST /me/telemetry` with each event's age.
+  The server validates the exact shape (unknown key, screen, class or a malformed hash refuses the
+  batch), caps the body at 4 KiB (413) and the batch at 25, rate-limits per account (12 batches a
+  minute, in-process fixed window with bounded memory; 429 + Retry-After, checked in `onRequest`
+  before the body is read) and keeps at most 1 000 events per analytics id per rolling 24 h. Knobs
+  in `src/analytics/tunables.ts` (operational, not balance; the server's screen list is compared with
+  the web client's by a test).
+- **Opt-out** is an account setting on the server: `GET/PUT /me/analytics { optedOut }`, a toggle
+  "Share usage data" inside the Inbox's settings disclosure (the client's one settings place). An
+  opted-out account's batches are accepted and dropped (`optedOut: true`, after which the client's
+  reporter stops), opting out deletes the client events already kept, and opted-out accounts are left
+  out of the return cohort. Ledger-derived balance aggregates (trips, picks, Coin) include every
+  player: they are counts over records the game keeps anyway, and dropping accounts would bias the
+  very numbers being tuned.
+- **One-way.** Nothing in the resolver, matchmaking, economy, acquisition or trip loop reads the
+  analytics module or tables (a test greps `src/` and the three packages); the dashboard only reads.
+- **Admin page**: `#/admin` (`apps/web/src/screens/admin/AdminScreen.tsx`, a lazy chunk linked from
+  nowhere; a 404 shows "Not found." and nothing else). Tables with every number as text, a
+  single-hue bar beside each rate, alarms in words; the §20 table at the top with today's registry
+  values. Column labels on this operator page are inline English, not `strings.ts` (headings and
+  player-facing copy are in `strings.ts` under `admin` / `privacy`).
+
+**PROJECT.md §20 → the panel each number is tuned against** (also `TUNING_MAP` in
+`src/analytics/dashboard.ts`, served with the dashboard and rendered at the top of the page):
+
+| # | §20 number | Registry keys | Panel(s) | What to read |
+|---|---|---|---|---|
+| 1 | Damage formula coefficients and the type/affinity matrix | DAMAGE_FORMULA, AFFINITY_ADVANTAGE_MULT, AFFINITY_DISADVANTAGE_MULT, MERGE_MULT_PER_LEVEL | defenderUnits, attackerUnits, overrunByBand | win rate per type on each side; overrun level across bands |
+| 2 | Garrison aggro radius and leash | AGGRO_RADIUS_DEFAULT, LEASH_DISTANCE_DEFAULT, LEASH_HYSTERESIS_MULT | stances, defenderUnits | held rate per defensive stance |
+| 3 | Deployment slot count | DEPLOYMENT_SLOT_CAP, PARTY_SLOT_CAP, SIEGE_SLOT_CAP | slots | posted / raiders per encounter vs held rate |
+| 4 | Fence segment HP and unlock cost | FENCE_SEGMENT_HP_DEFAULT, FENCE_HIT_SEGMENT_CAP, FENCE_MATERIAL_BUDGET | slots (fences), unlockPurchases | segments placed vs held rate; fence nodes bought |
+| 5 | Trap values and unlock costs | TRAP_DAMAGE_MIN/MAX, TRAP_SLOW_MAGNITUDE_DEFAULT, TRAP_ROOT_DURATION_DEFAULT, TRAP_SLOT_CAP | traps, unlockPurchases | pick and held rate per trap; trap nodes bought |
+| 6 | Siege values and unlock costs | SIEGE_FENCE_DAMAGE_MULT, SIEGE_TRAP_NULLIFY, STRUCTURE_BREAKER_MULT_DEFAULT | siege, unlockPurchases | pick and overrun rate per siege; siege nodes bought |
+| 7 | Ladder point curves | LADDER_* | ladder | owners per rung now; rungs crossed |
+| 8 | Unlock web node counts and structure | LIVING_UNITS_PER_REGION, TRAP_TYPES, SIEGE_TYPES, FENCE_TIERS | unlockPurchases, ladder | nodes bought (and never) vs points granted |
+| 9 | Weekly pack Coin per tier and the combined cap | PACK_COIN_BY_TIER, PACK_TIER_PRICES_CENTS, WEEKLY_PAY_CEILING | grindWall, packFunnel | ceiling vs free weekly earn per decile; funnel per tier |
+| 10 | Coin storage cap | COIN_STORAGE_CAP | storageCap, earnBySource | players at / near the cap; Coin discarded per source |
+| 11 | Coin earn rates | COIN_PER_ENCOUNTER_BASE, COIN_ENCOUNTER_ESCALATION_MULT, COIN_ENCOUNTER_BAND_SCALE_BP, COIN_DELIVERY_PER_ENCOUNTER, COIN_PER_PARTY_WIN, COIN_TRICKLE_RATE_PER_HOUR | earnBySource, grindWall, bankVsPush, tripLength | Coin by source; push rate past encounter 1 |
+| 12 | Trips-per-hour cap | TRIPS_PER_HOUR_CAP, TRIP_CAP_REGEN_MS | tripCap, sessionLength | starts that took the last use vs session length |
+| 13 | Refugee refresh interval and mercenary cost | REFUGEE_REFRESH_INTERVAL_MINUTES, REFUGEE_REROLL_COST_SCHEDULE, MERCENARY_COST_BASE | refugees, spendByReason | free menus / rerolls / claims per day; reroll and mercenary Coin |
+| 14 | Tick cap / stalemate threshold | BATTLE_LENGTH_CAP_SECONDS, TICK_RATE, STALEMATE_LOOT_SHARE | tickCap, bankVsPush | fights at / near the cap by outcome; stalemate share by encounter |
+
+- **Tests.** `apps/server/test/telemetry.test.ts` (30): one seeded history through the real routes
+  (four owners, three trips resolved by the double — held→bank, held→push→overrun, stalemate→bank —
+  a refugee reroll, merge-shaped spends, a pack purchase, trap ladder and unlock events, two client
+  sessions and a crash) and every panel asserted to exact numbers (Coin, ladder and grind-wall
+  against an independent fold of the same ledger rows, since real play moves them); retention over
+  backdated accounts with an opted-out one; the §20 table against PROJECT.md (14 bullets, real
+  registry keys, existing panels); admin 404s, revoke, the app role refused (42501) on
+  INSERT/UPDATE/DELETE of `account_admin`, no `src/` file but `analytics/admin.ts` writes it;
+  opt-out (kept nothing, deleted what was kept), the opaque id and cascade; ingest refusals, 413,
+  429, the daily cap, the limiter's bounded memory; the screen list equals the web's; the one-way
+  grep; the contract recording (`analytics`, `analytics-put`, `telemetry`, `admin-dashboard` under
+  `apps/web/src/test/contract/`, timestamps normalised). **Guard-test exemptions (narrow):**
+  `store-guards` (two greps) and `economy-guards` (one grep) exempt exactly ONE file,
+  `src/analytics/queries.ts`, from "no file outside the store / economy names pack_purchase /
+  coin_purchased / coin_spent": the funnel and the spend panels must read them. The exemption is
+  safe because that file is pure SELECT — `telemetry.test.ts` asserts it contains no INSERT /
+  UPDATE / DELETE / appendEvents / appendCoinCredits / spendCoin — and because nothing in play
+  imports `src/analytics` (the one-way grep). Every other analytics file stays under the greps. `telemetry-scale.test.ts` (4): the EXPLAIN
+  gate above. Web: `AdminScreen.test.tsx` (5), `telemetry/telemetry.test.tsx` (9: batching, caps, no
+  message text, opt-out stop, dispose, the hook, the toggle), contract guards for the four routes.
+- **Not done here:** device / native crash reporting (chunk 34); per-number target bands (what
+  value of each metric is "tuned") — that is chunk 37's sign-off; a scheduled band-emptiness alert
+  to a channel (the alarm is on the dashboard; there is no notification target yet).
+
 **Goal.** PROJECT.md §20 lists fourteen numbers that are placeholders. They get tuned
 from data or they never get tuned.
 
