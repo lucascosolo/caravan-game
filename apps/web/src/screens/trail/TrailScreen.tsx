@@ -50,7 +50,7 @@ type Loaded =
   | { kind: "resolving"; caravanId: string; encounterIndex: number }
   | { kind: "unavailable"; encounterIndex: number }
   | { kind: "decide"; caravanId: string; tripId: string; encounter: TripEncounterView }
-  | { kind: "ended"; trip: TripView; past: boolean };
+  | { kind: "ended"; trip: TripView; past: boolean; balance: number | null };
 
 function is404(err: unknown, code: string): boolean {
   return err instanceof ApiError && err.status === 404 && err.code === code;
@@ -99,7 +99,14 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
       if (!trip || trip.phase === "ended") {
         const packed = await openManifest(api, caravan.id);
         if (packed) setState({ kind: "packed" });
-        else if (trip) setState({ kind: "ended", trip, past: openSeen.current !== trip.id });
+        else if (trip) {
+          // Chunk 23 QA N3: the town balance comes from the economy, so a returning player (no
+          // bank answer in this session) sees the same summary. A failed read only drops the line.
+          const balance = await Promise.resolve()
+            .then(() => api.economy())
+            .then((e) => e.balance, () => null);
+          setState({ kind: "ended", trip, past: openSeen.current !== trip.id, balance });
+        }
         else setState({ kind: "in_town" });
         return;
       }
@@ -204,6 +211,13 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
     void load();
   };
 
+  /** Chunk 23 QA S3: the decision was made elsewhere — say so, and show where the trip stands now. */
+  const stale = useCallback((): void => {
+    setLastBank(null);
+    setNotice(P.decideStale);
+    void load();
+  }, [load]);
+
   const title = <h1>{T.title}</h1>;
   const noticeLine = notice && (
     <p className="notice" role="status" data-testid="trail-notice">
@@ -243,7 +257,7 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
       return (
         <>
           {noticeLine}
-          <TripSummary trip={state.trip} bank={lastBank} past={state.past} />
+          <TripSummary trip={state.trip} bank={lastBank} balance={state.balance} past={state.past} />
         </>
       );
     case "error":
@@ -268,14 +282,17 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
       );
     case "menu":
       return (
-        <CandidatesScreen
+        <>
+          {noticeLine}
+          <CandidatesScreen
           encounterIndex={state.encounterIndex}
           menu={state.menu}
           busy={busy}
           error={actionError}
           onSearchAgain={() => void search(state.caravanId, state.encounterIndex)}
           onChoose={(c) => void choose(state.caravanId, state.encounterIndex, c)}
-        />
+          />
+        </>
       );
     case "ready":
       return (
@@ -323,10 +340,11 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
       );
     case "decide":
       return deciding ? (
-        <BankOrPushScreen api={api} caravanId={state.caravanId} tripId={state.tripId} encounterIndex={state.encounter.index} onDecided={decided} />
+        <BankOrPushScreen api={api} caravanId={state.caravanId} tripId={state.tripId} encounterIndex={state.encounter.index} onDecided={decided} onStale={stale} />
       ) : (
         <section data-testid="encounter-results">
           <h1>{T.encounter(state.encounter.index)}</h1>
+          {noticeLine}
           <EncounterResult encounter={state.encounter} />
           <div className="actions">
             <button type="button" className="btn btn--primary btn--block" onClick={() => setDeciding(true)} data-testid="to-decision">

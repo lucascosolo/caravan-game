@@ -72,7 +72,14 @@ test("search, scout three candidates, choose, drag a fence and a post, set a sta
   await expect(reroll).toBeDisabled();
   await expect(reroll).toContainText(/Search again in \d+s \(free, time-gated\)/);
   // No Coin reroll, purchase or shortcut anywhere; the earn-multiplier line is a server fact and stays.
-  expect(await page.locator("body").textContent()).not.toMatch(/(buy|purchase|pay|coin(?! earn))/i);
+  // An authored party's flavour line is story copy, not an offer ("Rail Bull Gang … when the pay
+  // stopped" made this flake on the draw), so it is left out of the scan.
+  const offerText = await page.evaluate(() => {
+    const body = document.body.cloneNode(true) as HTMLElement;
+    for (const el of body.querySelectorAll('[data-testid^="candidate-flavor-"]')) el.remove();
+    return body.textContent ?? "";
+  });
+  expect(offerText).not.toMatch(/(buy|purchase|pay|coin(?! earn))/i);
 
   // Choose the first candidate; the formation screen opens against it.
   const chosenName = (await page.getByTestId("candidate-0").locator(".card__name").first().textContent())!.trim();

@@ -32,20 +32,17 @@
         "wouldDiscard": 0,
         "atCap": false
       },
-      "unitsDeMerged": []
+      "unitsDeMerged": [
+        {
+          "ref": "00000000-0000-4000-8000-000000000002",
+          "typeId": "desert.dust_rider",
+          "fromLevel": 3,
+          "toLevel": 2,
+          "diedAtEncounter": 2
+        }
+      ]
     },
     "units": [
-      {
-        "ref": "00000000-0000-4000-8000-000000000002",
-        "typeId": "desert.dust_rider",
-        "mergeLevel": 1,
-        "hp": 320,
-        "maxHp": 620,
-        "damage": 300,
-        "alive": true,
-        "diedAtEncounter": null,
-        "mergeLevelOnDeath": 1
-      },
       {
         "ref": "00000000-0000-4000-8000-000000000003",
         "typeId": "desert.dust_rider",
@@ -56,25 +53,55 @@
         "alive": true,
         "diedAtEncounter": null,
         "mergeLevelOnDeath": 1
+      },
+      {
+        "ref": "00000000-0000-4000-8000-000000000004",
+        "typeId": "desert.dust_rider",
+        "mergeLevel": 1,
+        "hp": 320,
+        "maxHp": 620,
+        "damage": 300,
+        "alive": true,
+        "diedAtEncounter": null,
+        "mergeLevelOnDeath": 1
+      },
+      {
+        "ref": "00000000-0000-4000-8000-000000000002",
+        "typeId": "desert.dust_rider",
+        "mergeLevel": 3,
+        "hp": 0,
+        "maxHp": 968,
+        "damage": 968,
+        "alive": false,
+        "diedAtEncounter": 2,
+        "mergeLevelOnDeath": 2
       }
     ],
     "ifOverrun": {
       "coinLost": 2347,
       "unitsLostOutright": [
         {
-          "ref": "00000000-0000-4000-8000-000000000002",
+          "ref": "00000000-0000-4000-8000-000000000003",
           "typeId": "desert.dust_rider",
           "mergeLevel": 1,
           "hp": 320
         },
         {
-          "ref": "00000000-0000-4000-8000-000000000003",
+          "ref": "00000000-0000-4000-8000-000000000004",
           "typeId": "desert.dust_rider",
           "mergeLevel": 1,
           "hp": 320
         }
       ],
-      "unitsDeMergedNotDestroyed": [],
+      "unitsDeMergedNotDestroyed": [
+        {
+          "ref": "00000000-0000-4000-8000-000000000002",
+          "typeId": "desert.dust_rider",
+          "fromLevel": 3,
+          "toLevel": 2,
+          "diedAtEncounter": 2
+        }
+      ],
       "unitDyingInTheFinalFight": "de_merged_not_destroyed",
       "coinGoesTo": "overrunning_party_owner_capped"
     },

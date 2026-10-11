@@ -24,6 +24,13 @@
             "mergeLevel": 1,
             "maxHp": 620,
             "hp": 620
+          },
+          {
+            "ref": "00000000-0000-4000-8000-000000000005",
+            "typeId": "desert.dust_rider",
+            "mergeLevel": 3,
+            "maxHp": 968,
+            "hp": 968
           }
         ],
         "traps": [
@@ -172,6 +179,13 @@
             "mergeLevel": 1,
             "maxHp": 620,
             "hp": 620
+          },
+          {
+            "ref": "00000000-0000-4000-8000-000000000005",
+            "typeId": "desert.dust_rider",
+            "mergeLevel": 3,
+            "maxHp": 968,
+            "hp": 968
           }
         ],
         "traps": [
@@ -305,7 +319,7 @@
         ]
       },
       "summary": {
-        "unitsAlive": 2,
+        "unitsAlive": 3,
         "unitsDead": 0,
         "trapsUnspent": 1,
         "trapsSpent": 0,

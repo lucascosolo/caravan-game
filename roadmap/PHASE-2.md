@@ -100,7 +100,7 @@ for 100 replays. Confirm no code path in the player calls into `packages/resolve
 
 ## 23. Trip client flow — **M**, after 15, 17, 19
 
-**Status: built** (2026-10-11) — replay link pending chunk 22 ("Watch the fight" is present,
+**Status: built, QA fixes landed** (2026-10-11; roadmap/qa/23-punchlist.md S1–S4, D1–D3, N1–N5 closed: de-merges itemized on bank, overrun and summary from contract-recorded bodies, a stale decision leads on, the e2e banks after three encounters) — replay link pending chunk 22 ("Watch the fight" is present,
 disabled, "replay coming"). Fights resolve through chunk 15's seam (test double until chunk 13;
 `CARAVAN_TEST_RESOLVER=double` for e2e). Losses on overrun shown as the server records them
 (`lossesApplied`, chunk 19). See ORCHESTRATION.md.

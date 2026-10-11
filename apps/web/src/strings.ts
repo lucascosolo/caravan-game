@@ -426,15 +426,21 @@ export const STRINGS = {
     toDecision: "Bank or push…",
     // the bank-or-push decision (GUARDRAILS §4: every stake itemized)
     decideTitle: (n: number): string => `Survived encounter ${n}: bank or push?`,
-    decideIntro: "Banking ends the trip and delivers everything to the town, where it is safe. Pushing on meets a fresh, harder party with what you have left: nothing is repaired, healed or re-armed, and staying out earns nothing but the next encounter's Coin.",
+    decideIntro: "Banking ends the trip and delivers everything to the town, where it is safe. Pushing on meets a fresh, harder party with what you have left: nothing is repaired, healed or re-armed, and staying out earns the next encounter's Coin and a bigger delivery bonus, nothing else.",
     decideLoadFailed: "Could not load what is at stake.",
     decideClosed: "This decision is no longer open.",
+    decideStale: "This decision was already made (in another tab, or by an answer that was lost on the way back). Here is where the trip stands now.",
+    decideBackToTrail: "Back to the trail",
+    confirmLoadFailed: "Could not re-read what is at stake, so nothing can be confirmed yet.",
     unbankedHeading: "Unbanked Coin",
     unbankedTotal: (coin: number): string => `${coin} Coin carried on the trail, not yet banked.`,
     unbankedEncounter: (n: number, coin: number): string => `Encounter ${n}: ${coin} Coin`,
     bankHeading: "Bank now",
     bankLine: (encounterCoin: number, bonus: number, total: number): string => `${encounterCoin} Coin from the encounters + ${bonus} Coin for the delivery = ${total} Coin.`,
     bankForecastFits: (credit: number, balance: number, cap: number): string => `All ${credit} Coin fits: your store holds ${balance} of ${cap} Coin right now.`,
+    bankDemergedHeading: "Units that died lose a merge level when you bank:",
+    bankDemergedNone: "No unit has died: everything comes home at its level.",
+    levelChange: (name: string, from: number, to: number): string => (to < from ? `${name} · L${from} → L${to}` : `${name} · stays L${to} (level 1 is the floor)`),
     bankForecastOverflow: (credit: number, discard: number, balance: number, cap: number): string =>
       `Only ${credit} Coin fits under the cap (${balance} of ${cap} Coin stored right now); ${discard} Coin would be discarded.`,
     unitsHeading: "Your units",
@@ -445,7 +451,13 @@ export const STRINGS = {
     unitDemerge: (now: number, after: number): string => (after < now ? `Loses a merge level: ${now} → ${after}` : `Stays at level ${after} (level 1 is the floor)`),
     overrunHeading: "If the caravan is overrun at the next encounter",
     overrunCoin: (coin: number): string => `Lose all ${coin} unbanked Coin.`,
-    overrunLost: "Lost outright (alive now):",
+    overrunCoinGoesTo: (kind: string): string =>
+      kind === "overrunning_party_owner_capped"
+        ? "It goes to the raiders' owner, up to what their store can hold; the rest is lost to the trail. None of it comes back to you."
+        : "It does not come back to you.",
+    overrunLost: "Lost outright if still standing when the caravan falls (alive now):",
+    overrunFinalFight: (kind: string): string =>
+      kind === "de_merged_not_destroyed" ? "A unit that dies in the fight the caravan falls in is de-merged one level instead, not lost." : "",
     overrunDemerged: "De-merged one level, not destroyed (already dead):",
     trapsHeading: "Traps",
     trapsRemaining: (n: number): string => `${n} still armed`,
@@ -469,10 +481,13 @@ export const STRINGS = {
     bankConfirmBody: (total: number, credit: number, discard: number): string =>
       discard > 0 ? `The trip ends. ${total} Coin is delivered: ${credit} Coin is banked and ${discard} Coin past the cap is discarded.` : `The trip ends. ${credit} Coin is banked in the town, safe for good.`,
     bankConfirmRefit: "Everything packed comes home and is fully refitted in town.",
+    bankConfirmRefitDemerged: (n: number): string =>
+      `Everything packed comes home and is refitted in town, but ${n} unit${n === 1 ? "" : "s"} that died ${n === 1 ? "loses" : "lose"} a merge level:`,
     bankYes: "Bank it",
     banking: "Banking…",
     pushConfirmTitle: (n: number): string => `Push on to encounter ${n}?`,
-    pushConfirmBody: (coin: number, units: number): string => `${coin} unbanked Coin and ${units} living unit${units === 1 ? "" : "s"} stay at risk. If the caravan is overrun, all of it is lost.`,
+    pushConfirmBody: (coin: number, units: number, dead: number): string =>
+      `${coin} unbanked Coin and ${units} living unit${units === 1 ? "" : "s"} stay at risk${dead > 0 ? `, and ${dead} dead unit${dead === 1 ? "" : "s"} ${dead === 1 ? "loses" : "lose"} a level` : ""}. If the caravan is overrun, the Coin and every unit still standing are lost.`,
     pushConfirmNoRepair: "Nothing is repaired, healed or re-armed. The next party is harder and arrives fresh.",
     pushYes: "Push on",
     pushing: "Pushing on…",
@@ -490,10 +505,10 @@ export const STRINGS = {
     summaryCredited: (credited: number, discarded: number): string => (discarded > 0 ? `${credited} Coin banked; ${discarded} Coin past the cap discarded.` : `${credited} Coin banked.`),
     summaryBalance: (balance: number): string => `Banked Coin in town is now ${balance}.`,
     summaryRefit: (healed: number, traps: number, fences: number): string => `Refitted in town: ${healed} unit${healed === 1 ? "" : "s"} healed, ${traps} trap${traps === 1 ? "" : "s"} restocked, ${fences} fence segment${fences === 1 ? "" : "s"} rebuilt.`,
-    summaryDemergePending: "Died on the trip (each loses one merge level):",
+    summaryBankDemerged: "Died on the trip, de-merged one level on the bank:",
     summaryCoinLost: (coin: number): string => `${coin} unbanked Coin was lost.`,
     summaryLost: "Lost outright (alive when the caravan fell):",
-    summaryDemerged: "De-merged one level (died before the end):",
+    summaryDemerged: "De-merged one level, not destroyed (died on the trip, the last fight included):",
     summaryLossesPending: "These losses are recorded; the roster has not been changed yet.",
     summaryLossesApplied: "These losses have been applied to the roster.",
     summaryEncounters: "Encounter by encounter",

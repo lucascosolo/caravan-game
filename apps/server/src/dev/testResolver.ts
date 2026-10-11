@@ -1,6 +1,6 @@
 /**
  * DEV / TEST ONLY (chunk 23): `CARAVAN_TEST_RESOLVER=double` installs chunk 15's
- * deterministic test double (test/trip-double.ts) as the encounter resolver and runs the job
+ * deterministic test double (src/dev/tripDouble.ts) as the encounter resolver and runs the job
  * worker inline, so a running server can carry a whole trip end to end — the Playwright trip
  * e2e needs it — before chunk 13 wires @caravan/resolver. Chunk 13 replaces the double with
  * the real resolver (`productionEncounterResolver`) and flips ENCOUNTER_RESOLUTION_WIRED; this
@@ -14,10 +14,12 @@
  * The plan is fixed (no knobs from the environment): every encounter is HELD; each posted
  * unit takes DOUBLE_UNIT_DAMAGE, the first laid trap fires at encounter 1 and every placed
  * fence segment at encounter 1 is broken — so a pushed trip visibly carries attrition into
- * encounter 2. The double is pure (index → plan, plus the job input), so the fight's outcome
- * is still a function of the job input alone.
+ * encounter 2. At encounter 2 the posted unit with the lowest ref dies (chunk 23 QA D3), so
+ * the e2e sees a death the caravan survives: the de-merge on bank and in the overrun stakes.
+ * The double is pure (index → plan, plus the job input), so the fight's outcome is still a
+ * function of the job input alone.
  */
-import { doubleHandlers, type EncounterPlan } from "../../test/trip-double.js";
+import { doubleHandlers, type EncounterPlan } from "./tripDouble.js";
 import { drain } from "../jobs/worker.js";
 import type { HandlerRegistry } from "../jobs/worker.js";
 import type pg from "pg";
@@ -30,6 +32,7 @@ export const INLINE_WORKER_DELAY_MS = 400;
 
 export const DOUBLE_PLANS: Record<number, EncounterPlan> = {
   1: { kind: "caravan_held", unitDamage: DOUBLE_UNIT_DAMAGE, spendTraps: 1, fenceDamage: 1_000_000 },
+  2: { kind: "caravan_held", unitDamage: DOUBLE_UNIT_DAMAGE, killLowestRefPosts: 1 },
 };
 export const DOUBLE_FALLBACK: EncounterPlan = { kind: "caravan_held", unitDamage: DOUBLE_UNIT_DAMAGE };
 

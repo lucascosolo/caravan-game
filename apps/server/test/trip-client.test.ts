@@ -153,8 +153,16 @@ describe("the trip status the client renders (chunk 23), over a whole trip resol
     expect(e2.result!.trapsSpent).toEqual([]);
     expect(e2.result!.fencesBroken).toEqual([]);
     expect(e2.result!.unitsDamaged.every((u) => u.hpBefore === u.maxHp - DOUBLE_UNIT_DAMAGE)).toBe(true); // attrition carried
+    // Chunk 23 QA D3: the inline double's encounter-2 script kills the lowest-ref post; the caravan holds.
+    const lowest = [...riders].sort()[0]!;
+    expect(e2.outcome).toBe("caravan_held");
+    expect(e2.result!.unitsKilled.map((u) => u.ref)).toEqual([lowest]);
+    expect(e2.deaths).toEqual([lowest]);
+    const preview = (await call(p, "GET", `/me/caravans/${p.caravanId}/trip/preview`)).json();
+    expect(preview.bankNow.unitsDeMerged).toEqual([{ ref: lowest, typeId: "desert.dust_rider", fromLevel: 1, toLevel: 1, diedAtEncounter: 2 }]);
     const bank = await call(p, "POST", `/me/caravans/${p.caravanId}/trip/bank`, { tripId, encounterIndex: 2 });
     expect(bank.statusCode, bank.body).toBe(200);
+    expect(bank.json().restored.deMerged).toEqual(preview.bankNow.unitsDeMerged);
     const after = await status(p);
     expect(after.trip!.phase).toBe("ended");
     expect(after.trip!.ending).toMatchObject({ kind: "banked", encountersSurvived: 2, requested: bank.json().requested, credited: bank.json().credited, discarded: bank.json().discarded });

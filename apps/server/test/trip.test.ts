@@ -2,7 +2,7 @@
  * Chunk 15 — the trip loop. Trip start (trip cap, caravan.state, trip_started), the
  * encounter chain through chunk 14's search/choose and chunk 07's arrangement, resolution
  * through the trip loop's seam (src/trip/outcome.ts) with the deterministic double in
- * trip-double.ts, settle-exactly-once (attrition, progression, unbanked Coin), bank / push /
+ * src/dev/tripDouble.ts, settle-exactly-once (attrition, progression, unbanked Coin), bank / push /
  * overrun / stalemate, NO repair between encounters, the bank-or-push stakes preview, and
  * idempotency under retries and races (double bank, bank racing push, two starts, settles
  * racing). Production resolves with the real resolver since chunk 13 (ENCOUNTER_RESOLUTION_WIRED);
@@ -36,7 +36,7 @@ import { ENCOUNTER_OUTCOME_KINDS, EncounterOutcomeError, assertTripEncounterOutc
 import { ENCOUNTER_OUTCOME_KINDS as PROGRESSION_KINDS } from "../src/progression/outcome.js";
 import { settleEncounter, startTrip, type StakesPreview, type TripStatusView } from "../src/trip/service.js";
 import { appRolePool, expectDbError, testPool, truncateAll, unique } from "./helpers.js";
-import { doubleHandlers, type EncounterPlan } from "./trip-double.js";
+import { doubleHandlers, type EncounterPlan } from "../src/dev/tripDouble.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const pool = testPool();

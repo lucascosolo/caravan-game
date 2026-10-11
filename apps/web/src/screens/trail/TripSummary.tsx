@@ -9,7 +9,8 @@ import type { BankResult, TripView } from "../../api/tripTypes.ts";
 import { navigate } from "../../shell/router.tsx";
 import { STRINGS } from "../../strings.ts";
 import { EncounterResult } from "./EncounterResult.tsx";
-import { unitLabel } from "./tripNames.ts";
+import { DeMergedList } from "./BankOrPushScreen.tsx";
+import { unitLabel, unitTypeName } from "./tripNames.ts";
 
 const T = STRINGS.trip;
 
@@ -17,12 +18,15 @@ export interface TripSummaryProps {
   readonly trip: TripView;
   /** The answer of a bank made just now (for the balance after); null otherwise. */
   readonly bank?: BankResult | null;
+  /** The town's balance read from the economy, when there is no bank answer to quote (a later visit). */
+  readonly balance?: number | null;
   /** True when this is the last trip, shown later on the Trail tab. */
   readonly past?: boolean;
 }
 
-export function TripSummary({ trip, bank = null, past = false }: TripSummaryProps): JSX.Element {
+export function TripSummary({ trip, bank = null, balance = null, past = false }: TripSummaryProps): JSX.Element {
   const e = trip.ending;
+  const balanceNow = bank && bank.balanceAfter !== null ? bank.balanceAfter : balance;
   return (
     <section data-testid="trip-summary" data-end={trip.endReason ?? "open"}>
       <h1 id="trip-summary-heading" tabIndex={-1}>
@@ -35,9 +39,14 @@ export function TripSummary({ trip, bank = null, past = false }: TripSummaryProp
           </p>
           <p>{T.summaryDelivered(e.unbankedCoin, e.deliveryBonus, e.requested)}</p>
           <p data-testid="summary-credited">{T.summaryCredited(e.credited, e.discarded)}</p>
-          {bank && bank.balanceAfter !== null && <p data-testid="summary-balance">{T.summaryBalance(bank.balanceAfter)}</p>}
+          {balanceNow !== null && <p data-testid="summary-balance">{T.summaryBalance(balanceNow)}</p>}
           <p>{T.summaryRefit(e.restored.unitsHealed.length, e.restored.trapsRestocked, e.restored.fenceSegmentsRebuilt)}</p>
-          {e.restored.deMergePending.length > 0 && <p className="hint">{T.summaryDemergePending} {e.restored.deMergePending.length}</p>}
+          {e.restored.deMerged.length > 0 && (
+            <>
+              <p>{T.summaryBankDemerged}</p>
+              <DeMergedList units={e.restored.deMerged} testId="summary-bank-demerged" />
+            </>
+          )}
         </div>
       )}
       {e?.kind === "overrun" && (
@@ -56,8 +65,8 @@ export function TripSummary({ trip, bank = null, past = false }: TripSummaryProp
               <li className="hint">{T.none}</li>
             ) : (
               e.unitsDeMerged.map((u) => (
-                <li key={u.ref}>
-                  {unitLabel(u)} · {T.unitDemerge(u.mergeLevel, u.mergeLevelAfter)}
+                <li key={u.ref} data-testid={`summary-demerged-${u.ref}`}>
+                  {T.levelChange(unitTypeName(u.typeId), u.mergeLevel, u.mergeLevelAfter)}
                 </li>
               ))
             )}
