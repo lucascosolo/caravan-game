@@ -446,6 +446,16 @@ export const TUNABLES = {
    */
   DIFFICULTY_ESCALATION_BP: 500,
   /**
+   * TUNABLE (chunk 19 QA D2b). Encounter 1 of a trip is matched BELOW the caravan's living
+   * Reputation: its band centre is rating + this (−150, a half display band). Encounters 2+
+   * use the unchanged escalation (rating + 15·(n − 1)); the offset applies to encounter 1
+   * only. So the first fight of a trip is the one a circle at its equilibrium rating most
+   * often holds — a trip with merged units in it is worth starting. The sandbagging floor
+   * measures the gap beyond the band ACTUALLY searched (centre − width), so this offset can
+   * never floor a party it served (matchmaking/band.ts `sandbagGap`). Non-positive integer.
+   */
+  FIRST_ENCOUNTER_CENTRE_OFFSET: -150,
+  /**
    * Fixed by design (chunk 14). When a band holds too few candidates: widen (above), then
    * fill from AUTHORED parties (system-owned, the same object as any other party, never
    * special-cased downstream). Never a fabricated party, never a resolver special case.
@@ -527,6 +537,19 @@ export const TUNABLES = {
    * (break-even hold rate ≈ 0.44 with the per-encounter delivery below).
    */
   COIN_ENCOUNTER_ESCALATION_MULT: fpMilli(1350),
+  /**
+   * TUNABLE (chunk 19 QA D2a). Encounter Coin scales with the caravan's living-Reputation
+   * DISPLAY band (matchmaking's bandOf: band k = [FLOOR + k·300, …), REPUTATION_START 1000 is
+   * band 3): coinForEncounter(n, band) = schedule(n) × (10 000 + band × this) / 10 000,
+   * floored, clamped at COIN_STORAGE_CAP. 5000 bp = +50% of the base per band, so band 3 pays
+   * ×2.5. Higher-rated circles (merged units) fight harder parties and must earn more for a
+   * trip to be worth its rebuild risk. The band is the caravan rating stored on the encounter's
+   * chosen menu row (what the player saw), and the result is stored per encounter at accrual
+   * (trip_encounter.coin_accrued), so a later rating move or retune never changes it. The
+   * delivery (below) does not scale. Numbers are a first cut; chunk 32/§37 tune them against
+   * resolver-measured hold rates (scripts/balance/trip-ev.ts).
+   */
+  COIN_ENCOUNTER_BAND_SCALE_BP: 5000,
   /**
    * TUNABLE (chunk 15 QA D1; replaces chunk 16's flat 500 COIN_PER_BANKED_TRIP). The delivery
    * reward on a banked trip: this × encounters survived, no flat bonus — a flat bonus made
@@ -641,34 +664,35 @@ export const TUNABLES = {
    */
   WEEKLY_PAY_CEILING: 60_000,
   /**
-   * NOTE (chunk 19, applying chunk 15 QA D1): the three shapes below were derived from the
-   * OLD earn schedule (×1.25, flat 500 delivery). With ×1.35 and 125 × encounters delivered
-   * a 1-encounter trip pays 525 (was 900) and a 3-encounter trip 2,041 (was 2,025): the
-   * floor shape falls if players bank early and rises if they push. The value is unchanged
-   * pending the balance owner's re-derivation from play data (PHASE-2 §37).
-   * ASSUMPTION TO VALIDATE IN PLAYTESTING (chunk 20; rewritten as a range per QA-20 D3). A
-   * normal active week's free Coin earn is NOT one number — it depends on how the trip cap
-   * (chunk 16: 3 trips/h regen) is used. Three shapes, from chunk 16's defaults and its QA
-   * note (roadmap/qa/16-punchlist.md):
-   *   - FLOOR  — flat 3 trips/h for ~5 h, trickle (200/h) over the other ~45 h idle:
-   *              ~6,275/h × 5 h ≈ 31,000 + 200 × 45 ≈ 9,000 → ≈ 39,000 – 40,000.
-   *   - MID    — 5 × 1 h sessions each opening with the regen burst (banked trip charges
-   *              spent at the start), plus the full week's trickle between sessions:
-   *              ≈ 94,000.
-   *   - HIGH   — 7 × 1 h sessions, the same way: ≈ 118,000.
-   * This constant is the FLOOR, kept deliberately conservative so the ratio bound below is
-   * the strictest reading: at 40,000 the ceiling is 1.5×; against the mid and high shapes it
-   * is 0.64× and 0.51×. Two more things bound the effective paid add in practice: the
-   * storage cap (COIN_STORAGE_CAP 50,000) means one spend cycle can absorb at most
-   * cap − balance, however many tiers are bought, and the once-per-tier-per-week limit means
-   * the ceiling cannot be reached twice in a week. Re-derive when COIN_PER_ENCOUNTER_BASE,
-   * COIN_DELIVERY_PER_ENCOUNTER, the trip cap, the trickle, or chunk 15's tunables move.
+   * ASSUMPTION TO VALIDATE IN PLAYTESTING (chunk 20; re-derived by chunk 19 QA D3 from
+   * realistic hold rates, after chunk 15 QA D1's schedule and chunk 19 QA D2's band scaling).
+   * A normal active week's free Coin is a RANGE, not one number. The derivation is
+   * `scripts/balance/trip-ev.ts` (model.ts `weeklyFreeEarn`): the full-week trickle
+   * (200/h × 168 h = 33,600) plus N trips, each worth its gross Coin banked at the best-EV
+   * point for an 8 × L1 circle (the cheapest to lose, so the most pushed), at display band 3
+   * (REPUTATION_START), hold rate p1 − 0.05 per encounter after the first:
+   *   - LOW  — 3 trips/h for ~5 h (15 trips), p1 0.60: 33,600 + 15 × 675 ≈ 43,700.
+   *   - MID  — 5 × 1 h sessions opening with the regen burst (30 trips), p1 0.65:
+   *            33,600 + 30 × 731 ≈ 55,500.
+   *   - HIGH — 7 × 1 h sessions (42 trips), p1 0.70: 33,600 + 42 × 788 ≈ 66,700.
+   * (At those hold rates an L1 circle banks after encounter 1; the chunk 15 shapes — 39k /
+   * 94k / 118k — assumed every trip ran 3 encounters at the old schedule.) This constant is
+   * the MID value rounded down to the thousand, and the 1.5× bound below is checked against
+   * it (QA-19 D3): the ceiling is 60,000 / 55,000 ≈ 1.09× the mid week, 1.37× the low, 0.90×
+   * the high. The storage cap (COIN_STORAGE_CAP 50,000) also bounds the effective paid add
+   * to cap − balance per spend cycle, and the once-per-tier-per-week limit means the ceiling
+   * cannot be reached twice in a week. Hold rates are guesses until chunk 13's resolver
+   * measures them: re-run the script with measured rates (PHASE-2 §37) and re-derive when
+   * COIN_PER_ENCOUNTER_BASE, COIN_ENCOUNTER_BAND_SCALE_BP, COIN_DELIVERY_PER_ENCOUNTER, the
+   * trip cap, the trickle, or chunk 15's tunables move. The party-win income (passive) is not
+   * counted: it depends on other players.
    */
-  FREE_WEEKLY_EARN_ESTIMATE: 40_000,
+  FREE_WEEKLY_EARN_ESTIMATE: 55_000,
   /**
    * TUNABLE (chunk 20). The target bound on WEEKLY_PAY_CEILING / FREE_WEEKLY_EARN_ESTIMATE in
-   * basis points: paying should not exceed ~1.5× an active free player's week. At the
-   * defaults the ratio is exactly 1.5× (60,000 / 40,000); validated on load as
+   * basis points: paying should not exceed ~1.5× an active free player's week (the derived
+   * MID week, chunk 19 QA D3). At the defaults the ratio is ≈ 1.09× (60,000 / 55,000); it
+   * was exactly 1.5× against the old 40,000 floor shape. Validated on load as
    * WEEKLY_PAY_CEILING × 10,000 ≤ FREE_WEEKLY_EARN_ESTIMATE × this.
    */
   PAID_TO_FREE_RATIO_MAX_BP: 15_000,

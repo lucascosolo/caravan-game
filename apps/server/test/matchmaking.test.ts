@@ -178,7 +178,8 @@ describe("search returns exactly three fully scoutable candidates", () => {
       expect(canonicalJson(scoutParty(partyFromJson(c.snapshot.composition)) as unknown as Json)).toBe(canonicalJson(c.scout as unknown as Json));
     }
     expect(menu.caravan).toEqual({ rating: 1000, ratingPool: "living", band: { index: 3, low: 1000, high: 1299 } });
-    expect(menu.centre).toBe(1000);
+    // Chunk 19 QA D2b: encounter 1 is centred FIRST_ENCOUNTER_CENTRE_OFFSET below the caravan.
+    expect(menu.centre).toBe(1000 + TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET);
     expect(menu.bandWidthUsed).toBe(150);
     expect(menu.widened).toBe(false);
     expect(menu.authoredOutsideBand).toBe(false);
@@ -367,8 +368,10 @@ describe("difficulty escalates within a trip", () => {
     for (let i = 0; i < 6; i++) await makeOwner("desert", 1500 + i * 20);
     const d = await makeDefender("desert", 1500);
     const m1 = await search(d);
-    expect(m1.centre).toBe(1500);
-    expect(m1.escalation).toEqual({ applied: 0, perEncounter: ESCALATION_PER_ENCOUNTER, nextEncounter: ESCALATION_PER_ENCOUNTER });
+    // Chunk 19 QA D2b: encounter 1 sits FIRST_ENCOUNTER_CENTRE_OFFSET below; escalation from 2 on is unchanged.
+    expect(m1.centre).toBe(1500 + TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET);
+    expect(m1.escalation).toEqual({ applied: TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET, perEncounter: ESCALATION_PER_ENCOUNTER, nextEncounter: ESCALATION_PER_ENCOUNTER });
+    expect(m1.rules.escalation.firstEncounterOffset).toBe(TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET);
     // Advance the trip (chunk 15 will do this through outcomes; here the manifest counter moves directly).
     await pool.query("UPDATE wagon_manifest SET encounters_resolved = 1 WHERE caravan_id = $1 AND closed_at IS NULL", [d.caravanId]);
     const m2 = await search(d, 2);
@@ -384,18 +387,22 @@ describe("difficulty escalates within a trip", () => {
 describe("server-initiated widening never triggers the sandbagging floor (QA S3)", () => {
   it("a party the search had to widen to is paid in full: the floor reads the gap BEYOND band_width_used", async () => {
     // A pocket of its own: two live parties at the centre and one 550 below. The first four
-    // passes (±150 … ±450) hold only two; ±550 reaches the third. Its raw gap (550) is past
-    // SANDBAG_EARN_GAP_START, but the server chose that width, not the player.
+    // passes (±150 … ±450) hold only two; ±550 reaches the third. Its raw gap (700 from the
+    // caravan: 550 below the centre, which encounter 1 puts 150 below the caravan — chunk 19
+    // QA D2b) is past SANDBAG_EARN_GAP_START, but the server chose that width AND that centre,
+    // not the player.
     const near = [await makeOwner("desert", 7000), await makeOwner("mountain", 7000)];
     const far = await makeOwner("badlands", 6450);
-    const d = await makeDefender("desert", 7000);
+    const d = await makeDefender("desert", 7000 - TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET);
     const m = await search(d);
     expect(m.bandWidthUsed).toBe(550);
     expect(m.widened).toBe(true);
     expect(m.candidates.map((c) => c.partyId).sort()).toEqual([...near.map((o) => o.partyId), far.partyId].sort());
     const weak = m.candidates.find((c) => c.partyId === far.partyId)!;
-    expect(weak.reputation.gapFromCaravan).toBe(550);
-    expect(sandbagEarnMultiplier(550)).toBeLessThan(FIXED_ONE); // the raw gap would have been floored
+    expect(m.centre).toBe(7000);
+    expect(weak.reputation.gapFromCaravan).toBe(700);
+    expect(sandbagEarnMultiplier(700)).toBeLessThan(FIXED_ONE); // the raw gap would have been floored
+    expect(sandbagEarnMultiplier(700 - 550)).toBe(FIXED_ONE); // and so would nothing else, once measured from the band's edge
     expect(weak.reputation.gapBeyondBand).toBe(0);
     expect(weak.reputation.sandbagEarnMultiplier).toBe(FIXED_ONE);
     for (const c of m.candidates) expect(Math.abs(c.reputation.rating - m.centre)).toBeLessThanOrEqual(m.bandWidthUsed);
@@ -445,7 +452,8 @@ describe("the snapshot contract: scouted == chosen == fought", () => {
     // One owner alone in a pocket plus two fillers, so the pocket's menu always holds the owner.
     owner = await makeOwner("badlands", 4000, 5);
     for (let i = 0; i < 2; i++) await makeOwner("mountain", 4000);
-    d = await makeDefender("desert", 4000);
+    // Encounter 1 is centred FIRST_ENCOUNTER_CENTRE_OFFSET below the caravan (chunk 19 QA D2b): centre the pocket.
+    d = await makeDefender("desert", 4000 - TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET);
     menu = await search(d);
     pick = menu.candidates.find((c) => c.partyId === owner.partyId)!;
     expect(pick).toBeDefined();
@@ -505,7 +513,7 @@ describe("the snapshot contract: scouted == chosen == fought", () => {
     // The filler sits outside the first band, so the first pass draws exactly a, b, c; a is
     // invalid, so the draw re-runs without it, widens, and takes the filler.
     const filler = await makeOwner("desert", 5200);
-    const d2 = await makeDefender("desert", 5000);
+    const d2 = await makeDefender("desert", 5000 - TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET); // encounter 1 centred at 5000 (chunk 19 QA D2b)
     await pool.query("DELETE FROM unit_instance WHERE id = $1", [a.units[0]]);
     expect((await call(a, "GET", "/me/party")).json().party.valid).toBe(false);
     const m = await search(d2);
@@ -596,7 +604,10 @@ describe("authored fallback (PHASE-2 §25 seam)", () => {
     expect(far.authoredShare).toEqual({ authored: 3, of: 3, shareBp: 10_000, maxShareBp: 3000 });
     for (const c of far.candidates) {
       expect(c.owner.authored).toBe(true);
-      expect(c.reputation.gapBeyondBand).toBe(c.reputation.gapFromCaravan - REPUTATION_BAND_WIDTH_MAX);
+      // Measured beyond the band actually searched (chunk 19 QA D2b): encounter 1's centre sits
+      // FIRST_ENCOUNTER_CENTRE_OFFSET below the caravan, so the band's low edge is centre − width.
+      expect(c.reputation.gapBeyondBand).toBe(far.centre - REPUTATION_BAND_WIDTH_MAX - c.reputation.rating);
+      expect(c.reputation.gapBeyondBand).toBe(c.reputation.gapFromCaravan - REPUTATION_BAND_WIDTH_MAX + TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET);
       expect(c.reputation.sandbagEarnMultiplier).toBe(sandbagEarnMultiplier(c.reputation.gapBeyondBand));
       expect(c.reputation.sandbagEarnMultiplier).toBeLessThan(FIXED_ONE);
     }

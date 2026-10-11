@@ -67,7 +67,11 @@ export async function economyRoutes(app: FastifyInstance): Promise<void> {
             : `Your store has room for ${forecast.room} more Coin right now.`,
       },
       earn: {
-        encounterSchedule: encounterCoinSchedule(SCHEDULE_PREVIEW_LENGTH),
+        // The BASE schedule (display band 0). Encounter Coin scales with the caravan's living
+        // display band (chunk 19 QA D2a): × (10 000 + band × encounterBandScaleBp) / 10 000. The
+        // trip preview shows the caravan's own band and the scaled next reward.
+        encounterSchedule: encounterCoinSchedule(SCHEDULE_PREVIEW_LENGTH, 0),
+        encounterBandScaleBp: TUNABLES.COIN_ENCOUNTER_BAND_SCALE_BP,
         // The delivery for the shortest (one-encounter) trip; it scales with encounters survived.
         bankedTripBonus: coinForDelivery(1),
         deliveryPerEncounter: TUNABLES.COIN_DELIVERY_PER_ENCOUNTER,

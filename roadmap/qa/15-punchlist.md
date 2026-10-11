@@ -22,7 +22,7 @@ S7. [closed — chunk 19: `bankNow.unitsDeMerged` = `planUnitLosses(…, "banked
 S4. Settle in the worker's completion transaction (or enqueue a settle job on completion); keep lazy settle as fallback. The absent party owner must get Reputation (and chunk 19's transfer) without the defender reopening the app.
 S5. → D3.
 S6. Validate `tripId` with `isUuid` → 400.
-N1. Label/split `ifOverrun.unitsLostOutright` (held-back certain vs posted "if still standing").
+N1. [closed as moot — chunk 19 QA N1: a formation must post every living unit, so there are no held-back units to split] Label/split `ifOverrun.unitsLostOutright` (held-back certain vs posted "if still standing").
 N2. Before the first survival, omit `harderThanThisEncounter` and `bankNow`.
 N4. Retire chunk 07's raw `…/formation/commit` route, or gate it on a chosen candidate within an open trip encounter.
 N5. Persist `balanceAfter` in the `trip_banked` payload so replays return it; document that replay bodies are equivalent, not byte-identical.

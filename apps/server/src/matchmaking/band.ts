@@ -54,10 +54,24 @@ export function escalationFor(encounterIndex: number): number {
 /** The rise per encounter, for the player to see before pushing. */
 export const ESCALATION_PER_ENCOUNTER: number = escalationFor(2);
 
+/**
+ * Chunk 19 QA D2b: encounter 1 of a trip is matched below the caravan's rating. Applied to
+ * encounter 1 only; escalation for encounters 2+ is unchanged.
+ */
+export const FIRST_ENCOUNTER_CENTRE_OFFSET: number = TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET;
+if (!Number.isInteger(FIRST_ENCOUNTER_CENTRE_OFFSET) || FIRST_ENCOUNTER_CENTRE_OFFSET > 0) {
+  throw new Error("TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET must be a non-positive integer (encounter 1 is matched at or below the caravan's rating)");
+}
+
+/** How far the band centre for encounter `encounterIndex` sits from the caravan's rating: the escalation, plus the first-encounter offset at encounter 1. */
+export function centreOffsetFor(encounterIndex: number): number {
+  return escalationFor(encounterIndex) + (encounterIndex === 1 ? FIRST_ENCOUNTER_CENTRE_OFFSET : 0);
+}
+
 /** The band centre for a caravan of `livingRating` at encounter `encounterIndex`. */
 export function escalatedCentre(livingRating: number, encounterIndex: number): number {
   if (!Number.isInteger(livingRating)) throw new RangeError("livingRating must be an integer");
-  return livingRating + escalationFor(encounterIndex);
+  return livingRating + centreOffsetFor(encounterIndex);
 }
 
 /** The half-widths a search tries, in order: WIDTH, +STEP, +2·STEP … capped at WIDTH_MAX (always included last). */
@@ -216,6 +230,20 @@ export function gapBeyondBand(gap: number, bandWidthUsed: number): number {
   if (!Number.isInteger(gap)) throw new RangeError("gap must be an integer");
   if (!Number.isInteger(bandWidthUsed) || bandWidthUsed < 0) throw new RangeError("bandWidthUsed must be a non-negative integer");
   return Math.max(0, gap - bandWidthUsed);
+}
+
+/**
+ * Chunk 19 QA D2b: the sandbagging gap a candidate is held to, measured beyond the band the
+ * search ACTUALLY used. When the centre sits below the caravan (encounter 1's
+ * FIRST_ENCOUNTER_CENTRE_OFFSET) the band's low edge is centre − width, so the server's own
+ * downward shift is added to the allowance: gapBeyondBand(gap, width + (caravan − centre)).
+ * When the centre is at or above the caravan (escalation) nothing changes — the allowance is
+ * the width, exactly as before. So the offset can only ever RAISE a multiplier, never floor a
+ * party it served: every party within ±width of the centre is paid in full.
+ */
+export function sandbagGap(caravanRating: number, centre: number, partyRating: number, bandWidthUsed: number): number {
+  if (!Number.isInteger(caravanRating) || !Number.isInteger(centre) || !Number.isInteger(partyRating)) throw new RangeError("ratings and centre must be integers");
+  return gapBeyondBand(caravanRating - partyRating, bandWidthUsed + Math.max(0, caravanRating - centre));
 }
 
 /** One party as the draw sees it. Nothing else about a party or its owner enters selection. */

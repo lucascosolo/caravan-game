@@ -519,6 +519,70 @@ fence breaching and the breaker's first use, so re-measure):**
   (a posted gunslinger against an offense-120 raider at disadvantage, level 3 → 4) against the 5/3 bar; it was
   1.6856 with two floors.
 
+**Bank-versus-push EV (chunk 15 QA D1, chunk 19 QA D2c) — the model and today's table.**
+`scripts/balance/trip-ev.ts` (model in `scripts/balance/model.ts`) prints the EV of "push until
+k survived, then bank" from the real tunables and earn math, valuing unit losses at rebuild Coin
+(a death = one level, V(L) − V(L−1); a unit alive at the collapse = V(L); V(1) = a mercenary,
+V(L) = merge cost + 5/3 V(L−1)). Hold rates and deaths are INPUTS: the rows below are guesses
+(p1 − 0.05 per encounter, 0.5 deaths per held encounter, half of the units alive at an overrun
+die in that fight). This pass reruns it with resolver-measured curves
+(`--curve a,b,c --deaths n --levels … --band k`) and tunes `COIN_ENCOUNTER_BAND_SCALE_BP`,
+`FIRST_ENCOUNTER_CENTRE_OFFSET`, the schedule and the delivery until, **at each circle's
+equilibrium rating, the best bank point has positive EV for L1–L4 circles and is k ≥ 2**
+(chunk 19 QA D2c). At the current tunables it does not — merged circles are negative at every
+bank point at these guessed rates — which is what this pass is for. Output at commit time:
+
+```
+Caravan Vaults — trip EV model at the current tunables (scripts/balance/trip-ev.ts)
+COIN_ENCOUNTER_BAND_SCALE_BP 5000, FIRST_ENCOUNTER_CENTRE_OFFSET -150, delivery 125/encounter, ×1.35 per encounter
+encounter Coin, band 0: 400, 539, 727, 981, 1323, 1785   bank totals: 525, 1189, 2041, 3147, 4595, 6505
+encounter Coin, band 3: 1000, 1347, 1817, 2452, 3307, 4462   bank totals: 1125, 2597, 4539, 7116, 10548, 15135
+encounter Coin, band 5: 1400, 1886, 2544, 3433, 4630, 6247   bank totals: 1525, 3536, 6205, 9763, 14518, 20890
+unit rebuild value V(L) (mercenary L1, 5→3 amortised): L1 600, L2 1250, L3 2983, L4 7972, L5 22787
+rebuild 8 × L5, one type:   67 L1, merge 149600, +mercenaries 189800, refugee drip 100.5 h
+rebuild 8 × L5, mixed types: 96 L1, merge 166800, +mercenaries 224400, refugee drip 144 h
+
+EV in Coin of 'push until k survived, then bank' — losses at rebuild value; 0.5 deaths per held encounter;
+half of the units alive at an overrun die in that fight (de-merged), the rest are destroyed. Hold rate p1 − 0.05·(j−1).
+                                    bank@1  bank@2  bank@3  bank@4  bank@5  bank@6
+8×L1 band 3 p1 0.60                   -285    -710   -1165   -1563   -1858   -2046   best k=1  (no bank point is positive)
+8×L1 band 3 p1 0.70                     67     -90    -414    -825   -1236   -1585   best k=1
+8×L1 band 3 p1 0.80                    420     628     598     348     -63    -549   best k=2
+8×L2 band 3 p1 0.60                  -2560   -4409   -5668   -6473   -6952   -7212   best k=1  (no bank point is positive)
+8×L2 band 3 p1 0.70                  -1720   -3219   -4461   -5439   -6168   -6675   best k=1  (no bank point is positive)
+8×L2 band 3 p1 0.80                   -880   -1842   -2827   -3787   -4678   -5457   best k=1  (no bank point is positive)
+8×L3 band 3 p1 0.60                  -7392  -12271  -15246  -16922  -17793  -18209   best k=1  (no bank point is positive)
+8×L3 band 3 p1 0.70                  -5479   -9813  -12996  -15180  -16584  -17430   best k=1  (no bank point is positive)
+8×L3 band 3 p1 0.80                  -3567   -6966   -9953  -12407  -14309  -15707   best k=1  (no bank point is positive)
+8×L4 band 3 p1 0.60                 -21559  -35324  -43328  -47557  -49578  -50448   best k=1  (no bank point is positive)
+8×L4 band 3 p1 0.70                 -16512  -29161  -38041  -43761  -47144  -48980   best k=1  (no bank point is positive)
+8×L4 band 3 p1 0.80                 -11464  -22024  -30889  -37726  -42595  -45811   best k=1  (no bank point is positive)
+8×L5 band 3 p1 0.60                 -63932 -104267 -127312 -139173 -144633 -146863   best k=1  (no bank point is positive)
+8×L5 band 3 p1 0.70                 -49520  -87043 -112960 -129256 -138557 -143358   best k=1  (no bank point is positive)
+8×L5 band 3 p1 0.80                 -35107  -67095  -93547 -113497 -127244 -135898   best k=1  (no bank point is positive)
+8×L1 band 5 p1 0.60                    -45    -401    -890   -1366   -1740   -1986   best k=1  (no bank point is positive)
+8×L1 band 5 p1 0.70                    347     338      41    -427    -938   -1391   best k=1
+8×L1 band 5 p1 0.80                    740    1192    1298    1071     587     -31   best k=3
+8×L2 band 5 p1 0.60                  -2320   -4099   -5393   -6276   -6834   -7152   best k=1  (no bank point is positive)
+8×L2 band 5 p1 0.70                  -1440   -2792   -4006   -5042   -5870   -6481   best k=1  (no bank point is positive)
+8×L2 band 5 p1 0.80                   -560   -1278   -2127   -3065   -4028   -4938   best k=1  (no bank point is positive)
+8×L3 band 5 p1 0.60                  -7152  -11961  -14971  -16726  -17676  -18149   best k=1  (no bank point is positive)
+8×L3 band 5 p1 0.70                  -5199   -9386  -12542  -14783  -16286  -17235   best k=1  (no bank point is positive)
+8×L3 band 5 p1 0.80                  -3247   -6403   -9254  -11684  -13659  -15189   best k=1  (no bank point is positive)
+8×L4 band 5 p1 0.60                 -21319  -35014  -43054  -47360  -49460  -50388   best k=1  (no bank point is positive)
+8×L4 band 5 p1 0.70                 -16232  -28734  -37586  -43363  -46846  -48786   best k=1  (no bank point is positive)
+8×L4 band 5 p1 0.80                 -11144  -21460  -30189  -37003  -41945  -45293   best k=1  (no bank point is positive)
+8×L5 band 5 p1 0.60                 -63692 -103957 -127037 -138976 -144516 -146803   best k=1  (no bank point is positive)
+8×L5 band 5 p1 0.70                 -49240  -86616 -112505 -128858 -138259 -143164   best k=1  (no bank point is positive)
+8×L5 band 5 p1 0.80                 -34787  -66532  -92847 -112775 -126594 -135379   best k=1  (no bank point is positive)
+
+Weekly free earn (QA D3): full-week trickle + trips × gross Coin per trip, banked at the 8×L1 best-EV point, band 3, decay 0.05
+  low  (3 trips/h × 5 h, p1 0.60)                trickle 33600 + 15 × 675 (bank@1) = 43725
+  mid  (5 × 1 h sessions, 30 trips, p1 0.65)     trickle 33600 + 30 × 731 (bank@1) = 55538
+  high (7 × 1 h sessions, 42 trips, p1 0.70)     trickle 33600 + 42 × 788 (bank@1) = 66675
+  FREE_WEEKLY_EARN_ESTIMATE 55000 (mid, rounded down to 1000s: 55000); WEEKLY_PAY_CEILING 60000 = 1.09× (bound 1.5×)
+```
+
 **Definition of done.** No single type predicts outcomes above threshold in the sweep,
 the alpha's bank-versus-push curve shows real decisions at encounters two through five,
 and the grind-wall dashboard shows the paid path as optional across deciles.

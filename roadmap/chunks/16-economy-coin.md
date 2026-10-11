@@ -153,3 +153,16 @@ Punch list: `roadmap/qa/16-punchlist.md` (S1–S6, N1–N6 all `[closed]`). What
   `duplicate_instances` / `no_such_recipe` / `mixed_unit_types` / `mixed_merge_levels` /
   `invalid_prospective_earn`; 404 `not_found`; 409 `caravan_on_trip` / `merge_cap` /
   `insufficient_coin` / `merge_inputs_changed`.
+
+## Chunk 19 QA (2026-10-11) — band-scaled encounter Coin and the paid party win
+
+- `COIN_ENCOUNTER_BAND_SCALE_BP` = 5000 (tunable): `coinForEncounter(n, band)`,
+  `encounterCoinSchedule(count, band)`, `coinForEncountersSurvived(n, band)`,
+  `coinForBankedTrip(n, band)` take the caravan's living DISPLAY band (`bandOf(rating).index`);
+  amount × (10 000 + band × bp) / 10 000, floored, capped at COIN_STORAGE_CAP. Band 0 is the old
+  schedule; band 3 (REPUTATION_START) is ×2.5. The delivery does not scale. The trip loop stores
+  the scaled amount per encounter at accrual. `GET /me/economy` shows the band-0 schedule plus
+  `earn.encounterBandScaleBp`.
+- `partyWinCredit({tripId, encounterIndex, jobId?})` is the COIN_PER_PARTY_WIN spec; chunk 19's
+  overrun appends it in the transfer batch (`transfer:<jobId>`) for every player-owned party that
+  overruns a caravan. `creditPartyWin` wraps it for a standalone credit.

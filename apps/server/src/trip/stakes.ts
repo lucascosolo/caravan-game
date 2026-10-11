@@ -16,8 +16,10 @@
  *                  the caravan; it was never in the balance, so no balance moves) and the same
  *                  amount is credited to the owner of the party at whose encounter the caravan
  *                  fell (`coin_transferred_to_party_owner`), capped by that owner's remaining
- *                  storage headroom; the excess is destroyed and recorded. A system (authored)
- *                  owner is credited nothing — the whole amount is destroyed, nothing minted.
+ *                  storage headroom; the excess is destroyed and recorded. The owner also earns
+ *                  COIN_PER_PARTY_WIN (`coin_earned` reason `party_win`, chunk 19 QA D1) in the
+ *                  same capped batch. A system (authored) owner is credited nothing — the whole
+ *                  amount is destroyed, nothing minted.
  *   earn floor     `applyEarnFloor` is the ONE place chunk 14's sandbagging multiplier lands on
  *                  Coin: each survived encounter's earn is floored by the multiplier stored on
  *                  that encounter's CHOSEN candidate (`chosenEarnMultiplier`, the one reader).
@@ -38,10 +40,11 @@ import { FIXED_ONE, TUNABLES } from "@caravan/content";
 import type { Manifest } from "@caravan/circle";
 import type pg from "pg";
 import type { Queryable } from "../db/pool.js";
-import { appendCoinCredits, coinForEncounter } from "../economy/coin.js";
+import { appendCoinCredits, coinForEncounter, partyWinCredit, type CoinCreditSpec } from "../economy/coin.js";
 import type { JsonObject, LedgerEventDraft } from "../ledger/events.js";
 import { assertAccountAppendLockHeld } from "../ledger/ledger.js";
-import { chosenCandidate } from "../matchmaking/service.js";
+import { bandOf } from "../matchmaking/band.js";
+import { findChosenSearch } from "../matchmaking/service.js";
 import { standingPartyInvalidationDraft } from "../party/service.js";
 import type { TripEncounterRow } from "./repo.js";
 
@@ -67,23 +70,40 @@ export function applyEarnFloor(coinEarned: number, multiplier: number): number {
 }
 
 /**
- * The multiplier stored on encounter n's CHOSEN candidate — what the player saw before
- * committing, never recomputed from live ratings. The only reader of
- * `sandbagEarnMultiplier` outside matchmaking/ (a source scan enforces it).
+ * What encounter n's CHOSEN menu row fixed for its Coin, read once from the stored row —
+ * what the player saw before committing, never recomputed from live ratings:
+ *   - `multiplier`: the sandbagging multiplier on the chosen candidate. This is the only
+ *     reader of `sandbagEarnMultiplier` outside matchmaking/ (a source scan enforces it);
+ *   - `caravanRating` / `band`: the caravan's living Reputation the search was drawn at and
+ *     its display band (chunk 19 QA D2a: encounter Coin scales with it). The caravan's living
+ *     rating only moves when its own encounters settle, so this equals the band the preview
+ *     showed for the next encounter before the push.
  */
-export async function chosenEarnMultiplier(db: Queryable, tripId: string, encounterIndex: number): Promise<number> {
-  const chosen = await chosenCandidate(db, tripId, encounterIndex);
-  if (!chosen) throw new Error(`trip ${tripId}: no chosen candidate for encounter ${encounterIndex}; its earn multiplier is unknown`);
+export async function chosenEncounterTerms(db: Queryable, tripId: string, encounterIndex: number): Promise<{ multiplier: number; caravanRating: number; band: number }> {
+  const row = await findChosenSearch(db, tripId, encounterIndex);
+  const chosen = row ? row.candidates.find((c) => c.candidateId === row.chosen_candidate_id) : undefined;
+  if (!row || !chosen) throw new Error(`trip ${tripId}: no chosen candidate for encounter ${encounterIndex}; its earn terms are unknown`);
   const m = chosen.reputation.sandbagEarnMultiplier;
   if (!Number.isInteger(m) || m < 0 || m > FIXED_ONE) throw new Error(`trip ${tripId} encounter ${encounterIndex}: stored earn multiplier ${String(m)} is out of range`);
-  return m;
+  if (!Number.isInteger(row.caravan_rating)) throw new Error(`trip ${tripId} encounter ${encounterIndex}: stored caravan rating ${String(row.caravan_rating)} is not an integer`);
+  return { multiplier: m, caravanRating: row.caravan_rating, band: bandOf(row.caravan_rating).index };
 }
 
-/** Coin a survived encounter n accrues (unbanked) for the caravan: the schedule, through the floor. */
-export async function encounterEarn(db: Queryable, tripId: string, encounterIndex: number): Promise<{ scheduled: number; multiplier: number; earned: number }> {
-  const scheduled = coinForEncounter(encounterIndex);
-  const multiplier = await chosenEarnMultiplier(db, tripId, encounterIndex);
-  return { scheduled, multiplier, earned: applyEarnFloor(scheduled, multiplier) };
+/** The multiplier stored on encounter n's CHOSEN candidate (see chosenEncounterTerms). */
+export async function chosenEarnMultiplier(db: Queryable, tripId: string, encounterIndex: number): Promise<number> {
+  return (await chosenEncounterTerms(db, tripId, encounterIndex)).multiplier;
+}
+
+/**
+ * Coin a survived encounter n accrues (unbanked) for the caravan: the schedule at the
+ * caravan's display band (chunk 19 QA D2a, band from the chosen menu row), through the earn
+ * floor. Stored as `trip_encounter.coin_accrued` at settle; bank and overrun use the stored
+ * amount, so neither a later rating move nor a retune changes it.
+ */
+export async function encounterEarn(db: Queryable, tripId: string, encounterIndex: number): Promise<{ scheduled: number; band: number; multiplier: number; earned: number }> {
+  const terms = await chosenEncounterTerms(db, tripId, encounterIndex);
+  const scheduled = coinForEncounter(encounterIndex, terms.band);
+  return { scheduled, band: terms.band, multiplier: terms.multiplier, earned: applyEarnFloor(scheduled, terms.multiplier) };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -212,6 +232,12 @@ export interface OverrunCoinOutcome extends JsonObject {
   /** Destroyed: over the recipient's headroom, or all of it for a system owner. */
   destroyed: number;
   destroyedReason: "none" | "recipient_storage_cap" | "system_owner";
+  /**
+   * Chunk 19 QA D1: the party-win credit (COIN_PER_PARTY_WIN) the owner earns for the overrun,
+   * on top of the transfer and NOT part of `lost` (it is minted, not the caravan's Coin).
+   * Appended after the transfer in the same capped batch; zero in full for a system owner.
+   */
+  partyWin: { amount: number; credited: number; discarded: number };
 }
 
 export interface OverrunLosses extends JsonObject {
@@ -275,27 +301,36 @@ export async function applyOverrunLosses(
   const invalidated = await standingPartyInvalidationDraft(client, defender.accountId, plan.destroyed.map((u) => u.ref), "trip_loss");
   if (invalidated) drafts.push(invalidated);
 
-  // 3. Coin: all of it lost; the same amount to the overrunning party's owner, capped.
+  // 3. Coin: all of it lost; the same amount to the overrunning party's owner, capped. Then
+  //    (chunk 19 QA D1) the owner's party-win credit, in the SAME batch under the same
+  //    `transfer:<jobId>` causation, so one running clamp covers both: the transfer takes the
+  //    headroom first, the party win what is left. A system owner gets neither.
   const lost = input.unbankedCoin;
   let transferred = 0;
   let destroyed = 0;
   let destroyedReason: OverrunCoinOutcome["destroyedReason"] = "none";
+  const partyWin = { amount: 0, credited: 0, discarded: 0 };
   if (input.partyOwnerAuthored) {
     // PHASE-2 §25 / chunk 14: nothing is ever credited to a system account; destroy it all.
     destroyed = lost;
     if (lost > 0) destroyedReason = "system_owner";
-  } else if (lost > 0) {
-    const credit = await appendCoinCredits(client, {
-      causationId: transferCausationId(input.jobId),
-      accountId: input.partyOwnerAccountId,
-      credits: [{ type: "coin_transferred_to_party_owner", amount: lost, reason: "caravan_overrun", extra: { jobId: input.jobId, tripId, encounterIndex: input.encounterIndex } }],
-    });
-    transferred = credit.credited;
-    destroyed = credit.discarded;
-    if (destroyed > 0) destroyedReason = "recipient_storage_cap";
+  } else {
+    const credits: CoinCreditSpec[] = [];
+    if (lost > 0) credits.push({ type: "coin_transferred_to_party_owner", amount: lost, reason: "caravan_overrun", extra: { jobId: input.jobId, tripId, encounterIndex: input.encounterIndex } });
+    credits.push(partyWinCredit({ tripId, encounterIndex: input.encounterIndex, jobId: input.jobId }));
+    const credit = await appendCoinCredits(client, { causationId: transferCausationId(input.jobId), accountId: input.partyOwnerAccountId, credits });
+    const amountOf = (i: number): number => Number(credit.rows[i]!.payload["amount"]);
+    if (lost > 0) {
+      transferred = amountOf(0);
+      destroyed = lost - transferred;
+      if (destroyed > 0) destroyedReason = "recipient_storage_cap";
+    }
+    partyWin.amount = credits.at(-1)!.amount;
+    partyWin.credited = amountOf(credits.length - 1);
+    partyWin.discarded = partyWin.amount - partyWin.credited;
   }
   if (transferred + destroyed !== lost) throw new Error(`overrun of trip ${tripId}: ${transferred} + ${destroyed} does not reconcile with ${lost} lost`);
-  const coin: OverrunCoinOutcome = { lost, recipientAuthored: input.partyOwnerAuthored, transferred, destroyed, destroyedReason };
+  const coin: OverrunCoinOutcome = { lost, recipientAuthored: input.partyOwnerAuthored, transferred, destroyed, destroyedReason, partyWin };
   drafts.push({
     type: "coin_lost_on_wipe",
     accountId: defender.accountId,

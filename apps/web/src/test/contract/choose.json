@@ -16,9 +16,9 @@
           "high": 1299
         }
       },
-      "centre": 1000,
+      "centre": 850,
       "escalation": {
-        "applied": 0,
+        "applied": -150,
         "perEncounter": 15,
         "nextEncounter": 15
       },
@@ -32,7 +32,7 @@
         "maxShareBp": 3000
       },
       "authoredServed": {
-        "band": 3,
+        "band": 2,
         "served": 0,
         "window": 40,
         "authored": 0,
@@ -642,7 +642,8 @@
         "recentOpponentsExcluded": 5,
         "escalation": {
           "perEncounter": 15,
-          "basisPointsOfSpan": 500
+          "basisPointsOfSpan": 500,
+          "firstEncounterOffset": -150
         },
         "emptyPool": "widen_then_authored",
         "seed": "fnv1a32(caravanId:tripId:encounterIndex:searchSeq)"

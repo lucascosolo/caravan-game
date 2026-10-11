@@ -89,7 +89,7 @@ describe("no credit path passes the cap", () => {
     await setBalance(accountId, CAP - 1000);
     const res = await withTransaction(pool, (c) => creditBankedTrip(c, { accountId, causationId: "trip:t1:bank", tripId: "t1", encountersSurvived: 3 }));
     expect(res.credited).toBe(1000);
-    expect(res.discarded).toBe(coinForBankedTrip(3) - 1000);
+    expect(res.discarded).toBe(coinForBankedTrip(3, 0) - 1000);
     expect(res.balanceAfter).toBe(CAP);
     expect(res.rows.map((r) => r.payload["amount"])).toEqual([400, 539, 61, 0]);
     expect(res.rows.map((r) => r.payload["overflowDiscarded"] ?? 0)).toEqual([0, 0, 666, 375]);

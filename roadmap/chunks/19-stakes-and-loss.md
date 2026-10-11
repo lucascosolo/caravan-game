@@ -217,8 +217,9 @@ Touched: `trip/service.ts` (accrual, overrun, bank, preview), `economy/coin.ts`
   diedAtEncounter, tripId, tripEnd}` per death, also when the floor holds it at 1 (the death is
   a fact). Applied once at the trip's end, not per encounter: a dead unit stays dead for the
   rest of the trip, so "every death" and "once per unit" are the same thing.
-- *Total loss* (overrun only): every unit **alive** in the manifest when the caravan falls —
-  posted or held back — is deleted from `unit_instance`, one `unit_lost_on_wipe
+- *Total loss* (overrun only): every unit **alive** in the manifest when the caravan falls is
+  deleted from `unit_instance` (there are no held-back units: a formation must post every living
+  unit — QA N1), one `unit_lost_on_wipe
   {unitInstanceId, unitTypeId, mergeLevel, hpAtCollapse, tripId, encounterIndex, reason:
   "alive_at_overrun"}` each, plus chunk 09's `standing_party_invalidated` (reason `trip_loss`)
   when the defender's OWN party named one.
@@ -331,3 +332,73 @@ losses" (bank refit level, overrun roster, `lossesApplied`). Economy tests repin
 - The owner's transfer (and Reputation) still waits for the defender's next read (lazy settle) —
   chunk 15 QA S4, assigned to the chunk 15 fixer.
 - N6 (opponent rating exposure in progression events) is untouched: no new progression event.
+
+## QA round 1 closed (roadmap/qa/19-punchlist.md)
+
+Closed: D1, D2 (a) and (b) — (c) is the later balance pass, with its tool — D3, S1, S2, N1–N4. S3
+stays with chunk 15 S4 (settle at resolution, after chunk 13): settle has not moved.
+
+- **D1 — the party win is paid.** `applyOverrunLosses` appends `partyWinCredit` (`economy/coin.ts`:
+  COIN_PER_PARTY_WIN, `coin_earned` reason `party_win`) after the transfer, in the SAME
+  `appendCoinCredits` batch under `transfer:<jobId>`: one running clamp, the transfer takes the
+  headroom first, the party win what is left (its `overflowDiscarded` records the rest). Every
+  overrun by a player-owned party pays it, also with nothing unbanked; a system owner gets
+  nothing. `losses.coin.partyWin {amount, credited, discarded}` on the hand-off; `lost =
+  transferred + destroyed` is unchanged (the party win is minted, not the caravan's Coin).
+  `creditPartyWin` keeps its standalone form for other callers.
+- **D2a — encounter Coin scales with the living display band.** `coinForEncounter(n, band)` =
+  base × 1.35^(n−1) × (10 000 + band × `COIN_ENCOUNTER_BAND_SCALE_BP`) / 10 000, floored, capped
+  (5000 bp: band 3 = REPUTATION_START pays ×2.5 — 1000, 1347, 1817, …). The delivery does not
+  scale. The band is read at accrual from the encounter's CHOSEN menu row
+  (`encounter_candidates.caravan_rating` → `bandOf`; `chosenEncounterTerms` in `stakes.ts`, which
+  is still the only reader of `sandbagEarnMultiplier`) and the result is stored as
+  `trip_encounter.coin_accrued` — a rating move after the search, or a retune, never changes
+  it (tested: rating moved three bands between choose and resolve). The preview's
+  `nextEncounter.reward` uses the caravan's current band (the next search is drawn at it; the
+  living rating moves only at the caravan's own settles) and now carries `nextEncounter.band`;
+  tested equal to what the next encounter accrues. `GET /me/economy` keeps the band-0 base
+  schedule and adds `earn.encounterBandScaleBp`.
+- **D2b — encounter 1 is matched below the caravan.** `FIRST_ENCOUNTER_CENTRE_OFFSET` = −150 in
+  `escalatedCentre` (`centreOffsetFor(n)`), encounter 1 only; 2+ unchanged (rating + 15·(n−1)).
+  The sandbag gap is `sandbagGap(caravan, centre, party, width)` =
+  `gapBeyondBand(caravan − party, width + max(0, caravan − centre))` — beyond the band actually
+  searched — so the offset can only raise a multiplier: a pure sweep over ratings, widths and
+  parties proves every party within ±width of an encounter-1 centre pays FIXED_ONE and no party
+  pays less than it would without the offset; the menu shows `escalation.applied = −150` and
+  `rules.escalation.firstEncounterOffset`.
+- **D2c — the tool for the later pass.** `scripts/balance/model.ts` + `trip-ev.ts` (run:
+  `pnpm --filter @caravan/server exec tsx ../../scripts/balance/trip-ev.ts`, or with
+  `--curve/--deaths/--levels/--band` for a measured row). It uses the server's own earn math and
+  the rebuild math the tests pin (`rebuildPlan` / `rebuildMixed` — the stakes test now imports
+  them). At today's GUESSED hold rates the table (PHASE-2 §37) shows trips with merged circles
+  are still negative-EV at every bank point: the structural change is in, the numbers are the
+  §37 pass's to tune with resolver-measured rates.
+- **D3 — FREE_WEEKLY_EARN_ESTIMATE re-derived**: 40 000 → **55 000**, the mid of a range ≈ 43.7k
+  (15 trips, p1 0.60) / 55.5k (30 trips, p1 0.65) / 66.7k (42 trips, p1 0.70) = full-week trickle
+  33 600 + trips banked at the 8 × L1 best-EV point (bank@1 at these rates), band 3. The 1.5×
+  check (`assertPacksValid`) runs against it: 60 000 / 55 000 ≈ 1.09×. Pinned to the model by a
+  test. The rebuild-cost weeks above become ≈ 2.7 (merge Coin) / 3.5 (with mercenaries) for one
+  type and 3.0 / 4.1 for mixed types.
+- **S1** — `/me/ledger` drops every `…AccountId` / `accountId` payload key that is not the
+  reader's own, at any depth (`redactForeignAccountIds`, `routes/ledger.ts`): `trip_overrun`'s
+  `partyOwnerAccountId`, `encounter_resolved`'s and its snapshot's, `party_served_as_encounter`'s
+  `defenderAccountId`. The ledger rows are untouched. The party feed's `defender` lost
+  `accountId` (username, caravan and region stay). **S2** — feed entries carry
+  `coinDiscardedAtCap` (summed `overflowDiscarded`), plus `coinTransferred` and `partyWinCoin`
+  beside `coinEarned`.
+- **N1** — no held-back units exist; the Build note above is corrected; chunk 15 N1 closed as moot.
+  **N2** — `stakesPreview` uses `deathIndex` and reads in one READ ONLY REPEATABLE READ
+  transaction (after the settle). **N3** — `bankTrip(…, nowMs = Date.now())` flushes the pending
+  trickle (forced) before `creditBankedTrip`, so the credit clamps against the balance the
+  forecast showed (tested with 10 h of trickle pending near the cap). **N4** — the rebuild test
+  pins the mixed-type figure: 96 L1 / 166 800 / 224 400 (144 h of refugee drip).
+- Cross-chunk test repins (the offset moved encounter-1 centres): `matchmaking.test.ts`,
+  `qa25-scale.test.ts` (defenders placed at centre − offset where a test reasons about the
+  centre), `party.test.ts` (feed `defender` without `accountId`), `store.test.ts` (ratio
+  10 909 bp). The server contract test regenerated `apps/web/src/test/contract/{economy,store,
+  search,candidates,choose}.json` (new fields / values only; the web guards accept them).
+- Tests added (`stakes.test.ts`): D2b menu centre and full pay; D2a band read from the row and
+  stored; at-cap recipient (transfer + party win both discarded and recorded, feed
+  `coinDiscardedAtCap`, ledger and feed carry no foreign account id); the redaction helper; N3;
+  N2 source scan; N4; D3 pin; and the reviewer's randomized probe (6 seeded histories: preview ==
+  applied, `transferred + destroyed == lost`, party win on top, owners byte-identical).
