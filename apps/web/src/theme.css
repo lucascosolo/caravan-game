@@ -995,6 +995,13 @@ h2 {
   margin-top: 0.5rem;
   background: transparent;
 }
+/* QA S4: the guided arrangement shows its next step in full; the rest, and the why, fold away. */
+.guide__all {
+  margin-top: 0.5rem;
+}
+.guide__all > summary {
+  font-weight: 400;
+}
 .welcome__lead {
   font-size: 1.0625rem;
 }

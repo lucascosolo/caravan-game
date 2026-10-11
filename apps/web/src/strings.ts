@@ -339,7 +339,7 @@ export const STRINGS = {
     confirmTraps: (n: number): string => `${n} trap${n === 1 ? "" : "s"} laid`,
     confirmTrapsHeld: (n: number): string => `${n} held back in the wagon`,
     confirmPosts: (n: number): string => `${n} unit${n === 1 ? "" : "s"} posted`,
-    confirmUnposted: (names: string): string => `Not yet posted: ${names}. Every living unit is at the camp and needs a post.`,
+    confirmUnposted: (names: string): string => `Not yet posted: ${names}. Every living unit packed for this trip stands in the wagon circle and needs a post.`,
     confirmTrapsHeldNames: (names: string): string => `Held back in the wagon: ${names}`,
     confirmFenceLeft: (n: number): string => `${n} fence segment${n === 1 ? "" : "s"} left in the wagon`,
     confirmChecking: "Checking the arrangement with the server…",
@@ -1119,7 +1119,8 @@ export const STRINGS = {
    * Chunk 24: the first-session guide. Copy rules (PHASE-2 §24 QA checks, GUARDRAILS §0): the
    * player DEFENDS a wagon circle on a trip and never raids anyone; the town is never called a
    * camp and the circle never a base; nothing here promises a hold (fights are real and resolved
-   * on the server, and many first fights are lost) and nothing is granted.
+   * on the server, and many first fights are lost) and the guide grants nothing (the starting
+   * roster is every caravan's, granted at creation, not the guide's — chunk 24 QA D1).
    */
   guide: {
     label: "Guide",
@@ -1143,15 +1144,16 @@ export const STRINGS = {
     welcomeTown: "It holds your roster, your merge board, the mine and your banked Coin. A trip only ever risks what you packed for it and the Coin you have not banked yet.",
     welcomeRegion: (region: string): string => `Your caravan rides the ${region}. You chose that when you started, and it is permanent for this caravan: it decides which living units it can ever unlock.`,
     welcomeRegionUnknown: "Your caravan's region was chosen when you started, and it is permanent for this caravan.",
-    welcomePlan: "First trip: take a unit, pack, ride out, hold two encounters, bank. About five minutes.",
-    welcomeNoGifts: "The guide gives you nothing for free and changes no rules: every fight is a real one.",
+    welcomePlan: "First trip: take a refugee, pack, ride out, face two encounters, then bank if you are still standing. About five minutes.",
+    welcomeNoGifts: "Every caravan starts with the same starting roster: its region's starter units. The guide adds nothing to it and changes no rules: every fight is a real one.",
     welcomeBegin: "Begin",
     welcomeSaving: "Starting…",
     // ── town: the roster, then the outfit ──
-    rosterTitle: "Take your first unit",
-    rosterBody: "Your roster is empty. The Refugees panel in town offers three units drawn from the types you can use. Taking one is free. Pick one.",
+    rosterTitle: "Take a refugee",
+    rosterBody:
+      "Your caravan starts with its starting roster: its region's starter units, the same for every caravan. More units come from the Refugees panel in town: three offers drawn from the types you can use, a fresh menu every so often, and taking one is free. Take one now.",
     outfitTitle: "Pack the caravan and ride out",
-    outfitBody: "Open Outfit. Tick your unit, add a trap, choose a fence and how many segments to carry, then ride out. Riding out uses one of your trips for the hour.",
+    outfitBody: "Open Outfit. Tick the units to take, add a trap, choose a fence and how many segments to carry, then ride out. Riding out uses one of your trips for the hour.",
     outfitStakes: "Only what you pack is at risk on the trail. The rest of your roster and your banked Coin stay safe in town.",
     toTown: "Go to the town",
     toTrail: "Go to the trail",
@@ -1162,10 +1164,17 @@ export const STRINGS = {
     searchBody: "Search to be served three raiding parties. Each one is another player's standing party (or, early on, a labelled authored outfit); its owner is not there.",
     scoutTitle: "Scout before you choose",
     scoutBody: "Every unit, its stance, its HP, its ability, its siege and the edge it comes from is shown below. Nothing is hidden. Compare the three, then choose the one you will face.",
-    scoutPick: (name: string, raiders: number, hp: number): string => `For a first fight, ${name} is the smallest of the three: ${raiders === 1 ? "1 raider" : `${raiders} raiders`}, ${hp} HP in all. That is a reading of the scout, not a promise.`,
+    scoutPick: (name: string, raiders: number, hp: number, siege: number): string =>
+      `For a first fight, ${name} is the smallest of the three: ${hp} HP in all, ${siege === 0 ? "no siege" : siege === 1 ? "1 siege piece" : `${siege} siege pieces`}, ${raiders === 1 ? "1 raider" : `${raiders} raiders`}. That is a reading of the scout, not a promise.`,
     // ── trail: the guided arrangement ──
     arrangeTitle: "Arrange the wagon circle",
-    arrangeBody: (edge: string, n: number, of: number): string => `${n} of the ${of} raiders start on the ${edge} side. Work down this list; each step can be done for you, or by hand on the circle.`,
+    arrangeBody: (edge: string, n: number, of: number): string =>
+      `${of === 1 ? (n === 1 ? `The one raider starts on the ${edge} side.` : "The one raider starts off the ring's sides.") : n === of ? `All ${of} raiders start on the ${edge} side.` : `${n} of the ${of} raiders ${n === 1 ? "starts" : "start"} on the ${edge} side.`} Take the steps one at a time; each can be done for you, or by hand on the circle above.`,
+    /** Edge names as they read mid-sentence (QA N3): lower case. */
+    edgeWord: (edge: string): string => ({ north: "north", south: "south", east: "east", west: "west" })[edge] ?? edge,
+    nextStep: (n: number, of: number): string => `Step ${n} of ${of}`,
+    allSteps: (done: number, of: number): string => `All steps (${done} of ${of} done)`,
+    stepsDone: "Every step is done. Check the circle above, then read why it is shaped like this.",
     stepFence: (edge: string): string => `Fence the ${edge} side`,
     stepFenceWhy: (edge: string, gap: number): string => `Put a fence on every ${edge} ring position except position ${gap}.`,
     stepFenceDo: (edge: string): string => `Place the ${edge} fence`,
@@ -1187,7 +1196,7 @@ export const STRINGS = {
     stepTodo: "To do",
     whyTitle: "Now scout why",
     why: (edge: string, n: number, gap: number): string =>
-      `${n === 1 ? "The raider" : `The ${n} raiders`} from the ${edge} meet a fence with one way through, position ${gap}. The cheapest route in leads over your trap and into your posted unit's reach. Check the scout below: how much HP comes, and whether a siege piece counters your fence or your trap.`,
+      `${n === 1 ? `The raider from the ${edge} meets` : n === 0 ? `Anything coming from the ${edge} meets` : `The ${n} raiders from the ${edge} meet`} a fence with one way through, position ${gap}. The cheapest route in leads over your trap and into your posted unit's reach. Check the scout below: how much HP comes, and whether a siege piece counters your fence or your trap.`,
     whyHonest: "This is a real fight against a real party, resolved on the server with no input from anyone once you commit. A good arrangement improves your odds; it does not guarantee a hold.",
     whyCommit: "When it looks right, commit. You can still move anything until then.",
     // ── trail: results, bank or push ──
@@ -1195,18 +1204,44 @@ export const STRINGS = {
     stalemateTitle: "The fight ran out of time: your caravan survived",
     heldBody: "That fight resolved exactly as the server recorded it. What it cost is itemized here: damage carries forward, and nothing is repaired until the trip ends.",
     overrunTitle: "Your caravan was overrun",
-    overrunBody: "The raiders reached the core. The trip is over: what you packed is lost and the unbanked Coin is gone. Your town, the rest of your roster and your banked Coin were never at risk.",
+    overrunLead: "The raiders reached the core and the trip is over. Your town, the rest of your roster and your banked Coin were never at risk.",
+    /** QA S2: what an overrun actually cost, as the ended trip records it. */
+    overrunLostOutright: (names: string): string => `Lost outright (still standing when the caravan fell): ${names}.`,
+    overrunLostNone: "Lost outright: none. No unit was still standing when the caravan fell.",
+    overrunDeMerged: (names: string): string => `Fell in the fighting and come home a level lower (never below level 1): ${names}.`,
+    overrunCoin: (coin: number): string => (coin > 0 ? `Unbanked Coin lost: ${coin}.` : "No unbanked Coin was lost: there was none yet."),
+    overrunGeneric: "Units still standing when the caravan fell are lost; units that fell earlier come home a level lower (never below level 1). Unbanked Coin is lost.",
     decide1Title: "Bank or push",
-    decide1Body: "You survived, so you choose. Bank: the trip ends and everything comes home. Push: face encounter 2 with what is left, for more Coin against a harder party. This first trip pushes once, then banks; every stake is itemized on the next screen before you choose.",
+    decideIntro: "You survived, so you choose. Bank: the trip ends and everything comes home. Push: face the next encounter with what is left, for more Coin against a harder party. Every stake is itemized on the next screen before you choose.",
+    /** QA D2: the guide reads the server's stakes and recommends; it never insists. */
+    decideReading: "Reading what is at stake…",
+    decideAdviseBank: (reasons: string, coin: number): string =>
+      `Your circle is badly hurt: ${reasons}. Nothing is repaired before the next encounter, and pushing risks ${coin > 0 ? `the ${coin} unbanked Coin` : "this trip's Coin"} and every unit still standing. The guide suggests banking this time.`,
+    decideAdvisePush: (coin: number): string =>
+      `Your circle came through in fair shape. One push shows how encounters escalate: the next party is harder and pays more. Pushing risks ${coin > 0 ? `the ${coin} unbanked Coin` : "this trip's Coin"} and the units you packed; banking keeps them. Your call.`,
+    reasonHurt: (name: string, hp: number, max: number): string => `${name} is at ${hp} of ${max} HP`,
+    reasonNoneStanding: "no packed unit is still standing",
+    reasonNoTrap: "no trap is left to lay",
+    reasonFence: (destroyed: number, intact: number): string => `${destroyed} fence segment${destroyed === 1 ? " is" : "s are"} broken and ${intact} still stand${intact === 1 ? "s" : ""}`,
     freeTitle: "Encounter 2: your arrangement",
     freeBody: "No list this time. Search, scout the party, then arrange the circle yourself. What broke or was spent at encounter 1 is still broken or spent.",
     decide2Title: "Bank the trip",
-    decide2Body: "Bank now and the Coin you carried is safe in town for good, and your units come home. That ends the first trip.",
+    decide2Body: "Banking now makes the Coin you carried safe in town for good and brings your units home; that ends the first trip. Pushing on is allowed too, at the stakes shown below.",
     // ── after the trip: the passive side ──
     partyTitle: "While you were out, someone else's party met a caravan",
     partyBody:
       "The parties you just faced were standing parties: other players' (or labelled authored outfits). Their owners were not there and lost nothing. Yours works the same way: it is served into other players' trips while you are away, and you read afterwards how it did.",
-    partyOverrun: "Your first trip was overrun. That happens, and the stakes were itemized before each choice. Ride out again when you have a unit and a trip available.",
+    partyOverrun: "Your first trip was overrun. That happens, and the stakes were itemized before you chose to push. Ride out again when you have a unit and a trip available.",
+    /** An encounter-1 overrun: the player made no stake choice yet (QA S2). */
+    partyOverrunFirst: "Your first fight was lost. That happens: fights are real. Ride out again when you have a unit and a trip available.",
+    /** QA S3: under an overrun, the passive side gets its own heading saying whose party meets whose caravan. */
+    partyPassiveTitle: "Meanwhile, your own party meets other players' caravans",
+    /** QA N5: a trip voided by the server (chunk 15 QA D3). */
+    voidedTitle: "Your first trip could not be resolved",
+    voidedBody: (encounter: number, survived: number): string =>
+      `Encounter ${encounter} could not be resolved on the server, so nothing of that fight was applied. The trip ended as a bank after ${survived === 0 ? "no survived encounter: nothing was credited and nothing was lost" : survived === 1 ? "the 1 encounter you survived" : `the ${survived} encounters you survived`}. The ride still used one of your trips for the hour.`,
+    partyBodyNoFight:
+      "Every raiding party you are served is a standing party: another player's (or a labelled authored outfit). Its owner is not there and loses nothing. Yours works the same way: it is served into other players' trips while you are away, and you read afterwards how it did.",
     partyRaise: "Raise my party from my roster",
     partyRaising: "Raising…",
     partyRaised: (n: number): string => `Your standing party is up: ${n === 1 ? "1 unit" : `${n} units`} from your roster, ready to be served. It is a template; it never loses a unit.`,

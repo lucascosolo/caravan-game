@@ -24,6 +24,7 @@ import { createUnitInstance, listUnitInstancesForCaravan } from "../src/repo/uni
 import { hasAccess, purchasedNodeIds, readOwnerSnapshot, unlockCausationId, unlockWebsSnapshot } from "../src/unlocks/index.js";
 import { isUuid } from "../src/util/uuid.js";
 import { appRolePool, expectDbError, testPool, truncateAll, unique } from "./helpers.js";
+import { startingRosterTypes } from "../src/acquisition/startingRoster.js";
 
 const pool = testPool();
 let appRole: pg.Pool;
@@ -300,9 +301,11 @@ describe("reaching a node grants ACCESS and nothing else", () => {
     expect((await spend(p, "trap", "fence.split_rail")).statusCode).toBe(201);
     const after = await snapshot();
     expect(after).toEqual(before);
-    expect(after.units).toHaveLength(1); // still one dust rider; no sharpshooter instance appeared
-    // the only events this produced are purchases
-    const types = await pool.query<{ event_type: string }>("SELECT DISTINCT event_type FROM ledger_event WHERE account_id = $1 AND event_type <> 'unlock_points_granted'", [p.accountId]);
+    // Still one dust rider beside the starting roster (chunk 24 QA D1); no sharpshooter instance appeared.
+    expect(after.units).toHaveLength(1 + startingRosterTypes("desert").length);
+    expect(after.units.some((u) => u.unit_type_id === "desert.sand_sharpshooter")).toBe(false);
+    // the only events this produced are purchases (the caravan's creation grant aside)
+    const types = await pool.query<{ event_type: string }>("SELECT DISTINCT event_type FROM ledger_event WHERE account_id = $1 AND event_type <> 'unlock_points_granted' AND NOT starts_with(causation_id, 'starting_roster:')", [p.accountId]);
     expect(types.rows.map((r) => r.event_type)).toEqual(["unlock_node_purchased"]);
   });
 

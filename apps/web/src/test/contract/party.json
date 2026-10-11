@@ -220,8 +220,23 @@
       },
       "roster": [
         {
+          "instanceId": "00000000-0000-4000-8000-000000000004",
+          "caravanId": "00000000-0000-4000-8000-000000000005",
+          "typeId": "desert.dust_rider",
+          "displayName": "Dust Rider",
+          "mergeLevel": 1,
+          "slotCost": 1,
+          "offense": 95,
+          "defense": 55,
+          "hp": 620,
+          "unlocked": true,
+          "inParty": false,
+          "packedOnTrip": false,
+          "aliveOnTrip": null
+        },
+        {
           "instanceId": "00000000-0000-4000-8000-000000000002",
-          "caravanId": "00000000-0000-4000-8000-000000000004",
+          "caravanId": "00000000-0000-4000-8000-000000000005",
           "typeId": "desert.dust_rider",
           "displayName": "Dust Rider",
           "mergeLevel": 1,
@@ -235,8 +250,23 @@
           "aliveOnTrip": null
         },
         {
+          "instanceId": "00000000-0000-4000-8000-000000000006",
+          "caravanId": "00000000-0000-4000-8000-000000000005",
+          "typeId": "desert.well_digger",
+          "displayName": "Well Digger",
+          "mergeLevel": 1,
+          "slotCost": 1,
+          "offense": 50,
+          "defense": 100,
+          "hp": 1100,
+          "unlocked": true,
+          "inParty": false,
+          "packedOnTrip": false,
+          "aliveOnTrip": null
+        },
+        {
           "instanceId": "00000000-0000-4000-8000-000000000003",
-          "caravanId": "00000000-0000-4000-8000-000000000004",
+          "caravanId": "00000000-0000-4000-8000-000000000005",
           "typeId": "desert.well_digger",
           "displayName": "Well Digger",
           "mergeLevel": 1,

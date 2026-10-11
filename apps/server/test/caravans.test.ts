@@ -4,6 +4,7 @@
  */
 import { TUNABLES } from "@caravan/content";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { startingRosterTypes } from "../src/acquisition/startingRoster.js";
 import { withTransaction } from "../src/db/pool.js";
 import { listCaravansForAccount, setCaravanState } from "../src/repo/caravans.js";
 import { createUnitInstance, listUnitInstancesForCaravan } from "../src/repo/unitInstances.js";
@@ -108,7 +109,8 @@ describe("unit instances", () => {
     expect(dbErr?.code).toBe("23514");
     const floor = await expectDbError(pool, "UPDATE unit_instance SET merge_level = 0 WHERE id = $1", [u.id]);
     expect(floor?.code).toBe("23514");
-    expect((await listUnitInstancesForCaravan(pool, caravanId)).length).toBe(2);
+    // Two, besides the starting roster every caravan is created with (chunk 24 QA D1).
+    expect((await listUnitInstancesForCaravan(pool, caravanId)).length).toBe(2 + startingRosterTypes("high_plains").length);
     expect(TUNABLES.MERGE_LEVEL_MAX).toBe(5);
   });
 

@@ -16,10 +16,12 @@
  * fence segment at encounter 1 is broken — so a pushed trip visibly carries attrition into
  * encounter 2. At encounter 2 the posted unit with the lowest ref dies (chunk 23 QA D3), so
  * the e2e sees a death the caravan survives: the de-merge on bank and in the overrun stakes.
+ * One script overrides the table (chunk 24 QA S5, DOUBLE_SCRIPT): an encounter-1 circle with
+ * no fence at all is overrun, so the onboarding e2e can walk the overrun path.
  * The double is pure (index → plan, plus the job input), so the fight's outcome is still a
  * function of the job input alone.
  */
-import { doubleHandlers, type EncounterPlan } from "./tripDouble.js";
+import { doubleHandlers, type EncounterPlan, type EncounterScript } from "./tripDouble.js";
 import { drain } from "../jobs/worker.js";
 import type { HandlerRegistry, WorkerOptions } from "../jobs/worker.js";
 import type pg from "pg";
@@ -35,6 +37,19 @@ export const DOUBLE_PLANS: Record<number, EncounterPlan> = {
   2: { kind: "caravan_held", unitDamage: DOUBLE_UNIT_DAMAGE, killLowestRefPosts: 1 },
 };
 export const DOUBLE_FALLBACK: EncounterPlan = { kind: "caravan_held", unitDamage: DOUBLE_UNIT_DAMAGE };
+
+/**
+ * Chunk 24 QA S5: the e2e's way to the common real-resolver path (an overrun at encounter 1),
+ * read off the committed arrangement alone (pure): an encounter-1 circle with NO fence placed
+ * is overrun. If it also laid a trap, the posted unit with the lowest ref dies in that fight
+ * (so it is de-merged and comes home, the "survivor" branch); otherwise every posted unit is
+ * still standing at the collapse and is lost outright. Every other arrangement follows
+ * DOUBLE_PLANS, so the trip e2e (which fences encounter 1) is unchanged.
+ */
+export const DOUBLE_SCRIPT: EncounterScript = (input) => {
+  if (input.encounterIndex !== 1 || input.formation.fences.length > 0) return null;
+  return { kind: "caravan_overrun", killLowestRefPosts: input.formation.traps.length > 0 ? 1 : 0, spendTraps: input.formation.traps.length };
+};
 
 export interface InlineEncounterWorker {
   readonly name: string;
@@ -60,7 +75,7 @@ export function inlineWorkerFromEnv(env: Readonly<Record<string, string | undefi
     throw new TestResolverRefusedError(`${TEST_RESOLVER_ENV}=${v} is refused when NODE_ENV=production: the test double never resolves real players' fights`);
   }
   if (v !== "double") throw new TestResolverRefusedError(`${TEST_RESOLVER_ENV} must be "double" (got "${v}")`);
-  return { name: "test-double", handlers: doubleHandlers(DOUBLE_PLANS, DOUBLE_FALLBACK), delayMs: INLINE_WORKER_DELAY_MS };
+  return { name: "test-double", handlers: doubleHandlers(DOUBLE_PLANS, DOUBLE_FALLBACK, DOUBLE_SCRIPT), delayMs: INLINE_WORKER_DELAY_MS };
 }
 
 /**

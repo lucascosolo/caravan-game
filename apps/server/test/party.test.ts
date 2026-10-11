@@ -30,6 +30,7 @@ import { listEventsForAccount } from "../src/ledger/ledger.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
 import { partySaveLimiter } from "../src/routes/party.js";
 import { appRolePool, expectDbError, testPool, truncateAll, unique, commitFormationInTown } from "./helpers.js";
+import { startingRosterTypes } from "../src/acquisition/startingRoster.js";
 
 const pool = testPool();
 let appRole: pg.Pool;
@@ -124,7 +125,8 @@ describe("GET /me/party on a fresh account", () => {
     expect(v.scout).toMatchObject({ v: 1, units: [], siege: [], edges: [], unitSlots: { used: 0, cap: 8 }, siegeSlots: { used: 0, cap: 3 } });
     expect(v.caps).toEqual({ units: 8, siege: 3, edges: 4, editCooldownMs: 0, partiesPerAccount: 1 });
     expect(v.rules).toEqual({ template: true, neverConsumed: true, unitsMayAlsoBePackedOnTrips: true, ratingInUse: "offense", stances: ["nearest", "traps", "core"] });
-    expect(v.roster.length).toBe(2);
+    // The two given, plus the starting roster every caravan is created with (chunk 24 QA D1).
+    expect(v.roster.length).toBe(2 + startingRosterTypes("desert").length);
     expect(v.roster[0]).toMatchObject({ typeId: "desert.dust_rider", mergeLevel: 1, slotCost: 1, offense: 95, defense: 55, unlocked: true, inParty: false, packedOnTrip: false, aliveOnTrip: null });
     expect(v.siegeCatalog.map((s: { typeId: string; unlocked: boolean }) => [s.typeId, s.unlocked])).toEqual([
       ["siege.battering_wagon", true],
@@ -553,7 +555,8 @@ describe("a unit both in the party and packed on a trip", () => {
 
   it("a de-merge on the roster (chunk 19's per-death penalty) is reflected, not a validity problem: the party rides the live level", async () => {
     const before = (await call(p, "GET", "/me/party")).json().party;
-    const digger: string = before.roster.find((x: { typeId: string }) => x.typeId === "desert.well_digger").instanceId;
+    // The fielded well digger (the starting roster's own level-1 one is not in the party).
+    const digger: string = before.roster.find((x: { typeId: string; instanceId: string }) => x.typeId === "desert.well_digger" && p.units.includes(x.instanceId)).instanceId;
     expect(before.scout.units.find((u: { ref: string }) => u.ref === digger).mergeLevel).toBe(2);
     await pool.query("UPDATE unit_instance SET merge_level = 1 WHERE id = $1", [digger]);
     const view = (await call(p, "GET", "/me/party")).json().party;
