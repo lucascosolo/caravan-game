@@ -98,7 +98,7 @@ outcome the ledger recorded.
 **QA checks.** Guardrail 1: diff the renderer's displayed outcome against the ledger
 for 100 replays. Confirm no code path in the player calls into `packages/resolver`.
 
-**Status: built** (2026-10-11, chunk 22 Maker). Build notes:
+**Status: QA'd — fix round 1 built** (2026-10-11; S1–S9, D1–D4 and N1–N10 closed, see `roadmap/qa/22-punchlist.md` "Fix round 1"; the Maker's build notes below predate it: the body now also carries `settled`, `labels.siege` and stances, and `GET /me/encounters` exists). Build notes:
 
 - **Where it lives.** `apps/web/src/screens/replay/`: `replayModel.ts` (pure: body → scene at a
   moment, event feed, tally, keyframe seeks), `ReplayPlayer.tsx` (fetch, states, summary,

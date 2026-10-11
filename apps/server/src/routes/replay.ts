@@ -30,14 +30,27 @@
  * with the reason, never a 500 and never a silently misrendered fight. The reader's verdict is
  * cached per verified sha256 (a stored log never changes), and the response is gzip-compressed
  * when the client accepts it (N3).
+ *
+ * Chunk 22 QA additions (no change to the resolver or the log format):
+ *   - D1: `labels.siege` (the party's siege pieces, from the job's PARTY SNAPSHOT: type, display
+ *     name, what each counters) and `labels.units[].stance` (each raider's targeting stance from
+ *     the party snapshot, each post's defensive stance from the FORMATION snapshot, matched by the
+ *     log label's `ref`), `labels.traps[].category` (what a siege piece can counter);
+ *   - S8 / D3: `settled`, what this encounter settled for the VIEWER, itemized from the ledger
+ *     events the job caused (replay/settled.ts) — never from the log;
+ *   - N10: the party owner's body carries no `tripId`, no `stored` block and no caravan attrition
+ *     in `outcome` (refs are still inside the sealed log, which cannot change without a format bump);
+ *   - D2: `GET /me/encounters`, the caravan's fights within retention, newest first (replay/recent.ts).
  */
-import { getFenceTier, getTrapType, getUnitType } from "@caravan/content";
+import { getFenceTier, getSiegeType, getTrapType, getUnitType } from "@caravan/content";
 import { DEPTH_SCALE, READABLE_REPLAY_FORMATS, RESOLVER_VERSION, readReplay, type ReplayLog } from "@caravan/resolver";
 import type { FastifyInstance } from "fastify";
 import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import { JOB_KIND_ENCOUNTER_RESOLUTION, getJob } from "../jobs/queue.js";
 import type { EncounterJobInput } from "../jobs/handlers/encounterResolution.js";
+import { recentFights } from "../replay/recent.js";
+import { settledForEncounter } from "../replay/settled.js";
 import { decompressLog, findEncounterLog } from "../replay/store.js";
 import { AppError } from "../services/errors.js";
 import { partyLootShare } from "../trip/loot.js";
@@ -76,6 +89,28 @@ function readerVerdict(sha: string, log: unknown): string | null {
   return reason;
 }
 
+/** D1: the party's siege pieces as fought (the job's party snapshot), with what each counters. */
+function siegeLabels(input: EncounterJobInput): { typeId: string; displayName: string; counters: { kind: string; category: string } | null }[] {
+  const comp = (input.party?.composition ?? {}) as { siege?: { typeId?: unknown }[] };
+  return (Array.isArray(comp.siege) ? comp.siege : []).flatMap((s) => {
+    if (typeof s?.typeId !== "string") return [];
+    const type = getSiegeType(s.typeId);
+    return [{ typeId: s.typeId, displayName: type?.displayName ?? s.typeId, counters: type ? { kind: type.counters.kind, category: type.counters.category } : null }];
+  });
+}
+
+/** D1: every fighter's stance by instance ref — raiders from the party snapshot, posts from the formation snapshot. */
+function stancesByRef(input: EncounterJobInput): Map<string, string> {
+  const out = new Map<string, string>();
+  const comp = (input.party?.composition ?? {}) as { units?: { ref?: unknown; stance?: unknown }[] };
+  for (const u of Array.isArray(comp.units) ? comp.units : []) if (typeof u?.ref === "string" && typeof u.stance === "string") out.set(`attacker|${u.ref}`, u.stance);
+  for (const p of (input.formation?.posts ?? []) as { ref?: unknown; stance?: unknown }[]) if (typeof p?.ref === "string" && typeof p.stance === "string") out.set(`defender|${p.ref}`, p.stance);
+  return out;
+}
+
+/** N10: what the party's owner is told about the outcome — never the caravan's attrition (its unit refs, traps, fences). */
+const OWNER_OUTCOME_KEYS: readonly string[] = ["kind", "depth", "endTick", "loot", "end", "deepestUnit", "resolverVersion"];
+
 interface StoredResult {
   outcome?: Record<string, unknown>;
   resolver?: string;
@@ -83,6 +118,9 @@ interface StoredResult {
 }
 
 export async function replayRoutes(app: FastifyInstance): Promise<void> {
+  // D2: the caravan's fights still kept by the retention rule, newest first.
+  app.get("/me/encounters", { preHandler: requireAuth }, async (req) => recentFights(app.db, req.auth!.account.id));
+
   app.get<{ Params: { jobId: string } }>("/me/encounters/:jobId/replay", { preHandler: requireAuth }, async (req, reply) => {
     const me = req.auth!.account.id;
     const jobId = req.params.jobId;
@@ -107,17 +145,23 @@ export async function replayRoutes(app: FastifyInstance): Promise<void> {
         lootShare = null;
       }
     }
+    const owner = viewer === "party_owner";
+    const shownOutcome = outcome && owner ? Object.fromEntries(Object.entries(outcome).filter(([k]) => OWNER_OUTCOME_KEYS.includes(k))) : outcome;
+    const settled = await settledForEncounter(app.db, { jobId, tripId: input.tripId, encounterIndex: input.encounterIndex, viewer, accountId: me });
+    const siege = siegeLabels(input);
     const base = {
       jobId,
       viewer,
-      tripId: input.tripId,
+      tripId: owner ? null : input.tripId,
       encounterIndex: input.encounterIndex,
       currentResolverVersion: RESOLVER_VERSION,
-      outcome,
+      outcome: shownOutcome,
       depth: { ...DEPTH_MEASURE, value: depth, lootShare },
       // The party version that fought (chunk 09 QA N3), from the job's snapshot — never the live row.
       party: { partyId: input.party.partyId, partyHash: input.party.hash, partySavedAt: input.party.savedAt },
+      settled,
     };
+    const noLabels = { ...NO_LABELS, siege };
     const send = (body: unknown) => {
       // N3: compress the (up to a few hundred KB) JSON when the client accepts gzip.
       const accepts = String(req.headers["accept-encoding"] ?? "");
@@ -135,7 +179,7 @@ export async function replayRoutes(app: FastifyInstance): Promise<void> {
         renderable: false,
         reason: NO_LOG_REASON,
         resolvedBy: result.resolver ?? null,
-        labels: NO_LABELS,
+        labels: noLabels,
         stored: null,
         log: null,
       });
@@ -143,9 +187,9 @@ export async function replayRoutes(app: FastifyInstance): Promise<void> {
     const row = await findEncounterLog(app.db, jobId);
     if (!row) throw new AppError(410, "replay_expired", "this replay is past its retention window");
 
-    const stored = { rawBytes: row.raw_bytes, storedBytes: row.stored_bytes, encoding: row.encoding, sha256: row.log_sha256, contentHash: row.content_hash, createdAt: row.created_at.toISOString() };
+    const stored = owner ? null : { rawBytes: row.raw_bytes, storedBytes: row.stored_bytes, encoding: row.encoding, sha256: row.log_sha256, contentHash: row.content_hash, createdAt: row.created_at.toISOString() };
     const unrenderable = (reason: string, log: unknown = null) =>
-      send({ ...base, resolverVersion: row.resolver_version, logFormat: row.log_format, renderable: false, reason, labels: NO_LABELS, stored, log });
+      send({ ...base, resolverVersion: row.resolver_version, logFormat: row.log_format, renderable: false, reason, labels: noLabels, stored, log });
 
     // N1: an undecodable body is a verdict, not a 500.
     let text: string;
@@ -169,6 +213,7 @@ export async function replayRoutes(app: FastifyInstance): Promise<void> {
     }
     const reason = readerVerdict(sha, log);
     if (reason !== null) return unrenderable(reason, log);
+    const stances = stancesByRef(input);
     return send({
       ...base,
       resolverVersion: row.resolver_version,
@@ -176,9 +221,15 @@ export async function replayRoutes(app: FastifyInstance): Promise<void> {
       renderable: true,
       reason: null,
       labels: {
-        units: log.units.map((u) => ({ ...u, displayName: getUnitType(u.typeId)?.displayName ?? u.typeId, ability: getUnitType(u.typeId)?.ability.displayName ?? null })),
+        units: log.units.map((u) => ({
+          ...u,
+          displayName: getUnitType(u.typeId)?.displayName ?? u.typeId,
+          ability: getUnitType(u.typeId)?.ability.displayName ?? null,
+          stance: stances.get(`${u.side}|${u.ref}`) ?? null,
+        })),
         fences: log.fences.map((f) => ({ ...f, displayName: getFenceTier(f.tierId)?.displayName ?? f.tierId })),
-        traps: log.traps.map((t) => ({ ...t, displayName: getTrapType(t.typeId)?.displayName ?? t.typeId })),
+        traps: log.traps.map((t) => ({ ...t, displayName: getTrapType(t.typeId)?.displayName ?? t.typeId, category: getTrapType(t.typeId)?.category ?? null })),
+        siege,
       },
       stored,
       log,

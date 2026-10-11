@@ -4,53 +4,14 @@
   "body": {
     "jobId": "encounter:00000000-0000-4000-8000-000000000001:1",
     "viewer": "party_owner",
-    "tripId": "00000000-0000-4000-8000-000000000001",
+    "tripId": null,
     "encounterIndex": 1,
     "currentResolverVersion": 8,
     "outcome": {
       "kind": "caravan_held",
       "loot": 371,
       "depth": 529,
-      "units": [
-        {
-          "hp": 0,
-          "ref": "00000000-0000-4000-8000-000000000002"
-        },
-        {
-          "hp": 413,
-          "ref": "00000000-0000-4000-8000-000000000003"
-        }
-      ],
-      "fences": [
-        {
-          "hp": 300,
-          "ref": "f0"
-        },
-        {
-          "hp": 300,
-          "ref": "f1"
-        },
-        {
-          "hp": 300,
-          "ref": "f2"
-        },
-        {
-          "hp": 300,
-          "ref": "f3"
-        },
-        {
-          "hp": 300,
-          "ref": "f4"
-        },
-        {
-          "hp": 300,
-          "ref": "f5"
-        }
-      ],
-      "endTick": 790,
-      "spentTraps": [
-        "t0"
-      ]
+      "endTick": 790
     },
     "depth": {
       "scale": 1024,
@@ -60,9 +21,39 @@
       "lootShare": 380
     },
     "party": {
-      "partyId": "00000000-0000-4000-8000-000000000004",
+      "partyId": "00000000-0000-4000-8000-000000000002",
       "partyHash": "a000000000000000000000000000000000000000000000000000000000000001",
       "partySavedAt": "2026-10-11T12:00:00.000Z"
+    },
+    "settled": {
+      "source": "ledger",
+      "applied": true,
+      "coin": [
+        {
+          "reason": "party_loot",
+          "amount": 371,
+          "discarded": 0
+        }
+      ],
+      "coinLost": null,
+      "reputation": [
+        {
+          "pool": "siege",
+          "delta": -14
+        }
+      ],
+      "ladder": [
+        {
+          "pool": "siege",
+          "pointsDelta": 10,
+          "levelBefore": 0,
+          "levelAfter": 0
+        }
+      ],
+      "unlockPoints": [],
+      "deMerged": [],
+      "destroyed": [],
+      "trip": null
     },
     "resolverVersion": 8,
     "logFormat": 2,
@@ -73,18 +64,45 @@
         {
           "u": 0,
           "side": "attacker",
-          "ref": "00000000-0000-4000-8000-000000000005",
+          "ref": "00000000-0000-4000-8000-000000000003",
           "typeId": "desert.dust_rider",
           "level": 1,
           "maxHp": 620,
           "hp": 620,
           "ab": 4,
           "displayName": "Dust Rider",
-          "ability": "Spur On"
+          "ability": "Spur On",
+          "stance": "nearest"
         },
         {
           "u": 1,
           "side": "attacker",
+          "ref": "00000000-0000-4000-8000-000000000004",
+          "typeId": "desert.well_digger",
+          "level": 1,
+          "maxHp": 1100,
+          "hp": 1100,
+          "ab": 5,
+          "displayName": "Well Digger",
+          "ability": "Pick Swing",
+          "stance": "traps"
+        },
+        {
+          "u": 2,
+          "side": "defender",
+          "ref": "00000000-0000-4000-8000-000000000005",
+          "typeId": "desert.well_digger",
+          "level": 1,
+          "maxHp": 1100,
+          "hp": 1100,
+          "ab": 5,
+          "displayName": "Well Digger",
+          "ability": "Pick Swing",
+          "stance": "hold"
+        },
+        {
+          "u": 3,
+          "side": "defender",
           "ref": "00000000-0000-4000-8000-000000000006",
           "typeId": "desert.well_digger",
           "level": 1,
@@ -92,31 +110,8 @@
           "hp": 1100,
           "ab": 5,
           "displayName": "Well Digger",
-          "ability": "Pick Swing"
-        },
-        {
-          "u": 2,
-          "side": "defender",
-          "ref": "00000000-0000-4000-8000-000000000002",
-          "typeId": "desert.well_digger",
-          "level": 1,
-          "maxHp": 1100,
-          "hp": 1100,
-          "ab": 5,
-          "displayName": "Well Digger",
-          "ability": "Pick Swing"
-        },
-        {
-          "u": 3,
-          "side": "defender",
-          "ref": "00000000-0000-4000-8000-000000000003",
-          "typeId": "desert.well_digger",
-          "level": 1,
-          "maxHp": 1100,
-          "hp": 1100,
-          "ab": 5,
-          "displayName": "Well Digger",
-          "ability": "Pick Swing"
+          "ability": "Pick Swing",
+          "stance": "guard"
         }
       ],
       "fences": [
@@ -188,18 +183,22 @@
           "typeId": "trap.spike_pit",
           "x": 14848,
           "y": 12800,
-          "displayName": "Spike Pit"
+          "displayName": "Spike Pit",
+          "category": "groundwork"
+        }
+      ],
+      "siege": [
+        {
+          "typeId": "siege.battering_wagon",
+          "displayName": "Battering Wagon",
+          "counters": {
+            "kind": "fence",
+            "category": "timber"
+          }
         }
       ]
     },
-    "stored": {
-      "rawBytes": 5033,
-      "storedBytes": 1493,
-      "encoding": "gzip",
-      "sha256": "a000000000000000000000000000000000000000000000000000000000000002",
-      "contentHash": "a000000000000000000000000000000000000000000000000000000000000003",
-      "createdAt": "2026-10-11T12:00:01.000Z"
-    },
+    "stored": null,
     "log": {
       "format": "caravan-replay",
       "v": 2,
@@ -219,7 +218,7 @@
         {
           "u": 0,
           "side": "attacker",
-          "ref": "00000000-0000-4000-8000-000000000005",
+          "ref": "00000000-0000-4000-8000-000000000003",
           "typeId": "desert.dust_rider",
           "level": 1,
           "maxHp": 620,
@@ -229,7 +228,7 @@
         {
           "u": 1,
           "side": "attacker",
-          "ref": "00000000-0000-4000-8000-000000000006",
+          "ref": "00000000-0000-4000-8000-000000000004",
           "typeId": "desert.well_digger",
           "level": 1,
           "maxHp": 1100,
@@ -239,7 +238,7 @@
         {
           "u": 2,
           "side": "defender",
-          "ref": "00000000-0000-4000-8000-000000000002",
+          "ref": "00000000-0000-4000-8000-000000000005",
           "typeId": "desert.well_digger",
           "level": 1,
           "maxHp": 1100,
@@ -249,7 +248,7 @@
         {
           "u": 3,
           "side": "defender",
-          "ref": "00000000-0000-4000-8000-000000000003",
+          "ref": "00000000-0000-4000-8000-000000000006",
           "typeId": "desert.well_digger",
           "level": 1,
           "maxHp": 1100,
@@ -1543,7 +1542,7 @@
         ]
       ],
       "count": 122,
-      "check": 2900256148
+      "check": 541180846
     }
   }
 }

@@ -48,12 +48,12 @@ import {
   unequipResultShape,
 } from "./shapes.ts";
 import { bankResultShape, encounterCommitShape, pushResultShape, stakesPreviewShape, tripStartShape, tripStatusShape } from "./tripShapes.ts";
-import { replayShape } from "./replayShapes.ts";
+import { recentFightsShape, replayShape } from "./replayShapes.ts";
 import { inboxMarkResultShape, inboxShape, inboxStrikeLinesShape, inboxUnreadShape } from "./inboxShapes.ts";
 import type { InboxCategoryView, InboxMarkRequest, InboxMarkResult, InboxStrikeLinesView, InboxUnreadView, InboxView } from "./inboxTypes.ts";
 import { onboardingChangeShape, onboardingShape, type OnboardingChange, type OnboardingResponse } from "../onboarding/shapes.ts";
 import type { OnboardingStep } from "../onboarding/steps.ts";
-import type { ReplayView } from "./replayTypes.ts";
+import type { RecentFightsView, ReplayView } from "./replayTypes.ts";
 import type { BankResult, EncounterCommitResult, PushResult, StakesPreview, TripStartResult, TripStatusView } from "./tripTypes.ts";
 import type {
   AuthResponse,
@@ -191,6 +191,8 @@ export interface Api {
   // The replay of a resolved encounter (chunk 13 route, chunk 22 player), for either
   // participant. 409 `not_resolved`, 410 `replay_expired`, 404 for anyone else.
   replay(jobId: string): Promise<ReplayView>;
+  // Chunk 22 QA D2: the caravan's fights still kept by the replay retention rule, newest first.
+  recentFights(): Promise<RecentFightsView>;
   // The in-app inbox (chunk 29 routes). Derived by the server; read state is the server's.
   inbox(): Promise<InboxView>;
   inboxUnread(): Promise<InboxUnreadView>;
@@ -303,6 +305,7 @@ export function createApi(opts: ApiOptions): Api {
     equipCosmetic: (cosmeticId) => request("POST", "/me/cosmetics/equip", equipResultShape, { cosmeticId }),
     unequipCosmetic: (slot) => request("POST", "/me/cosmetics/unequip", unequipResultShape, { slot }),
     replay: (jobId) => request("GET", `/me/encounters/${encodeURIComponent(jobId)}/replay`, replayShape),
+    recentFights: () => request("GET", "/me/encounters", recentFightsShape),
     inbox: () => request("GET", "/me/inbox", inboxShape),
     inboxUnread: () => request("GET", "/me/inbox/unread", inboxUnreadShape),
     markInboxRead: (req) => request("POST", "/me/inbox/read", inboxMarkResultShape, req),

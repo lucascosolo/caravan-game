@@ -68,6 +68,10 @@ export const PALETTE = {
   water: 0x2b4a5e,
   lattice: 0xf1e9d6,
   gap: 0xf1e9d6,
+  /** Chunk 22 QA S5: a fence BREAKING in a replay has a colour of its own (Okabe–Ito bluish green), never the raiders' vermillion. */
+  fenceBreak: 0x009e73,
+  /** Chunk 22 QA S4: the line of a hit in a replay (cream, over the field). */
+  hit: 0xf1e9d6,
 } as const;
 
 const AFFINITY_SHAPE: Record<AffinityCategory, PlaceholderShape> = {

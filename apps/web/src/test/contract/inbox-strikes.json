@@ -15,11 +15,11 @@
           "caravanName": "Caravan",
           "regionId": "desert"
         },
-        "coinEarned": 0,
+        "coinEarned": 371,
         "coinTransferred": 0,
         "coinDiscardedAtCap": 0,
-        "reputationDelta": 0,
-        "ladderPointsGained": 0
+        "reputationDelta": -14,
+        "ladderPointsGained": 10
       },
       {
         "seq": 1,

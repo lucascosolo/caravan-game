@@ -30,6 +30,7 @@ import { navigate } from "../../shell/router.tsx";
 import { BankOrPushScreen, type Decided } from "./BankOrPushScreen.tsx";
 import { CandidatesScreen } from "./CandidatesScreen.tsx";
 import { EncounterResult } from "./EncounterResult.tsx";
+import { RecentFights } from "../replay/RecentFights.tsx";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { FormationScreen } from "./FormationScreen.tsx";
 import { ResolvingScreen } from "./ResolvingScreen.tsx";
@@ -277,6 +278,7 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
           {title}
           <p>{T.inTown}</p>
           <p className="hint">{T.inTownBody}</p>
+          <RecentFights api={api} />
         </section>
       );
     case "packed":
@@ -288,6 +290,7 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
           <button type="button" className="btn btn--primary btn--block" onClick={() => navigate("town")}>
             {P.toTown}
           </button>
+          <RecentFights api={api} />
         </section>
       );
     case "ended":
@@ -295,6 +298,8 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
         <>
           {noticeLine}
           <TripSummary trip={state.trip} bank={lastBank} balance={state.balance} past={state.past} />
+          {/* Chunk 22 QA D2: any fight within retention, not only this trip's. */}
+          <RecentFights api={api} />
         </>
       );
     case "error":
