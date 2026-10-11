@@ -28,16 +28,15 @@ import {
   saveFormation,
   type PackRequest,
 } from "../circle/service.js";
+import { isUuid } from "../util/uuid.js";
 import { requireAuth } from "./require-auth.js";
 
 type CaravanParams = { caravanId: string };
 type EncounterParams = CaravanParams & { n: string };
 
-/** QA S4: a real UUID (8-4-4-4-12 hex), not merely 36 characters of hex and dashes. */
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function ownCaravan(req: FastifyRequest<{ Params: CaravanParams }>): Promise<CaravanRow> {
-  const caravan = UUID.test(req.params.caravanId) ? await findCaravanById(req.server.db, req.params.caravanId) : null;
+  const caravan = isUuid(req.params.caravanId) ? await findCaravanById(req.server.db, req.params.caravanId) : null;
   if (!caravan || caravan.account_id !== req.auth!.account.id) throw notFound("no_caravan", "caravan not found");
   return caravan;
 }

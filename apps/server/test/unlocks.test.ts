@@ -5,7 +5,7 @@
  * nothing else, access lands on the right side of the account/caravan split, nothing here
  * funds points, and nothing — a wipe streak included — ever takes a reached node away.
  */
-import { TUNABLES, UNLOCK_WEBS, type UnlockPool } from "@caravan/content";
+import { TUNABLES, UNLOCK_WEBS, nodeCost, type UnlockPool } from "@caravan/content";
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -14,12 +14,15 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { accessCheckFor, isUnlocked, unlockedTypeIds } from "../src/circle/access.js";
 import { withTransaction } from "../src/db/pool.js";
+import type { JsonObject } from "../src/ledger/events.js";
 import { appendEvents } from "../src/ledger/ledger.js";
 import { verifyProjection } from "../src/ledger/projection.js";
 import { applyEncounterOutcome, progressionCausationId } from "../src/progression/index.js";
-import { getAccountPoolProgress, getCaravanPoolProgress } from "../src/repo/poolProgress.js";
+import { insertCaravan } from "../src/repo/caravans.js";
+import { createCaravanPoolProgress, getAccountPoolProgress, getCaravanPoolProgress } from "../src/repo/poolProgress.js";
 import { createUnitInstance, listUnitInstancesForCaravan } from "../src/repo/unitInstances.js";
-import { hasAccess, purchasedNodeIds, unlockCausationId } from "../src/unlocks/index.js";
+import { hasAccess, purchasedNodeIds, readOwnerSnapshot, unlockCausationId, unlockWebsSnapshot } from "../src/unlocks/index.js";
+import { isUuid } from "../src/util/uuid.js";
 import { appRolePool, expectDbError, testPool, truncateAll, unique } from "./helpers.js";
 
 const pool = testPool();
@@ -40,8 +43,8 @@ async function registerPlayer(region: "desert" | "mountain" = "desert"): Promise
   return { token: body.token, accountId: body.account.id, caravanId: body.caravan.id, regionId: region };
 }
 
-function call(p: Player, method: "GET" | "POST", url: string, payload?: unknown): Promise<LightMyRequestResponse> {
-  const opts: InjectOptions = { method, url, headers: { authorization: `Bearer ${p.token}` } };
+function call(p: Player, method: "GET" | "POST", url: string, payload?: unknown, headers: Record<string, string> = {}): Promise<LightMyRequestResponse> {
+  const opts: InjectOptions = { method, url, headers: { authorization: `Bearer ${p.token}`, ...headers } };
   if (payload !== undefined) opts.payload = payload as NonNullable<InjectOptions["payload"]>;
   return app.inject(opts);
 }
@@ -59,23 +62,23 @@ const rungCounters: Record<string, number> = {};
  * directly so the spend tests do not have to climb a ladder; one test below drives the
  * real path end to end.
  */
-async function grant(p: Player, pool: UnlockPool, points: number): Promise<void> {
-  await withTransaction(pool === "living" ? testPoolRef : testPoolRef, async (c) => {
-    const key = `${p.accountId}:${pool === "living" ? p.caravanId : ""}:${pool}`;
+async function grant(p: Player, pool: UnlockPool, points: number, caravanId: string = p.caravanId): Promise<void> {
+  await withTransaction(testPoolRef, async (c) => {
+    const key = `${p.accountId}:${pool === "living" ? caravanId : ""}:${pool}`;
     // Count DOWN from the top rung so fixture grants never collide with a real rung-1
     // crossing driven by the end-to-end test below.
     const n = (rungCounters[key] = (rungCounters[key] ?? 0) + 1);
     const rung = 21 - n;
     if (rung < 1) throw new Error(`test fixture: more than 20 grants for ${key}`);
     await appendEvents(c, `test:grant:${p.accountId}:${pool}:${rung}`, [
-      { type: "unlock_points_granted", accountId: p.accountId, caravanId: pool === "living" ? p.caravanId : null, payload: { pool, points, rung } },
+      { type: "unlock_points_granted", accountId: p.accountId, caravanId: pool === "living" ? caravanId : null, payload: { pool, points, rung } },
     ]);
   });
 }
 const testPoolRef = pool;
 
-async function points(p: Player, pool: UnlockPool) {
-  const row = pool === "living" ? await getCaravanPoolProgress(testPoolRef, p.caravanId) : await getAccountPoolProgress(testPoolRef, p.accountId, pool);
+async function points(p: Player, pool: UnlockPool, caravanId: string = p.caravanId) {
+  const row = pool === "living" ? await getCaravanPoolProgress(testPoolRef, caravanId) : await getAccountPoolProgress(testPoolRef, p.accountId, pool);
   return { granted: row!.unlock_points_granted, spent: row!.unlock_points_spent, available: row!.unlock_points_granted - row!.unlock_points_spent };
 }
 
@@ -100,13 +103,13 @@ describe("legibility: the whole web is readable, costs and all, before any spend
     const res = await app.inject({ method: "GET", url: "/unlocks/webs" });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.costByTier).toEqual([0, 1, 2, 4, 6]);
+    expect(body.costByTier).toEqual({ living: [0, 1, 4, 8, 14], trap: [0, 1, 3, 7, 10], siege: [0, 1, 8, 15, 21] });
     expect(body.pointsPerPoolAtLadderCap).toBe(30);
     expect(body.webs.map((w: { id: string }) => w.id)).toEqual(UNLOCK_WEBS.map((w) => w.id));
     const trap = body.webs.find((w: { id: string }) => w.id === "trap");
     expect(trap.scope).toBe("account");
     expect(trap.nodes).toHaveLength(TUNABLES.TRAP_WEB_NODES);
-    expect(trap.nodes.find((n: { id: string }) => n.id === "fence.stacked_stone")).toEqual({ id: "fence.stacked_stone", tier: 4, cost: 6, requires: ["fence.barbed_wire"], starting: false });
+    expect(trap.nodes.find((n: { id: string }) => n.id === "fence.stacked_stone")).toEqual({ id: "fence.stacked_stone", tier: 4, cost: 10, requires: ["fence.barbed_wire"], starting: false });
     const again = await app.inject({ method: "GET", url: "/unlocks/webs" });
     expect(again.body).toBe(res.body);
   });
@@ -132,7 +135,9 @@ describe("legibility: the whole web is readable, costs and all, before any spend
     }
     const living = webs[2]!;
     expect(living.nodes.filter((n) => n.reached).map((n) => n.id)).toEqual(["desert.dust_rider", "desert.well_digger"]);
-    expect(living.nodes.find((n) => n.id === "desert.vaquero")).toMatchObject({ cost: 6, reached: false, prerequisitesMet: false, missing: ["desert.canteen_carrier"] });
+    expect(living.nodes.find((n) => n.id === "desert.vaquero")).toMatchObject({ cost: 14, reached: false, prerequisitesMet: false, missing: ["desert.canteen_carrier"] });
+    // every cost in the view is the authored (pool, tier) cost — nothing per player
+    for (const w of webs) for (const n of w.nodes) expect(n.cost).toBe(nodeCost(UNLOCK_WEBS.find((x) => x.id === w.id)!, UNLOCK_WEBS.find((x) => x.id === w.id)!.nodes.find((x) => x.id === n.id)!));
     // the living web is the caravan's region's: no other region's unit appears anywhere in the response
     expect(JSON.stringify(webs)).not.toMatch(/mountain\.|badlands\.|high_plains\./);
   });
@@ -209,7 +214,7 @@ describe("spending: full server-side validation by hand-crafted request", () => 
     const body = res.json();
     expect(body).toMatchObject({ created: true, webId: "living.desert", pool: "living", scope: "caravan", caravanId: p.caravanId, points: { granted: 30, spent: 1, available: 29 } });
     expect(body.node).toMatchObject({ id: "desert.sand_sharpshooter", reached: true, affordable: false, cost: 1 });
-    expect(body.nodes.find((n: { id: string }) => n.id === "desert.canteen_carrier")).toMatchObject({ reached: false, prerequisitesMet: true, affordable: true, cost: 4 });
+    expect(body.nodes.find((n: { id: string }) => n.id === "desert.canteen_carrier")).toMatchObject({ reached: false, prerequisitesMet: true, affordable: true, cost: 8 });
     expect(await purchaseEventCount(p)).toBe(1);
     const ev = await pool.query("SELECT * FROM ledger_event WHERE account_id = $1 AND event_type = 'unlock_node_purchased'", [p.accountId]);
     expect(ev.rows[0]).toMatchObject({ caravan_id: p.caravanId, causation_id: unlockCausationId("living", p.caravanId, "desert.sand_sharpshooter"), payload: { pool: "living", nodeId: "desert.sand_sharpshooter", cost: 1, tier: 1 } });
@@ -239,17 +244,20 @@ describe("spending: full server-side validation by hand-crafted request", () => 
     expect((await verifyProjection(pool, p.accountId)).ok).toBe(true);
   });
 
-  it("walks a chain only in order, and an exact budget can be spent to zero but not below", async () => {
-    // siege: 30 points; planks(1) -> dousing(2); wagon(start) -> cutters(2) -> blasting(6) = 11
-    for (const id of ["siege.bridging_planks", "siege.dousing_wagon", "siege.fence_cutters", "siege.blasting_crate"]) {
+  it("walks a chain only in order, a capped ladder cannot buy the whole web, and an exact budget can be spent to zero but not below", async () => {
+    // siege: 30 points (a capped ladder); planks(1) -> dousing(8); wagon(start) -> cutters(8) -> blasting(21) = 38 > 30
+    for (const id of ["siege.bridging_planks", "siege.dousing_wagon", "siege.fence_cutters"]) {
       expect((await spend(p, "siege", id)).statusCode).toBe(201);
     }
-    expect(await points(p, "siege")).toEqual({ granted: 30, spent: 11, available: 19 });
+    expect(await points(p, "siege")).toEqual({ granted: 30, spent: 17, available: 13 });
+    const capstone = await spend(p, "siege", "siege.blasting_crate");
+    expect(capstone.statusCode).toBe(409);
+    expect(capstone.json()).toMatchObject({ error: "insufficient_points", message: expect.stringContaining("costs 21") });
     const q = await registerPlayer("desert");
-    await grant(q, "siege", 3);
-    expect((await spend(q, "siege", "siege.bridging_planks")).statusCode).toBe(201); // 2 left
+    await grant(q, "siege", 9);
+    expect((await spend(q, "siege", "siege.bridging_planks")).statusCode).toBe(201); // 8 left
     expect((await spend(q, "siege", "siege.fence_cutters")).statusCode).toBe(201); // 0 left
-    expect(await points(q, "siege")).toEqual({ granted: 3, spent: 3, available: 0 });
+    expect(await points(q, "siege")).toEqual({ granted: 9, spent: 9, available: 0 });
     expect((await spend(q, "siege", "siege.dousing_wagon")).json().error).toBe("insufficient_points");
     expect((await verifyProjection(pool, q.accountId)).ok).toBe(true);
   });
@@ -359,7 +367,7 @@ describe("permanence: access, once granted, is never revoked", () => {
     }
     const reachedBefore = [...(await unlockedTypeIds(pool, owner(p)))].sort();
     const pointsBefore = { living: await points(p, "living"), trap: await points(p, "trap"), siege: await points(p, "siege") };
-    expect(pointsBefore.living.available).toBe(7);
+    expect(pointsBefore.living.available).toBe(5);
 
     // 40 overruns in a row: the harshest outcome the game has, on every pool
     for (let i = 0; i < 40; i++) {
@@ -394,6 +402,228 @@ describe("permanence: access, once granted, is never revoked", () => {
     const twice = await expectDbError(pool, "INSERT INTO ledger_event (event_type, account_id, caravan_id, causation_id, causation_seq, payload) VALUES ('unlock_node_purchased', $1, NULL, 'bad:twice', 0, '{\"pool\":\"trap\",\"nodeId\":\"trap.jaw_trap\",\"cost\":1}')", [p.accountId]);
     expect(twice?.code).toBe("23505");
     expect((await verifyProjection(pool, p.accountId)).ok).toBe(true);
+  });
+});
+
+describe("QA-05 S1: ids from the outside are canonical uuids or they are refused before the database sees them", () => {
+  it("isUuid accepts the canonical 8-4-4-4-12 form only", () => {
+    expect(isUuid("3f2504e0-4f89-11d3-9a0c-0305e82c3301")).toBe(true);
+    expect(isUuid("3F2504E0-4F89-11D3-9A0C-0305E82C3301")).toBe(true);
+    for (const bad of ["------------------------------------", "a".repeat(36), "aaaaaaaa-aaaa-aaaa-aaaaaaaaa-aaaaaaa", "3f2504e0-4f89-11d3-9a0c-0305e82c330", "3f2504e0-4f89-11d3-9a0c-0305e82c33011", "", 7, null, undefined, {}]) {
+      expect(isUuid(bad), String(bad)).toBe(false);
+    }
+  });
+
+  it("POST /me/unlocks/spend: every malformed body is a 4xx, never a 500 — the 36-character non-uuids included", async () => {
+    const p = await registerPlayer("desert");
+    const cases: [string, string, number, string | null][] = [
+      ["json string", JSON.stringify("hello"), 400, "bad_body"],
+      ["json array", "[]", 400, null],
+      ["json null", "null", 400, "bad_body"],
+      ["json number", "7", 400, "bad_body"],
+      ["invalid json", "{nope", 400, null],
+      ["empty body", "", 400, null],
+      ["pool array", JSON.stringify({ pool: ["trap"], nodeId: "trap.jaw_trap" }), 400, "bad_pool"],
+      ["nodeId number", JSON.stringify({ pool: "trap", nodeId: 5 }), 400, "bad_node"],
+      ["caravanId object", JSON.stringify({ pool: "living", nodeId: "desert.sand_sharpshooter", caravanId: {} }), 400, "bad_caravan"],
+      ["caravanId 36 dashes", JSON.stringify({ pool: "living", nodeId: "desert.sand_sharpshooter", caravanId: "------------------------------------" }), 400, "bad_caravan"],
+      ["caravanId 36 hex no dashes", JSON.stringify({ pool: "living", nodeId: "desert.sand_sharpshooter", caravanId: "a".repeat(36) }), 400, "bad_caravan"],
+      ["caravanId mis-grouped dashes", JSON.stringify({ pool: "living", nodeId: "desert.sand_sharpshooter", caravanId: "aaaaaaaa-aaaa-aaaa-aaaaaaaaa-aaaaaaa" }), 400, "bad_caravan"],
+    ];
+    for (const [name, body, code, error] of cases) {
+      const res = await call(p, "POST", "/me/unlocks/spend", body, { "content-type": "application/json" });
+      expect(res.statusCode, name).toBe(code);
+      if (error) expect(res.json().error, name).toBe(error);
+    }
+    expect(await purchaseEventCount(p)).toBe(0);
+  });
+
+  it("the circle routes: a 36-character non-uuid caravan id is a 404, not a 500", async () => {
+    const p = await registerPlayer("desert");
+    for (const id of ["------------------------------------", "a".repeat(36), "aaaaaaaa-aaaa-aaaa-aaaaaaaaa-aaaaaaa"]) {
+      const res = await call(p, "GET", `/caravans/${id}/manifest`);
+      expect(res.statusCode, id).toBe(404);
+      expect(res.json().error).toBe("no_caravan");
+    }
+  });
+});
+
+describe("QA-05 S2: hasAccess reads region and ownership from the caravan row — the caller's word is not trusted", () => {
+  it("a desert caravan with a caller-supplied regionId of mountain is refused outright: no mountain starter, no desert starter, nothing", async () => {
+    const p = await registerPlayer("desert");
+    const wrong = { accountId: p.accountId, caravanId: p.caravanId, regionId: "mountain" as const };
+    expect(await hasAccess(pool, wrong, "mountain.grizzly")).toBe(false);
+    expect(await hasAccess(pool, wrong, "desert.dust_rider")).toBe(false);
+    expect(await hasAccess(pool, wrong, "trap.spike_pit")).toBe(false);
+    expect([...(await unlockedTypeIds(pool, wrong))]).toEqual([]);
+    expect((await accessCheckFor(pool, wrong))("desert.dust_rider")).toBe(false);
+    expect(await readOwnerSnapshot(pool, wrong)).toBeNull();
+    // the same pair without a region, or with the right one, is the real owner
+    const right = { accountId: p.accountId, caravanId: p.caravanId };
+    expect(await hasAccess(pool, right, "desert.dust_rider")).toBe(true);
+    expect(await hasAccess(pool, right, "mountain.grizzly")).toBe(false);
+    expect(await hasAccess(pool, { ...right, regionId: "desert" }, "desert.dust_rider")).toBe(true);
+    expect((await readOwnerSnapshot(pool, right))?.regionId).toBe("desert");
+  });
+
+  it("another account's caravan, a caravan that does not exist, and a non-uuid id are all refused, never a throw", async () => {
+    const a = await registerPlayer("desert");
+    const b = await registerPlayer("desert");
+    await grant(a, "living", 30);
+    expect((await spend(a, "living", "desert.sand_sharpshooter", a.caravanId)).statusCode).toBe(201);
+    // b naming a's caravan gets nothing, not even a's starters, and not a's purchase
+    const theft = { accountId: b.accountId, caravanId: a.caravanId, regionId: "desert" as const };
+    expect(await hasAccess(pool, theft, "desert.sand_sharpshooter")).toBe(false);
+    expect(await hasAccess(pool, theft, "desert.dust_rider")).toBe(false);
+    expect(await hasAccess(pool, theft, "trap.spike_pit")).toBe(false);
+    expect([...(await unlockedTypeIds(pool, theft))]).toEqual([]);
+    expect(await hasAccess(pool, { accountId: a.accountId, caravanId: "00000000-0000-0000-0000-000000000000" }, "desert.dust_rider")).toBe(false);
+    expect(await hasAccess(pool, { accountId: a.accountId, caravanId: "a".repeat(36) }, "desert.dust_rider")).toBe(false);
+    expect(await hasAccess(pool, { accountId: "not-a-uuid", caravanId: a.caravanId }, "desert.dust_rider")).toBe(false);
+    expect((await accessCheckFor(pool, { accountId: a.accountId, caravanId: "nope" }))("desert.dust_rider")).toBe(false);
+  });
+
+  it("accessCheckFor is a snapshot per call, not shared across calls or owners", async () => {
+    const p = await registerPlayer("desert");
+    const o = owner(p);
+    const before = await accessCheckFor(pool, o);
+    await grant(p, "living", 1);
+    expect((await spend(p, "living", "desert.sand_sharpshooter", p.caravanId)).statusCode).toBe(201);
+    expect(before("desert.sand_sharpshooter")).toBe(false);
+    expect((await accessCheckFor(pool, o))("desert.sand_sharpshooter")).toBe(true);
+    expect((await accessCheckFor(pool, o))("desert.nobody")).toBe(false);
+    const q = await registerPlayer("desert");
+    expect((await accessCheckFor(pool, owner(q)))("desert.sand_sharpshooter")).toBe(false);
+  });
+});
+
+describe("QA-05 S3: the storage layer refuses a free or nameless purchase, as the app role", () => {
+  const craft = (p: Player, tag: string, caravanId: string | null, payload: JsonObject) =>
+    withTransaction(appRole, (c) => appendEvents(c, `test:craft:${p.accountId}:${tag}`, [{ type: "unlock_node_purchased", accountId: p.accountId, caravanId, payload }]));
+  const code = async (fn: () => Promise<unknown>): Promise<string | undefined> => {
+    try {
+      await fn();
+      return undefined;
+    } catch (err) {
+      return (err as { code?: string }).code;
+    }
+  };
+
+  it("cost 0 (would mint access for nothing), a negative cost, a string cost, a missing, empty or non-string nodeId are all 23514", async () => {
+    const p = await registerPlayer("desert");
+    expect(await code(() => craft(p, "zero", p.caravanId, { pool: "living", nodeId: "desert.vaquero", cost: 0, tier: 4 }))).toBe("23514");
+    expect(await code(() => craft(p, "neg", p.caravanId, { pool: "living", nodeId: "desert.canteen_carrier", cost: -1, tier: 3 }))).toBe("23514");
+    expect(await code(() => craft(p, "str", p.caravanId, { pool: "living", nodeId: "desert.canteen_carrier", cost: "1", tier: 3 }))).toBe("23514");
+    expect(await code(() => craft(p, "none", null, { pool: "trap", cost: 1 }))).toBe("23514");
+    expect(await code(() => craft(p, "empty", null, { pool: "trap", nodeId: "", cost: 1 }))).toBe("23514");
+    expect(await code(() => craft(p, "num", null, { pool: "trap", nodeId: 7, cost: 1 }))).toBe("23514");
+    expect(await code(() => craft(p, "null", null, { pool: "trap", nodeId: null, cost: 1 }))).toBe("23514");
+    expect(await hasAccess(pool, owner(p), "desert.vaquero")).toBe(false);
+    expect(await purchaseEventCount(p)).toBe(0);
+    expect(await points(p, "living")).toEqual({ granted: 0, spent: 0, available: 0 });
+    // a well-formed purchase from the same role still lands (the constraint is a shape check, not a lock-out)
+    await grant(p, "trap", 1);
+    expect(await code(() => craft(p, "ok", null, { pool: "trap", nodeId: "trap.jaw_trap", cost: 1, tier: 1 }))).toBeUndefined();
+    expect(await points(p, "trap")).toEqual({ granted: 1, spent: 1, available: 0 });
+  });
+
+  it("the constraint is a shape check only: a crafted purchase naming a node outside the owner's web charges points and grants nothing (the spend service is the gate)", async () => {
+    const p = await registerPlayer("desert");
+    await grant(p, "living", 6);
+    await craft(p, "foreign", p.caravanId, { pool: "living", nodeId: "mountain.grizzly", cost: 6, tier: 4 });
+    expect(await hasAccess(pool, owner(p), "mountain.grizzly")).toBe(false);
+    expect([...(await unlockedTypeIds(pool, owner(p)))].sort()).toEqual(["desert.dust_rider", "desert.well_digger", "fence.brush_pile", "siege.battering_wagon", "trap.spike_pit"]);
+    expect(await points(p, "living")).toEqual({ granted: 6, spent: 6, available: 0 });
+    const v = await call(p, "GET", "/me/unlocks");
+    expect(v.statusCode).toBe(200);
+    expect(JSON.stringify(v.json())).not.toMatch(/mountain\./);
+  });
+});
+
+describe("QA-05 N1/N4: races, two caravans of one account, and the view as one snapshot", () => {
+  it("two different nodes racing with points for only one: exactly one lands, spent is 1, and the ledger holds one purchase", async () => {
+    const p = await registerPlayer("desert");
+    await grant(p, "trap", 1);
+    const rs = await Promise.all([spend(p, "trap", "trap.tripwire_snare"), spend(p, "trap", "trap.jaw_trap"), spend(p, "trap", "trap.jaw_trap"), spend(p, "trap", "trap.tripwire_snare")]);
+    const codes = rs.map((r) => r.statusCode).sort();
+    expect(codes.filter((c) => c === 201)).toHaveLength(1);
+    expect(codes.filter((c) => c === 200)).toHaveLength(1); // the replay of the winner
+    expect(codes.filter((c) => c === 409)).toHaveLength(2); // the loser, twice: insufficient_points
+    for (const r of rs) if (r.statusCode === 409) expect(r.json().error).toBe("insufficient_points");
+    expect(await points(p, "trap")).toEqual({ granted: 1, spent: 1, available: 0 });
+    expect(await purchasedNodeIds(pool, "trap", { accountId: p.accountId })).toHaveLength(1);
+    expect((await verifyProjection(pool, p.accountId)).ok).toBe(true);
+  });
+
+  it("a spend racing a grant never makes spent exceed granted", async () => {
+    const p = await registerPlayer("desert");
+    await grant(p, "siege", 1);
+    await Promise.all([spend(p, "siege", "siege.bridging_planks"), grant(p, "siege", 2), spend(p, "siege", "siege.bridging_planks")]);
+    const row = await points(p, "siege");
+    expect(row.spent).toBeLessThanOrEqual(row.granted);
+    expect(row.spent).toBe(1);
+    expect(row.granted).toBe(3);
+  });
+
+  it("two caravans of one account: the living web is per caravan, A's points cannot buy B's node, the same node id is reached once per caravan (the once-per-node index is per caravan), and the view lists both", async () => {
+    const p = await registerPlayer("desert");
+    const second = await withTransaction(pool, async (c) => {
+      const cv = await insertCaravan(c, { accountId: p.accountId, regionId: "desert", name: "Second" });
+      await createCaravanPoolProgress(c, cv.id);
+      return cv;
+    });
+    await grant(p, "living", 10, p.caravanId); // only caravan A has points
+    const onB = await spend(p, "living", "desert.sand_sharpshooter", second.id);
+    expect(onB.statusCode).toBe(409);
+    expect(onB.json().error).toBe("insufficient_points");
+    expect((await spend(p, "living", "desert.sand_sharpshooter", p.caravanId)).statusCode).toBe(201);
+    expect(await hasAccess(pool, { accountId: p.accountId, caravanId: second.id }, "desert.sand_sharpshooter")).toBe(false);
+    expect(await hasAccess(pool, { accountId: p.accountId, caravanId: p.caravanId }, "desert.sand_sharpshooter")).toBe(true);
+    // B buys the same node id with its own points: the unique index is keyed per caravan
+    await grant(p, "living", 10, second.id);
+    expect((await spend(p, "living", "desert.sand_sharpshooter", second.id)).statusCode).toBe(201);
+    expect((await spend(p, "living", "desert.sand_sharpshooter", second.id)).statusCode).toBe(200);
+    expect(await hasAccess(pool, { accountId: p.accountId, caravanId: second.id }, "desert.sand_sharpshooter")).toBe(true);
+    expect(await points(p, "living", p.caravanId)).toEqual({ granted: 10, spent: 1, available: 9 });
+    expect(await points(p, "living", second.id)).toEqual({ granted: 10, spent: 1, available: 9 });
+    // trap and siege are on the account: one web, shared by both caravans
+    await grant(p, "trap", 1);
+    expect((await spend(p, "trap", "trap.jaw_trap")).statusCode).toBe(201);
+    expect(await hasAccess(pool, { accountId: p.accountId, caravanId: second.id }, "trap.jaw_trap")).toBe(true);
+    const view = (await call(p, "GET", "/me/unlocks")).json().webs as { id: string; caravanId: string | null; nodes: { id: string; reached: boolean }[] }[];
+    expect(view.map((w) => [w.id, w.caravanId])).toEqual([["trap", null], ["siege", null], ["living.desert", p.caravanId], ["living.desert", second.id]]);
+    expect(view.filter((w) => w.id === "living.desert").map((w) => w.nodes.find((n) => n.id === "desert.sand_sharpshooter")!.reached)).toEqual([true, true]);
+    expect((await verifyProjection(pool, p.accountId)).ok).toBe(true);
+  });
+
+  it("GET /me/unlocks is one read-only snapshot: the route reads through a READ ONLY transaction, and a replayed spend's body is identical except `created`", async () => {
+    const p = await registerPlayer("desert");
+    await grant(p, "trap", 5);
+    const a = (await spend(p, "trap", "trap.jaw_trap")).json();
+    const b = (await spend(p, "trap", "trap.jaw_trap")).json();
+    expect({ ...a, created: null }).toEqual({ ...b, created: null });
+    expect([a.created, b.created]).toEqual([true, false]);
+    // the snapshot read agrees with the route, and with the spend's redrawn web
+    const snap = await unlockWebsSnapshot(pool, p.accountId);
+    expect((await call(p, "GET", "/me/unlocks")).json().webs).toEqual(JSON.parse(JSON.stringify(snap)));
+    expect(snap.find((w) => w.id === "trap")!.nodes).toEqual(b.nodes);
+    const route = readFileSync(join(__dirname, "..", "src", "routes", "unlocks.ts"), "utf8");
+    expect(route).toMatch(/unlockWebsSnapshot\(/);
+    expect(route).not.toMatch(/unlockWebsForAccount\(/);
+    expect(readFileSync(join(__dirname, "..", "src", "unlocks", "view.ts"), "utf8")).toMatch(/BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY/);
+  });
+
+  it("legibility: `affordable` is false while prerequisites are missing even with points to spare, and the public web carries no account data", async () => {
+    const p = await registerPlayer("desert");
+    await grant(p, "living", 30);
+    const view = (await call(p, "GET", "/me/unlocks")).json().webs as { id: string; nodes: Record<string, unknown>[] }[];
+    const living = view.find((w) => w.id === "living.desert")!;
+    expect(living.nodes).toHaveLength(8);
+    expect(living.nodes.find((n) => n.id === "desert.vaquero")).toMatchObject({ cost: 14, reached: false, prerequisitesMet: false, affordable: false, missing: ["desert.canteen_carrier"] });
+    expect(living.nodes.find((n) => n.id === "desert.longhorn_bull")).toMatchObject({ affordable: false, missing: ["desert.coyote_pack", "desert.powder_monkey"] });
+    const pub = await app.inject({ method: "GET", url: "/unlocks/webs" });
+    expect(pub.body).not.toMatch(/accountId|caravanId|reached|affordable|token/);
+    expect(pub.json().webs).toHaveLength(6);
   });
 });
 

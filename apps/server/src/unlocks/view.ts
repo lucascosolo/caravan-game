@@ -3,7 +3,8 @@
  * exact cost, and whether the player can reach it right now. Nothing is hidden; a node the
  * player cannot afford or cannot reach yet is in the list with the reason.
  */
-import { TUNABLES, UNLOCK_WEBS, evaluateWeb, isStartingNode, nodeCost, type UnlockNodeView, type UnlockPool, type UnlockWeb } from "@caravan/content";
+import { TUNABLES, UNLOCK_WEBS, evaluateWeb, isStartingNode, nodeCost, pointsPerPoolAtLadderCap, type UnlockNodeView, type UnlockPool, type UnlockWeb } from "@caravan/content";
+import type pg from "pg";
 import type { Queryable } from "../db/pool.js";
 import type { PoolProgressRow } from "../db/types.js";
 import { listCaravansForAccount } from "../repo/caravans.js";
@@ -25,16 +26,17 @@ export interface UnlockWebView {
 /** The authored webs, every region, with costs — public data, the same for every player. */
 export function publicUnlockWebs() {
   return {
+    /** Per pool (QA-05 D1): `{ living, trap, siege }`, each indexed by tier. */
     costByTier: TUNABLES.UNLOCK_NODE_COST_BY_TIER,
     tiers: TUNABLES.UNLOCK_WEB_TIERS,
     startingNodes: TUNABLES.STARTING_NODES,
-    pointsPerPoolAtLadderCap: TUNABLES.UNLOCK_POINTS_BY_RUNG.reduce((a, b) => a + b, 0),
+    pointsPerPoolAtLadderCap: pointsPerPoolAtLadderCap(),
     webs: UNLOCK_WEBS.map((w) => ({
       id: w.id,
       pool: w.pool,
       scope: w.pool === "living" ? "caravan" : "account",
       regionId: w.regionId,
-      nodes: w.nodes.map((n) => ({ id: n.id, tier: n.tier, cost: nodeCost(n), requires: n.requires, starting: isStartingNode(n) })),
+      nodes: w.nodes.map((n) => ({ id: n.id, tier: n.tier, cost: nodeCost(w, n), requires: n.requires, starting: isStartingNode(n) })),
     })),
   };
 }
@@ -57,6 +59,10 @@ async function viewFor(db: Queryable, web: UnlockWeb, progress: PoolProgressRow,
 /**
  * The player's own webs: trap and siege on the account, and the living web of each caravan
  * (its region's). Listed in that order, caravans by creation.
+ *
+ * Points and purchases are several statements; the caller runs this inside ONE read-only
+ * transaction (`unlockWebsSnapshot`) so a spend landing mid-read cannot show points that
+ * disagree with the reached set (QA-05 N1).
  */
 export async function unlockWebsForAccount(db: Queryable, accountId: string): Promise<UnlockWebView[]> {
   const progress = await listPoolProgressForAccount(db, accountId);
@@ -73,4 +79,23 @@ export async function unlockWebsForAccount(db: Queryable, accountId: string): Pr
     out.push(await viewFor(db, UNLOCK_WEBS.find((w) => w.pool === "living" && w.regionId === caravan.region_id)!, row, accountId, caravan.id));
   }
   return out;
+}
+
+/**
+ * `unlockWebsForAccount` as one consistent snapshot: a READ ONLY, REPEATABLE READ
+ * transaction, so every statement sees the same committed state and nothing here can write.
+ */
+export async function unlockWebsSnapshot(pool: pg.Pool, accountId: string): Promise<UnlockWebView[]> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    const webs = await unlockWebsForAccount(client, accountId);
+    await client.query("COMMIT");
+    return webs;
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
 }

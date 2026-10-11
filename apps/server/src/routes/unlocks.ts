@@ -10,14 +10,15 @@
  */
 import type { FastifyInstance } from "fastify";
 import { withTransaction } from "../db/pool.js";
-import { parseSpendRequest, publicUnlockWebs, spendUnlockPoints, unlockWebsForAccount } from "../unlocks/index.js";
+import { parseSpendRequest, publicUnlockWebs, spendUnlockPoints, unlockWebsSnapshot } from "../unlocks/index.js";
 import { requireAuth } from "./require-auth.js";
 
 export async function unlockRoutes(app: FastifyInstance): Promise<void> {
   app.get("/unlocks/webs", async () => publicUnlockWebs());
 
   app.get("/me/unlocks", { preHandler: requireAuth }, async (req) => {
-    return { webs: await unlockWebsForAccount(app.db, req.auth!.account.id) };
+    // One read-only snapshot (QA-05 N1): points and purchases from the same committed state.
+    return { webs: await unlockWebsSnapshot(app.db, req.auth!.account.id) };
   });
 
   app.post("/me/unlocks/spend", { preHandler: requireAuth }, async (req, reply) => {

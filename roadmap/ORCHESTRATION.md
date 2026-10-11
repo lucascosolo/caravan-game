@@ -1140,3 +1140,41 @@ passing; server against `caravan_test_c10` → 20 files, **326 passing, 0 skippe
 
 **Next:** QA re-audit of chunk 07 (status `built`) and adversarial QA of chunk 10 (status
 `built`) can both run against this merged tree.
+
+### 2026-10-11 — Chunk 05 (unlock webs: data + spend): QA round 1 closed (D1, S1–S3, N1–N4)
+
+Maker closed every item in `roadmap/qa/05-punchlist.md` (details per item there) on top of
+`96ac47b`. Regressions: the `QA-05 …` describes in `apps/server/test/unlocks.test.ts` (20 →
+33 tests; the reviewer's probes reproduced) and `packages/content/test/unlock-webs.test.ts`
+(11 → 14). New: `apps/server/src/util/uuid.ts` (`isUuid`), migration
+`006_unlock_node_purchase_shape`. Edited in place: migration 005's comment (N3).
+
+**Signature / behaviour changes other chunks should know about:**
+
+- `TUNABLES.UNLOCK_NODE_COST_BY_TIER` is now `{ living, trap, siege }` (D1: 0/1/4/8/14,
+  0/1/3/7/10, 0/1/8/15/21; paid totals 39/39/38, cap reaches ~77–79%). `nodeCost(web, node)`
+  takes the web (was `nodeCost(node)`); `GET /unlocks/webs` `costByTier` is the per-pool
+  record. New pure exports: `costCurveFor`, `pointsPerPoolAtLadderCap`, `closureCost`,
+  `compareCodePoints`. `validateUnlockWebs` now also refuses any node whose closure cost
+  exceeds the capped ladder's points. Chunk 06 (web UI) should read costs per pool.
+- `AccessOwner.regionId` is optional and never trusted (S2): `hasAccess` /
+  `unlockedTypeIds` / `accessCheckFor` resolve `(accountId, caravanId)` against the caravan
+  row (region + ownership) and the three purchase lists in one query (`readOwnerSnapshot`,
+  exported). A pair that does not resolve, or a caller region that disagrees with the row,
+  gets `false` / an empty set, never a throw. Chunk 07's `ownerOf(caravan)` triple is
+  unchanged and still valid.
+- `isUuid` (`src/util/uuid.ts`) is the one uuid check (S1); `routes/circle.ts` line 37 and
+  its import are the only edits outside chunk 05's files. Chunks 09/18 should use it for any
+  id taken from a request.
+- The storage layer refuses an `unlock_node_purchased` with `cost ≤ 0`, a non-number cost,
+  or a missing / empty / non-string `nodeId` (S3, migration 006, 23514). Test fixtures that
+  write the event by hand must carry both (chunk 02's `ledger.test.ts` fixture already does).
+- `GET /me/unlocks` reads through `unlockWebsSnapshot` (`REPEATABLE READ READ ONLY`; N1).
+
+**Verification** (`cd apps/server && TEST_DATABASE_URL=...caravan_test_f05 npx vitest run`):
+17 files, 271 tests passing (+13 over `96ac47b`, all in `unlocks.test.ts`). `pnpm --filter
+@caravan/content test` 58 passing; `pnpm --filter @caravan/circle test` 48 passing
+unchanged. Root `pnpm typecheck`, `pnpm lint`, `pnpm test:boundary` clean.
+
+**Next:** QA re-audit of chunk 05; then `built` → `QA'd` in INDEX.md (not touched here —
+out of this fixer's file set). Chunk 06 consumes the per-pool `costByTier`.

@@ -26,6 +26,7 @@ import { appendEvents, lockAccountForAppend } from "../ledger/ledger.js";
 import { findCaravanById } from "../repo/caravans.js";
 import { getAccountPoolProgress, getCaravanPoolProgress } from "../repo/poolProgress.js";
 import { AppError, badRequest, conflict } from "../services/errors.js";
+import { isUuid } from "../util/uuid.js";
 import { purchasedNodeIds, scopeOf } from "./access.js";
 
 export interface SpendRequest {
@@ -72,7 +73,8 @@ export function parseSpendRequest(body: unknown): SpendRequest {
   if (!isUnlockPool(b["pool"])) throw badRequest("bad_pool", "pool must be one of living, trap, siege");
   if (typeof b["nodeId"] !== "string" || b["nodeId"].length === 0 || b["nodeId"].length > 100) throw badRequest("bad_node", "nodeId must be a type id");
   const caravanId = b["caravanId"];
-  if (caravanId !== undefined && caravanId !== null && (typeof caravanId !== "string" || !/^[0-9a-f-]{36}$/i.test(caravanId))) throw badRequest("bad_caravan", "caravanId must be a uuid");
+  // Canonical uuid only (QA-05 S1): anything else is a 400 here, never a cast error in the database.
+  if (caravanId !== undefined && caravanId !== null && !isUuid(caravanId)) throw badRequest("bad_caravan", "caravanId must be a uuid");
   return { pool: b["pool"], nodeId: b["nodeId"], caravanId: (caravanId as string | null | undefined) ?? null };
 }
 
@@ -165,7 +167,7 @@ export async function spendUnlockPoints(client: pg.PoolClient, accountId: string
     }
   }
 
-  const cost = nodeCost(node);
+  const cost = nodeCost(web, node);
   const scope = scopeOf(req.pool, { accountId, caravanId: resolved.caravanId });
   await appendEvents(client, unlockCausationId(req.pool, resolved.scopeId, node.id), [
     {

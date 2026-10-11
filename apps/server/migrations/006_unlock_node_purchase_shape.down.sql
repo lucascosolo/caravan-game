@@ -1,0 +1,1 @@
+ALTER TABLE ledger_event DROP CONSTRAINT IF EXISTS ledger_event_unlock_node_purchase_shape;

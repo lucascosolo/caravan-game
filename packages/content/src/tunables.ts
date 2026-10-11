@@ -482,14 +482,20 @@ export const TUNABLES = {
   /** TUNABLE (chunk 05). Deepest paid tier; tiers run 0..UNLOCK_WEB_TIERS, tier 0 being the free starting nodes. */
   UNLOCK_WEB_TIERS: 4,
   /**
-   * TUNABLE (chunk 05, NODE_COST_CURVE). Unlock points to reach a node, indexed by its tier.
-   * Tier 0 = a STARTING node: reached free at creation, cost 0 by construction. Tiers 1–4
-   * cost 1 / 2 / 4 / 6. Sized against UNLOCK_POINTS_BY_RUNG (30 per pool at cap).
-   * NOTE for balancing: with the brief's node counts, the paid total of every web (living
-   * 19, trap 24, siege 11) is BELOW 30, so a capped ladder reaches a whole web; the
-   * "most but not all" intent needs either a steeper curve or more nodes. Flagged for QA.
+   * TUNABLE (chunk 05, NODE_COST_CURVE; chunk 05 QA D1). Unlock points to reach a node,
+   * indexed by its tier, PER POOL. Tier 0 = a STARTING node: reached free at creation, cost 0
+   * by construction (validated). The first paid tier costs 1 point in every pool so the
+   * first unlock is immediate. Sized against UNLOCK_POINTS_BY_RUNG (30 per pool at cap):
+   * with the brief's node counts the paid totals are living 39, trap 39, siege 38, so a
+   * capped ladder reaches ~77–79% of each web — "most but not all", a choice, not a
+   * checklist. Every root-to-node path stays ≤ 30, so every node is reachable at cap
+   * (validated on load); which ones is the player's call.
    */
-  UNLOCK_NODE_COST_BY_TIER: [0, 1, 2, 4, 6],
+  UNLOCK_NODE_COST_BY_TIER: {
+    living: [0, 1, 4, 8, 14],
+    trap: [0, 1, 3, 7, 10],
+    siege: [0, 1, 8, 15, 21],
+  },
   /**
    * TUNABLE (chunk 05, STARTING_NODES). How many tier-0 nodes each web has — reached free at
    * creation so a new account can actually play. 2 living per region, 1 trap, 1 siege (the
