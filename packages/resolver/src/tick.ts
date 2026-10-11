@@ -10,20 +10,36 @@
  *                                 a fence segment broke. Never at a data-dependent cadence.
  *   3. movement                 — continuous, fixed-point, sub-cell steps along the smoothed
  *                                 route; no unit–unit collision; fences and bounds only.
- *   4. trap triggers            — hook, chunk 11.
- *   5. posted-unit aggro/leash  — hook, chunk 11.
- *   6. attack cooldowns, damage — chunk 10: the fence BREACH hit only (a unit standing
- *                                 adjacent to the intact segment on its route hits it when
- *                                 its attack cooldown expires). Chunk 11 adds unit-vs-unit.
+ *   4. trap triggers            — chunk 11 (traps.ts): swept-path intersection against each
+ *                                 attacker's sweep polyline, fire once, spend, siege nullify.
+ *   5. posted-unit aggro/leash  — chunk 11 (posted.ts): the three defensive stances, aggro
+ *                                 acquisition, leash pursuit, disengage-and-return, and the
+ *                                 posted units' own movement.
+ *   6. attack cooldowns, damage — every living unit, in id order: its cooldown counts down;
+ *                                 when ready it hits the nearest enemy unit within reach
+ *                                 (combat.ts ATTACK_TARGET_SELECTION) or, failing that, the
+ *                                 fence it is breaching (ATTACK_PRIORITY: a unit in reach
+ *                                 beats the fence — a breacher under fire fights back).
+ *                                 SIMULTANEOUS_DAMAGE: every hit this tick resolves against
+ *                                 start-of-tick life — a unit whose HP hit 0 earlier in this
+ *                                 phase still fires, so mutual kills happen; HP floors at 0.
  *   7. abilities                — hook, chunk 12.
- *   8. death resolution         — chunk 10: fence destruction (hp ≤ 0 → broken; the grid is
- *                                 rebuilt and every path is recomputed next tick). Chunk 11
- *                                 adds unit death.
+ *   8. death resolution         — fence destruction (hp ≤ 0 → broken; the grid is rebuilt
+ *                                 and every path is recomputed next tick), then unit death
+ *                                 (hp ≤ 0 → dead: `unit_died`, out of targeting; an attacker
+ *                                 holding on it retargets in phase 1, a guard pursuing it
+ *                                 disengages in phase 5, both next tick).
  *   then a keyframe every keyframeInterval ticks and on the last tick.
  *
  * Within every phase, units are visited in ASCENDING UNIT ID and nothing else; every "the
  * nearest X" picks the LOWEST ID (or lowest trap index) on an exact tie. Those two rules
  * are the only tie-breaks the tick loop has, and tests pin both.
+ *
+ * REACH (chunk 11): every "within range/radius" test between units, and between a unit
+ * and a trap, compares squared centre distance against (radius + unitRadius)²; the leash
+ * and the hysteresis radius are measured on the unit's own centre against its post. An
+ * attacker whose unit target is within its reach holds (MOVEMENT_HOLD) and phase 6 makes
+ * it hit.
  *
  * RETARGET_RULE fallback chain (documented so chunk 11 keeps it):
  *   nearest : nearest living posted unit → the core
@@ -66,12 +82,16 @@
  * lattice's single-edge comparison. Two A* runs at most, only on a recompute whose
  * lattice route breaches.
  */
-import { CORE_CENTER_CELL, FIELD_HEIGHT, FIELD_WIDTH, cellCenter, cellDistSq, cellKey, cellOf, isCoreCell, type Cell, type Fixed, type FixedPoint } from "./battlefield.js";
-import { COST_INFINITE, ceilDiv, clamp, isqrt } from "./fixed.js";
+import { CORE_CENTER_CELL, cellCenter, cellDistSq, cellKey, cellOf, isCoreCell, type Cell, type FixedPoint } from "./battlefield.js";
+import { canAttack, hitDamage, nearestEnemyInReach } from "./combat.js";
+import { COST_INFINITE, ceilDiv, isqrt } from "./fixed.js";
 import { abilityPhase, fenceHitDamage, postedUnitPhase, trapTriggerPhase } from "./hooks.js";
 import { logTarget, type LogEvent } from "./log.js";
-import { BREACH_COST_MAX, CELL_FREE, findPath, losClear, smoothPath, type Waypoint } from "./path.js";
-import { isFree, sameTarget, type SimState, type Target, type UnitState } from "./state.js";
+import { advance, effectiveSpeed, tickEffects } from "./move.js";
+import { BREACH_COST_MAX, CELL_FREE, findPath, smoothPath, type Waypoint } from "./path.js";
+import { sameTarget, type SimState, type Target, type UnitState } from "./state.js";
+
+export { legOffset } from "./move.js";
 
 function distSqUnits(a: { x: number; y: number }, b: { x: number; y: number }): number {
   const dx = a.x - b.x;
@@ -148,11 +168,11 @@ function targetCell(state: SimState, t: Target): Cell {
   return state.traps[t.index]!.cell;
 }
 
-/** Whether an attacker's unit target is inside its attack range (inclusive). */
+/** Whether an attacker's unit target is inside its reach (attackRange + unitRadius, inclusive). */
 function engaged(state: SimState, u: UnitState): boolean {
   if (u.target === null || u.target.kind !== "unit") return false;
   const d = state.units[u.target.id]!;
-  return d.alive && distSqUnits(u, d) <= u.attackRangeSq;
+  return d.alive && distSqUnits(u, d) <= u.reachSq;
 }
 
 // ─── Phase 1 ────────────────────────────────────────────────────────────────────────
@@ -259,7 +279,7 @@ export function pathPhase(state: SimState, log: LogEvent[]): void {
       if (u.waypoints.length > 0) {
         u.waypoints = [];
         u.legLen = -1;
-        log.push({ t: state.tick, k: "path", u: id, speed: u.speedPerTick, wp: [] });
+        log.push({ t: state.tick, k: "path", u: id, speed: u.speedInForce, wp: [] });
       }
       continue;
     }
@@ -286,7 +306,7 @@ export function pathPhase(state: SimState, log: LogEvent[]): void {
       // keeps the leg in progress (and logs nothing — see log.ts INTERPOLATION CONTRACT).
       u.waypoints = route;
       u.legLen = -1;
-      log.push({ t: state.tick, k: "path", u: id, speed: u.speedPerTick, wp: route.map((w) => [w.x, w.y, w.breach] as const) });
+      log.push({ t: state.tick, k: "path", u: id, speed: u.speedInForce, wp: route.map((w) => [w.x, w.y, w.breach] as const) });
     }
   }
   state.fenceBrokeSinceRecompute = false;
@@ -295,75 +315,19 @@ export function pathPhase(state: SimState, log: LogEvent[]): void {
 // ─── Phase 3 ────────────────────────────────────────────────────────────────────────
 
 /**
- * One axis of a leg offset: sign(d) × floor(|d| × progress / len). Floor division on
- * non-negative operands (fixed.ts rounding mode), applied to the magnitude so the result
- * rounds toward the anchor: |offset| < |d| whenever progress < len.
+ * Attacker movement (the stepping itself is move.ts `advance`, shared with posted units).
+ * A rooted unit's budget is 0 and a slowed unit's is reduced (move.ts EFFECTS); the sweep
+ * polyline recorded here is what phase 4 tests against the traps.
  */
-export function legOffset(d: number, progress: number, len: number): number {
-  const mag = Math.floor((Math.abs(d) * progress) / len);
-  return d < 0 ? -mag : mag;
-}
-
 export function movementPhase(state: SimState, log: LogEvent[]): void {
-  const maxX = FIELD_WIDTH - 1;
-  const maxY = FIELD_HEIGHT - 1;
   for (let id = 0; id < state.attackerCount; id++) {
     const u = state.units[id]!;
     if (!u.alive) continue;
     let moved = false;
     u.breaching = -1;
-    if (!engaged(state, u)) {
-      let remaining = u.speedPerTick;
-      while (remaining > 0 && u.waypoints.length > 0) {
-        const wp = u.waypoints[0]!;
-        if (wp.breach >= 0 && state.fences[wp.breach]!.intact) {
-          // The next cell is an intact segment: stand here and breach it (phase 6).
-          u.breaching = wp.breach;
-          break;
-        }
-        if (u.legLen < 0) {
-          // LEG START: anchor where the unit stands; the length is fixed for the leg.
-          u.legX = u.x;
-          u.legY = u.y;
-          u.legProgress = 0;
-          const ldx = wp.x - u.x;
-          const ldy = wp.y - u.y;
-          u.legLen = isqrt(ldx * ldx + ldy * ldy);
-        }
-        const left = u.legLen - u.legProgress;
-        if (left <= remaining) {
-          // ARRIVAL: land exactly on the waypoint, consume it, carry the surplus on.
-          u.x = wp.x;
-          u.y = wp.y;
-          remaining -= left;
-          u.waypoints.shift();
-          u.legLen = -1;
-          moved = true;
-          continue;
-        }
-        // Scale the leg's integer direction vector: anchor + d × progress / len, the
-        // magnitude floored (toward the anchor) so the unit never lands on the waypoint
-        // before the leg's length is spent — floor toward −∞ on a negative d could.
-        const dx = wp.x - u.legX;
-        const dy = wp.y - u.legY;
-        const progress = u.legProgress + remaining;
-        const nx = clamp(u.legX + legOffset(dx, progress, u.legLen), 0, maxX) as Fixed;
-        const ny = clamp(u.legY + legOffset(dy, progress, u.legLen), 0, maxY) as Fixed;
-        if (!isFree(state.grid, cellOf({ x: nx, y: ny })) || !losClear(state.grid, { x: u.x, y: u.y }, { x: nx, y: ny })) {
-          // Unreachable by construction (LOS_LEG_MARGIN + parametric legs; the probe's
-          // `cannotHappen` counter watches it). If it ever fires: stand, drop the leg and
-          // re-plan from here rather than clip through a cell.
-          u.legLen = -1;
-          u.pathDirty = true;
-          break;
-        }
-        u.legProgress = progress;
-        u.x = nx;
-        u.y = ny;
-        moved = true;
-        remaining = 0;
-      }
-    }
+    u.sweep = [{ x: u.x, y: u.y }];
+    if (!engaged(state, u)) moved = advance(state, u, effectiveSpeed(u));
+    tickEffects(state, u, log);
     const holding = !moved;
     if (holding !== u.holding) {
       u.holding = holding;
@@ -378,22 +342,35 @@ export function movementPhase(state: SimState, log: LogEvent[]): void {
 
 // ─── Phase 6 ────────────────────────────────────────────────────────────────────────
 
+/**
+ * ATTACK_COOLDOWN: the counter decrements first, then a ready unit (0) fires if it has
+ * something in reach, and the counter resets to cooldownTicks — so the first hit lands
+ * on contact and the next every cooldownTicks (a cooldown of 1 fires every tick). A ready
+ * unit with nothing in reach stays ready. One hit per unit per tick, at most.
+ */
 export function attackPhase(state: SimState, log: LogEvent[]): void {
   for (const u of state.units) {
     if (!u.alive) continue;
     if (u.cooldownRemaining > 0) u.cooldownRemaining--;
+    if (u.cooldownRemaining > 0 || !canAttack(u)) continue;
+    const v = nearestEnemyInReach(state, u);
+    if (v !== null) {
+      const damage = hitDamage(state, u, v);
+      v.hp = v.hp - damage < 0 ? 0 : v.hp - damage;
+      u.cooldownRemaining = u.cooldownTicks;
+      log.push({ t: state.tick, k: "hit", u: u.id, v: v.id, damage, hp: v.hp });
+      continue;
+    }
     if (u.side !== "attacker" || u.breaching < 0) continue;
     const fence = state.fences[u.breaching]!;
     if (!fence.intact || fence.hp <= 0) continue; // already destroyed this tick (phase 8 clears it)
     // FENCE_BREACH_RANGE: the unit's cell is orthogonally adjacent to the segment's cell.
     if (cellDistSq(cellOf({ x: u.x, y: u.y }), fence.cell) !== 1) continue;
-    if (u.cooldownRemaining > 0) continue;
     const damage = fenceHitDamage(state, u, fence);
     fence.hp = fence.hp - damage < 0 ? 0 : fence.hp - damage;
     u.cooldownRemaining = u.cooldownTicks;
     log.push({ t: state.tick, k: "fence_hit", u: u.id, f: fence.index, damage, hp: fence.hp });
   }
-  // TODO(chunk-11): unit-vs-unit hits (offense²/(offense+defense), affinity, simultaneity).
 }
 
 // ─── Phase 8 ────────────────────────────────────────────────────────────────────────
@@ -411,9 +388,24 @@ export function deathPhase(state: SimState, log: LogEvent[]): void {
         u.breaching = -1;
         u.pathDirty = true;
       }
+      // Attackers are re-planned by `fenceBrokeSinceRecompute` (phase 2); posted units read `pathDirty` (phase 5).
+      if (u.side === "defender") u.pathDirty = true;
     }
   }
-  // TODO(chunk-11): unit deaths (hp ≤ 0 → alive = false), mutual kills, de-targeting.
+  // UNIT_DEATH: every unit at 0 HP dies now, in id order, after all of this tick's hits
+  // landed (SIMULTANEOUS_DAMAGE). It leaves targeting (alive = false is what every target
+  // and reach test reads) and drops its own target, route and breach.
+  for (const u of state.units) {
+    if (!u.alive || u.hp > 0) continue;
+    u.alive = false;
+    u.diedTick = state.tick;
+    u.target = null;
+    u.waypoints = [];
+    u.legLen = -1;
+    u.breaching = -1;
+    u.postMode = "idle";
+    log.push({ t: state.tick, k: "unit_died", u: u.id });
+  }
 }
 
 // ─── The tick ───────────────────────────────────────────────────────────────────────
@@ -422,7 +414,7 @@ export function keyframe(state: SimState, log: LogEvent[]): void {
   log.push({
     t: state.tick,
     k: "keyframe",
-    units: state.units.map((u) => ({ u: u.id, x: u.x, y: u.y, hp: u.hp, alive: u.alive })),
+    units: state.units.map((u) => ({ u: u.id, x: u.x, y: u.y, hp: u.hp, alive: u.alive, cd: u.cooldownRemaining, slow: u.slowRemaining, root: u.rootRemaining })),
     fences: state.fences.map((f) => ({ f: f.index, hp: f.hp })),
     traps: state.traps.map((t) => ({ i: t.index, spent: t.spent })),
   });
@@ -433,8 +425,8 @@ export function runTick(state: SimState, log: LogEvent[]): void {
   retargetPhase(state, log); // 1
   pathPhase(state, log); // 2
   movementPhase(state, log); // 3
-  trapTriggerPhase(state, log); // 4 (chunk 11)
-  postedUnitPhase(state, log); // 5 (chunk 11)
+  trapTriggerPhase(state, log); // 4
+  postedUnitPhase(state, log); // 5
   attackPhase(state, log); // 6
   abilityPhase(state, log); // 7 (chunk 12)
   deathPhase(state, log); // 8

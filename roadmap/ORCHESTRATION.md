@@ -1802,3 +1802,77 @@ for chunk 26; no web screen here.
 `contents`; race the cap with a purchase against a bank), §4 (is every number the store
 shows the number the purchase records, including the combined forecast?), and the grind
 wall: `WEEKLY_PAY_CEILING` 60,000 against chunk 16's actual numbers, not the estimate.
+
+### 2026-10-11 — Chunk 11 (resolver combat: damage, traps, posted units): `not started` → `built` — `[resolver-bump]` 2 → 3
+
+**Built**, in an isolated worktree (branch `worktree-agent-ab787d08b49b8cb9f`, branched from
+`roadmap/phase-2-spec` at 224b72d). **`RESOLVER_VERSION` is now 3.** No golden corpus exists
+yet, so nothing else gates the bump (`pnpm determinism`: 10 scenarios, 3 processes × 3 runs
+agree). The full rule list — every tie-break, boundary and rounding point — is in
+`roadmap/chunks/11-resolver-combat.md` § "Build notes"; what other chunks need to know:
+
+- **Phases 4, 5, 6, 8 are real.** `combat.ts` (formula, DAMAGE_SLOTS, affinity, merge,
+  ATTACK_TARGET_SELECTION), `move.ts` (the leg stepping, now shared by attackers and posted
+  units, plus trap effects and the per-tick sweep polyline), `traps.ts` (phase 4),
+  `posted.ts` (phase 5). `hooks.ts` keeps `abilityPhase` (chunk 12) and `endOfTick`
+  (chunk 13) as seams; the loop still runs to the cap.
+- **Slots**: dealer's rating → o, receiver's rating → d; an attacker's rating is its
+  offense, a post's is its defense. **Rounding**: formula → affinity → merge → siege (fence
+  only) → min 1, each floored. **Merge (QA-03 B1)**: `mergeStatMultByLevel[mergeLevel]`
+  scales damage OUTPUT and (upstream) max HP, never a rating — **`packages/circle`'s
+  `toBattlefield` was scaling `defense` by merge level; it no longer does** (the circle
+  test pins the unscaled rating). Chunk 12: abilities multiply the merged hit; nothing in
+  them scales with level.
+- **REACH**: every range/radius test is `distSq ≤ (radius + unitRadius)²` (attack range,
+  aggro, trap trigger); leash and hysteresis are centre-vs-post. Chunk 10's engaged-hold
+  moved from attackRange to reach.
+- **Simultaneity**: hits land in id order but `alive` holds until phase 8, so a 0-HP unit
+  still fires that tick; mutual kills are tested. **Death**: `unit_died`, `diedTick` in the
+  summary; attackers retarget / guards disengage on the next tick.
+- **Traps**: swept polyline (corners included) vs (trigger + unitRadius)², floored closest
+  point; attackers in id order then traps in index order; spent when sprung, nullified by
+  countering siege (still spent); slow/root in ticks, refresh-not-stack, with a new `speed`
+  log event (in force from the next tick; legs are never restarted). **The replay contract
+  in `log.ts` gained the `speed` clause and posted-unit movement** — chunk 13's renderer
+  must honour both.
+- **Posted stances** (chunk 07 QA D1): `hold` never moves and hits in reach from its post;
+  `reserve` ignores everything (no acquire, **no attack**) until an attacker's cell is
+  strictly inside the ring (`released`), then guard; `guard` = idle / pursuing / returning
+  with an INCLUSIVE leash, aggro from the unit, leash from the post, hysteresis 0.80 before
+  re-acquiring, every disengage (`leash` | `lost` | `dead`) returning to the post, breach-
+  free routes (null route = stand and keep pursuing, no chatter). Oscillation at the leash
+  is bounded and in the corpus.
+- **Input**: `ResolverTunables` gained 8 keys (affinity mults + matrix, merge table, trap
+  trigger radius, siege fence mult, leash hysteresis); content gained
+  `LEASH_HYSTERESIS_MULT`; circle's `resolverTunables()` builds them. `INPUT_BOUNDS.maxMult`
+  ×64, `maxMergeLevels` 16. Chunk 13's stored-input snapshots carry all of it.
+- **Log events** new: `speed`, `trap_fired`, `trap_nullified`, `aggro`, `disengage`,
+  `returned`, `released`, `hit`, `unit_died`; keyframes carry `cd` / `slow` / `root`.
+- **Budgets** (`test/budget.test.ts`, 16 v 8 v 28 fences + 6 traps + 2 siege, 3600 ticks):
+  resolve ≈ 70–80 ms best-of-7 (asserted < 100 ms; median under the parallel vitest load
+  78–95 ms, which is why the check asserts the best run — the same contention flake chunk
+  10 QA saw in circle's timing test). **Log 115.5 KB, of which keyframes are 89 KB** and all
+  combat events ≈ 25 KB: the 100 KB lever is the keyframe (QA-10 N4, already with chunk 13),
+  not the event stream.
+
+**Verification:** resolver **119 passing** (9 files; `combat` 19, `traps` 15, `posted` 18,
+`budget` 3 new), circle 87, content 58; `pnpm typecheck`, `pnpm lint`, `pnpm test:boundary`
+(15 src files), `pnpm determinism` clean. Server: no source change (it reads
+`RESOLVER_VERSION` symbolically; `toBattlefield`'s defense change is a circle-side data
+fix). AGENTS.md's resolver test count updated (119).
+
+**Assumptions / decisions for QA:**
+- `reserve` does not attack before release ("ignores every attacker" read literally); the
+  D1 note's "target selection is the same for all three" is honoured after release.
+- An enemy in reach beats the fence a unit is breaching (ATTACK_PRIORITY); the breach price
+  stays an estimate.
+- Trap trigger uses trigger radius + unitRadius (the REACH rule applied uniformly), so the
+  effective radius is 1.1 cells with content's defaults.
+- Posted units route around fence only (no breach edges) and keep pursuing when no route
+  exists rather than disengaging, to avoid per-tick chatter.
+- `SIEGE_TRAP_NULLIFY` is not carried as input (content marks it fixed by design).
+
+**Next:** hand to adversarial QA against the chunk's checklist — especially the slot rule by
+hand-calculation, the exact-boundary tests (leash, aggro, reach, ring cell), the trap sweep
+at high speed, and whether anything in `posted.ts` / `combat.ts` reads beyond `state` and
+`log`.

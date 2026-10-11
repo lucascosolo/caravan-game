@@ -121,6 +121,10 @@ export const INPUT_BOUNDS = {
   maxTickRate: 1000,
   /** battleLengthCapSeconds: one hour. */
   maxBattleSeconds: 3600,
+  /** Any fixed-point multiplier (affinity, merge, siege): ×64. */
+  maxMult: 64 * FIXED_POINT_SCALE,
+  /** Highest merge level mergeStatMultByLevel may index. */
+  maxMergeLevels: 16,
 } as const;
 
 /**
@@ -148,7 +152,41 @@ export interface ResolverTunables {
    * stored input snapshot.
    */
   readonly pathConnectivity: 4;
+
+  // ── Chunk 11 — combat. Defaults in @caravan/content's registry; all TUNABLE there. ──
+  /** AFFINITY_ADVANTAGE_MULT (×1.25 = 1280), applied to a hit AFTER the damage formula, floored. */
+  readonly affinityAdvantageMult: Fixed;
+  /** AFFINITY_DISADVANTAGE_MULT (×0.80 = 819). */
+  readonly affinityDisadvantageMult: Fixed;
+  /** AFFINITY_NEUTRAL_MULT (×1.0 = 1024): the identity, carried so no multiplier is implicit. */
+  readonly affinityNeutralMult: Fixed;
+  /**
+   * AFFINITY_MATRIX[dealer][receiver] — the relationships, as data (content's affinity.ts).
+   * Complete: every ordered pair of the three categories. Traps deal damage of their own
+   * affinity through the same matrix.
+   */
+  readonly affinityMatrix: AffinityMatrix;
+  /**
+   * MERGE_STAT_MULT_BY_LEVEL, indexed by merge level (index 0 unused). Chunk 03 QA B1: the
+   * multiplier applies to max HP (already in the input's `maxHp`) and to each hit's damage
+   * output AFTER the formula — never to the offense/defense ratings that enter it, never to
+   * an ability field. Every unit's mergeLevel must index this table.
+   */
+  readonly mergeStatMultByLevel: readonly Fixed[];
+  /** TRAP_TRIGGER_RADIUS (0.75 cells): a trap fires when a swept path comes within this + unitRadius of its centre. */
+  readonly trapTriggerRadius: Fixed;
+  /** SIEGE_FENCE_DAMAGE_MULT (×4): a party carrying siege that counters a fence category hits those segments this much harder. */
+  readonly siegeFenceDamageMult: Fixed;
+  /**
+   * LEASH_HYSTERESIS (×0.80 = 819): a returning posted unit may re-acquire only once it is
+   * back within this fraction of its leash distance from its post.
+   */
+  readonly leashHysteresisMult: Fixed;
 }
+
+export const AFFINITY_OUTCOMES = ["advantage", "neutral", "disadvantage"] as const;
+export type AffinityOutcome = (typeof AFFINITY_OUTCOMES)[number];
+export type AffinityMatrix = Readonly<Record<AffinityCategory, Readonly<Record<AffinityCategory, AffinityOutcome>>>>;
 
 export interface ResolveInput {
   readonly battlefield: Battlefield;
@@ -174,7 +212,22 @@ const INPUT_KEYS = {
   entry: ["edge", "cell"],
   siege: ["ref", "typeId", "counters"],
   counters: ["kind", "category"],
-  tunables: ["tickRate", "battleLengthCapSeconds", "pathRecomputeIntervalMs", "unitRadius", "keyframeIntervalMs", "pathConnectivity"],
+  tunables: [
+    "tickRate",
+    "battleLengthCapSeconds",
+    "pathRecomputeIntervalMs",
+    "unitRadius",
+    "keyframeIntervalMs",
+    "pathConnectivity",
+    "affinityAdvantageMult",
+    "affinityDisadvantageMult",
+    "affinityNeutralMult",
+    "affinityMatrix",
+    "mergeStatMultByLevel",
+    "trapTriggerRadius",
+    "siegeFenceDamageMult",
+    "leashHysteresisMult",
+  ],
   abilityBase: ["archetype", "displayName", "description", "cooldown"],
 } as const;
 
@@ -264,6 +317,23 @@ export function assertTunables(v: unknown): asserts v is ResolverTunables {
   boundedInt(t.unitRadius, "tunables.unitRadius", 0, INPUT_BOUNDS.maxDistance);
   boundedInt(t.keyframeIntervalMs, "tunables.keyframeIntervalMs", 1, INPUT_BOUNDS.maxMillis);
   if (t.pathConnectivity !== 4) fail("tunables.pathConnectivity must be 4 (4-connected lattice, no diagonals; fixed by design)");
+  boundedInt(t.affinityAdvantageMult, "tunables.affinityAdvantageMult", 1, INPUT_BOUNDS.maxMult);
+  boundedInt(t.affinityDisadvantageMult, "tunables.affinityDisadvantageMult", 1, INPUT_BOUNDS.maxMult);
+  boundedInt(t.affinityNeutralMult, "tunables.affinityNeutralMult", 1, INPUT_BOUNDS.maxMult);
+  const matrix = onlyKeys(t.affinityMatrix, "tunables.affinityMatrix", AFFINITY_CATEGORIES, fail);
+  for (const dealer of AFFINITY_CATEGORIES) {
+    const row = onlyKeys(matrix[dealer], `tunables.affinityMatrix.${dealer}`, AFFINITY_CATEGORIES, fail);
+    for (const receiver of AFFINITY_CATEGORIES) oneOf(row[receiver], `tunables.affinityMatrix.${dealer}.${receiver}`, AFFINITY_OUTCOMES);
+  }
+  const table = eachOf(t.mergeStatMultByLevel, "tunables.mergeStatMultByLevel", fail);
+  if (table.length < 2 || table.length > INPUT_BOUNDS.maxMergeLevels + 1) fail(`tunables.mergeStatMultByLevel must index merge levels 1..${INPUT_BOUNDS.maxMergeLevels} (index 0 unused)`);
+  table.forEach((m, level) => {
+    if (level === 0) positiveInt(m, "tunables.mergeStatMultByLevel[0]", 0);
+    else boundedInt(m, `tunables.mergeStatMultByLevel[${level}]`, 1, INPUT_BOUNDS.maxMult);
+  });
+  boundedInt(t.trapTriggerRadius, "tunables.trapTriggerRadius", 0, INPUT_BOUNDS.maxDistance);
+  boundedInt(t.siegeFenceDamageMult, "tunables.siegeFenceDamageMult", 1, INPUT_BOUNDS.maxMult);
+  boundedInt(t.leashHysteresisMult, "tunables.leashHysteresisMult", 0, FIXED_POINT_SCALE);
 }
 
 /**
@@ -327,6 +397,7 @@ export function assertResolveInput(v: unknown): asserts v is ResolveInput {
     if (p.moveSpeed > INPUT_BOUNDS.maxMoveSpeed) fail(`posts[${idx}].moveSpeed must be ≤ ${INPUT_BOUNDS.maxMoveSpeed}`);
     if (p.attackRange > INPUT_BOUNDS.maxDistance || p.aggroRadius > INPUT_BOUNDS.maxDistance || p.leashDistance > INPUT_BOUNDS.maxDistance) fail(`posts[${idx}] range/radius/leash must be ≤ ${INPUT_BOUNDS.maxDistance}`);
     if (p.attackCooldown > INPUT_BOUNDS.maxMillis) fail(`posts[${idx}].attackCooldown must be ≤ ${INPUT_BOUNDS.maxMillis}`);
+    if (p.mergeLevel < 1 || p.mergeLevel >= tunables.mergeStatMultByLevel.length) fail(`posts[${idx}].mergeLevel ${p.mergeLevel} has no entry in tunables.mergeStatMultByLevel`);
     if (postRefs.includes(p.ref)) fail(`duplicate post ref '${p.ref}'`);
     postRefs.push(p.ref);
     oneOf(p.affinity, `posts[${idx}].affinity`, AFFINITY_CATEGORIES);
@@ -338,6 +409,7 @@ export function assertResolveInput(v: unknown): asserts v is ResolveInput {
     unitRefs.push(u.ref);
     if (ringIndexAt(u.entry.cell) !== null) fail(`party.units[${idx}] starts on the ring`);
     if (u.moveSpeed < tunables.tickRate) fail(`party.units[${idx}].moveSpeed ${u.moveSpeed} is below the tick rate ${tunables.tickRate}: it would never move`);
+    if (u.mergeLevel >= tunables.mergeStatMultByLevel.length) fail(`party.units[${idx}].mergeLevel ${u.mergeLevel} has no entry in tunables.mergeStatMultByLevel`);
   });
   const siegeRefs: string[] = [];
   (i.party as Party).siege.forEach((s) => {
@@ -346,6 +418,15 @@ export function assertResolveInput(v: unknown): asserts v is ResolveInput {
   });
   // Unused-but-documented: BATTLEFIELD_KEYS is the closed key set the battlefield guard uses.
   void BATTLEFIELD_KEYS;
+}
+
+/** A fresh matrix with its keys in AFFINITY_CATEGORIES order, so the copy carries no key-order trace of the input. */
+function copyMatrix(m: AffinityMatrix): AffinityMatrix {
+  return {
+    grit: { grit: m.grit.grit, powder: m.grit.powder, beast: m.grit.beast },
+    powder: { grit: m.powder.grit, powder: m.powder.powder, beast: m.powder.beast },
+    beast: { grit: m.beast.grit, powder: m.beast.powder, beast: m.beast.beast },
+  };
 }
 
 /** Plain code-unit string order: a total order on refs, independent of locale. */
@@ -383,6 +464,14 @@ export function normalizeInput(input: ResolveInput): ResolveInput {
       unitRadius: input.tunables.unitRadius,
       keyframeIntervalMs: input.tunables.keyframeIntervalMs,
       pathConnectivity: input.tunables.pathConnectivity,
+      affinityAdvantageMult: input.tunables.affinityAdvantageMult,
+      affinityDisadvantageMult: input.tunables.affinityDisadvantageMult,
+      affinityNeutralMult: input.tunables.affinityNeutralMult,
+      affinityMatrix: copyMatrix(input.tunables.affinityMatrix),
+      mergeStatMultByLevel: [...input.tunables.mergeStatMultByLevel],
+      trapTriggerRadius: input.tunables.trapTriggerRadius,
+      siegeFenceDamageMult: input.tunables.siegeFenceDamageMult,
+      leashHysteresisMult: input.tunables.leashHysteresisMult,
     },
   };
 }

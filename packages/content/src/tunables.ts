@@ -212,6 +212,13 @@ export const TUNABLES = {
   AGGRO_RADIUS_DEFAULT: fp(4),
   /** TUNABLE (PROJECT.md §9). How far a posted unit chases from its post before returning. 6.0 cells. */
   LEASH_DISTANCE_DEFAULT: fp(6),
+  /**
+   * TUNABLE (chunk 11, LEASH_HYSTERESIS). A posted unit that disengaged at its leash must be
+   * back within this fraction of its leash distance from its post (×0.80) before it may
+   * re-acquire. Prevents per-tick chattering at the boundary; the leash itself is INCLUSIVE
+   * (exactly at the leash is still engaged).
+   */
+  LEASH_HYSTERESIS_MULT: fpMilli(800),
   /** TUNABLE. 1.5 cells/second. Roster range below. Driven by fight pacing vs. the tick cap. */
   MOVE_SPEED_DEFAULT: fpMilli(1500),
   MOVE_SPEED_MIN: fpMilli(800),

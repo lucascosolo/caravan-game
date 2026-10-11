@@ -31,6 +31,8 @@ export interface UnitSummary {
   readonly alive: boolean;
   /** Attackers: the tick they first stood on a core cell, or −1. */
   readonly reachedCoreTick: number;
+  /** The tick the unit died on (phase 8), or −1. */
+  readonly diedTick: number;
 }
 
 export interface FenceSummary {
@@ -47,6 +49,8 @@ export interface TrapSummary {
   readonly i: number;
   readonly ref: string;
   readonly spent: boolean;
+  /** The tick it fired or was nullified on, or −1. */
+  readonly spentTick: number;
 }
 
 export interface ResolveOutput {
@@ -101,9 +105,10 @@ export function resolve(rawInput: unknown): ResolveOutput {
       maxHp: u.maxHp,
       alive: u.alive,
       reachedCoreTick: u.reachedCoreTick,
+      diedTick: u.diedTick,
     })),
     fences: state.fences.map((f) => ({ f: f.index, ref: f.ref, segment: f.segment, hp: f.hp, maxHp: f.maxHp, intact: f.intact, brokenTick: f.brokenTick })),
-    traps: state.traps.map((t) => ({ i: t.index, ref: t.ref, spent: t.spent })),
+    traps: state.traps.map((t) => ({ i: t.index, ref: t.ref, spent: t.spent, spentTick: t.spentTick })),
     log,
   };
 }
