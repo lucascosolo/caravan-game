@@ -2504,3 +2504,11 @@ for the defender's next read (chunk 15 QA S4, assigned to the chunk 15 fixer).
 **Next:** adversarial QA of chunk 19 against bounded stakes, §0 (the party never bleeds), §3
 permanence, §4 preview equality, the inversion, and the race / retry tests; then the chunk 15
 fixer's remaining items (S4, D3 void path, S6, N1, N2, N4).
+
+### Orchestrator decision — earn floor and the overrun transfer (chunk 19)
+
+The sandbag earn floor (`applyEarnFloor`) applies once, when each survived encounter's Coin
+accrues, with that encounter's chosen candidate's multiplier. The overrun transfer to the
+party owner is exactly the (already floored) Coin the caravan lost, with no second floor.
+Alt-feeding (deliberately losing to a weak alt's party) is addressed by PHASE-2 §31's
+soft-link exclusion, not by flooring the transfer.
