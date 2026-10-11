@@ -162,12 +162,20 @@ describe("the purchase backend is a sandbox stub (no real charge anywhere)", () 
     expect(TUNABLES.PURCHASE_BACKEND).toBe("sandbox_stub");
     expect(SANDBOX_PURCHASE_BACKEND.name).toBe("sandbox_stub");
     const offer = packOffersForWeek(0)[0]!;
-    const receipt = SANDBOX_PURCHASE_BACKEND.charge({ accountId: "00000000-0000-0000-0000-000000000000", offer });
+    const req = { accountId: "00000000-0000-0000-0000-000000000000", offer, idempotencyKey: "pack:00000000-0000-0000-0000-000000000000:w0:t1" };
+    const receipt = SANDBOX_PURCHASE_BACKEND.charge(req);
     expect(receipt.chargedCents).toBe(0);
     expect(receipt.backend).toBe("sandbox_stub");
     expect(receipt.receipt).toMatch(/^sandbox:[0-9a-f-]{36}$/);
+    // QA-20 D2: idempotent by key — the same key is the same charge (same receipt); another key is not.
+    expect(SANDBOX_PURCHASE_BACKEND.charge(req).receipt).toBe(receipt.receipt);
+    expect(SANDBOX_PURCHASE_BACKEND.charge({ ...req, idempotencyKey: `${req.idempotencyKey}x` }).receipt).not.toBe(receipt.receipt);
+    expect(() => SANDBOX_PURCHASE_BACKEND.charge({ ...req, idempotencyKey: "" })).toThrow(TypeError);
     const src = readFileSync(join(SERVER, "src", "store", "sandbox.ts"), "utf8");
     expect(src).toMatch(/NO MONEY MOVES/);
+    // The charge-ordering rule is written where a real backend's author will read it.
+    expect(src).toMatch(/RESERVE[\s\S]*CHARGE[\s\S]*CREDIT \+ SETTLE/);
+    expect(src).toMatch(/idempotencyKey` = the purchase's `causationId`/);
   });
 
   it("no payment SDK is a dependency of any workspace package", () => {

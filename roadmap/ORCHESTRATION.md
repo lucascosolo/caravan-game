@@ -1802,3 +1802,32 @@ for chunk 26; no web screen here.
 `contents`; race the cap with a purchase against a bank), §4 (is every number the store
 shows the number the purchase records, including the combined forecast?), and the grind
 wall: `WEEKLY_PAY_CEILING` 60,000 against chunk 16's actual numbers, not the estimate.
+
+### 2026-10-11 — Chunk 20 (monetization packs): QA round 1 closed (D1–D3, S1, S2, N1–N4)
+
+Punch list `roadmap/qa/20-punchlist.md`, every item `[closed]`.
+- **D1** a repeat of a tier in the same week → 200 `{replayed: true}` with the stored purchase
+  view and stored `coin_purchased` event (also the 23505 backstop's answer); nothing moves.
+- **D2** reserve → charge → credit + settle: `pack_purchase` is born a reservation
+  (`sandbox_receipt` NULL, nothing credited, new `settled_at` NULL) and settled in place once —
+  the only UPDATE its guard admits (migration 010 edited in place: CHECK
+  `pack_purchase_settlement` replaces `pack_purchase_coin_accounted`). The backend is charged
+  with `idempotencyKey = causationId`; the stub's receipt is a pure function of the key; an
+  unsettled reservation is resumed with the same key. The rule is written in `store/sandbox.ts`.
+- **D3** `FREE_WEEKLY_EARN_ESTIMATE` stays 40,000, documented as the floor of a 39k / 94k / 118k
+  range with the cap-bounds-the-paid-add note.
+- **S1** `accrueTrickleTx(…, { force: true })` after the lock, before `appendCoinCredits`;
+  `trickle` in the result; probe P1 (NOW + 2 h) is a test: forecast == recorded credit.
+- **S2** `contentsHash` (sha256 of `canonicalPackContents`) on every offer; required by
+  `POST /me/store/purchase` (400 `contents_hash_required` / `invalid_contents_hash`, 409
+  `offer_changed`). The rotation is now per-cosmetic (`rotationRank(week, id)` ordering), so a
+  catalog addition never re-deals a week; **the week-0 pin was changed deliberately** (old pin
+  kept in the test comment; no purchase existed under the old draw).
+- **N1** `pack_contents_ok`: exactly one coin entry, amount > 0. **N2** review notes carry
+  reviewer/date or "pending art review (chunk 26)" (validated on load). **N3** purchase.ts
+  documents `payload.cosmetics` = offered ids, rebuild = "first event naming an id owns it"
+  (tested against `cosmetic_ownership`). **N4** `isPackTier` documented as integer equality.
+
+Tests: `apps/server` 27 files / 497 passing (new `qa20-store-regressions.test.ts`, 12 — the
+reviewer's probe P1–P5 as regressions); `packages/content` 75. `pnpm typecheck`, `pnpm lint`,
+`pnpm test:boundary` clean. INDEX.md status left for the orchestrator.
