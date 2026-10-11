@@ -13,12 +13,14 @@ export * from "./traps.js";
 export * from "./siege.js";
 export * from "./fences.js";
 export * from "./validate.js";
+export * from "./unlockWebs.js";
 
 import { FENCE_TIERS, type FenceTierType } from "./fences.js";
 import { deepFreeze } from "./freeze.js";
 import { SIEGE_TYPES, type SiegeType } from "./siege.js";
 import { TRAP_TYPES, type TrapType } from "./traps.js";
 import { LIVING_UNIT_TYPES, type LivingUnitType } from "./units.js";
+import { assertUnlockWebsValid } from "./unlockWebs.js";
 import { assertContentValid, type ContentBundle } from "./validate.js";
 
 /** Everything, in one diffable bundle. Deep-frozen, like every export (chunk 03 QA S2). */
@@ -30,6 +32,8 @@ export const CONTENT: ContentBundle = deepFreeze({
 });
 
 assertContentValid(CONTENT);
+// Chunk 05: the unlock webs reference every type above; validate them in the same breath.
+assertUnlockWebsValid();
 
 function byId<T extends { readonly id: string }>(list: readonly T[]): ReadonlyMap<string, T> {
   return new Map(list.map((x) => [x.id, x]));
