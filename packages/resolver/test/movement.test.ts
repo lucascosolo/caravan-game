@@ -31,7 +31,7 @@ import {
   type LogEvent,
   type ResolveOutput,
 } from "../src/index.js";
-import { DEFAULT_TUNABLES, SHORT_TUNABLES, battlefield, clone, cornerClipScenario, fence, input, ms, party, post, ringExcept, scenarios, trap, unit } from "./fixtures.js";
+import { DEFAULT_TUNABLES, SHORT_TUNABLES, battlefield, clone, cornerClipScenario, fence, input, ms, party, post, reachSq, ringExcept, scenarios, trap, unit } from "./fixtures.js";
 
 const keyframes = (out: ResolveOutput) => out.log.filter((e): e is Extract<LogEvent, { k: "keyframe" }> => e.k === "keyframe");
 const events = <K extends LogEvent["k"]>(out: ResolveOutput, k: K) => out.log.filter((e): e is Extract<LogEvent, { k: K }> => e.k === k);
@@ -43,7 +43,7 @@ describe("fixed-timestep loop", () => {
     expect(out.tickCap).toBe(60);
     expect(out.ticks).toBe(60);
     expect(out.end).toBe("tick_cap");
-    expect(out.resolverVersion).toBe(2);
+    expect(out.resolverVersion).toBe(3);
     const full = resolve(input(battlefield(), party([unit({ ref: "a" })])));
     expect(full.tickCap).toBe(3600);
     expect(full.ticks).toBe(3600);
@@ -168,19 +168,28 @@ describe("stances and the retarget rule", () => {
     expect({ x: out.units[0]!.x, y: out.units[0]!.y }).toEqual(CORE_CENTER);
   });
 
-  it("nearest: targets the nearest posted unit (tie → lowest id), closes to attack range and HOLDS there", () => {
-    // Two posts equidistant from the unit; "p1" sorts before "p2" so it gets the lower id.
-    const out = resolve(input(battlefield({ posts: [post("p2", { x: 17, y: 6 }), post("p1", { x: 13, y: 6 })] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES));
-    const p1 = out.units.find((u) => u.ref === "p1")!;
-    expect(p1.id).toBe(1);
-    expect(events(out, "target")[0]).toEqual({ t: 0, k: "target", u: 0, target: { kind: "unit", id: 1 } });
-    const a = out.units[0]!;
-    expect(distSq({ x: a.x as never, y: a.y as never }, cellCenter({ x: 13, y: 6 }))).toBeLessThanOrEqual(1024 * 1024);
+  it("nearest: targets the nearest posted unit (tie → lowest id), closes to attack reach and HOLDS there", () => {
+    // Two posts equidistant from the unit; "p1" sorts before "p2" so it gets the lower id. The
+    // posts `hold` so they stay put (chunk 11), and the fight is cut before anyone dies.
+    const inp = normalizeInput(input(battlefield({ posts: [post("p2", { x: 17, y: 6 }, { stance: "hold" }), post("p1", { x: 13, y: 6 }, { stance: "hold" })] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES));
+    const state = initialState(inp);
+    const log: LogEvent[] = [];
+    expect(state.units[1]!.ref).toBe("p1");
+    for (; state.tick < 160; state.tick++) runTick(state, log);
+    expect(log.filter((e) => e.k === "target")[0]).toEqual({ t: 0, k: "target", u: 0, target: { kind: "unit", id: 1 } });
+    const a = state.units[0]!;
+    // REACH: it stopped once p1's centre was within attackRange + unitRadius.
+    expect(distSq({ x: a.x, y: a.y }, cellCenter({ x: 13, y: 6 }))).toBeLessThanOrEqual(reachSq(1024));
+    // ... and not before: one more tick's step (76) would have been needed to get there earlier.
+    expect(distSq({ x: a.x, y: a.y }, cellCenter({ x: 13, y: 6 }))).toBeGreaterThan((1024 + 358 - 76) * (1024 + 358 - 76));
     expect(a.reachedCoreTick).toBe(-1);
-    const holds = events(out, "hold");
-    expect(holds[holds.length - 1]!.holding).toBe(true);
+    expect(a.holding).toBe(true);
+    expect(state.units[1]!.alive).toBe(true);
     // RETARGET_RULE: the target is never re-evaluated while it stays valid — one target event only.
-    expect(events(out, "target")).toHaveLength(1);
+    expect(log.filter((e) => e.k === "target")).toHaveLength(1);
+    // Both sides are trading hits now (chunk 11).
+    expect(log.some((e) => e.k === "hit" && e.u === 0 && e.v === 1)).toBe(true);
+    expect(log.some((e) => e.k === "hit" && e.u === 1 && e.v === 0)).toBe(true);
   });
 
   it("nearest with no posts falls back to the core", () => {
@@ -189,12 +198,26 @@ describe("stances and the retarget rule", () => {
     expect(out.units[0]!.reachedCoreTick).toBeGreaterThan(0);
   });
 
-  it("traps: goes to the nearest unspent trap (tie → lowest trap index) and waits on it (chunk 11 spends it)", () => {
-    const out = resolve(input(battlefield({ traps: [trap("t2", { x: 18, y: 6 }), trap("t1", { x: 12, y: 6 })], posts: [post("p", { x: 15, y: 8 })] }), party([unit({ ref: "a", stance: "traps", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES));
+  it("traps: goes to the nearest unspent trap (tie → lowest trap index), springs it, then moves on to the next trap", () => {
+    const out = resolve(input(battlefield({ traps: [trap("t2", { x: 18, y: 6 }), trap("t1", { x: 12, y: 6 })], posts: [post("p", { x: 15, y: 8 }, { stance: "hold" })] }), party([unit({ ref: "a", stance: "traps", cell: { x: 15, y: 0 }, hp: 2000 })]), SHORT_TUNABLES));
     expect(out.traps.map((t) => t.ref)).toEqual(["t1", "t2"]);
     expect(events(out, "target")[0]!.target).toEqual({ kind: "trap", id: 0 });
-    expect({ x: out.units[0]!.x, y: out.units[0]!.y }).toEqual(cellCenter({ x: 12, y: 6 }));
-    expect(out.traps.every((t) => !t.spent)).toBe(true);
+    // Chunk 11: the trap fires on the swept path, is spent, and the spent target sends the unit to t2.
+    const fired = events(out, "trap_fired");
+    expect(fired.map((f) => [f.i, f.u])).toEqual([
+      [0, 0],
+      [1, 0],
+    ]);
+    // Trap → trap → the post (which it then kills) → the core: RETARGET_RULE's fallback chain.
+    expect(events(out, "target").map((e) => e.target)).toEqual([
+      { kind: "trap", id: 0 },
+      { kind: "trap", id: 1 },
+      { kind: "unit", id: 1 },
+      { kind: "core", id: -1 },
+    ]);
+    expect(events(out, "target")[1]!.t).toBe(fired[0]!.t + 1);
+    expect(events(out, "target")[3]!.t).toBe(out.units[1]!.diedTick + 1);
+    expect(out.traps.every((t) => t.spent)).toBe(true);
   });
 
   it("traps with no traps falls back to nearest post, then to the core", () => {

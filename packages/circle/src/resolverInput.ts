@@ -25,7 +25,7 @@
  * Nothing here is account-level: no account id, no Coin, no purchase or entitlement state
  * can reach the resolver through this structure (GUARDRAILS §2).
  */
-import { TUNABLES, getFenceTier, getTrapType, getUnitType, mergeStatMult, scaleInt } from "@caravan/content";
+import { AFFINITY_MATRIX, TUNABLES, getFenceTier, getTrapType, getUnitType } from "@caravan/content";
 import {
   BATTLEFIELD_VERSION,
   CORE_CELLS,
@@ -92,7 +92,6 @@ export function toBattlefield(manifest: Manifest, formation: Formation): Battlef
     if (!u) throw new Error(`unit '${p.ref}' is not in the manifest`);
     const type = getUnitType(u.typeId);
     if (!type) throw new Error(`unknown unit type '${u.typeId}'`);
-    const mult = mergeStatMult(u.mergeLevel);
     return {
       ref: u.ref,
       typeId: u.typeId,
@@ -100,10 +99,13 @@ export function toBattlefield(manifest: Manifest, formation: Formation): Battlef
       stance: p.stance,
       cell: p.cell,
       pos: cellCenter(p.cell),
+      // maxHp already carries the merge multiplier (manifest.ts). The DEFENSE RATING does
+      // not: chunk 03 QA B1 — the multiplier applies to HP and to each hit's output inside
+      // the resolver (mergeStatMultByLevel[mergeLevel]), never to a rating.
       hp: u.hp,
       maxHp: u.maxHp,
       affinity: type.affinity,
-      defense: scaleInt(type.defense, mult),
+      defense: type.defense,
       moveSpeed: type.moveSpeed,
       attackRange: type.attackRange,
       attackCooldown: type.attackCooldown,
@@ -125,7 +127,12 @@ export function toBattlefield(manifest: Manifest, formation: Formation): Battlef
   };
 }
 
-/** The chunk 10 tunables, read from the registry and handed to the resolver as plain input. */
+/**
+ * The chunk 10 and 11 tunables, read from the registry and handed to the resolver as plain
+ * input: the clock and cadences, the affinity multipliers and the matrix (content's
+ * affinity.ts, copied as data), the merge multiplier table, the trap trigger radius, the
+ * siege fence multiplier and the leash hysteresis.
+ */
 export function resolverTunables(): ResolverTunables {
   return {
     tickRate: TUNABLES.TICK_RATE,
@@ -134,5 +141,17 @@ export function resolverTunables(): ResolverTunables {
     unitRadius: TUNABLES.UNIT_RADIUS,
     keyframeIntervalMs: TUNABLES.LOG_KEYFRAME_INTERVAL,
     pathConnectivity: TUNABLES.PATH_CONNECTIVITY,
+    affinityAdvantageMult: TUNABLES.AFFINITY_ADVANTAGE_MULT,
+    affinityDisadvantageMult: TUNABLES.AFFINITY_DISADVANTAGE_MULT,
+    affinityNeutralMult: TUNABLES.AFFINITY_NEUTRAL_MULT,
+    affinityMatrix: {
+      grit: { ...AFFINITY_MATRIX.grit },
+      powder: { ...AFFINITY_MATRIX.powder },
+      beast: { ...AFFINITY_MATRIX.beast },
+    },
+    mergeStatMultByLevel: [...TUNABLES.MERGE_STAT_MULT_BY_LEVEL],
+    trapTriggerRadius: TUNABLES.TRAP_TRIGGER_RADIUS,
+    siegeFenceDamageMult: TUNABLES.SIEGE_FENCE_DAMAGE_MULT,
+    leashHysteresisMult: TUNABLES.LEASH_HYSTERESIS_MULT,
   };
 }

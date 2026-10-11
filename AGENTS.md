@@ -136,7 +136,7 @@ pnpm --filter @caravan/web e2e                        # Playwright smoke vs a ru
 pnpm e2e                     # the same, self-contained: seeds E2E_DATABASE_URL, starts the BUILT server on :3917, runs the e2e, stops it (run `pnpm build` first)
 
 pnpm determinism             # resolver determinism harness (chunk 10 started it; chunk 13 adds goldens): every fixture scenario 100× byte-identical in-process, then 3 separate Node processes compared by sha256; refuses golden-log changes without a RESOLVER_VERSION bump
-pnpm --filter @caravan/resolver test   # the resolver alone: 53 tests, no DB, no network, ~3 s
+pnpm --filter @caravan/resolver test   # the resolver alone: 119 tests, no DB, no network, ~25 s (the 100× determinism harness is most of it)
 pnpm test:boundary           # resolver dependency-boundary check (zero deps, imports stay inside packages/resolver/src)
 pnpm build                   # esbuild → apps/server/dist (index.js, db/migrate.js, seed.js); workspace packages inlined, npm deps external; then vite build → apps/web/dist
 pnpm start                   # run the built server: node apps/server/dist/index.js

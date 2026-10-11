@@ -64,11 +64,13 @@ describe("toBattlefield", () => {
     expect(() => assertBattlefield(JSON.parse(JSON.stringify(bf)))).not.toThrow();
   });
 
-  it("posted units carry post, aggro radius, leash and the DEFENSE rating scaled by merge level", () => {
+  it("posted units carry post, aggro radius, leash and the UNMERGED defense rating (chunk 03 QA B1: merge scales HP and damage output in the resolver, never a rating)", () => {
     const coyote = b.posts.find((p) => p.ref === "u-coyote")!;
     const type = getUnitType("desert.coyote_pack")!;
     expect(coyote.mergeLevel).toBe(3);
-    expect(coyote.defense).toBe(scaleInt(type.defense, mergeStatMult(3)));
+    expect(coyote.defense).toBe(type.defense);
+    expect(coyote.defense).not.toBe(scaleInt(type.defense, mergeStatMult(3)));
+    expect(coyote.maxHp).toBe(scaleInt(type.hp, mergeStatMult(3)));
     expect(coyote.aggroRadius).toBe(type.aggroRadius);
     expect(coyote.leashDistance).toBe(type.leashDistance);
     expect(coyote.hp).toBe(coyote.maxHp);
@@ -230,11 +232,36 @@ describe("the resolver's mirrored content shapes agree with @caravan/content (ch
     expect(() => resolver.assertBattlefield(JSON.parse(JSON.stringify(b)))).not.toThrow();
   });
 
-  it("resolverTunables() hands the registry's chunk 10 values to the resolver as plain integers, and the resolver accepts them", async () => {
+  it("resolverTunables() hands the registry's chunk 10 and 11 values to the resolver as plain integers, and the resolver accepts them", async () => {
     const { resolverTunables } = await import("../src/index.js");
     const { assertTunables, msToTicks } = await import("@caravan/resolver");
+    const { AFFINITY_MATRIX, TUNABLES } = await import("@caravan/content");
     const t = resolverTunables();
-    expect(t).toEqual({ tickRate: 20, battleLengthCapSeconds: 180, pathRecomputeIntervalMs: 500, unitRadius: 358, keyframeIntervalMs: 5000, pathConnectivity: 4 });
+    expect(t).toEqual({
+      tickRate: 20,
+      battleLengthCapSeconds: 180,
+      pathRecomputeIntervalMs: 500,
+      unitRadius: 358,
+      keyframeIntervalMs: 5000,
+      pathConnectivity: 4,
+      affinityAdvantageMult: 1280,
+      affinityDisadvantageMult: 819,
+      affinityNeutralMult: 1024,
+      affinityMatrix: {
+        grit: { grit: "neutral", powder: "advantage", beast: "disadvantage" },
+        powder: { grit: "disadvantage", powder: "neutral", beast: "advantage" },
+        beast: { grit: "advantage", powder: "disadvantage", beast: "neutral" },
+      },
+      mergeStatMultByLevel: [0, 1024, 1280, 1600, 2000, 2500],
+      trapTriggerRadius: 768,
+      siegeFenceDamageMult: 4096,
+      leashHysteresisMult: 819,
+    });
+    expect(t.affinityMatrix).toEqual(AFFINITY_MATRIX);
+    expect(t.mergeStatMultByLevel).toEqual([...TUNABLES.MERGE_STAT_MULT_BY_LEVEL]);
+    expect(t.mergeStatMultByLevel.length).toBe(TUNABLES.MERGE_LEVEL_MAX + 1);
+    // Plain data: the resolver's copy is not content's frozen object.
+    expect(t.affinityMatrix).not.toBe(AFFINITY_MATRIX);
     expect(() => assertTunables(t)).not.toThrow();
     expect(msToTicks(t.pathRecomputeIntervalMs, t.tickRate)).toBe(10);
     expect(msToTicks(t.keyframeIntervalMs, t.tickRate)).toBe(100);

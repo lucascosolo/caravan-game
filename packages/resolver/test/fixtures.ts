@@ -33,7 +33,7 @@ import {
 export const fx = (n: number): Fixed => n as Fixed;
 export const ms = (n: number): Millis => n as Millis;
 
-/** The chunk 10 defaults, as @caravan/content's registry authors them. */
+/** The chunk 10 and 11 defaults, as @caravan/content's registry authors them. */
 export const DEFAULT_TUNABLES: ResolverTunables = {
   tickRate: 20,
   battleLengthCapSeconds: 180,
@@ -41,7 +41,23 @@ export const DEFAULT_TUNABLES: ResolverTunables = {
   unitRadius: fx(358), // 0.35 cells
   keyframeIntervalMs: ms(5000),
   pathConnectivity: 4,
+  affinityAdvantageMult: fx(1280), // ×1.25
+  affinityDisadvantageMult: fx(819), // ×0.80
+  affinityNeutralMult: fx(1024),
+  // Grit beats Powder, Powder beats Beast, Beast beats Grit (content's affinity.ts).
+  affinityMatrix: {
+    grit: { grit: "neutral", powder: "advantage", beast: "disadvantage" },
+    powder: { grit: "disadvantage", powder: "neutral", beast: "advantage" },
+    beast: { grit: "advantage", powder: "disadvantage", beast: "neutral" },
+  },
+  mergeStatMultByLevel: [fx(0), fx(1024), fx(1280), fx(1600), fx(2000), fx(2500)],
+  trapTriggerRadius: fx(768), // 0.75 cells
+  siegeFenceDamageMult: fx(4096), // ×4
+  leashHysteresisMult: fx(819), // ×0.80
 };
+
+/** (radius + UNIT_RADIUS)²: the REACH rule's squared threshold for the default unit radius. */
+export const reachSq = (radius: number): number => (radius + 358) * (radius + 358);
 
 /** A short fight for tests that only care about the first seconds. */
 export const SHORT_TUNABLES: ResolverTunables = { ...DEFAULT_TUNABLES, battleLengthCapSeconds: 30 };
@@ -62,9 +78,13 @@ export function fence(spec: FenceSpec): BattlefieldFence {
   return { ref: `f${spec.segment}`, segment: seg.index, cell: seg.cell, pos: cellCenter(seg.cell), tierId: "fence.brush_pile", category: spec.category ?? "timber", hp: spec.hp ?? maxHp, maxHp };
 }
 
-export function trap(ref: string, cell: Cell): BattlefieldTrap {
-  return { ref, cell, pos: cellCenter(cell), typeId: "trap.spike_pit", category: "groundwork", affinity: "grit", damage: 250, effect: null };
+export function trap(ref: string, cell: Cell, over: Partial<BattlefieldTrap> = {}): BattlefieldTrap {
+  return { ref, cell, pos: cellCenter(cell), typeId: "trap.spike_pit", category: "groundwork", affinity: "grit", damage: 250, effect: null, ...over };
 }
+
+/** Content's trap effects, as literals: jaw trap root (1.5 s) and the slow default (−40 % for 3 s). */
+export const ROOT: BattlefieldTrap["effect"] = { kind: "root", duration: ms(1500) };
+export const SLOW: BattlefieldTrap["effect"] = { kind: "slow", magnitude: fx(410), duration: ms(3000) };
 
 export function post(ref: string, cell: Cell, over: Partial<BattlefieldPost> = {}): BattlefieldPost {
   return {
@@ -125,6 +145,8 @@ export interface UnitSpec {
   attackRange?: number;
   attackCooldown?: number;
   hp?: number;
+  affinity?: PartyUnit["affinity"];
+  mergeLevel?: number;
 }
 
 export function unit(spec: UnitSpec): PartyUnit {
@@ -134,12 +156,12 @@ export function unit(spec: UnitSpec): PartyUnit {
   return {
     ref: spec.ref,
     typeId: "desert.dust_rider",
-    mergeLevel: 1,
+    mergeLevel: spec.mergeLevel ?? 1,
     stance: spec.stance ?? "core",
     entry: { edge, cell },
     hp,
     maxHp: hp,
-    affinity: "beast",
+    affinity: spec.affinity ?? "beast",
     offense: spec.offense ?? 95,
     moveSpeed: fx(spec.moveSpeed ?? 1536), // 1.5 cells/s → 76 per tick
     attackRange: fx(spec.attackRange ?? 1024),
@@ -182,11 +204,116 @@ export function cornerClipScenario(): ResolveInput {
   );
 }
 
+/**
+ * Chunk 11's budget scenario: 16 attackers (all three stances, all three affinities, every
+ * merge level, a mix of speeds and ranges) against 8 posts (all three stances) behind all 28
+ * fence segments, with 6 traps (damage, slow, root) and two siege pieces, for the full 180 s.
+ * The performance check and the log-size measurement run it.
+ */
+export function fullLoadScenario(): ResolveInput {
+  const affinities = ["grit", "powder", "beast"] as const;
+  const stances: Stance[] = ["core", "nearest", "traps"];
+  const edges: EntryEdge[] = ["north", "east", "south", "west"];
+  const entryCell = (edge: EntryEdge, k: number): Cell => {
+    const along = 2 + ((k * 7) % 28);
+    if (edge === "north") return { x: along, y: k % 2 };
+    if (edge === "south") return { x: along, y: GRID_HEIGHT - 1 - (k % 2) };
+    if (edge === "west") return { x: k % 2, y: along };
+    return { x: GRID_WIDTH - 1 - (k % 2), y: along };
+  };
+  const units: PartyUnit[] = [];
+  for (let k = 0; k < 16; k++) {
+    units.push(
+      unit({
+        ref: `u${k < 10 ? "0" : ""}${k}`,
+        stance: stances[k % 3]!,
+        edge: edges[k % 4]!,
+        cell: entryCell(edges[k % 4]!, k),
+        affinity: affinities[k % 3]!,
+        mergeLevel: 1 + (k % 5),
+        offense: 40 + ((k * 13) % 81),
+        hp: 300 + ((k * 211) % 1101),
+        moveSpeed: 1024 + ((k * 397) % 2049),
+        attackRange: k % 4 === 3 ? 4096 : 1024,
+        attackCooldown: 400 + ((k * 331) % 2101),
+      }),
+    );
+  }
+  const postStances = ["guard", "hold", "reserve"] as const;
+  const postCells: Cell[] = [
+    { x: 13, y: 12 },
+    { x: 17, y: 12 },
+    { x: 12, y: 15 },
+    { x: 18, y: 15 },
+    { x: 13, y: 18 },
+    { x: 17, y: 18 },
+    { x: 15, y: 13 },
+    { x: 15, y: 17 },
+  ];
+  const posts = postCells.map((cell, k) =>
+    post(`p${k}`, cell, {
+      stance: postStances[k % 3]!,
+      affinity: affinities[(k + 1) % 3]!,
+      mergeLevel: 1 + (k % 5),
+      defense: 40 + ((k * 17) % 81),
+      hp: 400 + ((k * 173) % 1001),
+      maxHp: 400 + ((k * 173) % 1001),
+      attackRange: k % 2 === 0 ? fx(1024) : fx(4096),
+      attackCooldown: ms(500 + ((k * 277) % 2001)),
+      aggroRadius: fx(3072 + 1024 * (k % 3)),
+      leashDistance: fx(4096 + 1024 * (k % 2)),
+    }),
+  );
+  const traps: BattlefieldTrap[] = [
+    trap("t0", { x: 15, y: 9 }),
+    trap("t1", { x: 9, y: 15 }, { effect: SLOW }),
+    trap("t2", { x: 21, y: 15 }, { effect: ROOT, category: "powder", affinity: "powder" }),
+    trap("t3", { x: 15, y: 21 }, { category: "powder", affinity: "powder" }),
+    trap("t4", { x: 10, y: 9 }, { effect: ROOT }),
+    trap("t5", { x: 20, y: 21 }, { effect: SLOW, category: "powder", affinity: "powder" }),
+  ];
+  const fences = ringExcept([], 400).map((f, i) => ({ ...f, category: (["timber", "wire", "stone"] as const)[i % 3]! }));
+  return input(
+    battlefield({ fences, traps, posts }),
+    party(units, [
+      { ref: "s0", typeId: "siege.battering_wagon", counters: { kind: "fence", category: "timber" } },
+      { ref: "s1", typeId: "siege.bridging_planks", counters: { kind: "trap", category: "groundwork" } },
+    ]),
+  );
+}
+
 /** The scenarios the determinism harness runs. Keep this list growing in chunks 11–13. */
 export function scenarios(): { name: string; input: ResolveInput }[] {
   const north = (ref: string, stance: Stance, x: number) => unit({ ref, stance, edge: "north", cell: { x, y: 1 } });
   const south = (ref: string, stance: Stance, x: number) => unit({ ref, stance, edge: "south", cell: { x, y: GRID_HEIGHT - 2 } });
   return [
+    // ── chunk 11 combat scenarios ──
+    {
+      name: "combat-three-stances-traps-siege",
+      input: input(
+        battlefield({
+          fences: ringExcept([3, 17], 300),
+          traps: [trap("t1", { x: 15, y: 9 }, { effect: ROOT }), trap("t2", { x: 15, y: 21 }, { effect: SLOW, category: "powder", affinity: "powder" }), trap("t3", { x: 9, y: 15 })],
+          posts: [post("g", { x: 13, y: 12 }), post("h", { x: 17, y: 12 }, { stance: "hold", affinity: "powder", attackRange: fx(4096) }), post("r", { x: 15, y: 18 }, { stance: "reserve", affinity: "beast", mergeLevel: 3 })],
+        }),
+        party([north("a", "nearest", 15), north("b", "core", 12), south("c", "traps", 15), unit({ ref: "d", stance: "nearest", edge: "west", cell: { x: 0, y: 15 }, affinity: "powder", mergeLevel: 2 })], [{ ref: "s", typeId: "siege.bridging_planks", counters: { kind: "trap", category: "groundwork" } }]),
+        SHORT_TUNABLES,
+      ),
+    },
+    {
+      name: "combat-leash-oscillation",
+      input: input(battlefield({ traps: [trap("t", { x: 15, y: 12 })], posts: [post("p", { x: 15, y: 9 }, { aggroRadius: fx(8192) })] }), party([unit({ ref: "a", edge: "south", cell: { x: 15, y: 31 } })]), SHORT_TUNABLES),
+    },
+    {
+      name: "combat-affinity-mirror",
+      input: input(
+        battlefield({ posts: [post("pg", { x: 13, y: 8 }, { affinity: "grit" }), post("pp", { x: 15, y: 8 }, { affinity: "powder" }), post("pb", { x: 17, y: 8 }, { affinity: "beast" })] }),
+        party([unit({ ref: "ag", stance: "nearest", cell: { x: 13, y: 0 }, affinity: "grit" }), unit({ ref: "ap", stance: "nearest", cell: { x: 15, y: 0 }, affinity: "powder" }), unit({ ref: "ab", stance: "nearest", cell: { x: 17, y: 0 }, affinity: "beast" })]),
+        SHORT_TUNABLES,
+      ),
+    },
+    { name: "combat-full-load-16v8v28", input: fullLoadScenario() },
+    // ── chunk 10 scenarios ──
     { name: "open-field-core", input: input(battlefield(), party([north("a", "core", 15)]), SHORT_TUNABLES) },
     { name: "gapped-ring-three-stances", input: input(battlefield({ fences: ringExcept([3, 17]), traps: [trap("t1", { x: 13, y: 13 }), trap("t2", { x: 17, y: 18 })], posts: [post("p1", { x: 15, y: 13 }), post("p2", { x: 14, y: 17 })] }), party([north("a", "core", 15), north("b", "nearest", 20), south("c", "traps", 10), south("d", "core", 15)]), SHORT_TUNABLES) },
     { name: "sealed-ring-breach", input: input(battlefield({ fences: ringExcept([], 100), posts: [post("p1", { x: 15, y: 14 })] }), party([north("a", "core", 15), unit({ ref: "b", stance: "nearest", edge: "west", cell: { x: 0, y: 15 } })]), SHORT_TUNABLES) },

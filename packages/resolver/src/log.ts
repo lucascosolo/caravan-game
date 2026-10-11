@@ -27,8 +27,16 @@
  *     and keeps advancing along `wp` will diverge from the authoritative positions, and a
  *     `path` event never re-states a hold. `holding` is edge-triggered: it stays in force
  *     until the next `hold` for that unit.
+ *   - `speed` (chunk 11): from the NEXT tick's movement on, the unit advances `speed` per
+ *     tick along its CURRENT leg — the leg is not restarted, only the per-tick increment of
+ *     `progress` changes (a trap's slow or root, and its expiry). The `path` event's own
+ *     `speed` is the value in force when the route was set. `speed` 0 (rooted) is also
+ *     reflected by `hold`, which stays authoritative for "did not move".
+ *   - Posted units (chunk 11) move too, with the same `path` / `hold` / `speed` events, from
+ *     the tick they acquire a target; before that they stand at their spawn position.
  *   - `keyframe` carries authoritative positions for seeking and for detecting a truncated
- *     log; interpolation between keyframes must reproduce them exactly.
+ *     log; interpolation between keyframes must reproduce them exactly. Since chunk 11 it
+ *     also carries each unit's attack cooldown and remaining effect ticks.
  */
 import type { Target } from "./state.js";
 
@@ -53,11 +61,29 @@ export type LogEvent =
   | { readonly t: number; readonly k: "fence_hit"; readonly u: number; readonly f: number; readonly damage: number; readonly hp: number }
   /** Phase 8: the segment is destroyed and no longer blocks. */
   | { readonly t: number; readonly k: "fence_broken"; readonly f: number }
+  /** Phase 3/4 (chunk 11): the unit's per-tick speed changes from the next tick's movement on (slow / root applied or expired). */
+  | { readonly t: number; readonly k: "speed"; readonly u: number; readonly speed: number }
+  /** Phase 4 (chunk 11): trap `i` fired on unit `u`. `hp` is the unit's HP after; `effect` the status applied, if any. */
+  | { readonly t: number; readonly k: "trap_fired"; readonly i: number; readonly u: number; readonly damage: number; readonly hp: number; readonly effect: "slow" | "root" | null }
+  /** Phase 4 (chunk 11): trap `i` was crossed by unit `u` but the party's siege counters its category: no effect, still spent. */
+  | { readonly t: number; readonly k: "trap_nullified"; readonly i: number; readonly u: number }
+  /** Phase 5 (chunk 11): posted unit `u` acquired attacker `v` and begins pursuing. */
+  | { readonly t: number; readonly k: "aggro"; readonly u: number; readonly v: number }
+  /** Phase 5 (chunk 11): posted unit `u` dropped its pursuit — leash exceeded, target out of aggro, target dead, or no route — and returns to its post. */
+  | { readonly t: number; readonly k: "disengage"; readonly u: number; readonly why: "leash" | "lost" | "dead" | "unreachable" }
+  /** Phase 5 (chunk 11): posted unit `u` is back on its post and idle. */
+  | { readonly t: number; readonly k: "returned"; readonly u: number }
+  /** Phase 5 (chunk 11): a `reserve` post saw attacker `v` inside the ring and now behaves as `guard`. */
+  | { readonly t: number; readonly k: "released"; readonly u: number; readonly v: number }
+  /** Phase 6 (chunk 11): unit `u` hit unit `v` for `damage`; `hp` is v's HP after (0 = dies in phase 8). */
+  | { readonly t: number; readonly k: "hit"; readonly u: number; readonly v: number; readonly damage: number; readonly hp: number }
+  /** Phase 8 (chunk 11): the unit is dead — out of targeting, out of the fight. */
+  | { readonly t: number; readonly k: "unit_died"; readonly u: number }
   /** End of tick, every keyframeInterval ticks and on the final tick. */
   | {
       readonly t: number;
       readonly k: "keyframe";
-      readonly units: readonly { readonly u: number; readonly x: number; readonly y: number; readonly hp: number; readonly alive: boolean }[];
+      readonly units: readonly { readonly u: number; readonly x: number; readonly y: number; readonly hp: number; readonly alive: boolean; readonly cd: number; readonly slow: number; readonly root: number }[];
       readonly fences: readonly { readonly f: number; readonly hp: number }[];
       readonly traps: readonly { readonly i: number; readonly spent: boolean }[];
     };

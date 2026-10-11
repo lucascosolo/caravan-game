@@ -1,6 +1,6 @@
 # Chunk 11 — Resolver combat: damage, traps, posted units
 
-**Depends on:** 10. **Status:** not started.
+**Depends on:** 10. **Status:** built (RESOLVER_VERSION 3; see "Build notes" at the end).
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 ## Goal
@@ -158,3 +158,119 @@ Also from chunk 07 QA (D2): pathing is 4-connected (`TUNABLES.PATH_CONNECTIVITY`
 corner cutting) and the four ring corners are permanent blocked cells (`Battlefield.anchors`)
 with no HP — they are never attacked, never breached, and never a target for
 `structure_breaker` or siege.
+
+## Build notes (Maker, 2026-10-11) — RESOLVER_VERSION 2 → 3
+
+Built in the phase hooks chunk 10 left; nothing in the phase order moved. New files:
+`packages/resolver/src/combat.ts` (formula, slots, affinity, merge, target selection),
+`move.ts` (the leg stepping shared by attackers and posted units, effects, the sweep),
+`traps.ts` (phase 4), `posted.ts` (phase 5). `hooks.ts` re-exports phases 4/5, implements
+`siegeFenceMult`, keeps `abilityPhase` (chunk 12) and `endOfTick` (chunk 13) as seams.
+Every rule below is named in a header comment where it lives.
+
+**Rules and tie-breaks, written down:**
+
+- **DAMAGE_SLOTS** — each unit brings ONE rating (`UnitState.rating`): an attacker its
+  `offense`, a posted unit its `defense`. `hit = floor(o²/(o+d))` with o = the DEALER's
+  rating and d = the RECEIVER's. So attacker→post is `offense²/(offense+defense)`,
+  post→attacker is `defense²/(defense+offense)`, anything→fence is `offense` (d = 0).
+  The other rating is 0 in state and never read.
+- **DAMAGE_ROUNDING_ORDER** — formula (floor) → × affinity (floor) → × dealer's merge
+  multiplier (floor) → × siege, fence hits only (floor) → **minimum 1**. Traps: flat
+  `trap.damage` → × affinity (trap.affinity vs the unit's) → minimum 1; no merge, no siege.
+- **AFFINITY** — the matrix and the three multipliers are INPUT (`ResolverTunables.
+  affinityMatrix / affinityAdvantageMult / affinityDisadvantageMult / affinityNeutralMult`),
+  built by circle's `resolverTunables()` from content's `AFFINITY_MATRIX`. Nine pairs tested.
+- **MERGE (chunk 03 QA B1)** — `mergeStatMultByLevel[mergeLevel]` is input; applied to each
+  hit's OUTPUT and, upstream, to max HP (already in the input's `maxHp`). Ratings are
+  unmerged at every level; `toBattlefield` no longer scales `defense` (it did — fixed in
+  this chunk; the circle test now pins the unscaled rating). Abilities untouched. Fence hits
+  are hits, so they scale too (and the breach price follows).
+- **REACH** — every unit-vs-unit and unit-vs-trap proximity test is squared centre distance
+  ≤ (radius + unitRadius)²: attack range, aggro radius, trap trigger radius. The leash and
+  the hysteresis radius are the unit's own centre vs its post (no radius). Chunk 10's
+  "engaged" hold moved from attackRange to reach (one movement test updated).
+- **ATTACK_COOLDOWN** — decrement first, then a ready unit (0) fires at a target in reach
+  and resets to `cooldownTicks`; first hit on contact, then every cooldownTicks; a ready
+  unit with nothing in reach stays ready; one hit per unit per tick.
+- **ATTACK_TARGET_SELECTION** — nearest living enemy UNIT within reach, lowest id on an
+  exact tie, for every stance on both sides and independent of the movement target (a
+  `core` attacker fires at a guard it walks past; a pursuing guard hits whichever attacker
+  is nearest). **ATTACK_PRIORITY**: an enemy in reach beats the fence a unit is breaching
+  (a ranged breacher shoots the guard behind the fence first; the breach price does not
+  model this — it is an estimate, as chunk 10 already says).
+- **SIMULTANEOUS_DAMAGE** — hits land in id order during phase 6, but `alive` is read for
+  targeting and a unit whose HP reached 0 earlier in the phase still fires; HP floors at 0;
+  phase 8 kills every 0-HP unit in id order. Mutual kills happen and are tested. A unit a
+  trap kills in phase 4 still acts in phases 5–7 of that tick.
+- **UNIT_DEATH (phase 8)** — `unit_died`, `alive = false`, `diedTick` (in the summary),
+  target/route/breach cleared; an attacker holding on it retargets in phase 1 of the next
+  tick (chunk 10's rule), a guard pursuing it disengages `dead` in phase 5 of the next tick.
+- **TRAP_TRIGGER_TEST** — each attacker's SWEEP polyline for the tick (start, every waypoint
+  it landed on, end — corners included) is tested segment by segment against (trigger
+  radius + unitRadius)² via the floored closest point (`segmentDistSq`: the projection is
+  floored toward the segment start, < 1 unit off exact, documented as part of the rule).
+  A unit that did not move is tested as a point. No tunnelling: tested at 64 cells/s.
+- **TRAP_TIE_BREAK** — attackers in ascending id, then unspent traps in ascending index.
+  Two units on one trap: the lower id springs it, the other is untouched. One unit on two
+  traps: both fire, index order. **TRAP_FIRE**: spent the moment it is sprung; siege
+  countering its category → `trap_nullified`, no damage, no effect, still spent.
+- **TRAP_EFFECTS / EFFECT_STACKING** — durations `msToTicks`; an effect applied in phase 4 of
+  tick t governs movement on ticks t+1..t+N (effects count down AFTER the movement they
+  governed). Slow: budget = speedPerTick − floor(speedPerTick × magnitude); root: 0. A second
+  effect of the same kind REFRESHES (max of remaining, max of magnitude), never adds.
+  Every change of effective speed logs a `speed` event (in force from the next tick) — the
+  replay contract in `log.ts` gained that clause; legs are never restarted by an effect.
+- **POSTED STANCES** — `hold`: never moves, never acquires, hits in reach from its post.
+  `reserve`: ignores every attacker — neither acquires NOR attacks, even in reach
+  (`canAttack`) — until the lowest-id living attacker's CELL has Chebyshev distance
+  < PERIMETER_RING_RADIUS from the core centre cell (a ring/gap cell does not count, one
+  cell inside does), logged `released`, then guard forever. `guard`: the state machine below.
+- **GUARD STATE MACHINE** (`postMode` idle / pursuing / returning), per tick, top to bottom:
+  pursuing → returning on `dead` (target not alive), else `leash` (centre distance from the
+  POST > leashSq — **inclusive leash**: exactly at the leash is still engaged), else `lost`
+  (target beyond aggro reach measured from the UNIT). idle → pursuing by AGGRO_TIE_BREAK
+  (nearest attacker within aggro reach, lowest id). returning → pursuing only once within
+  LEASH_HYSTERESIS × leash of the post (inclusive), same rule; deaf to aggro until then.
+  Every disengage, including `dead`, goes through returning. returning → idle on standing
+  exactly on the post (`returned`). Acquisition is decided by aggro alone (a target beyond
+  the leash but inside aggro is acquired and chased to the leash). Oscillation at the leash
+  is therefore bounded to (1 − hysteresis) × leash of walking per half-cycle and is in the
+  determinism corpus (`combat-leash-oscillation`).
+- **POSTED MOVEMENT** — the same leg rule and `path`/`hold`/`speed` events as attackers
+  (posts start `holding: true` so an idle post logs nothing). Routes: `findPath` with NO
+  breach edges (a post never breaks the caravan's own fence) + string pulling, ending on the
+  exact goal position (replacing the last cell-centre waypoint when that leg is LOS-clear,
+  else appended); recomputed every `pathRecomputeInterval` ticks, on a mode/target change,
+  and on the tick after a fence breaks (`pathDirty`; attackers keep chunk 10's
+  `fenceBrokeSinceRecompute`). A pursuing post with no route stands, keeps pursuing, fires
+  if the target comes into reach — no per-tick acquire/drop chatter (tested). A pursuing
+  post whose target is in reach holds. Posts never spring traps (only attackers are tested).
+- **SIEGE** — `fence.siegeCountered` / `trap.siegeCountered` are decided once at setup from
+  the party's `siege[].counters`; `siegeFenceMult` returns `siegeFenceDamageMult` (×4) for a
+  countered category, ×1 otherwise; unit hits never see siege. `SIEGE_TRAP_NULLIFY` is not
+  carried as input (content marks it fixed by design); the rule is in `traps.ts`.
+- **Input** — `ResolverTunables` gained `affinityAdvantageMult`, `affinityDisadvantageMult`,
+  `affinityNeutralMult`, `affinityMatrix`, `mergeStatMultByLevel`, `trapTriggerRadius`,
+  `siegeFenceDamageMult`, `leashHysteresisMult` (closed keys; `INPUT_BOUNDS.maxMult` ×64,
+  `maxMergeLevels` 16; every unit's mergeLevel must index the table; the matrix must be
+  complete with valid outcomes). Content gained `LEASH_HYSTERESIS_MULT` (×0.80).
+  `normalizeInput` copies the matrix in a fixed key order.
+- **Log** — new events `speed`, `trap_fired`, `trap_nullified`, `aggro`, `disengage` (why:
+  leash | lost | dead), `returned`, `released`, `hit` (u, v, damage, hp after), `unit_died`;
+  keyframes carry `cd`, `slow`, `root` per unit. `path.speed` is now the speed in force.
+  Summaries: `UnitSummary.diedTick`, `TrapSummary.spentTick`.
+
+**Measurements** (`test/budget.test.ts`, 16 attackers vs 8 posts vs 28 fences, 6 traps, 2
+siege, 3600 ticks): resolve best-of-7 ≈ 70–80 ms (median 78–95 ms under the parallel
+vitest load; the check asserts the best, the contention-free figure). Log 118 251 B
+(115.5 KB, 543 events) — **keyframes are 89 KB of it** (36 × 24 units + 28 fences + 6
+traps); all combat events together add ≈ 25 KB. The 100 KB target is chunk 13's call; the
+lever is the keyframe (chunk 10 QA N4, already forwarded there), not the event stream.
+
+**Tests**: resolver 119 passing in 9 files (`combat`, `traps`, `posted`, `budget` new;
+`movement` updated for reach and for traps that now fire); every boundary case in the
+brief is a named test. Determinism corpus: 10 scenarios (4 new: three stances + traps +
+siege, leash oscillation, affinity mirror, full load), 100× in-process and 3 processes
+agree. Circle 87, content 58 passing; `pnpm typecheck`, `pnpm lint`, `pnpm test:boundary`
+(15 src files) clean.
