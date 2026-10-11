@@ -263,8 +263,8 @@ test("a fresh account: register, the first screen, a refugee, the first trip gui
 
   // ── bank ──
   await expect(page.getByTestId("encounter-result-2").getByTestId("result-outcome")).toHaveText("The caravan held.");
-  await expect(page.getByTestId("guide-result")).toContainText("that ends the first trip");
   await page.getByTestId("to-decision").click();
+  await expect(page.getByTestId("guide-result")).toContainText("that ends the first trip");
   await page.getByTestId("bank-open").click();
   await page.getByRole("dialog", { name: "Bank the trip?" }).getByTestId("bank-confirm").click();
   const summary = page.getByTestId("trip-summary");

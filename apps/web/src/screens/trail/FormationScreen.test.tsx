@@ -461,6 +461,25 @@ describe("FormationScreen", () => {
     expect(notice.textContent).not.toMatch(/chunk \d+/i);
   });
 
+  it("chunk 24 QA S5: a fight that resolved before the re-read (a fast overrun closes the manifest, 404) still moves the Trail on", async () => {
+    const user = userEvent.setup();
+    const saveFormation = vi.fn(async (_c: string, _n: number, f: Formation) => formationView(f, null));
+    const commitEncounter = vi.fn(async () => ({ jobId: "encounter:t:3", jobStatus: "queued", created: true }));
+    const formation = vi.fn(async () => {
+      throw new ApiError(404, "no_open_manifest", "this caravan is in town with nothing packed");
+    });
+    const onCommitted = vi.fn();
+    render(screenWith(fakeApi({ saveFormation, commitEncounter, formation }), { onCommitted }));
+    await user.click(within(screen.getByTestId("tray-unit-u-rider")).getByRole("button"));
+    await user.click(screen.getByText("tap-12-12"));
+    await user.click(screen.getByTestId("commit-open"));
+    await waitFor(() => expect(screen.getByTestId("commit-confirm")).toBeEnabled());
+    await user.click(screen.getByTestId("commit-confirm"));
+    await waitFor(() => expect(onCommitted).toHaveBeenCalledTimes(1));
+    expect(commitEncounter).toHaveBeenCalledWith("c1", 3);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("shows a malformed server payload as bad_payload with its path, not a crash", async () => {
     // The API client's guard (src/api/shapes.ts, pinned in client.test.ts) raises this before
     // a screen sees the body; the screen's job is to show it with the offending path.
