@@ -326,6 +326,12 @@ a unit type outside the starting nodes?
   guardrail 0 copy checks on every card), then asserts through the API: guide `done` (not skipped), the
   trip `banked` with decisions `pushed, banked`, one unit in the roster, a valid one-unit party, no
   `coin_purchased` in the ledger, and after a reload and sign-in no guide.
+- **Observed results (this branch, after merging roadmap/phase-2-spec at 7063af6).** `pnpm typecheck`
+  clean; `pnpm lint` and `pnpm test:boundary` pass; web suite 330 passed / 33 files; server suite 621
+  passed, 1 skipped, 3 failed / 36 files: `qa02-round2` (the known job-queue flake, 2) and `qa15-fixes` S4
+  (1), both files 31/31 passed rerun alone; `pnpm build` passes (bundle check: battlefield.ts, fixed.ts,
+  replay.ts); `pnpm e2e` 7 passed (onboarding, formation, smoke ×2, store, town, trip). A voided first trip
+  (chunk 15 QA D3's ending) also moves the guide on to the party step.
 - **For QA.** Guardrail 0: grep `STRINGS.guide` — no "base", "camp", and the player never attacks or
   raids (the e2e and component tests check the rendered cards). Guardrail 3: the only unit the guide
   ever sees is one the refugee route granted. §24 DoD ("five fresh testers explain which side is active")

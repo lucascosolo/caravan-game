@@ -43,7 +43,7 @@ export function prefillParty(view: PartyView): PartyConfig | null {
 interface Facts {
   readonly units: number;
   readonly tripOpen: boolean;
-  readonly lastEnd: "banked" | "overrun" | null;
+  readonly lastEnd: "banked" | "overrun" | "voided" | null;
 }
 
 async function readFacts(api: Api): Promise<Facts | null> {
