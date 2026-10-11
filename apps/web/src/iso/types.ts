@@ -120,8 +120,8 @@ export interface DragGhost {
  * A unit in a battle REPLAY (chunk 22): wherever the stored log's interpolation puts it after
  * the tick being shown (`readReplay(log).frame(t)`, lerped between ticks by the player for
  * smoothness). Either side; the attacker carries the same dashed ring as a scouted attacker,
- * so the two sides differ by shape, not colour alone. No stance, no radii: the log does not
- * carry them and the replay never guesses. Dead units are simply not in the list.
+ * so the two sides differ by shape, not colour alone. No radii: the log does not carry them.
+ * Dead units are simply not in the list.
  */
 export interface ReplayUnitEntity {
   readonly id: string;
@@ -131,18 +131,30 @@ export interface ReplayUnitEntity {
   readonly side: "attacker" | "defender";
   /** 0..1, from the log's HP (rows copied, never derived). */
   readonly hpFraction: number;
+  /**
+   * Chunk 22 QA D1: the stance it fought with, from the job's snapshots (the server's labels):
+   * a post's guard / hold / reserve, a raider's nearest / traps / core. Drawn as a small glyph
+   * under the marker; absent when the server named none.
+   */
+  readonly stance?: "guard" | "hold" | "reserve" | "nearest" | "traps" | "core";
+  /** Chunk 22 QA N5: the unit whose feed line the player tapped — drawn with a bright ring. */
+  readonly highlighted?: boolean;
 }
 
 /**
- * A short-lived marker over something a log row just reported (chunk 22): a trap springing,
- * a unit falling, a fence breaking, an ability firing, the core reached. Told apart by SHAPE
- * (ring, cross, square, star, diamond) as well as colour. `age` 0 → just happened, 1 → fading out.
+ * A short-lived marker over something a log row just reported (chunk 22): a hit (a line from
+ * the attacker to its target), a fence hit (a dashed line to the segment), a trap springing, a
+ * unit falling, a fence breaking, an ability firing, the core reached. Told apart by SHAPE
+ * (line, dashed line, ring, cross, square, star, diamond) as well as colour. `age` 0 → just
+ * happened, 1 → fading out. Drawn ABOVE the units (chunk 22 QA S5).
  */
 export interface ReplayMarkEntity {
   readonly id: string;
   readonly pos: WorldPoint;
-  readonly kind: "trap" | "death" | "fence" | "ability" | "core";
+  readonly kind: "trap" | "death" | "fence" | "ability" | "core" | "hit" | "fence_hit";
   readonly age: number;
+  /** A hit / fence hit: where the blow came from (the attacker's position at that tick, from the reader's frame). */
+  readonly from?: WorldPoint;
 }
 
 export interface ThreatOverlay {

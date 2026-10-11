@@ -120,3 +120,49 @@ GRANT EXECUTE ON FUNCTION
   encounter_log_write(text, text, integer, uuid, uuid, uuid, integer, integer, text, bytea, integer, text, text, text, text, text),
   encounter_log_prune(uuid)
 TO caravan_app;
+
+-- ---------------------------------------------------------------------------------
+-- Account erasure is one audited function (chunk 30, migration 020)
+-- ---------------------------------------------------------------------------------
+-- account_erasure_active is the guards' only exception (an erasure in progress in THIS
+-- transaction). Only account_erase() (SECURITY DEFINER) writes it, and it removes its row
+-- before returning; the app role may read it (the guards run as the invoker) but never write
+-- it, so it can never open the exception for its own UPDATE. The audit log is the owner's.
+REVOKE INSERT, UPDATE, DELETE ON TABLE account_erasure_active FROM caravan_app;
+REVOKE INSERT, UPDATE, DELETE ON TABLE account_erasure_audit FROM caravan_app;
+-- account_erase takes the caller's RAW bearer token as proof (only its hash is stored).
+GRANT EXECUTE ON FUNCTION account_erase(uuid, text) TO caravan_app;
+
+-- Chunk 32: the admin flag is read-only for the app role
+-- ---------------------------------------------------------------------------------
+-- account_admin decides who may read /admin/*. The server only ever READS it; the operator
+-- CLI (src/admin.ts) writes it over the owner connection. Without INSERT /
+-- UPDATE / DELETE here, no player route — and no bug in one — can grant or revoke admin.
+-- (An account's deletion still cascades: referential actions run as the table owner.)
+-- Client telemetry rows are insert-only for the app (deleted only on opt-out or cascade).
+-- Guarded by to_regclass so this script still applies to a database rolled back below 021.
+DO $$
+BEGIN
+  IF to_regclass('public.account_admin') IS NOT NULL THEN
+    REVOKE INSERT, UPDATE, DELETE ON TABLE account_admin FROM caravan_app;
+  END IF;
+  IF to_regclass('public.analytics_client_event') IS NOT NULL THEN
+    REVOKE UPDATE ON TABLE analytics_client_event FROM caravan_app;
+  END IF;
+END
+$$;
+
+-- PHASE-2 §36 (migration 022): a log past LOG_RETENTION or over LOG_SIZE_BUDGET is COMPACTED to
+-- its results summary, never just deleted. encounter_log_summary is written only by the owner's
+-- compaction (encounter_log_compact_rows, reached through encounter_log_prune and the scheduled
+-- encounter_log_retention_sweep; it reads the log row and the job's immutable result, nothing the
+-- caller passes) — the app role has no INSERT, UPDATE or DELETE on it.
+-- Guarded by to_regclass so this script still applies to a database rolled back below 022.
+DO $$
+BEGIN
+  IF to_regclass('public.encounter_log_summary') IS NOT NULL THEN
+    REVOKE INSERT, UPDATE, DELETE ON TABLE encounter_log_summary FROM caravan_app;
+    GRANT EXECUTE ON FUNCTION encounter_log_retention_sweep(integer) TO caravan_app;
+  END IF;
+END
+$$;

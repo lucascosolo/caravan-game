@@ -1,15 +1,20 @@
 /**
  * The replay player's model (chunk 22): PURE functions from the server's replay body to what
- * the player shows — the scene at a moment, the event feed, the end card's tally. Nothing
- * here simulates or decides anything:
+ * the player shows — the scene at a moment, the event feed, the end card's tally, how each
+ * fighter fared. Nothing here simulates or decides anything:
  *
  *   - the log is read with `readReplay` (@caravan/resolver/replay — the READER only; this
  *     file never imports `resolve`, and the build's bundle check refuses a client bundle
  *     that contains the simulation: apps/web/scripts/check-bundle.mjs);
  *   - positions and HP come from `replay.frame(t)` (keyframe + the log's interpolation
  *     contract); between two ticks the player lerps for smoothness, which is presentation;
- *   - every feed line is ONE log row (a hit, a death, a trap, a fence break, an ability, the
- *     core reached), worded — the feed is a view of the log, not a derivation;
+ *   - every feed line is ONE log row (a hit, a fence hit, a death, a trap, a fence break, an
+ *     ability, the core reached), worded — the feed is a view of the log, not a derivation.
+ *     A death line names the row that took the unit to 0 HP just before it (QA S7);
+ *   - every mark is ONE row too, drawn at the reader's frame positions for that row's tick: a
+ *     hit is a line from the attacker to its target (QA S4);
+ *   - siege pieces and stances are the SERVER's labels, taken from the job's snapshots (QA D1);
+ *     the log carries neither and this file never guesses one;
  *   - the outcome shown is the SERVER's (`view.outcome`, what the ledger recorded). If the
  *     log's own ending disagrees with it, the replay is refused rather than shown, so
  *     scrubbing to the end can only ever show the recorded outcome.
@@ -21,7 +26,18 @@ import { CORE_CELLS, ENTRY_BAND_DEPTH, GRID_HEIGHT, GRID_WIDTH, RING_ANCHORS, RI
 import { FIXED_POINT_SCALE } from "@caravan/content";
 import { readReplay, type Replay, type ReplayFrame } from "@caravan/resolver/replay";
 import type { ReplayLabelsView, ReplayView, ReplayViewer } from "../../api/replayTypes.ts";
-import { EMPTY_SCENE, fixedToWorld, type EntryEdgeName, type IsoSceneState, type ReplayMarkEntity, type ReplayUnitEntity, type SceneGeometry, type WorldPoint } from "../../iso/index.ts";
+import {
+  EMPTY_SCENE,
+  fixedToWorld,
+  type EntryEdgeName,
+  type FrameRect,
+  type IsoSceneState,
+  type ReplayMarkEntity,
+  type ReplayUnitEntity,
+  type SceneGeometry,
+  type SiegeEntity,
+  type WorldPoint,
+} from "../../iso/index.ts";
 import { STRINGS } from "../../strings.ts";
 
 const T = STRINGS.replay;
@@ -36,6 +52,8 @@ export interface FeedLine {
   readonly tick: number;
   readonly kind: FeedKind;
   readonly text: string;
+  /** The units the row names (QA N5: tapping the line highlights them on the field). */
+  readonly units: readonly number[];
 }
 
 export interface ReplayTally {
@@ -45,9 +63,19 @@ export interface ReplayTally {
   readonly defenders: number;
   readonly fencesBroken: number;
   readonly fences: number;
+  /** Traps that fired (QA N3: a siege-nullified trap is NOT counted here). */
   readonly trapsSprung: number;
+  /** Traps the party's siege made harmless. */
+  readonly trapsNullified: number;
   readonly traps: number;
   readonly coreReached: boolean;
+}
+
+/** How one fighter fared, from the rows only (QA S7). */
+export interface UnitFate {
+  readonly u: number;
+  readonly side: "attacker" | "defender";
+  readonly text: string;
 }
 
 export interface ReplayModel {
@@ -58,22 +86,49 @@ export interface ReplayModel {
   readonly tickRate: number;
   /** Seek targets: the full keyframes' ticks, ascending. */
   readonly keyframeTicks: readonly number[];
+  /** The log's keyframe interval in whole seconds (the Back / Forward step, QA N1). */
+  readonly keyframeSeconds: number;
   readonly feed: readonly FeedLine[];
   readonly tally: ReplayTally;
+  readonly fates: readonly UnitFate[];
   /** The edges the raiders came in from (where each one spawned). */
   readonly entryEdges: readonly EntryEdgeName[];
   /** The deepest raider, named from the viewer's side (null when the log names none). */
   readonly deepestName: string | null;
+  /** The party's siege pieces as the server labelled them, with what each counters (QA D1). */
+  readonly siegeNames: readonly string[];
+  /** Which stances the fighters carried (the legend lists them only when some are known). */
+  readonly hasStances: boolean;
+  /** QA S2: the camera opens on the ring and the ground the raiders cross, not the whole field. */
+  readonly frameRect: FrameRect;
   /** Positions and HP after `tick` (cached). */
   frame(tick: number): ReplayFrame;
-  /** The scene at a moment: `at` is a fractional tick (0 … ticks − 1). */
-  scene(at: number): IsoSceneState;
+  /**
+   * The scene at a moment: `at` is a fractional tick (0 … ticks − 1, and beyond for the
+   * post-roll hold: the frame clamps at the last tick, the final rows' marks play out).
+   * `speed` scales how many fight ticks a mark lasts so its fade is WALL-CLOCK (QA S5).
+   */
+  scene(at: number, opts?: SceneOptions): IsoSceneState;
 }
 
-export type OpenReplay = { readonly ok: true; readonly model: ReplayModel } | { readonly ok: false; readonly reason: string; readonly noLog: boolean };
+export interface SceneOptions {
+  readonly speed?: number;
+  /** Units to highlight (the tapped feed line's). */
+  readonly highlight?: ReadonlySet<number>;
+}
 
-/** How long a mark stays over the thing a row reported, in seconds of fight time. */
-const MARK_SECONDS = 0.75;
+export type OpenReplay = { readonly ok: true; readonly model: ReplayModel } | { readonly ok: false; readonly reason: string; readonly noLog: boolean; readonly compacted?: true };
+
+/** How long a mark stays over the thing a row reported, in seconds of WALL time at any speed (presentation). */
+export const MARK_SECONDS = 1.0;
+/** A hit's line is shorter-lived: there are many of them. */
+export const HIT_MARK_SECONDS = 0.4;
+/** QA S1: the last frame is held this long (wall time) before the end card shows, so the deciding row is seen. */
+export const END_HOLD_SECONDS = 1.0;
+/** QA S2: how far past the ring, toward each entry edge, the opening frame reaches (cells). Presentation. */
+const APPROACH_CELLS = 4;
+/** QA S2: a lattice cell is never narrower than this on screen at the opening zoom (CSS px). Presentation. */
+export const REPLAY_MIN_CELL_PX = 32;
 
 /** The wagon circle's lattice and fixed features, from the resolver's geometry (the same source the trail's circle uses). */
 export const REPLAY_GEOMETRY: SceneGeometry = {
@@ -144,41 +199,24 @@ function abilityDetail(e: Extract<LogEvent, { k: "ability" }>, tickRate: number)
   }
 }
 
-/** Word one log row, or null for rows that are mechanics rather than moments (targets, paths, keyframes…). */
-function lineFor(e: LogEvent, names: readonly string[], view: ReplayView, tickRate: number): { kind: FeedKind; text: string } | null {
-  const L = view.labels;
-  const unit = (u: number): string => names[u] ?? T.unknown;
-  const trap = (i: number): string => (L.traps[i] ? structureName(L.traps[i]!.displayName, view.viewer) : T.unknown);
-  switch (e.k) {
-    case "hit":
-      return { kind: "hit", text: cap(e.hp > 0 ? T.hit(unit(e.u), unit(e.v), e.damage, e.hp) : T.hitDown(unit(e.u), unit(e.v), e.damage)) };
-    case "unit_died":
-      return { kind: "death", text: cap(T.died(unit(e.u))) };
-    case "trap_fired":
-      return { kind: "trap", text: cap(T.trapFired(trap(e.i), unit(e.u), e.damage, e.effect)) };
-    case "trap_nullified":
-      return { kind: "trap", text: cap(T.trapNullified(trap(e.i), unit(e.u))) };
-    case "fence_broken": {
-      const f = L.fences[e.f];
-      return { kind: "fence", text: cap(T.fenceBroken(f ? structureName(fenceDisplay(f), view.viewer) : T.unknown)) };
-    }
-    case "ability": {
-      const name = L.units[e.u]?.ability ?? T.anAbility;
-      return { kind: "ability", text: cap(T.ability(unit(e.u), name, abilityDetail(e, tickRate))) };
-    }
-    case "core_reached":
-      return { kind: "core", text: cap(T.coreReached(unit(e.u))) };
-    default:
-      return null;
-  }
+/** Fight time of a tick, as m:ss. */
+export function clock(tick: number, tickRate: number): string {
+  const s = Math.max(0, Math.floor(tick / tickRate));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
 /**
  * Read and check a replay body. Refuses (with the reason the player shows): a body the server
  * marked not renderable, a missing log, a log the reader rejects, labels that do not match
- * the log, and a log whose ending disagrees with the outcome the server recorded.
+ * the log (side AND type, QA N7), a body for another fight than the one asked for (QA N7), and
+ * a log whose ending disagrees with the outcome the server recorded.
  */
-export function openReplay(view: ReplayView): OpenReplay {
+export function openReplay(view: ReplayView, expected?: { readonly jobId: string; readonly encounterIndex?: number }): OpenReplay {
+  if (expected && (view.jobId !== expected.jobId || (expected.encounterIndex !== undefined && view.encounterIndex !== expected.encounterIndex))) {
+    return { ok: false, reason: T.wrongFight, noLog: false };
+  }
+  // PHASE-2 §36: the log was compacted to its results summary (past retention) — nothing to play, by design.
+  if (view.compacted) return { ok: false, reason: view.reason ?? T.compactedReason, noLog: false, compacted: true };
   if (view.log === null || view.log === undefined) return { ok: false, reason: view.reason ?? T.noLogReason, noLog: true };
   if (!view.renderable) return { ok: false, reason: view.reason ?? T.notRenderableReason, noLog: false };
   let replay: Replay;
@@ -189,9 +227,10 @@ export function openReplay(view: ReplayView): OpenReplay {
   }
   const log = replay.log;
   const L = view.labels;
-  if (L.units.length !== log.units.length || L.fences.length !== log.fences.length || L.traps.length !== log.traps.length || L.units.some((u, i) => u.u !== i || u.side !== log.units[i]!.side)) {
-    return { ok: false, reason: T.labelsMismatch, noLog: false };
-  }
+  const unitsMatch = L.units.length === log.units.length && L.units.every((u, i) => u.u === i && u.side === log.units[i]!.side && u.typeId === log.units[i]!.typeId && u.level === log.units[i]!.level);
+  const fencesMatch = L.fences.length === log.fences.length && L.fences.every((f, i) => f.f === i && f.tierId === log.fences[i]!.tierId && f.segment === log.fences[i]!.segment);
+  const trapsMatch = L.traps.length === log.traps.length && L.traps.every((t, i) => t.i === i && t.typeId === log.traps[i]!.typeId);
+  if (!unitsMatch || !fencesMatch || !trapsMatch) return { ok: false, reason: T.labelsMismatch, noLog: false };
   const o = view.outcome;
   if (o && (o.kind !== log.outcome.kind || o.depth !== log.outcome.depth || o.endTick !== log.outcome.endTick)) {
     return { ok: false, reason: T.outcomeMismatch(o.kind, log.outcome.kind), noLog: false };
@@ -199,45 +238,146 @@ export function openReplay(view: ReplayView): OpenReplay {
   return { ok: true, model: buildModel(view, replay) };
 }
 
+interface Lethal {
+  readonly by: string;
+}
+
 function buildModel(view: ReplayView, replay: Replay): ReplayModel {
   const log = replay.log;
-  const names = unitNames(view.labels, view.viewer);
+  const L = view.labels;
+  const viewer = view.viewer;
+  const names = unitNames(L, viewer);
+  const unit = (u: number): string => names[u] ?? T.unknown;
+  const trapName = (i: number): string => (L.traps[i] ? structureName(L.traps[i]!.displayName, viewer) : T.unknown);
+  const fenceName = (f: number): string => (L.fences[f] ? structureName(fenceDisplay(L.fences[f]!), viewer) : T.unknown);
+  /** The siege piece that counters a trap of this category (the server's labels), if the party brought one. */
+  const siegeFor = (i: number): string | null => {
+    const cat = L.traps[i]?.category ?? null;
+    if (cat === null) return null;
+    return L.siege.find((s) => s.counters?.kind === "trap" && s.counters.category === cat)?.displayName ?? null;
+  };
+
+  // One forward pass over the rows: the feed, and what last took each unit to 0 HP (S7).
+  const lethal = new Map<number, Lethal>();
   const feed: FeedLine[] = [];
+  const push = (i: number, e: LogEvent, kind: FeedKind, text: string, units: number[]): void => {
+    feed.push({ key: i, tick: e.t, kind, text: cap(text), units });
+  };
   replay.events.forEach((e, i) => {
-    const line = lineFor(e, names, view, log.tickRate);
-    if (line) feed.push({ key: i, tick: e.t, ...line });
+    switch (e.k) {
+      case "hit":
+        if (e.hp <= 0) lethal.set(e.v, { by: unit(e.u) });
+        push(i, e, "hit", e.hp > 0 ? T.hit(unit(e.u), unit(e.v), e.damage, e.hp) : T.hitDown(unit(e.u), unit(e.v), e.damage), [e.u, e.v]);
+        break;
+      case "fence_hit":
+        push(i, e, "hit", T.fenceHit(unit(e.u), fenceName(e.f), e.damage, e.hp), [e.u]);
+        break;
+      case "unit_died": {
+        const by = lethal.get(e.u)?.by ?? null;
+        push(i, e, "death", by ? T.diedTo(unit(e.u), by) : T.died(unit(e.u)), [e.u]);
+        break;
+      }
+      case "trap_fired":
+        if (e.hp <= 0) lethal.set(e.u, { by: trapName(e.i) });
+        push(i, e, "trap", T.trapFired(trapName(e.i), unit(e.u), e.damage, e.effect), [e.u]);
+        break;
+      case "trap_nullified":
+        push(i, e, "trap", T.trapNullified(trapName(e.i), unit(e.u), siegeFor(e.i), viewer), [e.u]);
+        break;
+      case "fence_broken":
+        push(i, e, "fence", T.fenceBroken(fenceName(e.f)), []);
+        break;
+      case "ability": {
+        const name = L.units[e.u]?.ability ?? T.anAbility;
+        if (e.a === "burst_radius" || e.a === "heavy_strike" || e.a === "structure_breaker") {
+          for (const x of e.tg) if (x.kind === "unit" && x.hp <= 0) lethal.set(x.id, { by: T.byAbility(unit(e.u), name) });
+        }
+        push(i, e, "ability", T.ability(unit(e.u), name, abilityDetail(e, log.tickRate)), [e.u, ...e.tg.filter((x) => x.kind === "unit" && x.id !== e.u).map((x) => x.id)]);
+        break;
+      }
+      case "core_reached":
+        push(i, e, "core", T.coreReached(unit(e.u)), [e.u]);
+        break;
+      default:
+        break;
+    }
   });
-  const died = new Set<number>();
+
+  const died = new Map<number, number>();
+  const cored = new Map<number, number>();
   const broke = new Set<number>();
-  const sprung = new Set<number>();
-  let core = false;
+  const fired = new Set<number>();
+  const nullified = new Set<number>();
   for (const e of replay.events) {
-    if (e.k === "unit_died") died.add(e.u);
+    if (e.k === "unit_died") died.set(e.u, e.t);
     else if (e.k === "fence_broken") broke.add(e.f);
-    else if (e.k === "trap_fired" || e.k === "trap_nullified") sprung.add(e.i);
-    else if (e.k === "core_reached") core = true;
+    else if (e.k === "trap_fired") fired.add(e.i);
+    else if (e.k === "trap_nullified") nullified.add(e.i);
+    else if (e.k === "core_reached" && !cored.has(e.u)) cored.set(e.u, e.t);
   }
   const isRaider = (u: number): boolean => log.units[u]?.side === "attacker";
   const raiders = log.units.filter((u) => u.side === "attacker").length;
   const tally: ReplayTally = {
-    raidersFallen: [...died].filter(isRaider).length,
+    raidersFallen: [...died.keys()].filter(isRaider).length,
     raiders,
-    defendersFallen: [...died].filter((u) => !isRaider(u)).length,
+    defendersFallen: [...died.keys()].filter((u) => !isRaider(u)).length,
     defenders: log.units.length - raiders,
     fencesBroken: broke.size,
     fences: log.fences.length,
-    trapsSprung: sprung.size,
+    trapsSprung: fired.size,
+    trapsNullified: [...nullified].filter((i) => !fired.has(i)).length,
     traps: log.traps.length,
-    coreReached: core,
+    coreReached: cored.size > 0,
   };
+
+  // S7: one line per fighter — the viewer's own first, then the other side.
+  const timeRanOut = log.outcome.kind === "stalemate";
+  const fates: UnitFate[] = log.units.map((u, i) => {
+    const deathAt = died.get(i);
+    const coreAt = cored.get(i);
+    const fate =
+      deathAt !== undefined
+        ? T.fateFell(lethal.get(i)?.by ?? null, clock(deathAt, log.tickRate))
+        : coreAt !== undefined
+          ? T.fateCore(clock(coreAt, log.tickRate))
+          : timeRanOut
+            ? T.fateStandingTime
+            : log.outcome.kind === "caravan_overrun"
+              ? T.fateStandingOverrun
+              : T.fateStanding;
+    return { u: i, side: u.side, text: T.fateLine(cap(unit(i)), fate) };
+  });
+  const mineSide = viewer === "caravan" ? "defender" : "attacker";
+  fates.sort((a, b) => (a.side === b.side ? a.u - b.u : a.side === mineSide ? -1 : 1));
+
   const edges: EntryEdgeName[] = [];
   for (const e of replay.events) {
     if (e.k !== "spawn" || !isRaider(e.u)) continue;
-    const edge = edgeOf(fixedToWorld(e));
+    const p = fixedToWorld(e);
+    const edge = edgeOf(p);
     if (!edges.includes(edge)) edges.push(edge);
   }
   const order: readonly EntryEdgeName[] = ["north", "east", "south", "west"];
   edges.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+
+  // S2: the ring's bounding box, reaching APPROACH_CELLS further toward each edge raiders entered from.
+  const ringXs = RING_SEGMENTS.map((s) => s.cell.x);
+  const ringYs = RING_SEGMENTS.map((s) => s.cell.y);
+  let x0 = Math.min(...ringXs) - 1;
+  let x1 = Math.max(...ringXs) + 2;
+  let y0 = Math.min(...ringYs) - 1;
+  let y1 = Math.max(...ringYs) + 2;
+  for (const edge of edges) {
+    if (edge === "north") y0 -= APPROACH_CELLS;
+    else if (edge === "south") y1 += APPROACH_CELLS;
+    else if (edge === "west") x0 -= APPROACH_CELLS;
+    else x1 += APPROACH_CELLS;
+  }
+  x0 = Math.max(0, x0);
+  y0 = Math.max(0, y0);
+  x1 = Math.min(GRID_WIDTH, x1);
+  y1 = Math.min(GRID_HEIGHT, y1);
+  const frameRect: FrameRect = { x: x0, y: y0, w: x1 - x0, h: y1 - y0, minCellPx: REPLAY_MIN_CELL_PX };
 
   const cache = new Map<number, ReplayFrame>();
   const frame = (tick: number): ReplayFrame => {
@@ -250,12 +390,32 @@ function buildModel(view: ReplayView, replay: Replay): ReplayModel {
     return f;
   };
 
-  // Where each mark-worthy row happened, for the scene's marks.
-  const markRows = replay.events.map((e, i) => ({ e, i })).filter(({ e }) => e.k === "trap_fired" || e.k === "trap_nullified" || e.k === "unit_died" || e.k === "fence_broken" || e.k === "ability" || e.k === "core_reached");
-  const markTicks = Math.max(1, Math.round(MARK_SECONDS * log.tickRate));
+  // Mark-worthy rows, by tick (a scene looks back only as far as a mark can last).
+  const markRows = new Map<number, { e: LogEvent; i: number }[]>();
+  replay.events.forEach((e, i) => {
+    if (!["hit", "fence_hit", "trap_fired", "trap_nullified", "unit_died", "fence_broken", "ability", "core_reached"].includes(e.k)) return;
+    const list = markRows.get(e.t);
+    if (list) list.push({ e, i });
+    else markRows.set(e.t, [{ e, i }]);
+  });
   const coreCenter = { x: CORE_CELLS.reduce((s, c) => s + c.x + 0.5, 0) / CORE_CELLS.length, y: CORE_CELLS.reduce((s, c) => s + c.y + 0.5, 0) / CORE_CELLS.length };
+  const segCenter = (f: number): WorldPoint | null => {
+    const seg = RING_SEGMENTS[log.fences[f]?.segment ?? -1];
+    return seg ? { x: seg.cell.x + 0.5, y: seg.cell.y + 0.5 } : null;
+  };
+  const unitAt = (tick: number, u: number): WorldPoint | null => {
+    const x = frame(tick).units[u];
+    return x ? fixedToWorld(x) : null;
+  };
 
-  const scene = (at: number): IsoSceneState => {
+  // D1: siege pieces at the edge the raiders came in from (siege has no cell in the model).
+  const siege: SiegeEntity[] = L.siege.map((s, i) => ({ id: `${i}:${s.typeId}`, typeId: s.typeId, edge: edges[i % Math.max(1, edges.length)] ?? "north", along: 0.3 + 0.2 * (i % 3) }));
+  const siegeNames = L.siege.map((s) => (s.counters ? T.siegeCounters(s.displayName, s.counters.kind, s.counters.category) : s.displayName));
+
+  const scene = (at: number, opts: SceneOptions = {}): IsoSceneState => {
+    const speed = Math.max(0.25, opts.speed ?? 1);
+    const markTicks = Math.max(1, Math.round(MARK_SECONDS * log.tickRate * speed));
+    const hitTicks = Math.max(1, Math.round(HIT_MARK_SECONDS * log.tickRate * speed));
     const t0 = Math.max(0, Math.min(log.ticks - 1, Math.floor(at)));
     const t1 = Math.min(log.ticks - 1, t0 + 1);
     const frac = Math.max(0, Math.min(1, at - t0));
@@ -268,7 +428,17 @@ function buildModel(view: ReplayView, replay: Replay): ReplayModel {
       const next = b.units[u.u]!;
       const p = fixedToWorld(u);
       const q = next.alive ? fixedToWorld(next) : p;
-      replayUnits.push({ id: String(u.u), pos: { x: p.x + (q.x - p.x) * frac, y: p.y + (q.y - p.y) * frac }, typeId: label.typeId, level: label.level, side: label.side, hpFraction: u.hp / label.maxHp });
+      const stance = L.units[u.u]?.stance ?? null;
+      replayUnits.push({
+        id: String(u.u),
+        pos: { x: p.x + (q.x - p.x) * frac, y: p.y + (q.y - p.y) * frac },
+        typeId: label.typeId,
+        level: label.level,
+        side: label.side,
+        hpFraction: u.hp / label.maxHp,
+        ...(stance ? { stance } : {}),
+        ...(opts.highlight?.has(u.u) ? { highlighted: true } : {}),
+      });
     }
     const fences = a.fences.flatMap((f) => {
       const label = log.fences[f.f]!;
@@ -277,53 +447,61 @@ function buildModel(view: ReplayView, replay: Replay): ReplayModel {
     });
     const traps = log.traps.map((tr) => ({ id: `t${tr.i}`, pos: fixedToWorld(tr), typeId: tr.typeId, spent: a.traps[tr.i]?.spent ?? false }));
     const marks: ReplayMarkEntity[] = [];
-    for (const { e, i } of markRows) {
-      if (e.t > t0 || e.t + markTicks < at) continue;
-      const age = Math.max(0, Math.min(1, (at - e.t) / markTicks));
-      let pos: WorldPoint | null = null;
-      let kind: ReplayMarkEntity["kind"];
-      if (e.k === "trap_fired" || e.k === "trap_nullified") {
-        const tr = log.traps[e.i];
-        pos = tr ? fixedToWorld(tr) : null;
-        kind = "trap";
-      } else if (e.k === "fence_broken") {
-        const seg = RING_SEGMENTS[log.fences[e.f]?.segment ?? -1];
-        pos = seg ? { x: seg.cell.x + 0.5, y: seg.cell.y + 0.5 } : null;
-        kind = "fence";
-      } else if (e.k === "core_reached") {
-        pos = coreCenter;
-        kind = "core";
-      } else if (e.k === "unit_died" || e.k === "ability") {
-        const f = frame(e.t);
-        const u = f.units[e.u];
-        pos = u ? fixedToWorld(u) : null;
-        kind = e.k === "unit_died" ? "death" : "ability";
-      } else continue;
-      if (pos) marks.push({ id: `m${i}`, pos, kind, age });
+    for (let t = Math.max(0, t0 - markTicks); t <= t0; t++) {
+      for (const { e, i } of markRows.get(t) ?? []) {
+        const life = e.k === "hit" || e.k === "fence_hit" ? hitTicks : markTicks;
+        if (e.t + life < at) continue;
+        const age = Math.max(0, Math.min(1, (at - e.t) / life));
+        let pos: WorldPoint | null = null;
+        let from: WorldPoint | null = null;
+        let kind: ReplayMarkEntity["kind"];
+        if (e.k === "hit") {
+          from = unitAt(e.t, e.u);
+          pos = unitAt(e.t, e.v);
+          kind = "hit";
+        } else if (e.k === "fence_hit") {
+          from = unitAt(e.t, e.u);
+          pos = segCenter(e.f);
+          kind = "fence_hit";
+        } else if (e.k === "trap_fired" || e.k === "trap_nullified") {
+          const tr = log.traps[e.i];
+          pos = tr ? fixedToWorld(tr) : null;
+          kind = "trap";
+        } else if (e.k === "fence_broken") {
+          pos = segCenter(e.f);
+          kind = "fence";
+        } else if (e.k === "core_reached") {
+          pos = coreCenter;
+          kind = "core";
+        } else if (e.k === "unit_died" || e.k === "ability") {
+          pos = unitAt(e.t, e.u);
+          kind = e.k === "unit_died" ? "death" : "ability";
+        } else continue;
+        if (pos) marks.push({ id: `m${i}`, pos, kind, age, ...(from ? { from } : {}) });
+      }
     }
-    return { ...EMPTY_SCENE, showRadii: false, fences, traps, replayUnits, marks };
+    return { ...EMPTY_SCENE, showRadii: false, fences, traps, replayUnits, marks, siege };
   };
 
   const deepest = log.outcome.deepestUnit;
   return {
     replay,
-    viewer: view.viewer,
+    viewer,
     ticks: log.ticks,
     tickRate: log.tickRate,
     keyframeTicks: replay.keyframes.map((k) => k.t),
+    keyframeSeconds: Math.max(1, Math.round(log.keyframeInterval / log.tickRate)),
     feed,
     tally,
+    fates,
     entryEdges: edges,
     deepestName: deepest >= 0 ? (names[deepest] ?? null) : null,
+    siegeNames,
+    hasStances: L.units.some((u) => u.stance !== null),
+    frameRect,
     frame,
     scene,
   };
-}
-
-/** Fight time of a tick, as m:ss. */
-export function clock(tick: number, tickRate: number): string {
-  const s = Math.max(0, Math.floor(tick / tickRate));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
 /** The next / previous keyframe from a moment (seek targets; the keyframe state is rendered, never re-simulated). */

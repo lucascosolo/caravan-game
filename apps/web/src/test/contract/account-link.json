@@ -1,0 +1,15 @@
+{
+  "route": "POST /me/account/link",
+  "status": 200,
+  "body": {
+    "account": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "username": "contract_guest",
+      "guest": false,
+      "coinBalance": 0,
+      "coinStorageCap": 50000,
+      "createdAt": "2026-10-11T12:00:00.000Z",
+      "linkedAt": "2026-10-11T12:00:01.000Z"
+    }
+  }
+}

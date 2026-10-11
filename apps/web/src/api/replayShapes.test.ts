@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import replayJson from "../test/contract/replay.json";
 import replayNoLogJson from "../test/contract/replay-no-log.json";
 import replayOwnerJson from "../test/contract/replay-owner.json";
+import replayCompactedJson from "../test/contract/replay-compacted.json";
 import { ShapeError, expectShape } from "./shape.ts";
 import { replayShape } from "./replayShapes.ts";
 
@@ -27,6 +28,18 @@ describe("replayShape", () => {
     const none = expectShape(replayShape, replayNoLogJson.body);
     expect(none).toMatchObject({ renderable: false, log: null, logFormat: null, resolverVersion: null });
     expect(none.labels.units).toEqual([]);
+  });
+
+  it("PHASE-2 §36: accepts a compacted fight — no log, the outcome and the kept tally — and refuses a drifted summary", () => {
+    const c = expectShape(replayShape, replayCompactedJson.body);
+    expect(c).toMatchObject({ renderable: false, log: null, compacted: { reason: "size_budget" } });
+    expect(c.compacted?.tally?.raiders).toBeGreaterThan(0);
+    expect(c.outcome?.kind).toBeDefined();
+    // Absent on every other body (an additive field).
+    expect(expectShape(replayShape, replayJson.body).compacted).toBeUndefined();
+    const b = JSON.parse(JSON.stringify(replayCompactedJson.body)) as Record<string, unknown> & { compacted: Record<string, unknown> & { tally: Record<string, unknown> } };
+    expect(refuse({ ...b, compacted: { ...b.compacted, reason: "deleted" } })).toMatch(/^compacted\.reason/);
+    expect(refuse({ ...b, compacted: { ...b.compacted, tally: { ...b.compacted.tally, raidersFallen: -1 } } })).toMatch(/^compacted\.tally\.raidersFallen/);
   });
 
   it("passes the log through untouched for the reader", () => {

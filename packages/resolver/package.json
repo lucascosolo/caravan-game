@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint . && node scripts/lint-selftest.mjs",
     "test": "vitest run",
-    "determinism": "node scripts/determinism.mjs"
+    "determinism": "node scripts/determinism.mjs",
+    "budget": "RESOLVER_BUDGET_STRICT=1 vitest run test/budget.test.ts"
   },
   "dependencies": {},
   "devDependencies": {

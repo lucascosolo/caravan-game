@@ -1,12 +1,12 @@
 import { TUNABLES } from "@caravan/content";
 import type { Queryable } from "../db/pool.js";
-import type { AccountRow } from "../db/types.js";
+import type { AccountRow, LinkedAccountRow } from "../db/types.js";
 
 export async function createAccount(
   db: Queryable,
   input: { username: string; passwordHash: string },
-): Promise<AccountRow> {
-  const res = await db.query<AccountRow>(
+): Promise<LinkedAccountRow> {
+  const res = await db.query<LinkedAccountRow>(
     `INSERT INTO account (username, password_hash, coin_storage_cap)
      VALUES ($1, $2, $3) RETURNING *`,
     [input.username, input.passwordHash, TUNABLES.COIN_STORAGE_CAP],
@@ -19,9 +19,15 @@ export async function findAccountById(db: Queryable, id: string): Promise<Accoun
   return res.rows[0] ?? null;
 }
 
-export async function findAccountByUsername(db: Queryable, username: string): Promise<AccountRow | null> {
-  const res = await db.query<AccountRow>("SELECT * FROM account WHERE username = $1", [username]);
+export async function findAccountByUsername(db: Queryable, username: string): Promise<LinkedAccountRow | null> {
+  const res = await db.query<LinkedAccountRow>("SELECT * FROM account WHERE username = $1", [username]);
   return res.rows[0] ?? null;
+}
+
+/** Chunk 30: a guest — an ordinary account with no username or password yet. */
+export async function createGuestAccount(db: Queryable): Promise<AccountRow> {
+  const res = await db.query<AccountRow>(`INSERT INTO account (username, password_hash, coin_storage_cap) VALUES (NULL, NULL, $1) RETURNING *`, [TUNABLES.COIN_STORAGE_CAP]);
+  return res.rows[0]!;
 }
 
 /** Account-level hub rows. One each per account; created at registration. */

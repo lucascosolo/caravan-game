@@ -17,6 +17,15 @@ export function fakeApi(over: Partial<Api> = {}): Api {
     register: notCalled,
     login: notCalled,
     logout: notCalled,
+    guest: notCalled,
+    resume: notCalled,
+    account: notCalled,
+    linkAccount: notCalled,
+    devices: notCalled,
+    revokeDevice: notCalled,
+    revokeOtherDevices: notCalled,
+    exportAccount: notCalled,
+    deleteAccount: notCalled,
     me: notCalled,
     unlocks: notCalled,
     progression: notCalled,
@@ -54,6 +63,7 @@ export function fakeApi(over: Partial<Api> = {}): Api {
     equipCosmetic: notCalled,
     unequipCosmetic: notCalled,
     replay: notCalled,
+    recentFights: notCalled,
     inbox: notCalled,
     inboxUnread: notCalled,
     markInboxRead: notCalled,
@@ -62,6 +72,10 @@ export function fakeApi(over: Partial<Api> = {}): Api {
     onboarding: notCalled,
     advanceOnboarding: notCalled,
     skipOnboarding: notCalled,
+    analyticsSettings: notCalled,
+    setAnalyticsOptOut: notCalled,
+    sendTelemetry: notCalled,
+    adminDashboard: notCalled,
     ...over,
   };
 }
@@ -76,7 +90,7 @@ export interface FixtureUnit {
 
 export function meWith(units: readonly FixtureUnit[], state: "in_town" | "on_trip" = "in_town"): MeResponse {
   return {
-    account: { id: ACCOUNT_ID, username: "dev" },
+    account: { id: ACCOUNT_ID, username: "dev", guest: false },
     caravans: [
       {
         id: CARAVAN_ID,

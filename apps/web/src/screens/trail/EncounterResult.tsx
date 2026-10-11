@@ -8,16 +8,15 @@
  * "Watch the fight" is the hand-off to chunk 22's replay player (`result.jobId` is the key):
  * it opens the player over this screen, so the trip flow is never left.
  */
-import { FIXED_ONE } from "@caravan/content";
 import { useId } from "react";
 import type { Api } from "../../api/client.ts";
 import type { TripEncounterView } from "../../api/tripTypes.ts";
+import { depthPercent } from "../replay/depth.ts";
 import { WatchFight } from "../replay/WatchFight.tsx";
 import { STRINGS } from "../../strings.ts";
 import { fenceLabel, trapTypeName, unitLabel } from "./tripNames.ts";
 
 const T = STRINGS.trip;
-const DEPTH_ONE = FIXED_ONE;
 
 function Group({ heading, items, testId }: { heading: string; items: readonly string[]; testId: string }): JSX.Element {
   return (
@@ -50,7 +49,8 @@ export function ReplayAffordance({ jobId, encounterIndex, api }: { readonly jobI
 
 export function EncounterResult({ encounter, headingLevel = 2, api }: { readonly encounter: TripEncounterView; readonly headingLevel?: 2 | 3; readonly api?: Api }): JSX.Element {
   const r = encounter.result;
-  const pct = Math.round((encounter.depth * 100) / DEPTH_ONE);
+  // Chunk 22 QA S6: "reached the core" only for an overrun; otherwise floored and capped at 99 %.
+  const pct = depthPercent(encounter.depth, encounter.outcome === "caravan_overrun");
   const Heading = headingLevel === 2 ? "h2" : "h3";
   return (
     <section className="card" data-testid={`encounter-result-${encounter.index}`} data-outcome={encounter.outcome}>

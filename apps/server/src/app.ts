@@ -5,6 +5,7 @@ import { createPool } from "./db/pool.js";
 import type { InlineEncounterWorker } from "./dev/testResolver.js";
 import { DEFAULT_HANDLERS } from "./jobs/handlers/encounterResolution.js";
 import { EncounterWorkerLoop } from "./jobs/inProcessWorker.js";
+import { LogRetentionLoop } from "./jobs/retentionWorker.js";
 import { TRIP_SETTLE_HOOKS } from "./trip/service.js";
 import { acquisitionRoutes } from "./routes/acquisition.js";
 import { authRoutes } from "./routes/auth.js";
@@ -20,9 +21,13 @@ import { partyRoutes } from "./routes/party.js";
 import { progressionRoutes } from "./routes/progression.js";
 import { storeRoutes } from "./routes/store.js";
 import { replayRoutes } from "./routes/replay.js";
+import { telemetryRoutes } from "./routes/telemetry.js";
 import { tripRoutes } from "./routes/trip.js";
 import { unlockRoutes } from "./routes/unlocks.js";
 import { AppError } from "./services/errors.js";
+import { accountRoutes } from "./routes/account.js";
+import { RateLimitedError, RateLimiter, rateLimitsFromEnv, sendRateLimited } from "./account/rateLimit.js";
+import type { RateLimitConfig } from "./account/tunables.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -31,6 +36,10 @@ declare module "fastify" {
     inlineEncounterWorker: InlineEncounterWorker | null;
     /** QA-13 S1: the in-process job-queue drain (real resolver by default). Null when not enabled (most tests drain by hand). */
     encounterWorker: EncounterWorkerLoop | null;
+    /** PHASE-2 §36: the scheduled replay-retention sweep (compaction). Null when not enabled (tests sweep by hand). */
+    retentionJob: LogRetentionLoop | null;
+    /** Chunk 30: the auth / account routes' fixed-window limiter. */
+    rateLimiter: RateLimiter;
   }
   interface FastifyRequest {
     auth?: AuthContext;
@@ -50,6 +59,20 @@ export interface BuildAppOptions {
    * (tests drain by hand so they can observe "not resolved yet").
    */
   encounterWorker?: boolean | { pollMs?: number };
+  /**
+   * PHASE-2 §36: run the replay-retention sweep in-process (jobs/retentionWorker.ts) — logs past
+   * LOG_RETENTION or over LOG_SIZE_BUDGET compacted to their results summary. index.ts passes true.
+   * Default off (tests call the sweep themselves).
+   */
+  retentionJob?: boolean | { intervalMs?: number };
+  /**
+   * Chunk 30: the auth / account rate limits. Default: account/tunables.ts RATE_LIMITS, or off
+   * when CARAVAN_RATE_LIMITS=off (the server test suite's vitest env; refused in production).
+   * null turns them off; a config replaces them (the rate-limit tests pass small ones).
+   */
+  rateLimits?: RateLimitConfig | null;
+  /** Chunk 30: the limiter's clock (tests). */
+  rateLimitClock?: () => number;
 }
 
 /** Operational: the test double's sweep interval (its kicks do the work). */
@@ -60,6 +83,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   const db = opts.db ?? createPool();
   app.decorate("db", db);
   app.decorate("inlineEncounterWorker", opts.inlineEncounterWorker ?? null);
+  app.decorate("rateLimiter", new RateLimiter(opts.rateLimits !== undefined ? opts.rateLimits : rateLimitsFromEnv(process.env), opts.rateLimitClock));
   const inline = opts.inlineEncounterWorker ?? null;
   const workerOpt = opts.encounterWorker ?? inline !== null;
   const loop =
@@ -84,9 +108,23 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
     app.addHook("onReady", async () => loop.start());
     app.addHook("onClose", async () => loop.stop());
   }
+  const retention =
+    opts.retentionJob === undefined || opts.retentionJob === false
+      ? null
+      : new LogRetentionLoop(db, {
+          ...(typeof opts.retentionJob === "object" && opts.retentionJob.intervalMs !== undefined ? { intervalMs: opts.retentionJob.intervalMs } : {}),
+          onError: (err) => app.log.error(err),
+          onRun: (r) => app.log.info(r, `replay retention: ${r.compacted} log(s) compacted to their results summary`),
+        });
+  app.decorate("retentionJob", retention);
+  if (retention) {
+    app.addHook("onReady", async () => retention.start());
+    app.addHook("onClose", async () => retention.stop());
+  }
   if (!opts.db) app.addHook("onClose", async () => db.end());
 
   app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
+    if (err instanceof RateLimitedError) return sendRateLimited(reply, err);
     if (err instanceof AppError) {
       return reply.code(err.statusCode).send({ error: err.code, message: err.message });
     }
@@ -104,6 +142,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   });
 
   await app.register(authRoutes);
+  await app.register(accountRoutes);
   await app.register(meRoutes);
   await app.register(ledgerRoutes);
   await app.register(progressionRoutes);
@@ -119,5 +158,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(replayRoutes);
   await app.register(inboxRoutes);
   await app.register(onboardingRoutes);
+  // Chunk 32: client telemetry (screen flow, crashes), the opt-out, and the admin-only dashboard.
+  await app.register(telemetryRoutes);
   return app;
 }

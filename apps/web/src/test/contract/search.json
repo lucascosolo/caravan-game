@@ -6,17 +6,17 @@
       "tripId": "00000000-0000-4000-8000-000000000001",
       "encounterIndex": 1,
       "searchSeq": 1,
-      "seed": 3166756337,
+      "seed": 3503030139,
       "caravan": {
-        "rating": 400,
+        "rating": 1000,
         "ratingPool": "living",
         "band": {
-          "index": 1,
-          "low": 400,
-          "high": 699
+          "index": 3,
+          "low": 1000,
+          "high": 1299
         }
       },
-      "centre": 250,
+      "centre": 850,
       "escalation": {
         "applied": -150,
         "perEncounter": 15,
@@ -32,7 +32,7 @@
         "maxShareBp": 3000
       },
       "authoredServed": {
-        "band": 0,
+        "band": 2,
         "served": 0,
         "window": 40,
         "authored": 0,
@@ -94,11 +94,11 @@
                   "displayName": "Pick Swing",
                   "fenceDamageMult": 4608
                 },
-                "defense": 150,
+                "defense": 100,
                 "offense": 50,
                 "affinity": "grit",
                 "slotCost": 1,
-                "moveSpeed": 716,
+                "moveSpeed": 1024,
                 "mergeLevel": 1,
                 "attackRange": 1024,
                 "displayName": "Well Digger",
@@ -141,11 +141,11 @@
                   "description": "Surges 3.5 cells along its path. First use after 9 s.",
                   "displayName": "Spur On"
                 },
-                "defense": 83,
+                "defense": 55,
                 "offense": 95,
                 "affinity": "beast",
                 "slotCost": 1,
-                "moveSpeed": 1863,
+                "moveSpeed": 2662,
                 "mergeLevel": 1,
                 "attackRange": 1024,
                 "displayName": "Dust Rider",
@@ -180,11 +180,11 @@
           "partyId": "00000000-0000-4000-8000-000000000004",
           "reputation": {
             "band": {
-              "low": 400,
-              "high": 699,
-              "index": 1
+              "low": 1000,
+              "high": 1299,
+              "index": 3
             },
-            "rating": 400,
+            "rating": 1000,
             "gapBeyondBand": 0,
             "gapFromCaravan": 0,
             "sandbagEarnMultiplier": 1024
@@ -280,11 +280,11 @@
                   "displayName": "Pick Swing",
                   "fenceDamageMult": 4608
                 },
-                "defense": 150,
+                "defense": 100,
                 "offense": 50,
                 "affinity": "grit",
                 "slotCost": 1,
-                "moveSpeed": 716,
+                "moveSpeed": 1024,
                 "mergeLevel": 1,
                 "attackRange": 1024,
                 "displayName": "Well Digger",
@@ -327,11 +327,11 @@
                   "description": "Surges 3.5 cells along its path. First use after 9 s.",
                   "displayName": "Spur On"
                 },
-                "defense": 83,
+                "defense": 55,
                 "offense": 95,
                 "affinity": "beast",
                 "slotCost": 1,
-                "moveSpeed": 1863,
+                "moveSpeed": 2662,
                 "mergeLevel": 1,
                 "attackRange": 1024,
                 "displayName": "Dust Rider",
@@ -366,11 +366,11 @@
           "partyId": "00000000-0000-4000-8000-000000000007",
           "reputation": {
             "band": {
-              "low": 400,
-              "high": 699,
-              "index": 1
+              "low": 1000,
+              "high": 1299,
+              "index": 3
             },
-            "rating": 400,
+            "rating": 1000,
             "gapBeyondBand": 0,
             "gapFromCaravan": 0,
             "sandbagEarnMultiplier": 1024
@@ -466,11 +466,11 @@
                   "displayName": "Pick Swing",
                   "fenceDamageMult": 4608
                 },
-                "defense": 150,
+                "defense": 100,
                 "offense": 50,
                 "affinity": "grit",
                 "slotCost": 1,
-                "moveSpeed": 716,
+                "moveSpeed": 1024,
                 "mergeLevel": 1,
                 "attackRange": 1024,
                 "displayName": "Well Digger",
@@ -513,11 +513,11 @@
                   "description": "Surges 3.5 cells along its path. First use after 9 s.",
                   "displayName": "Spur On"
                 },
-                "defense": 83,
+                "defense": 55,
                 "offense": 95,
                 "affinity": "beast",
                 "slotCost": 1,
-                "moveSpeed": 1863,
+                "moveSpeed": 2662,
                 "mergeLevel": 1,
                 "attackRange": 1024,
                 "displayName": "Dust Rider",
@@ -552,11 +552,11 @@
           "partyId": "00000000-0000-4000-8000-000000000010",
           "reputation": {
             "band": {
-              "low": 400,
-              "high": 699,
-              "index": 1
+              "low": 1000,
+              "high": 1299,
+              "index": 3
             },
-            "rating": 400,
+            "rating": 1000,
             "gapBeyondBand": 0,
             "gapFromCaravan": 0,
             "sandbagEarnMultiplier": 1024

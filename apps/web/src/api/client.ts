@@ -2,9 +2,10 @@
  * A tiny typed `fetch` wrapper over the server's routes.
  *
  * The bearer token lives in memory only (the session context, src/auth/session.tsx) and is
- * read through `getToken` on every call. Nothing here touches localStorage or cookies: a
- * reload logs the player out, which is the intended v1 behaviour until chunk 25 (account
- * lifecycle) decides how sessions persist.
+ * read through `getToken` on every call. Nothing here touches localStorage or cookies.
+ * Chunk 30: a reload gets back in through the server's HttpOnly device cookie, which this
+ * code can neither read nor write — `resume()` asks the server to trade it for a fresh
+ * bearer token (same-origin requests carry it; the page never sees its value).
  *
  * Every non-2xx response becomes an `ApiError` carrying the server's exact `{error,
  * message}` body, so a screen can surface the real reason (a 409 `insufficient_points`
@@ -48,12 +49,16 @@ import {
   unequipResultShape,
 } from "./shapes.ts";
 import { bankResultShape, encounterCommitShape, pushResultShape, stakesPreviewShape, tripStartShape, tripStatusShape } from "./tripShapes.ts";
-import { replayShape } from "./replayShapes.ts";
+import { recentFightsShape, replayShape } from "./replayShapes.ts";
 import { inboxMarkResultShape, inboxShape, inboxStrikeLinesShape, inboxUnreadShape } from "./inboxShapes.ts";
+import { analyticsSettingsShape, dashboardShape, telemetryIngestShape } from "./telemetryShapes.ts";
+import type { AnalyticsSettings, DashboardView, TelemetryEvent, TelemetryIngestResult } from "./telemetryTypes.ts";
 import type { InboxCategoryView, InboxMarkRequest, InboxMarkResult, InboxStrikeLinesView, InboxUnreadView, InboxView } from "./inboxTypes.ts";
 import { onboardingChangeShape, onboardingShape, type OnboardingChange, type OnboardingResponse } from "../onboarding/shapes.ts";
 import type { OnboardingStep } from "../onboarding/steps.ts";
-import type { ReplayView } from "./replayTypes.ts";
+import type { RecentFightsView, ReplayView } from "./replayTypes.ts";
+import { accountViewShape, deleteResultShape, devicesShape, exportShape, linkResultShape, revokeOthersShape } from "./accountShapes.ts";
+import type { AccountExport, AccountView, DeleteResult, DevicesView, LinkResult, RevokeOthersResult } from "./accountTypes.ts";
 import type { BankResult, EncounterCommitResult, PushResult, StakesPreview, TripStartResult, TripStatusView } from "./tripTypes.ts";
 import type {
   AuthResponse,
@@ -134,7 +139,22 @@ export interface RegisterInput {
 export interface Api {
   register(input: RegisterInput): Promise<AuthResponse>;
   login(username: string, password: string): Promise<AuthResponse>;
-  logout(): Promise<void>;
+  /** Chunk 30: a guest's sign-out needs `abandon` (409 `guest_sign_out` otherwise — it would lose the account). */
+  logout(abandon?: boolean): Promise<void>;
+  // Account lifecycle (chunk 30 routes).
+  /** First launch: a guest account (no username or password) with its first caravan in `region`. */
+  guest(region: string, caravanName?: string): Promise<AuthResponse>;
+  /** A reload: the server's device cookie for a fresh session. 401 `no_device` when there is none (never drops a session). */
+  resume(): Promise<AuthResponse>;
+  account(): Promise<AccountView>;
+  linkAccount(username: string, password: string): Promise<LinkResult>;
+  devices(): Promise<DevicesView>;
+  revokeDevice(deviceId: string): Promise<void>;
+  revokeOtherDevices(): Promise<RevokeOthersResult>;
+  /** The whole export as the server sent it (its envelope checked), for the player to save. */
+  exportAccount(): Promise<AccountExport & Record<string, unknown>>;
+  /** 403 `wrong_password` / `password_required` (never 401: a wrong password does not sign anyone out). */
+  deleteAccount(confirm: string, password?: string): Promise<DeleteResult>;
   me(): Promise<MeResponse>;
   unlocks(): Promise<UnlocksResponse>;
   progression(): Promise<ProgressionResponse>;
@@ -191,6 +211,8 @@ export interface Api {
   // The replay of a resolved encounter (chunk 13 route, chunk 22 player), for either
   // participant. 409 `not_resolved`, 410 `replay_expired`, 404 for anyone else.
   replay(jobId: string): Promise<ReplayView>;
+  // Chunk 22 QA D2: the caravan's fights still kept by the replay retention rule, newest first.
+  recentFights(): Promise<RecentFightsView>;
   // The in-app inbox (chunk 29 routes). Derived by the server; read state is the server's.
   inbox(): Promise<InboxView>;
   inboxUnread(): Promise<InboxUnreadView>;
@@ -203,6 +225,13 @@ export interface Api {
   onboarding(): Promise<OnboardingResponse>;
   advanceOnboarding(step: OnboardingStep): Promise<OnboardingChange>;
   skipOnboarding(): Promise<OnboardingChange>;
+  // Chunk 32: telemetry. Screen flow and crash reports only, keyed server-side by an opaque id;
+  // the opt-out is an account setting the server honours (an opted-out batch is dropped).
+  analyticsSettings(): Promise<AnalyticsSettings>;
+  setAnalyticsOptOut(optedOut: boolean): Promise<AnalyticsSettings>;
+  sendTelemetry(events: readonly TelemetryEvent[]): Promise<TelemetryIngestResult>;
+  // The admin dashboard (404 for anyone who is not an admin).
+  adminDashboard(days?: number): Promise<DashboardView>;
 }
 
 function isErrorBody(value: unknown): value is ApiErrorBody {
@@ -220,14 +249,15 @@ export function createApi(opts: ApiOptions): Api {
   const doFetch = opts.fetchImpl ?? ((input, init) => fetch(input, init));
 
   /** `shape` is the guard for a 2xx body; `null` for routes whose answer carries nothing. */
-  async function request<T>(method: string, path: string, shape: Guard<T> | null, body?: unknown): Promise<T> {
+  async function request<T>(method: string, path: string, shape: Guard<T> | null, body?: unknown, flags: { readonly quiet401?: boolean; readonly keepBody?: boolean } = {}): Promise<T> {
     const headers: Record<string, string> = { Accept: "application/json" };
     const token = opts.getToken();
     if (token) headers["Authorization"] = `Bearer ${token}`;
     if (body !== undefined) headers["Content-Type"] = "application/json";
     let res: Response;
     try {
-      const init: RequestInit = { method, headers };
+      // Chunk 30: same-origin requests carry the server's HttpOnly device cookie (resume / logout read it).
+      const init: RequestInit = { method, headers, credentials: "same-origin" };
       if (body !== undefined) init.body = JSON.stringify(body);
       res = await doFetch(`${base}${path}`, init);
     } catch (err) {
@@ -244,7 +274,7 @@ export function createApi(opts: ApiOptions): Api {
       }
     }
     if (!res.ok) {
-      if (res.status === 401) opts.onUnauthorized?.();
+      if (res.status === 401 && !flags.quiet401) opts.onUnauthorized?.();
       if (isErrorBody(parsed)) {
         const issues = Array.isArray(parsed.issues) ? parsed.issues.filter(isIssue) : [];
         throw new ApiError(res.status, parsed.error, parsed.message, undefined, issues, parsed as unknown as Record<string, unknown>);
@@ -253,7 +283,8 @@ export function createApi(opts: ApiOptions): Api {
     }
     if (shape === null) return undefined as T;
     try {
-      return expectShape(shape, parsed);
+      const checked = expectShape(shape, parsed);
+      return flags.keepBody ? (parsed as T) : checked;
     } catch (err) {
       if (err instanceof ShapeError) throw new ApiError(0, BAD_PAYLOAD, `${method} ${path} ${err.message}`, `${method} ${path} ${err.message}`);
       throw err;
@@ -265,7 +296,16 @@ export function createApi(opts: ApiOptions): Api {
   return {
     register: (input) => request("POST", "/auth/register", authShape, input),
     login: (username, password) => request("POST", "/auth/login", authShape, { username, password }),
-    logout: () => request("POST", "/auth/logout", null),
+    logout: (abandon) => request("POST", "/auth/logout", null, abandon ? { abandon: true } : undefined),
+    guest: (region, caravanName) => request("POST", "/auth/guest", authShape, caravanName ? { region, caravanName } : { region }),
+    resume: () => request("POST", "/auth/resume", authShape, undefined, { quiet401: true }),
+    account: () => request("GET", "/me/account", accountViewShape),
+    linkAccount: (username, password) => request("POST", "/me/account/link", linkResultShape, { username, password }),
+    devices: () => request("GET", "/me/devices", devicesShape),
+    revokeDevice: (deviceId) => request("DELETE", `/me/devices/${encodeURIComponent(deviceId)}`, null),
+    revokeOtherDevices: () => request("POST", "/me/devices/revoke-others", revokeOthersShape),
+    exportAccount: () => request("GET", "/me/export", exportShape, undefined, { keepBody: true }) as Promise<AccountExport & Record<string, unknown>>,
+    deleteAccount: (confirm, password) => request("POST", "/me/account/delete", deleteResultShape, password === undefined ? { confirm } : { confirm, password }),
     me: () => request("GET", "/me", meShape),
     unlocks: () => request("GET", "/me/unlocks", unlocksShape),
     progression: () => request("GET", "/me/progression", progressionShape),
@@ -303,6 +343,7 @@ export function createApi(opts: ApiOptions): Api {
     equipCosmetic: (cosmeticId) => request("POST", "/me/cosmetics/equip", equipResultShape, { cosmeticId }),
     unequipCosmetic: (slot) => request("POST", "/me/cosmetics/unequip", unequipResultShape, { slot }),
     replay: (jobId) => request("GET", `/me/encounters/${encodeURIComponent(jobId)}/replay`, replayShape),
+    recentFights: () => request("GET", "/me/encounters", recentFightsShape),
     inbox: () => request("GET", "/me/inbox", inboxShape),
     inboxUnread: () => request("GET", "/me/inbox/unread", inboxUnreadShape),
     markInboxRead: (req) => request("POST", "/me/inbox/read", inboxMarkResultShape, req),
@@ -311,5 +352,9 @@ export function createApi(opts: ApiOptions): Api {
     onboarding: () => request("GET", "/me/onboarding", onboardingShape),
     advanceOnboarding: (step) => request("POST", "/me/onboarding/advance", onboardingChangeShape, { step }),
     skipOnboarding: () => request("POST", "/me/onboarding/skip", onboardingChangeShape),
+    analyticsSettings: () => request("GET", "/me/analytics", analyticsSettingsShape),
+    setAnalyticsOptOut: (optedOut) => request("PUT", "/me/analytics", analyticsSettingsShape, { optedOut }),
+    sendTelemetry: (events) => request("POST", "/me/telemetry", telemetryIngestShape, { events }),
+    adminDashboard: (days) => request("GET", days === undefined ? "/admin/dashboard" : `/admin/dashboard?days=${Math.trunc(days)}`, dashboardShape),
   };
 }

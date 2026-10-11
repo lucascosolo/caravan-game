@@ -1,0 +1,9 @@
+-- chunk 32: spend-by-reason over the synthetic history in test/telemetry-scale.test.ts (30-day window)
+Sort
+  Sort Key: ((payload ->> 'reason'::text))
+  ->  HashAggregate
+        Group Key: (payload ->> 'reason'::text)
+        ->  Bitmap Heap Scan on ledger_event e
+              Recheck Cond: ((event_type = 'coin_spent'::ledger_event_type) AND (occurred_at >= '2026-09-11 22:01:49.946+00'::timestamp with time zone) AND (occurred_at < '2026-10-11 22:01:49.946+00'::timestamp with time zone))
+              ->  Bitmap Index Scan on ledger_event_type_time_idx
+                    Index Cond: ((event_type = 'coin_spent'::ledger_event_type) AND (occurred_at >= '2026-09-11 22:01:49.946+00'::timestamp with time zone) AND (occurred_at < '2026-10-11 22:01:49.946+00'::timestamp with time zone))

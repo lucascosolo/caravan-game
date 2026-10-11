@@ -1,0 +1,27 @@
+-- chunk 32: retention over the synthetic history in test/telemetry-scale.test.ts (30-day window)
+GroupAggregate
+  Group Key: "*VALUES*".column1
+  ->  Sort
+        Sort Key: "*VALUES*".column1
+        ->  Nested Loop
+              ->  Nested Loop Anti Join
+                    Join Filter: (x.account_id = a.id)
+                    ->  Bitmap Heap Scan on account a
+                          Recheck Cond: ((created_at >= '2026-07-13 22:01:49.946+00'::timestamp with time zone) AND (created_at < '2026-10-11 22:01:49.946+00'::timestamp with time zone) AND (NOT is_system))
+                          ->  Bitmap Index Scan on account_created_at_idx
+                                Index Cond: ((created_at >= '2026-07-13 22:01:49.946+00'::timestamp with time zone) AND (created_at < '2026-10-11 22:01:49.946+00'::timestamp with time zone))
+                    ->  Materialize
+                          ->  Seq Scan on account_analytics x
+                                Filter: opted_out
+              ->  Materialize
+                    ->  Values Scan on "*VALUES*"
+  SubPlan 1
+    ->  Index Scan using ledger_event_account_time_idx on ledger_event e
+          Index Cond: ((account_id = a.id) AND (occurred_at >= (a.created_at + (("*VALUES*".column1)::double precision * '1 day'::interval))) AND (occurred_at < (a.created_at + ((("*VALUES*".column1 + 1))::double precision * '1 day'::interval))))
+          Filter: (event_type = ANY ('{trip_started,formation_committed,trip_banked,standing_party_saved,unit_merged,unit_acquired,coin_spent,unlock_node_purchased}'::ledger_event_type[]))
+  SubPlan 2
+    ->  Nested Loop
+          ->  Index Scan using account_analytics_pkey on account_analytics x_1
+                Index Cond: (account_id = a.id)
+          ->  Index Only Scan using analytics_client_event_id_time_idx on analytics_client_event ce
+                Index Cond: ((analytics_id = x_1.analytics_id) AND (occurred_at >= (a.created_at + (("*VALUES*".column1)::double precision * '1 day'::interval))) AND (occurred_at < (a.created_at + ((("*VALUES*".column1 + 1))::double precision * '1 day'::interval))))

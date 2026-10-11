@@ -58,6 +58,10 @@ export interface IsoCanvasHandle {
   zoom(): number;
   /** Whether PixiJS's own accessibility overlay exists (it must not: the DOM lists are the text alternative, QA N3). */
   pixiAccessibility(): boolean;
+  /** Frames the renderer has drawn (QA-22 S9 probe: a canvas that stops updating stops counting). */
+  framesDrawn(): number;
+  /** Whether the renderer's ticker is running (QA-22 N9: it sleeps while nothing changes). */
+  ticking(): boolean;
 }
 
 export interface IsoCanvasProps {
@@ -84,6 +88,14 @@ export interface IsoCanvasProps {
    * lattice fits. Pinch / wheel still zoom out to the whole island either way.
    */
   readonly frame?: FrameRect;
+  /**
+   * Chunk 22 QA S2: the canvas sits inside a page that must scroll (the replay dialog). A
+   * vertical one-finger swipe then scrolls the page (`touch-action: pan-y`); a sideways drag
+   * and a pinch still move the camera. Off by default: the trail and the town own every gesture.
+   */
+  readonly touchScroll?: boolean;
+  /** QA-22 N9: let the renderer's ticker sleep while nothing changes (the replay sets it). */
+  readonly sleepWhenIdle?: boolean;
 }
 
 export interface FrameRect {
@@ -181,6 +193,8 @@ export const IsoCanvas = forwardRef<IsoCanvasHandle, IsoCanvasProps>(function Is
     latticeAlpha: () => sceneRef.current?.latticeAlpha ?? 0,
     zoom: () => camRef.current.zoom,
     pixiAccessibility: () => sceneRef.current?.hasPixiAccessibility ?? false,
+    framesDrawn: () => sceneRef.current?.framesDrawn ?? 0,
+    ticking: () => sceneRef.current?.ticking ?? false,
   };
   useImperativeHandle(ref, () => handle);
   useEffect(() => {
@@ -197,7 +211,7 @@ export const IsoCanvas = forwardRef<IsoCanvasHandle, IsoCanvasProps>(function Is
     const host = hostRef.current;
     const canvas = canvasRef.current;
     if (!host || !canvas) return;
-    const scene = new IsoScene({ geometry, reducedMotion: prefersReducedMotion(), background });
+    const scene = new IsoScene({ geometry, reducedMotion: prefersReducedMotion(), background, sleepWhenIdle: props.sleepWhenIdle ?? false });
     sceneRef.current = scene;
     let disposed = false;
     const measure = (): { w: number; h: number } => ({ w: Math.max(1, Math.floor(host.clientWidth)), h: Math.max(1, Math.floor(host.clientHeight)) });
@@ -353,7 +367,7 @@ export const IsoCanvas = forwardRef<IsoCanvasHandle, IsoCanvasProps>(function Is
     <div ref={hostRef} className="iso" data-testid="iso-host">
       <canvas
         ref={canvasRef}
-        className="iso__canvas"
+        className={props.touchScroll ? "iso__canvas iso__canvas--scroll" : "iso__canvas"}
         role="img"
         aria-label={label}
         data-testid="iso-canvas"

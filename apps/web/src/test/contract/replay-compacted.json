@@ -1,0 +1,153 @@
+{
+  "route": "GET /me/encounters/:jobId/replay (log compacted, PHASE-2 §36)",
+  "status": 200,
+  "body": {
+    "jobId": "encounter:00000000-0000-4000-8000-000000000001:1",
+    "viewer": "caravan",
+    "tripId": "00000000-0000-4000-8000-000000000001",
+    "encounterIndex": 1,
+    "currentResolverVersion": 8,
+    "outcome": {
+      "kind": "caravan_held",
+      "loot": 371,
+      "depth": 529,
+      "units": [
+        {
+          "hp": 0,
+          "ref": "00000000-0000-4000-8000-000000000002"
+        },
+        {
+          "hp": 413,
+          "ref": "00000000-0000-4000-8000-000000000003"
+        }
+      ],
+      "fences": [
+        {
+          "hp": 300,
+          "ref": "f0"
+        },
+        {
+          "hp": 300,
+          "ref": "f1"
+        },
+        {
+          "hp": 300,
+          "ref": "f2"
+        },
+        {
+          "hp": 300,
+          "ref": "f3"
+        },
+        {
+          "hp": 300,
+          "ref": "f4"
+        },
+        {
+          "hp": 300,
+          "ref": "f5"
+        }
+      ],
+      "endTick": 790,
+      "spentTraps": [
+        "t0"
+      ]
+    },
+    "depth": {
+      "scale": 1024,
+      "measuredFrom": "ring_line",
+      "lootCurve": "depth_pow_1_5",
+      "value": 529,
+      "lootShare": 380
+    },
+    "party": {
+      "partyId": "00000000-0000-4000-8000-000000000004",
+      "partyHash": "a000000000000000000000000000000000000000000000000000000000000001",
+      "partySavedAt": "2026-10-11T12:00:00.000Z"
+    },
+    "settled": {
+      "source": "ledger",
+      "applied": true,
+      "coin": [],
+      "coinLost": null,
+      "reputation": [
+        {
+          "pool": "living",
+          "delta": 14
+        }
+      ],
+      "ladder": [
+        {
+          "pool": "living",
+          "pointsDelta": 25,
+          "levelBefore": 0,
+          "levelAfter": 0
+        },
+        {
+          "pool": "trap",
+          "pointsDelta": 25,
+          "levelBefore": 0,
+          "levelAfter": 0
+        }
+      ],
+      "unlockPoints": [],
+      "deMerged": [],
+      "destroyed": [],
+      "trip": {
+        "ended": false,
+        "endReason": null,
+        "unbankedCoin": 1000
+      }
+    },
+    "resolverVersion": 8,
+    "logFormat": 2,
+    "renderable": false,
+    "reason": "this replay's tick log was compacted to its results summary (log retention)",
+    "labels": {
+      "units": [],
+      "fences": [],
+      "traps": [],
+      "siege": [
+        {
+          "typeId": "siege.battering_wagon",
+          "displayName": "Battering Wagon",
+          "counters": {
+            "kind": "fence",
+            "category": "timber"
+          }
+        }
+      ]
+    },
+    "stored": {
+      "rawBytes": 5033,
+      "storedBytes": 1493,
+      "encoding": null,
+      "sha256": "a000000000000000000000000000000000000000000000000000000000000002",
+      "contentHash": "a000000000000000000000000000000000000000000000000000000000000003",
+      "createdAt": "2026-10-11T12:00:01.000Z"
+    },
+    "compacted": {
+      "reason": "size_budget",
+      "compactedAt": "2026-10-11T12:00:02.000Z",
+      "logCreatedAt": "2026-10-11T12:00:01.000Z",
+      "tally": {
+        "traps": 1,
+        "fences": 6,
+        "deepest": {
+          "u": 0,
+          "side": "attacker",
+          "typeId": "desert.dust_rider",
+          "displayName": "Dust Rider"
+        },
+        "raiders": 2,
+        "defenders": 2,
+        "coreReached": false,
+        "trapsSprung": 1,
+        "fencesBroken": 0,
+        "raidersFallen": 2,
+        "trapsNullified": 0,
+        "defendersFallen": 1
+      }
+    },
+    "log": null
+  }
+}

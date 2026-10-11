@@ -33,7 +33,9 @@ import { appendCoinCredits } from "../src/economy/coin.js";
 import { appendEvents } from "../src/ledger/ledger.js";
 import { DEFAULT_HANDLERS } from "../src/jobs/handlers/encounterResolution.js";
 import { drain } from "../src/jobs/worker.js";
-import { NO_LOG_REASON } from "../src/routes/replay.js";
+import { COMPACTED_REASON, NO_LOG_REASON } from "../src/routes/replay.js";
+import { pruneEncounterLogs } from "../src/replay/store.js";
+import { TUNABLES } from "@caravan/content";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
 import { TRIP_CAP_REGEN_MS, TRIPS_PER_HOUR_CAP } from "../src/trip/cap.js";
 import { appRolePool, testPool, truncateAll } from "./helpers.js";
@@ -401,12 +403,30 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     const replayUrl = `/me/encounters/${encodeURIComponent(commit.jobId)}/replay`;
     expect((await call(v, "GET", replayUrl)).statusCode).toBe(409);
     expect(await drain(appRole, { workerId: "contract-real", handlers: DEFAULT_HANDLERS, retryBackoffMs: () => 0 })).toHaveLength(1);
-    const mine = (await record("replay", "GET /me/encounters/:jobId/replay", await call(v, "GET", replayUrl), 200)) as { viewer: string; renderable: boolean; log: unknown };
+    // Chunk 22 QA S8: the trip loop folds the outcome in on the next read, so the replay's `settled` (ledger) is filled.
+    expect((await call(v, "GET", vTrip)).statusCode).toBe(200);
+    const mine =(await record("replay", "GET /me/encounters/:jobId/replay", await call(v, "GET", replayUrl), 200)) as { viewer: string; renderable: boolean; log: unknown };
     const theirs = (await record("replay-owner", "GET /me/encounters/:jobId/replay (party owner)", await call(fought, "GET", replayUrl), 200)) as { viewer: string; log: unknown };
     expect(mine).toMatchObject({ viewer: "caravan", renderable: true });
     expect(theirs.viewer).toBe("party_owner");
     // The recorded (renamed) log is still a valid replay: the web suite plays it.
     expect(() => readReplay((normalise(mine) as { log: unknown }).log)).not.toThrow();
+    // Chunk 22 QA D1 / S8 / N10: siege and stance labels from the job's snapshots; the settled
+    // itemization from the ledger, per viewer; the owner's body carries no trip id or stored block.
+    const mineBody = mine as unknown as { labels: { siege: { typeId: string }[]; units: { side: string; stance: string | null }[] }; settled: { applied: boolean; reputation: unknown[] } };
+    expect(mineBody.labels.siege.map((s) => s.typeId)).toEqual(["siege.battering_wagon"]);
+    expect(mineBody.labels.units.every((u) => u.stance !== null)).toBe(true);
+    expect(mineBody.settled.applied).toBe(true);
+    expect(mineBody.settled.reputation.length).toBeGreaterThan(0);
+    const theirsBody = theirs as unknown as Record<string, unknown> & { outcome: Record<string, unknown>; settled: { coin: { reason: string }[] } };
+    expect(theirsBody).toMatchObject({ tripId: null, stored: null });
+    expect("units" in theirsBody.outcome).toBe(false);
+    expect(JSON.stringify(theirsBody.settled)).not.toContain(v.accountId);
+    // D2: the caravan's fights within retention, newest first — the real-resolver one (a log) and the player's double-resolved ones (no log).
+    const recent = (await record("encounters", "GET /me/encounters", await call(v, "GET", "/me/encounters"), 200)) as { encounters: { jobId: string; replay: string }[] };
+    expect(recent.encounters).toEqual([expect.objectContaining({ jobId: commit.jobId, replay: "log" })]);
+    const history = (await record("encounters-history", "GET /me/encounters (three fights, two trips)", await call(p, "GET", "/me/encounters"), 200)) as { encounters: { encounterIndex: number; replay: string }[] };
+    expect(history.encounters.map((x) => [x.encounterIndex, x.replay])).toEqual([[1, "no_log"], [2, "no_log"], [1, "no_log"]]);
 
     // Chunk 15 QA D3 (+ N2), recorded LAST so its rows shift no earlier fixture's ids: a trip
     // whose second encounter cannot be resolved (the double's outcome is refused, so the job
@@ -486,6 +506,32 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     vi.setSystemTime(FROZEN_MS);
     for (const name of ["inbox", "inbox-read", "inbox-preferences"]) recorded.get(name)!.body = stableInbox(recorded.get(name)!.body);
     recorded.get("inbox-strikes")!.body = { ...(recorded.get("inbox-strikes")!.body as object), window: 1 };
+
+    // Chunk 30: the account lifecycle — a guest's first launch, a reload, the Account screen, linking, devices, export, deletion.
+    const guestRes = await app.inject({ method: "POST", url: "/auth/guest", payload: { region: "desert" } });
+    const guestBody = (await record("auth-guest", "POST /auth/guest", guestRes, 201)) as { token: string };
+    const guestCookie = String(([] as unknown[]).concat(guestRes.headers["set-cookie"])[0]).split(";")[0]!;
+    await record("auth-resume", "POST /auth/resume", await app.inject({ method: "POST", url: "/auth/resume", headers: { cookie: guestCookie } }), 200);
+    const g: Player = { token: guestBody.token, accountId: "", caravanId: "", units: [] };
+    await record("account-guest", "GET /me/account", await call(g, "GET", "/me/account"), 200);
+    await record("account-link", "POST /me/account/link", await call(g, "POST", "/me/account/link", { username: "contract_guest", password: "correct horse battery" }), 200);
+    await record("account", "GET /me/account", await call(g, "GET", "/me/account"), 200);
+    await record("devices", "GET /me/devices", await call(g, "GET", "/me/devices"), 200);
+    await record("devices-revoke-others", "POST /me/devices/revoke-others", await call(g, "POST", "/me/devices/revoke-others"), 200);
+    await record("export", "GET /me/export", await call(g, "GET", "/me/export"), 200);
+    await record("account-delete", "POST /me/account/delete", await call(g, "POST", "/me/account/delete", { confirm: "delete my account", password: "correct horse battery" }), 200);
+
+    // PHASE-2 §36, recorded last: the same real-resolver fight after its log was COMPACTED to its
+    // results summary. The owner lowers the size budget for one prune of that caravan (the only way
+    // to make a minutes-old log compactable without waiting 30 days), then restores it.
+    await pool.query("UPDATE encounter_log_retention SET size_budget_bytes = 1024");
+    try {
+      expect(await pruneEncounterLogs(appRole, v.caravanId)).toBe(1);
+    } finally {
+      await pool.query("UPDATE encounter_log_retention SET size_budget_bytes = $1", [TUNABLES.LOG_SIZE_BUDGET_BYTES]);
+    }
+    const compacted = (await record("replay-compacted", "GET /me/encounters/:jobId/replay (log compacted, PHASE-2 §36)", await call(v, "GET", replayUrl), 200)) as Record<string, unknown>;
+    expect(compacted).toMatchObject({ viewer: "caravan", renderable: false, reason: COMPACTED_REASON, log: null, outcome: (mine as unknown as { outcome: unknown }).outcome, compacted: { reason: "size_budget" } });
 
     // Write the fixtures (only when they changed, so a rerun leaves the tree clean).
     mkdirSync(OUT, { recursive: true });

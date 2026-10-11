@@ -18,6 +18,57 @@ import { encodeReplay, readReplay, resolve, type LogEvent, type ResolveOutput } 
 import { clone, fullLoadFullLength, fullLoadScenario, runToCap, scenarios } from "./fixtures.js";
 
 const BUDGET = 100 * 1024;
+/**
+ * PHASE-2 §36: one 180-second fight resolves in under 100 ms on the server, measured in CI over
+ * the WHOLE golden corpus (`scenarios()`, the fights `pnpm determinism` pins byte-for-byte) and the
+ * three full-load fights below. Operational, not balance: it bounds the resolver's cost, so it is
+ * not in the tunables registry.
+ *
+ * WHERE THE BOUND IS ASSERTED. CPU time is not load-invariant: measured on 4 cores with
+ * `pnpm determinism` running beside this file, the heaviest corpus fight (c13-full-load-full-length,
+ * ~75-90 ms alone) read 103-137 ms of CPU — shared caches and SMT siblings slow the same
+ * instructions. So the §36 bound itself (100 ms) is asserted by `pnpm perf:resolver`
+ * (the resolver package's `budget` script: this file ALONE, RESOLVER_BUDGET_STRICT=1), a CI step of its own
+ * after the parallel suite; inside the parallel `pnpm test` the same measurements run with a 2×
+ * allowance, so a loaded runner cannot fail CI and a resolver that doubles its cost still does.
+ *
+ * Load-robust otherwise (QA-13 S6): process CPU time (user + system of this forked vitest worker),
+ * not wall time; the minimum of several runs after a warm-up, with a GC before each; and the
+ * corpus is timed in batches, one test each, so no synchronous block runs for more than a few
+ * seconds.
+ */
+const RESOLVE_BUDGET_STRICT = process.env["RESOLVER_BUDGET_STRICT"] === "1";
+/** The §36 budget. */
+const RESOLVE_BUDGET_MS = 100;
+/** What this run asserts: the budget alone (strict), or 2× it beside the rest of the suite. */
+const RESOLVE_BOUND_MS = RESOLVE_BUDGET_STRICT ? RESOLVE_BUDGET_MS : 2 * RESOLVE_BUDGET_MS;
+const BOUND_LABEL = RESOLVE_BUDGET_STRICT ? `${RESOLVE_BUDGET_MS} ms (strict, §36)` : `${RESOLVE_BOUND_MS} ms (2× the §36 ${RESOLVE_BUDGET_MS} ms: parallel suite; pnpm perf:resolver asserts ${RESOLVE_BUDGET_MS})`;
+/**
+ * Corpus timing: at least CORPUS_RUNS_MIN runs per fight after a warm-up, and up to CORPUS_RUNS_MAX
+ * while the best is still above half the budget (only the few heavy fights). Measured under a
+ * concurrent `pnpm determinism`: best of 3 let one collected-garbage run of the heaviest fight
+ * read 137 ms against ~80 ms unloaded; best of up to 9, with a GC before every run, does not.
+ */
+const CORPUS_RUNS_MIN = 3;
+const CORPUS_RUNS_MAX = 9;
+const CORPUS_BATCH = 8;
+
+/** `--expose-gc` (vitest.config.ts): collect before each timed run so one run never pays for the previous run's garbage. */
+const collect: () => void = typeof (globalThis as { gc?: () => void }).gc === "function" ? (globalThis as unknown as { gc: () => void }).gc : () => {};
+
+/** CPU milliseconds of `f` per run, after one warm-up call: `runs` runs, or up to `maxRuns` while the best is >= `until`. Sorted ascending. */
+function cpuTimes(f: () => unknown, runs: number, maxRuns = runs, until = 0): number[] {
+  f();
+  const times: number[] = [];
+  while (times.length < runs || (times.length < maxRuns && Math.min(...times) >= until)) {
+    collect();
+    const start = process.cpuUsage();
+    f();
+    const used = process.cpuUsage(start);
+    times.push((used.user + used.system) / 1000);
+  }
+  return times.sort((a, b) => a - b);
+}
 
 function measure(out: ResolveOutput): { raw: number; gz: number; keyframes: number; oldJson: number } {
   const replay = encodeReplay(out);
@@ -31,30 +82,43 @@ function measure(out: ResolveOutput): { raw: number; gz: number; keyframes: numb
 }
 
 describe("budgets", () => {
-  it("time: the full-length full-load fight resolves in under 300 ms (best of 5 after a warm-up; the realistic full load in under 100 ms)", () => {
-    const time = (f: () => unknown, runs: number) => {
-      f();
-      const times: number[] = [];
-      // CPU time of this process (vitest runs each file in its own forked worker), not wall time:
-      // the bound is the resolver's cost, and a runner loaded by other test files (QA-13 S6) must
-      // not fail it. The bounds are unchanged.
-      for (let i = 0; i < runs; i++) {
-        const start = process.cpuUsage();
-        f();
-        const used = process.cpuUsage(start);
-        times.push((used.user + used.system) / 1000);
+  it(`time: the full-length full-load fight (180 s, the most a fight can log) and the realistic full loads each resolve in under ${BOUND_LABEL} of CPU (best of 5 / 15 after a warm-up)`, () => {
+    const full = cpuTimes(() => resolve(clone(fullLoadFullLength())), 5);
+    // Best of 15 for the shorter fights (QA-13 S6: the suite runs this file beside the 100× harness on
+    // every core; the minimum of more short runs is the load-robust estimate).
+    const real = cpuTimes(() => resolve(clone(fullLoadScenario())), 15);
+    const cap = cpuTimes(() => runToCap(clone(fullLoadScenario())), 15);
+    process.stdout.write(`resolve time (CPU, bound ${BOUND_LABEL}): full-length full load best ${full[0]!.toFixed(1)} ms; full load (ends at arrival) best ${real[0]!.toFixed(1)} ms; full load forced to 3600 ticks best ${cap[0]!.toFixed(1)} ms\n`);
+    expect(full[0]!).toBeLessThan(RESOLVE_BOUND_MS);
+    expect(real[0]!).toBeLessThan(RESOLVE_BOUND_MS);
+    expect(cap[0]!).toBeLessThan(RESOLVE_BOUND_MS);
+  });
+
+  describe(`time: every golden-corpus fight resolves in under ${BOUND_LABEL} of CPU (PHASE-2 §36; best of ${CORPUS_RUNS_MIN}-${CORPUS_RUNS_MAX} after a warm-up)`, () => {
+    const corpus = scenarios();
+    const timed: { name: string; ticks: number; best: number }[] = [];
+    const batches: (typeof corpus)[] = [];
+    for (let i = 0; i < corpus.length; i += CORPUS_BATCH) batches.push(corpus.slice(i, i + CORPUS_BATCH));
+    it.each(batches.map((b, i) => [i + 1, b] as const))("batch %i", (_n, batch) => {
+      for (const { name, input } of batch) {
+        let ticks = 0;
+        const best = cpuTimes(() => {
+          ticks = resolve(clone(input)).ticks;
+        }, CORPUS_RUNS_MIN, CORPUS_RUNS_MAX, RESOLVE_BUDGET_MS / 2)[0]!;
+        timed.push({ name, ticks, best });
+        expect(best, `${name} (${ticks} ticks) took ${best.toFixed(1)} ms of CPU`).toBeLessThan(RESOLVE_BOUND_MS);
       }
-      return times.sort((a, b) => a - b);
-    };
-    const full = time(() => resolve(clone(fullLoadFullLength())), 5);
-    // Best of 15 for the ~0.1 s fights (QA-13 S6: the suite runs this file beside the 100× harness on
-    // every core; the minimum of more short runs is the load-robust estimate, the bound is unchanged).
-    const real = time(() => resolve(clone(fullLoadScenario())), 15);
-    const cap = time(() => runToCap(clone(fullLoadScenario())), 15);
-    process.stdout.write(`resolve time: full-length full load best ${full[0]!.toFixed(1)} ms; full load (ends at arrival) best ${real[0]!.toFixed(1)} ms; full load forced to 3600 ticks best ${cap[0]!.toFixed(1)} ms\n`);
-    expect(full[0]!).toBeLessThan(300);
-    expect(real[0]!).toBeLessThan(100);
-    expect(cap[0]!).toBeLessThan(100);
+    });
+    it("covers the whole corpus, including full-length (180 s) fights, and reports the slowest", () => {
+      expect(timed.length).toBe(corpus.length);
+      const fullLength = timed.filter((t) => t.ticks === 3600);
+      expect(fullLength.length).toBeGreaterThan(0);
+      const slowest = [...timed].sort((a, b) => b.best - a.best).slice(0, 3);
+      const mean = timed.reduce((a, t) => a + t.best, 0) / timed.length;
+      process.stdout.write(
+        `corpus resolve time (CPU, bound ${BOUND_LABEL}, ${timed.length} fights, ${fullLength.length} of them full-length): mean ${mean.toFixed(1)} ms; slowest ${slowest.map((t) => `${t.name} ${t.best.toFixed(1)} ms (${t.ticks} ticks)`).join(", ")}; slowest full-length ${Math.max(...fullLength.map((t) => t.best)).toFixed(1)} ms\n`,
+      );
+    });
   });
 
   it("the full-length full-load fight is a real one: every one of 3600 ticks, both sides swinging all fight, abilities firing, a stalemate", () => {

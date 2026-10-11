@@ -1,0 +1,7 @@
+{
+  "route": "PUT /me/analytics",
+  "status": 200,
+  "body": {
+    "optedOut": false
+  }
+}

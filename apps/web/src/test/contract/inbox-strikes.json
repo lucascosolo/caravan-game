@@ -15,10 +15,10 @@
           "caravanName": "Caravan",
           "regionId": "desert"
         },
-        "coinEarned": 212,
+        "coinEarned": 353,
         "coinTransferred": 0,
         "coinDiscardedAtCap": 0,
-        "reputationDelta": -14,
+        "reputationDelta": -13,
         "ladderPointsGained": 10
       },
       {
@@ -32,27 +32,27 @@
           "caravanName": "Caravan",
           "regionId": "desert"
         },
-        "coinEarned": 0,
+        "coinEarned": 371,
         "coinTransferred": 0,
         "coinDiscardedAtCap": 0,
-        "reputationDelta": 0,
-        "ladderPointsGained": 0
+        "reputationDelta": -14,
+        "ladderPointsGained": 10
       },
       {
         "seq": 1,
         "occurredAt": "2026-10-11T12:00:02.000Z",
-        "jobId": "encounter:00000000-0000-4000-8000-000000000003:2",
-        "encounterIndex": 2,
+        "jobId": "encounter:00000000-0000-4000-8000-000000000003:1",
+        "encounterIndex": 1,
         "outcomeKind": "caravan_held",
         "defender": {
           "username": "contract_player",
           "caravanName": "Caravan",
           "regionId": "desert"
         },
-        "coinEarned": 285,
+        "coinEarned": 353,
         "coinTransferred": 0,
         "coinDiscardedAtCap": 0,
-        "reputationDelta": -14,
+        "reputationDelta": -15,
         "ladderPointsGained": 10
       }
     ]

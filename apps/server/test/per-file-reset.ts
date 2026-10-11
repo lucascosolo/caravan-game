@@ -26,7 +26,10 @@ import { createPool } from "../src/db/pool.js";
 import { resolveTestDatabaseUrl } from "./db-url.js";
 
 /** Rows seeded by migrations and never written by the game: kept as they are. */
-const REFERENCE_TABLES = new Set(["schema_migrations", "region", "encounter_log_retention"]);
+const REFERENCE_TABLES = new Set(["schema_migrations", "region", "encounter_log_retention",
+  // Chunk 30: the erasure audit is append-only BY DESIGN and names no account (an erased
+  // account's rows are gone; the audit outlives them). It holds no game state a file could read.
+  "account_erasure_audit"]);
 
 export async function resetToBaseline(): Promise<void> {
   const pool = createPool(resolveTestDatabaseUrl());
