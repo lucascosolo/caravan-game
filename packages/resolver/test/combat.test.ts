@@ -25,7 +25,7 @@ import {
   type ResolveInput,
   type SimState,
 } from "../src/index.js";
-import { DEFAULT_TUNABLES, SHORT_TUNABLES, battlefield, clone, fence, input, ms, party, post, reachSq, ringExcept, unit } from "./fixtures.js";
+import { DEFAULT_TUNABLES, SHORT_TUNABLES, battlefield, clone, fence, fx, input, ms, party, post, reachSq, ringExcept, unit } from "./fixtures.js";
 
 const events = <K extends LogEvent["k"]>(out: { readonly log: readonly LogEvent[] }, k: K) => out.log.filter((e): e is Extract<LogEvent, { k: K }> => e.k === k);
 const mk = (inp: ResolveInput): SimState => initialState(normalizeInput(clone(inp)));
@@ -184,7 +184,7 @@ describe("ATTACK_COOLDOWN, REACH and ATTACK_TARGET_SELECTION", () => {
     expect(nearestEnemyInReach(state, state.units[0]!)!.ref).toBe("p2");
   });
 
-  it("ATTACK_PRIORITY: a breaching unit with an enemy in reach fights the enemy, not the fence", () => {
+  it("ATTACK_PRIORITY (QA-11 D2): a breacher switches from the fence only to a unit that can reach it back", () => {
     // Sealed 100-HP ring: a 40-offense unit needs 3 hits on segment 3 (cell (15,11)) from (15,10).
     const noPost = resolve(input(battlefield({ fences: ringExcept([], 100) }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, offense: 40 })]), SHORT_TUNABLES));
     expect(events(noPost, "fence_hit")).toHaveLength(3);
@@ -193,8 +193,20 @@ describe("ATTACK_COOLDOWN, REACH and ATTACK_TARGET_SELECTION", () => {
     const melee = resolve(input(battlefield({ fences: ringExcept([], 100), posts: [post("p", { x: 15, y: 12 }, { stance: "hold", hp: 13, maxHp: 40 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, offense: 40 })]), SHORT_TUNABLES));
     expect(events(melee, "fence_hit")).toHaveLength(3);
     expect(events(melee, "hit").find((h) => h.u === 0)!.t).toBeGreaterThan(events(melee, "fence_broken")[0]!.t);
-    // … but within a ranged breacher's reach (4 cells): the post is shot first (one 13-damage hit), THEN the fence.
-    const ranged = resolve(input(battlefield({ fences: ringExcept([], 100), posts: [post("p", { x: 15, y: 12 }, { stance: "hold", hp: 13, maxHp: 40 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, offense: 40, attackRange: 4096 })]), SHORT_TUNABLES));
+    // … a ranged breacher (4 cells) with a MELEE post in its reach: the post cannot touch it
+    // (2 cells > the post's 1.35), so it is no threat and does not shield the fence — the
+    // breach runs exactly as with no post and is not interrupted (shots on the approach, before
+    // it stands at the fence, are the plain nearest-in-reach rule).
+    const shooter = { ref: "a", cell: { x: 15, y: 0 }, offense: 40, attackRange: fx(4096) } as const;
+    const ranged0 = resolve(input(battlefield({ fences: ringExcept([], 100) }), party([unit(shooter)]), SHORT_TUNABLES));
+    const harmless = resolve(input(battlefield({ fences: ringExcept([], 100), posts: [post("p", { x: 15, y: 12 }, { stance: "hold", hp: 13, maxHp: 40 })] }), party([unit(shooter)]), SHORT_TUNABLES));
+    expect(events(harmless, "fence_hit").map((e) => e.t)).toEqual(events(ranged0, "fence_hit").map((e) => e.t));
+    const breachFrom = events(harmless, "fence_hit")[0]!.t;
+    const breachTo = events(harmless, "fence_broken")[0]!.t;
+    expect(events(harmless, "hit").filter((h) => h.u === 0 && h.t >= breachFrom && h.t <= breachTo)).toEqual([]);
+    // … a ranged breacher with a RANGED post (4 cells) that does reach it: it fights back first
+    // (one 13-damage hit kills the post), THEN the fence.
+    const ranged = resolve(input(battlefield({ fences: ringExcept([], 100), posts: [post("p", { x: 15, y: 12 }, { stance: "hold", hp: 13, maxHp: 40, attackRange: fx(4096) })] }), party([unit(shooter)]), SHORT_TUNABLES));
     const firstHit = events(ranged, "hit").find((h) => h.u === 0)!;
     const firstFence = events(ranged, "fence_hit")[0]!;
     expect(firstHit).toMatchObject({ v: 1, damage: 13, hp: 0 });
@@ -202,15 +214,24 @@ describe("ATTACK_COOLDOWN, REACH and ATTACK_TARGET_SELECTION", () => {
     expect(firstFence.t - firstHit.t).toBeGreaterThanOrEqual(20); // the shot spent the cooldown
     expect(ranged.units[1]!.alive).toBe(false);
     expect(events(ranged, "fence_broken")).toHaveLength(1);
-    // Pinned directly: a unit standing at its breach with a ready cooldown and an enemy in reach hits the enemy.
-    const state = mk(input(battlefield({ fences: ringExcept([], 100), posts: [post("p", { x: 15, y: 12 }, { stance: "hold" })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, offense: 40, attackRange: 4096 })])));
+    // Pinned directly, at the exact boundary of the post's reach: a breacher with a ready
+    // cooldown hits the post when the post's reach covers it, the fence when it is one unit short.
+    for (const [postRange, expectFence] of [[fx(2048 - 358), 0], [fx(2048 - 358 - 1), 1]] as const) {
+      // post at (15,12) centre, breacher at (15,10) centre: 2048 apart; post reach = range + unitRadius.
+      const state = mk(input(battlefield({ fences: ringExcept([], 100), posts: [post("p", { x: 15, y: 12 }, { stance: "hold", attackRange: postRange })] }), party([unit({ ...shooter })])));
+      place(state, 0, 15 * 1024 + 512, 10 * 1024 + 512);
+      state.units[0]!.breaching = 3;
+      const log: LogEvent[] = [];
+      attackPhase(state, log);
+      expect(log.filter((e) => e.k === "fence_hit")).toHaveLength(expectFence);
+      expect(log.filter((e) => e.k === "hit" && e.u === 0)).toHaveLength(1 - expectFence);
+    }
+    // A non-breaching attacker keeps the plain nearest-in-reach rule: it shoots the harmless post.
+    const state = mk(input(battlefield({ posts: [post("p", { x: 15, y: 12 }, { stance: "hold" })] }), party([unit({ ...shooter })])));
     place(state, 0, 15 * 1024 + 512, 10 * 1024 + 512);
-    state.units[0]!.breaching = 3;
     const log: LogEvent[] = [];
     attackPhase(state, log);
-    expect(log.filter((e) => e.k === "fence_hit")).toHaveLength(0);
     expect(log.filter((e) => e.k === "hit" && e.u === 0)).toHaveLength(1);
-    expect(state.fences[3]!.hp).toBe(100);
   });
 });
 

@@ -27,7 +27,9 @@
  * next attacker). Otherwise damage = max(1, floor(trap.damage × affinity multiplier for
  * trap.affinity vs the unit's affinity)) (combat.ts DAMAGE_ROUNDING_ORDER steps 2 and 5;
  * traps have no formula, no merge level, no siege step), HP floors at 0 and the unit dies
- * in phase 8 — it still acts in phases 5–7 of this tick (SIMULTANEOUS_DAMAGE). The effect,
+ * in phase 8 — it still acts in phases 5–7 of this tick (SIMULTANEOUS_DAMAGE). TRAP_SKIPS_ZERO_HP
+ * (QA-11 N2): an attacker already at 0 HP (killed by an earlier trap this phase) is not
+ * tested again, so a second trap on its path is not spent on a corpse. The effect,
  * if any, is applied with its duration converted to ticks (msToTicks) and refreshes rather
  * than stacks (move.ts EFFECT_STACKING).
  *
@@ -99,6 +101,7 @@ export function trapTriggerPhase(state: SimState, log: LogEvent[]): void {
     const u = state.units[id]!;
     if (!u.alive) continue;
     for (const trap of state.traps) {
+      if (u.hp === 0) break; // TRAP_SKIPS_ZERO_HP
       if (trap.spent) continue;
       if (sweepCrosses(u.sweep, trap.pos, state.trapReachSq)) fireTrap(state, trap, u, log);
     }

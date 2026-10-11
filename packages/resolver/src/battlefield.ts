@@ -440,7 +440,7 @@ export interface BattlefieldPost {
   readonly ref: string;
   readonly typeId: string;
   readonly mergeLevel: number;
-  /** Carried through for chunk 11; chunk 10 reads it nowhere. */
+  /** The defensive stance (chunk 07 QA D1): drives movement and acquisition in phase 5 (posted.ts), never what gets hit. */
   readonly stance: PostStance;
   /** The post: fixed origin of the leash. */
   readonly cell: Cell;
@@ -449,7 +449,7 @@ export interface BattlefieldPost {
   readonly hp: number;
   readonly maxHp: number;
   readonly affinity: AffinityCategory;
-  /** The DEFENSE rating, scaled by merge level — posted units never use offense. */
+  /** The DEFENSE rating, UNMERGED at every level (chunk 03 QA B1: merge scales hit output and maxHp, never a rating) — posted units never use offense. */
   readonly defense: number;
   readonly moveSpeed: Fixed;
   readonly attackRange: Fixed;

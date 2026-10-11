@@ -29,6 +29,7 @@ import {
   type ResolverTunables,
   type Stance,
 } from "../src/index.js";
+import { CHATTER_GUARD_INPUT, RAND93_INPUT, SHIELD_BASELINE_INPUT, SHIELD_HOLD_INPUT } from "./qa11-fixtures.js";
 
 export const fx = (n: number): Fixed => n as Fixed;
 export const ms = (n: number): Millis => n as Millis;
@@ -282,11 +283,31 @@ export function fullLoadScenario(): ResolveInput {
   );
 }
 
+/**
+ * QA-11 D1 (after the reviewer's p6_reserve, grizzly vs grizzly): a RESERVE post at (15,12),
+ * right behind the gap at segment 3, and a `nearest` attacker that comes to the gap cell
+ * (15,11) — a ring cell, so the post is not released — and attacks it from there. The post
+ * must fire back from its post without moving.
+ */
+export function reserveFiresBackScenario(): ResolveInput {
+  return input(
+    battlefield({ fences: ringExcept([3, 13, 14, 15, 16, 17, 18, 19], 300), posts: [post("p", { x: 15, y: 12 }, { stance: "reserve", hp: 1300, maxHp: 1300, defense: 90 })] }),
+    party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 }, hp: 1300, offense: 90 })]),
+    SHORT_TUNABLES,
+  );
+}
+
 /** The scenarios the determinism harness runs. Keep this list growing in chunks 11–13. */
 export function scenarios(): { name: string; input: ResolveInput }[] {
   const north = (ref: string, stance: Stance, x: number) => unit({ ref, stance, edge: "north", cell: { x, y: 1 } });
   const south = (ref: string, stance: Stance, x: number) => unit({ ref, stance, edge: "south", cell: { x, y: GRID_HEIGHT - 2 } });
   return [
+    // ── chunk 11 QA round 1 (literal inputs, qa11-fixtures.ts; assertions in qa11.test.ts) ──
+    { name: "qa11-chatter-guard", input: CHATTER_GUARD_INPUT },
+    { name: "qa11-rand93", input: RAND93_INPUT },
+    { name: "qa11-shield-hold", input: SHIELD_HOLD_INPUT },
+    { name: "qa11-shield-baseline", input: SHIELD_BASELINE_INPUT },
+    { name: "qa11-reserve-fires-back", input: reserveFiresBackScenario() },
     // ── chunk 11 combat scenarios ──
     {
       name: "combat-three-stances-traps-siege",
@@ -316,7 +337,7 @@ export function scenarios(): { name: string; input: ResolveInput }[] {
     // ── chunk 10 scenarios ──
     { name: "open-field-core", input: input(battlefield(), party([north("a", "core", 15)]), SHORT_TUNABLES) },
     { name: "gapped-ring-three-stances", input: input(battlefield({ fences: ringExcept([3, 17]), traps: [trap("t1", { x: 13, y: 13 }), trap("t2", { x: 17, y: 18 })], posts: [post("p1", { x: 15, y: 13 }), post("p2", { x: 14, y: 17 })] }), party([north("a", "core", 15), north("b", "nearest", 20), south("c", "traps", 10), south("d", "core", 15)]), SHORT_TUNABLES) },
-    { name: "sealed-ring-breach", input: input(battlefield({ fences: ringExcept([], 100), posts: [post("p1", { x: 15, y: 14 })] }), party([north("a", "core", 15), unit({ ref: "b", stance: "nearest", edge: "west", cell: { x: 0, y: 15 } })]), SHORT_TUNABLES) },
+    { name: "sealed-ring-breach", input: input(battlefield({ fences: ringExcept([], 100), posts: [post("p1", { x: 15, y: 13 })] }), party([north("a", "core", 15), unit({ ref: "b", stance: "nearest", edge: "west", cell: { x: 0, y: 15 } })]), SHORT_TUNABLES) },
     { name: "full-length-mixed", input: input(battlefield({ fences: ringExcept([0, 1, 2, 3, 4, 5, 6, 7]), traps: [trap("t1", { x: 11, y: 10 })], posts: [post("p1", { x: 15, y: 12 }), post("p2", { x: 18, y: 16 })] }), party([north("a", "core", 2), north("b", "nearest", 29), south("c", "traps", 15), unit({ ref: "d", stance: "core", edge: "east", cell: { x: 31, y: 3 } })])) },
     { name: "corner-clip-rand4", input: cornerClipScenario() },
     { name: "sealed-ring-1e6-hp", input: input(battlefield({ fences: ringExcept([], 1_000_000) }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, offense: 1 })]), SHORT_TUNABLES) },

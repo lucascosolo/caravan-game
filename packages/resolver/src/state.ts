@@ -83,6 +83,8 @@ export interface UnitState {
   readonly aggroSq: number;
   readonly leashSq: number;
   readonly hysteresisSq: number;
+  /** Defenders (QA-11 B1b): ((aggroRadius + unitRadius) × hysteresis)², the re-acquire radius for the target last dropped as `lost`. 0 for attackers. */
+  readonly aggroHysteresisSq: number;
   /** Defenders: the post's tick-zero position, the origin of the leash. Attackers: the entry position. */
   readonly postX: Fixed;
   readonly postY: Fixed;
@@ -108,6 +110,8 @@ export interface UnitState {
   postMode: PostMode;
   /** Defenders with the `reserve` stance: whether an attacker has entered the ring yet. */
   reserveReleased: boolean;
+  /** Defenders (QA-11 B1b): the attacker id last dropped with `disengage why: "lost"`, or −1; cleared when it is re-acquired. */
+  lostTarget: number;
   target: Target | null;
   /** Targets that proved unreachable; skipped by retargeting. */
   unreachable: Target[];
@@ -233,6 +237,7 @@ export function initialState(input: ResolveInput): SimState {
     sweep: [] as FixedPoint[],
     postMode: "idle" as PostMode,
     reserveReleased: false,
+    lostTarget: -1,
     target: null,
     unreachable: [] as Target[],
     waypoints: [] as Waypoint[],
@@ -269,6 +274,7 @@ export function initialState(input: ResolveInput): SimState {
       aggroSq: 0,
       leashSq: 0,
       hysteresisSq: 0,
+      aggroHysteresisSq: 0,
       x: pos.x,
       y: pos.y,
       hp: u.hp,
@@ -298,6 +304,7 @@ export function initialState(input: ResolveInput): SimState {
       aggroSq: fixedSq((p.aggroRadius + tunables.unitRadius) as Fixed),
       leashSq: fixedSq(p.leashDistance),
       hysteresisSq: fixedSq(fpMul(p.leashDistance, tunables.leashHysteresisMult)),
+      aggroHysteresisSq: fixedSq(fpMul((p.aggroRadius + tunables.unitRadius) as Fixed, tunables.leashHysteresisMult)),
       x: p.pos.x,
       y: p.pos.y,
       hp: p.hp,

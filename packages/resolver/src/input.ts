@@ -35,6 +35,8 @@ import {
   isEntryEdge,
   isInBounds,
   isAnchorCell,
+  isAnyEntryCell,
+  isCoreCell,
   isRingCell,
   onlyKeys,
   ringIndexAt,
@@ -339,7 +341,8 @@ export function assertTunables(v: unknown): asserts v is ResolverTunables {
 /**
  * Full input validation: shape of all three parts, then the cross-checks the shape guards
  * cannot see — grid size matches the lattice, fences sit on ring cells at their own
- * segment, unique refs, posts and traps off the fences, hp bounds, every `pos` inside its
+ * segment, unique refs, posts and traps off the fences and the core, traps out of the entry
+ * bands, every numeric field bounded at both ends (QA-11 S1/N3), hp bounds, every `pos` inside its
  * own `cell` (QA-10 N3), and every mover at least one fixed unit per tick
  * (moveSpeed ≥ tickRate, QA-10 S4 — a slower unit would floor to a speed of 0 and never
  * move, which no content value is meant to express).
@@ -378,8 +381,16 @@ export function assertResolveInput(v: unknown): asserts v is ResolveInput {
   const trapRefs: string[] = [];
   b.traps.forEach((t, idx) => {
     if (!isInBounds(t.cell) || isRingCell(t.cell) || isAnchorCell(t.cell)) fail(`traps[${idx}].cell is on the ring, an anchor, or off the lattice`);
+    // QA-11 N3: nothing is placed on the core, and no trap in an entry band (a unit would spring it on tick 0, before it moved).
+    if (isCoreCell(t.cell)) fail(`traps[${idx}].cell is a core cell`);
+    if (isAnyEntryCell(t.cell)) fail(`traps[${idx}].cell is in an entry band`);
     if (!sameCell(cellOf(t.pos), t.cell)) fail(`traps[${idx}].pos lies outside its cell`);
-    if (t.damage > INPUT_BOUNDS.maxRating) fail(`traps[${idx}].damage must be ≤ ${INPUT_BOUNDS.maxRating}`);
+    // QA-11 S1: lower bounds as well as upper ones.
+    boundedInt(t.damage, `traps[${idx}].damage`, 1, INPUT_BOUNDS.maxRating);
+    if (t.effect !== null) {
+      boundedInt(t.effect.duration, `traps[${idx}].effect.duration`, 1, INPUT_BOUNDS.maxMillis);
+      if (t.effect.kind === "slow") boundedInt(t.effect.magnitude, `traps[${idx}].effect.magnitude`, 0, FIXED_POINT_SCALE);
+    }
     if (trapRefs.includes(t.ref)) fail(`duplicate trap ref '${t.ref}'`);
     trapRefs.push(t.ref);
     oneOf(t.category, `traps[${idx}].category`, TRAP_CATEGORIES);
@@ -388,6 +399,7 @@ export function assertResolveInput(v: unknown): asserts v is ResolveInput {
   const postRefs: string[] = [];
   b.posts.forEach((p, idx) => {
     if (!isInBounds(p.cell) || isRingCell(p.cell) || isAnchorCell(p.cell)) fail(`posts[${idx}].cell is on the ring, an anchor, or off the lattice`);
+    if (isCoreCell(p.cell)) fail(`posts[${idx}].cell is a core cell`); // QA-11 N3
     if (p.hp < 1 || p.hp > p.maxHp) fail(`posts[${idx}] hp ${p.hp}/${p.maxHp} out of range (dead units are not posted)`);
     if (p.maxHp > INPUT_BOUNDS.maxHp) fail(`posts[${idx}].maxHp must be ≤ ${INPUT_BOUNDS.maxHp}`);
     if (p.defense < 1) fail(`posts[${idx}].defense must be ≥ 1`);
@@ -395,8 +407,11 @@ export function assertResolveInput(v: unknown): asserts v is ResolveInput {
     if (!sameCell(cellOf(p.pos), p.cell)) fail(`posts[${idx}].pos lies outside its cell`);
     if (p.moveSpeed < tunables.tickRate) fail(`posts[${idx}].moveSpeed ${p.moveSpeed} is below the tick rate ${tunables.tickRate}: it would never move`);
     if (p.moveSpeed > INPUT_BOUNDS.maxMoveSpeed) fail(`posts[${idx}].moveSpeed must be ≤ ${INPUT_BOUNDS.maxMoveSpeed}`);
-    if (p.attackRange > INPUT_BOUNDS.maxDistance || p.aggroRadius > INPUT_BOUNDS.maxDistance || p.leashDistance > INPUT_BOUNDS.maxDistance) fail(`posts[${idx}] range/radius/leash must be ≤ ${INPUT_BOUNDS.maxDistance}`);
-    if (p.attackCooldown > INPUT_BOUNDS.maxMillis) fail(`posts[${idx}].attackCooldown must be ≤ ${INPUT_BOUNDS.maxMillis}`);
+    // QA-11 S1: the same bounds as the party side, both ends.
+    boundedInt(p.attackRange, `posts[${idx}].attackRange`, 0, INPUT_BOUNDS.maxDistance);
+    boundedInt(p.aggroRadius, `posts[${idx}].aggroRadius`, 0, INPUT_BOUNDS.maxDistance);
+    boundedInt(p.leashDistance, `posts[${idx}].leashDistance`, 0, INPUT_BOUNDS.maxDistance);
+    boundedInt(p.attackCooldown, `posts[${idx}].attackCooldown`, 1, INPUT_BOUNDS.maxMillis);
     if (p.mergeLevel < 1 || p.mergeLevel >= tunables.mergeStatMultByLevel.length) fail(`posts[${idx}].mergeLevel ${p.mergeLevel} has no entry in tunables.mergeStatMultByLevel`);
     if (postRefs.includes(p.ref)) fail(`duplicate post ref '${p.ref}'`);
     postRefs.push(p.ref);

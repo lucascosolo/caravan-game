@@ -30,12 +30,20 @@
  *
  * ATTACK_TARGET_SELECTION: a unit hits the NEAREST living enemy unit within its reach
  * (REACH rule: squared centre distance ≤ (attackRange + unitRadius)²); an exact tie goes to
- * the LOWER unit id. This is the same for every stance on both sides — a stance drives
- * movement and acquisition, never what gets hit — and it is independent of the unit's
- * movement target: a `core` attacker walking past a guard in reach fires at it, and a guard
- * pursuing one attacker hits whichever attacker is nearest. One exception, by stance
- * semantics: a `reserve` post that has not yet been released ignores every attacker,
- * including ones in reach (`canAttack`).
+ * the LOWER unit id. This is the same for every stance on both sides, with no exception —
+ * a stance drives movement and acquisition, never what gets hit (chunk 07 QA D1, chunk 11
+ * QA D1): a `reserve` post that has not been released yet still fires at an attacker in
+ * reach; it only does not acquire or move. Selection is independent of the unit's movement
+ * target: a `core` attacker walking past a guard in reach fires at it, and a guard pursuing
+ * one attacker hits whichever attacker is nearest.
+ *
+ * ATTACK_PRIORITY (chunk 11 QA D2) — an attacker that is BREACHING a fence this tick (it
+ * stands at the segment and phase 6 would hit it) switches to a unit only if that unit can
+ * reach it back: the candidates are the enemies within the attacker's reach that also have
+ * the attacker within THEIR reach (`threatInReach`; nearest, lowest id on a tie). It fights
+ * back against what is hurting it; a post that cannot touch it does not shield the fence.
+ * With no such threat it keeps hitting the fence. A non-breaching attacker, and every
+ * posted unit, uses the plain nearest-in-reach rule above.
  */
 import type { AffinityCategory } from "./battlefield.js";
 import { scaleInt, type Fixed } from "./fixed.js";
@@ -73,12 +81,6 @@ export function unitDistSq(a: UnitState, b: UnitState): number {
   return dx * dx + dy * dy;
 }
 
-/** Whether `u` may hit anything this tick (stance semantics; see header). */
-export function canAttack(u: UnitState): boolean {
-  if (u.side === "defender" && u.postStance === "reserve" && !u.reserveReleased) return false;
-  return true;
-}
-
 /**
  * ATTACK_TARGET_SELECTION: the nearest living enemy within `u`'s reach, lowest id on a tie,
  * or null. A unit whose HP reached 0 earlier this tick is still `alive` until phase 8 and
@@ -95,6 +97,28 @@ export function nearestEnemyInReach(state: SimState, u: UnitState): UnitState | 
     if (!v.alive) continue;
     const d = unitDistSq(u, v);
     if (d > u.reachSq) continue;
+    if (best === null || d < bestD) {
+      best = v;
+      bestD = d;
+    }
+  }
+  return best;
+}
+
+/**
+ * ATTACK_PRIORITY (see header): the nearest living enemy within `u`'s reach that also has
+ * `u` within its own reach, lowest id on a tie, or null. Used for a breaching attacker.
+ */
+export function threatInReach(state: SimState, u: UnitState): UnitState | null {
+  const from = u.side === "attacker" ? state.attackerCount : 0;
+  const to = u.side === "attacker" ? state.units.length : state.attackerCount;
+  let best: UnitState | null = null;
+  let bestD = 0;
+  for (let id = from; id < to; id++) {
+    const v = state.units[id]!;
+    if (!v.alive) continue;
+    const d = unitDistSq(u, v);
+    if (d > u.reachSq || d > v.reachSq) continue;
     if (best === null || d < bestD) {
       best = v;
       bestD = d;

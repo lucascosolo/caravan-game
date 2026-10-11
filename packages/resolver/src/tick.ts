@@ -17,9 +17,11 @@
  *                                 posted units' own movement.
  *   6. attack cooldowns, damage — every living unit, in id order: its cooldown counts down;
  *                                 when ready it hits the nearest enemy unit within reach
- *                                 (combat.ts ATTACK_TARGET_SELECTION) or, failing that, the
- *                                 fence it is breaching (ATTACK_PRIORITY: a unit in reach
- *                                 beats the fence — a breacher under fire fights back).
+ *                                 (combat.ts ATTACK_TARGET_SELECTION, every stance) or, failing
+ *                                 that, the fence it is breaching. ATTACK_PRIORITY (QA-11 D2):
+ *                                 a breacher switches from the fence only to a unit that has
+ *                                 the breacher in ITS reach — it fights back against what can
+ *                                 hurt it; a post that cannot touch it does not shield the fence.
  *                                 SIMULTANEOUS_DAMAGE: every hit this tick resolves against
  *                                 start-of-tick life — a unit whose HP hit 0 earlier in this
  *                                 phase still fires, so mutual kills happen; HP floors at 0.
@@ -83,13 +85,13 @@
  * lattice route breaches.
  */
 import { CORE_CENTER_CELL, cellCenter, cellDistSq, cellKey, cellOf, isCoreCell, type Cell, type FixedPoint } from "./battlefield.js";
-import { canAttack, hitDamage, nearestEnemyInReach } from "./combat.js";
+import { hitDamage, nearestEnemyInReach, threatInReach } from "./combat.js";
 import { COST_INFINITE, ceilDiv, isqrt } from "./fixed.js";
 import { abilityPhase, fenceHitDamage, postedUnitPhase, trapTriggerPhase } from "./hooks.js";
 import { logTarget, type LogEvent } from "./log.js";
 import { advance, effectiveSpeed, tickEffects } from "./move.js";
 import { BREACH_COST_MAX, CELL_FREE, findPath, smoothPath, type Waypoint } from "./path.js";
-import { sameTarget, type SimState, type Target, type UnitState } from "./state.js";
+import { sameTarget, type FenceState, type SimState, type Target, type UnitState } from "./state.js";
 
 export { legOffset } from "./move.js";
 
@@ -343,6 +345,20 @@ export function movementPhase(state: SimState, log: LogEvent[]): void {
 // ─── Phase 6 ────────────────────────────────────────────────────────────────────────
 
 /**
+ * The fence `u` is breaching this tick and could hit now, or null: an attacker standing
+ * short of an intact, not-yet-destroyed segment (phase 3 set `breaching`; a segment brought
+ * to 0 HP earlier in this phase is skipped, phase 8 clears it) whose cell is orthogonally
+ * adjacent to the segment's (FENCE_BREACH_RANGE).
+ */
+function breachableFence(state: SimState, u: UnitState): FenceState | null {
+  if (u.side !== "attacker" || u.breaching < 0) return null;
+  const fence = state.fences[u.breaching]!;
+  if (!fence.intact || fence.hp <= 0) return null;
+  if (cellDistSq(cellOf({ x: u.x, y: u.y }), fence.cell) !== 1) return null;
+  return fence;
+}
+
+/**
  * ATTACK_COOLDOWN: the counter decrements first, then a ready unit (0) fires if it has
  * something in reach, and the counter resets to cooldownTicks — so the first hit lands
  * on contact and the next every cooldownTicks (a cooldown of 1 fires every tick). A ready
@@ -352,8 +368,10 @@ export function attackPhase(state: SimState, log: LogEvent[]): void {
   for (const u of state.units) {
     if (!u.alive) continue;
     if (u.cooldownRemaining > 0) u.cooldownRemaining--;
-    if (u.cooldownRemaining > 0 || !canAttack(u)) continue;
-    const v = nearestEnemyInReach(state, u);
+    if (u.cooldownRemaining > 0) continue;
+    const fence = breachableFence(state, u);
+    // ATTACK_PRIORITY (combat.ts, QA-11 D2): a breacher answers only a unit that can reach it.
+    const v = fence === null ? nearestEnemyInReach(state, u) : threatInReach(state, u);
     if (v !== null) {
       const damage = hitDamage(state, u, v);
       v.hp = v.hp - damage < 0 ? 0 : v.hp - damage;
@@ -361,11 +379,7 @@ export function attackPhase(state: SimState, log: LogEvent[]): void {
       log.push({ t: state.tick, k: "hit", u: u.id, v: v.id, damage, hp: v.hp });
       continue;
     }
-    if (u.side !== "attacker" || u.breaching < 0) continue;
-    const fence = state.fences[u.breaching]!;
-    if (!fence.intact || fence.hp <= 0) continue; // already destroyed this tick (phase 8 clears it)
-    // FENCE_BREACH_RANGE: the unit's cell is orthogonally adjacent to the segment's cell.
-    if (cellDistSq(cellOf({ x: u.x, y: u.y }), fence.cell) !== 1) continue;
+    if (fence === null) continue;
     const damage = fenceHitDamage(state, u, fence);
     fence.hp = fence.hp - damage < 0 ? 0 : fence.hp - damage;
     u.cooldownRemaining = u.cooldownTicks;
