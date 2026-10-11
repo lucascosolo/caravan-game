@@ -1,5 +1,5 @@
 import { TUNABLES } from "@caravan/content";
-import { packManifest, type AccessCheck, type Formation, type Manifest, FORMATION_VERSION, RING_SEGMENTS, type Cell } from "../src/index.js";
+import { packManifest, type AccessCheck, type Formation, type Manifest, FORMATION_VERSION, RING_ANCHORS, RING_SEGMENTS, type Cell } from "../src/index.js";
 
 export const ALLOW_ALL: AccessCheck = () => true;
 
@@ -29,7 +29,7 @@ export function fullPack(): Manifest {
 /** Cells just inside the ring, on the north-west quadrant, for posts and traps. */
 export function innerCells(): Cell[] {
   const out: Cell[] = [];
-  const c = RING_SEGMENTS[0]!.cell; // north-west corner of the ring
+  const c = RING_ANCHORS[0]!; // north-west corner of the ring (a permanent anchor since chunk 07 QA)
   for (let y = c.y + 1; y < c.y + 4; y++) for (let x = c.x + 1; x < c.x + 8; x++) out.push({ x, y });
   return out;
 }

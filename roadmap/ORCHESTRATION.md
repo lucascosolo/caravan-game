@@ -638,3 +638,132 @@ From chunk 10 onward every Maker and fixer runs in its own git worktree on a bra
 named `chunk/NN`, and the orchestrator merges into `roadmap/phase-2-spec`. The shared
 working tree caused three staging incidents in the first batch (45c04b3, 3137656,
 a9a49a9).
+
+### 2026-10-11 — Chunk 10 (resolver core: tick loop & movement): `not started` → `built`
+
+**Built**, in an isolated worktree (branch `worktree-agent-ad8d56f1595c82b99`, branched
+from `roadmap/phase-2-spec` at 900b908). `RESOLVER_VERSION` is now **1**.
+
+- `packages/resolver/src` — 11 files, zero dependencies, every lint and boundary rule
+  passing (no float literal, no bare `/`, no Map/Set, no Math beyond trunc/floor/abs/sign,
+  no Date/process, relative imports only, `tsconfig.json` untouched):
+  - `fixed.ts` — `FIXED_POINT_SCALE` 1024, the rounding mode (every division is
+    `Math.floor`, toward −∞, exact for integer operands below 2^52 — documented why),
+    `fpMul`/`scaleInt`/`ceilDiv`/`clamp`, and `isqrt` (integer Newton; the only "magnitude"
+    the sim ever takes, for scaling a step along a direction vector).
+  - `battlefield.ts` — THE GEOMETRY, moved here from `packages/circle` per the
+    orchestrator decision: `Cell`/`FixedPoint`, `cellCenter` (the one lattice→continuous
+    conversion), `cellOf`, `distSq`, the 32×32 lattice, the 3×3 core, the ring, the entry
+    bands, `isCoreReachableFrom` (callback-based; circle wraps it with its Set signature),
+    the `Battlefield` input type, `BATTLEFIELD_VERSION`, `assertBattlefield` (closed keys at
+    every level, integers only), and structural mirrors of content's category / ability /
+    `Fixed` / `Millis` shapes so content values are assignable without an import (a circle
+    test pins the lists equal). Per the chunk 07 QA decision relayed mid-task: the four ring
+    corners are permanent **anchors** (`RING_ANCHORS`, never breakable; `Battlefield.anchors`
+    carries them and the input guard requires exactly those four), **PERIMETER_SEGMENTS is
+    28**, and `BattlefieldPost.stance` (`guard` | `hold` | `reserve`, default `guard`) is
+    carried for chunk 11.
+  - `input.ts` — `Party` (`PartyUnit` with the three stances, entry edge + cell, offense,
+    speed, range, cooldown, ability; `PartySiege`), `ResolverTunables` (tickRate,
+    battleLengthCapSeconds, pathRecomputeIntervalMs, unitRadius, keyframeIntervalMs,
+    `pathConnectivity: 4` — fixed, only 4 accepted), `assertResolveInput` (closed shapes,
+    no floats, stances, entry bands, ring/anchor/grid cross-checks, unique refs, no dead
+    units) and `normalizeInput` (every array sorted by ref / segment; the input contract is
+    "order is normalized on entry").
+  - `path.ts` — 4-connected A* (PATH_CONNECTIVITY 4: no diagonals, no corner cutting),
+    STEP_COST one cell, breach edges priced by the caller (`ticks to destroy × speed per
+    tick`, so walk-around vs break-through is one cost comparison), tie-break = equal f →
+    lower row → lower column (= lower cell key), neighbours N/W/E/S, strictly-cheaper
+    parent replacement, Manhattan heuristic. `losClear`: exact integer supercover walk of
+    the segment (crossing times compared cross-multiplied, never divided), a segment through
+    a cell corner touches all three cells beyond it. `smoothPath`: string pulling from the
+    unit's actual position; breach cells and their predecessor are hard waypoints.
+  - `state.ts` — unit ids: attackers in ref order (0..A−1) then posts in ref order; per-tick
+    quantities derived once (`speedPerTick = floor(speed/tickRate)` → 76 at 1.5 cells/s;
+    `cooldownTicks = max(1, floor(ms × rate / 1000))`); the pathing grid as an Int32Array.
+  - `tick.ts` — TICK_PHASE_ORDER written at the top and run in that order: 1 retarget
+    (only on invalid target; fallback chains documented), 2 path recompute (tick % interval
+    === 0 for every unit, plus the unit whose target changed, plus everyone on the tick after
+    a fence breaks), 3 movement (sub-cell steps along waypoints, hold when a unit target is
+    in attack range, breach-stand when the next cell is an intact segment, bounds clamp,
+    `core_reached` recorded when a unit's cell is a core cell), 4/5/7 explicit no-op hooks
+    (`hooks.ts`, chunk 11/12), 6 attack cooldowns — chunk 10 implements only the fence
+    BREACH hit (adjacent cell, on cooldown, `fenceHitDamage` = offense × `siegeFenceMult`
+    (×1.0 until chunk 11), floor, min 1), 8 death — fence destruction only (grid rebuilt,
+    paths dirtied). Keyframe every keyframeInterval ticks and on the last tick.
+  - `resolve.ts` — `resolve(input) → ResolveOutput` (version, tickCap, ticks, `end`,
+    unit/fence/trap summaries, the event log). `log.ts` — events + waypoints, not per-tick
+    state: spawn, target, path (waypoints + per-tick speed), hold, core_reached, fence_hit,
+    fence_broken, keyframe. `hooks.ts` — also `endOfTick` (chunk 13's end conditions; null
+    today, so the loop always runs to the cap).
+- Tests (`packages/resolver/test`, vitest, 5 files, **53 passing**, ~3.4 s; fixtures are
+  literals, never content): geometry (28 segments + 4 anchors, sealed ring unreachable /
+  one gap reachable, 4-connectivity); path (no diagonal step, no corner cut, BOTH tie-break
+  axes pinned by symmetric walls, breach chosen vs avoided by cost, the exact-equal-cost
+  case pinned, LOS corner conservatism); movement (76/tick sub-cell and never on a centre,
+  reaches the core through a gap, detours vs breaches by cost, 3 hits of 40 on 100 HP at
+  20-tick spacing then `fence_broken`, sealed ring terminates, bounds + never inside an
+  intact fence/anchor, no unit collision, three stances, retarget-only-on-invalid,
+  fallback chains, id order independent of input order, shuffled input byte-identical,
+  same-tick double breach hits in id order with the 0-HP skip); input (every refusal);
+  determinism (4 scenarios × 100 runs byte-identical, every state field a safe integer
+  after every tick incl. the grid, no float in the output, input never mutated).
+- `pnpm determinism` (chunk 21's gate) now runs `packages/resolver/scripts/determinism.mjs`:
+  the vitest harness, then `test/harness/driver.ts` bundled with the root's esbuild and run
+  in 3 separate Node processes × 3 runs, sha256 per scenario compared across processes.
+  Output lists the hashes. (The root `.gitignore` note about `*.log` still applies to chunk
+  13's goldens.)
+- `packages/circle` now depends on `@caravan/resolver`: `lattice.ts` re-exports the geometry
+  under every chunk 07 name, keeps the Set-signature `isCoreReachableFrom` (anchors always
+  blocked), and asserts at import that `TUNABLES.{GRID_WIDTH,GRID_HEIGHT,CORE_SIZE,
+  PERIMETER_RING_RADIUS,PERIMETER_SEGMENTS,RING_ANCHORS,ENTRY_BAND_DEPTH}` agree with the
+  resolver. `resolverInput.ts` keeps `toBattlefield` (adds `anchors`, `stance: "guard"`),
+  re-exports the type/guard from the resolver, adds `resolverTunables()`. `formation.ts`
+  refuses a trap/post on an anchor (`cell_reserved`). Circle: 7 files, **50 passing**.
+- `packages/content/src/tunables.ts`: `PERIMETER_SEGMENTS` 32 → **28**,
+  `FENCE_MATERIAL_BUDGET` 24 → **20**, `RING_ANCHORS` 4 (fixed), and the chunk 10 block
+  `TICK_RATE` 20, `BATTLE_LENGTH_CAP_SECONDS` 180, `PATH_RECOMPUTE_INTERVAL` ms(500),
+  `PATH_CONNECTIVITY` 4, `UNIT_RADIUS` fpMilli(350), `LOG_KEYFRAME_INTERVAL` seconds(5).
+  Content's "no key mentions ticks" test now exempts exactly `TICK_RATE` (the clock itself);
+  the intervals are ms and the resolver converts. Content: **44 passing**.
+- `apps/server`: no source change; `test/circle.test.ts` learned the `anchors` key.
+  Server: 15 files, **195 passing** against `caravan_test_c10`.
+- `pnpm typecheck`, `pnpm lint`, `pnpm test:boundary` (11 src files), `pnpm determinism`
+  all clean. AGENTS.md's command block updated.
+
+**Assumptions / decisions (for QA and for the chunk 07 fixer):**
+- The mid-task coordinator message (4-connectivity, 28 segments + 4 anchors, budget 20,
+  post stance) was applied HERE, including the content registry numbers and the circle
+  tests that pinned 32/24 (`lattice.test.ts`, `manifest/attrition/serialize/formation.test.ts`
+  now read the budget from `TUNABLES`; `fixtures.ts` `innerCells()` now starts from
+  `RING_ANCHORS[0]` — with `RING_SEGMENTS[0]` no longer the corner, the old fixture put
+  posts on the east side of the ring). The chunk 07 fixer working in parallel should expect
+  these files already changed and merge rather than redo; `RING_SEGMENTS` index 0 is now
+  (12,11), the four sides have 7 segments each, `formationGaps` on the fixture is
+  `[0,1,2,3,24,25,26,27]`.
+- Fence chipping lives in phase 6 (attack cooldowns), not phase 3: the hit is paced by the
+  unit's attack cooldown, which is phase 6's job, so chunk 11 extends one phase rather than
+  moving code. Phases 4, 5 and 7 are the pure no-op hooks the brief asked for. Phase 8 does
+  fence destruction only; unit death is chunk 11's.
+- Breach hit damage = offense (chunk 11's o²/(o+d) with fence defense 0), × siege mult
+  (×1.0 stub), floored, min 1 — so a breach always terminates. Breaching happens from the
+  orthogonally adjacent cell regardless of attack range (ranged units walk up too).
+- A unit whose stance target is a unit within attack range holds still ("engaged"); chunk 11
+  makes it attack. A `traps` unit reaches the trap cell and waits (nothing spends traps yet).
+- Reaching the core = the unit's cell is a core cell (recorded per unit as `reachedCoreTick`
+  and logged); the loop never ends early — `endOfTick` in hooks.ts is chunk 13's seam.
+- `path` events are emitted whenever a recompute changes the remaining waypoint list, which
+  happens on most 10-tick recomputes mid-leg (string pulling from a new position); chunk 13
+  measures the size budget and may coalesce.
+- Floor division is used for the direction-vector step, so a negative component rounds
+  toward −∞ (documented in fixed.ts); every position stays a safe integer and in bounds.
+- The resolver's `tsconfig.json` is untouched (boundary check); tests typecheck through
+  `tsconfig.test.json`. `vitest` and `@types/node` were already on the boundary allowlist.
+- Branch name: the worktree branch is `worktree-agent-ad8d56f1595c82b99`, not `chunk/10`
+  (the worktree was created with that name and had to be reset from `main` to
+  `roadmap/phase-2-spec` before starting).
+
+**Next:** hand to adversarial QA against the chunk's checklist — especially: grep the
+package for the banned list; the two tie-break axes; a unit exactly on the goal-cell
+boundary; recompute cadence (`tick % interval`, never event timing); and whether anything
+in `tick.ts` reads beyond `state` and `log`.

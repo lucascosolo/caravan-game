@@ -127,3 +127,34 @@ describe("the battlefield is flat: no elevation, terrain or scenery can be carri
     expect(() => assertBattlefield(mutated((o) => ((o["posts"] as Record<string, unknown>[])[0]!["defense"] = 70.25)))).toThrow(/integer/);
   });
 });
+
+describe("the resolver's mirrored content shapes agree with @caravan/content (chunk 10)", () => {
+  it("fixed-point scale, affinity / fence / trap categories, ability archetypes and post stances are identical lists", async () => {
+    const content = await import("@caravan/content");
+    const resolver = await import("@caravan/resolver");
+    expect(resolver.FIXED_POINT_SCALE).toBe(content.FIXED_POINT_SCALE);
+    expect([...resolver.AFFINITY_CATEGORIES]).toEqual([...content.AFFINITY_CATEGORIES]);
+    expect([...resolver.FENCE_CATEGORIES]).toEqual([...content.FENCE_CATEGORIES]);
+    expect([...resolver.TRAP_CATEGORIES]).toEqual([...content.TRAP_CATEGORIES]);
+    expect([...resolver.ABILITY_ARCHETYPES]).toEqual([...content.ABILITY_ARCHETYPES]);
+    expect([...resolver.POST_STANCES]).toEqual(["guard", "hold", "reserve"]);
+    expect([...resolver.STANCES]).toEqual(["nearest", "traps", "core"]);
+    // The built battlefield carries the anchors and a default post stance, and the resolver's guard accepts it as-is.
+    const m = fullPack();
+    const b = toBattlefield(m, arrange(m));
+    expect(b.anchors).toEqual(resolver.RING_ANCHORS);
+    expect(b.posts.every((p) => p.stance === "guard")).toBe(true);
+    expect(() => resolver.assertBattlefield(JSON.parse(JSON.stringify(b)))).not.toThrow();
+  });
+
+  it("resolverTunables() hands the registry's chunk 10 values to the resolver as plain integers, and the resolver accepts them", async () => {
+    const { resolverTunables } = await import("../src/index.js");
+    const { assertTunables, msToTicks } = await import("@caravan/resolver");
+    const t = resolverTunables();
+    expect(t).toEqual({ tickRate: 20, battleLengthCapSeconds: 180, pathRecomputeIntervalMs: 500, unitRadius: 358, keyframeIntervalMs: 5000, pathConnectivity: 4 });
+    expect(() => assertTunables(t)).not.toThrow();
+    expect(msToTicks(t.pathRecomputeIntervalMs, t.tickRate)).toBe(10);
+    expect(msToTicks(t.keyframeIntervalMs, t.tickRate)).toBe(100);
+    expect(t.battleLengthCapSeconds * t.tickRate).toBe(3600);
+  });
+});

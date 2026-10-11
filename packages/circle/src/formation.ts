@@ -23,6 +23,7 @@ import { issue, type Issue, type Validation } from "./issues.js";
 import {
   cellDistSq,
   cellKey,
+  isAnchorCell,
   isAnyEntryCell,
   isCell,
   isCoreCell,
@@ -108,8 +109,8 @@ export function validateFormation(manifest: Manifest, formation: Formation, isUn
       issues.push(issue("bad_cell", `'${ref}' is placed off the lattice`, ref));
       return false;
     }
-    if (isRingCell(cell) || isCoreCell(cell) || isAnyEntryCell(cell)) {
-      issues.push(issue("cell_reserved", `'${ref}' may not be placed on the fence ring, the core or an entry band`, ref));
+    if (isRingCell(cell) || isAnchorCell(cell) || isCoreCell(cell) || isAnyEntryCell(cell)) {
+      issues.push(issue("cell_reserved", `'${ref}' may not be placed on the fence ring, a wagon anchor, the core or an entry band`, ref));
       return false;
     }
     const k = cellKey(cell);

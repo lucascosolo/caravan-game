@@ -25,7 +25,7 @@ describe("packing a manifest", () => {
     expect(digger.hp).toBe(digger.maxHp);
     expect(m.traps.map((t) => t.ref)).toEqual(["t0", "t1", "t2", "t3", "t4", "t5"]);
     expect(m.traps.every((t) => !t.spent)).toBe(true);
-    expect(m.fences).toHaveLength(24);
+    expect(m.fences).toHaveLength(TUNABLES.FENCE_MATERIAL_BUDGET);
     expect(m.fences.every((f) => f.hp === 300 && f.maxHp === 300 && f.tierId === "fence.brush_pile")).toBe(true);
   });
 

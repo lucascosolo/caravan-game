@@ -270,7 +270,7 @@ describe("arranging the formation per encounter, and carry-forward", () => {
     const battlefield = await battlefieldForEncounter(appRole, manifestId, 1);
     expect(battlefield.fences).toHaveLength(10);
     expect(battlefield.posts).toHaveLength(2);
-    expect(Object.keys(battlefield).sort()).toEqual(["core", "entries", "fences", "grid", "posts", "traps", "v"]);
+    expect(Object.keys(battlefield).sort()).toEqual(["anchors", "core", "entries", "fences", "grid", "posts", "traps", "v"]);
   });
 
   it("carries attrition forward: a trap spent at encounter 1 is still spent at encounters 2 and 3, a dead unit stays dead, a broken segment stays broken", async () => {

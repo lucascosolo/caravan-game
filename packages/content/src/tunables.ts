@@ -289,25 +289,60 @@ export const TUNABLES = {
   GRID_HEIGHT: 32,
   /**
    * TUNABLE (chunk 07). Chebyshev radius of the fence ring around the core centre, in cells.
-   * The ring is the square of cells at exactly this radius, so it has 8 × radius segments;
-   * PERIMETER_SEGMENTS below must equal that and a test asserts it.
+   * The ring is the square of cells at exactly this radius: 8 × radius cells, of which the
+   * four CORNERS are permanent wagon anchors (chunk 07 QA) and the rest are segments, so
+   * PERIMETER_SEGMENTS below must equal 8 × radius − RING_ANCHORS and a test asserts it.
+   *
+   * The geometry itself (ring cells, anchors, core, entry bands) is OWNED by
+   * @caravan/resolver (battlefield.ts) because a stored replay depends on it; these registry
+   * values mirror it for the UI and the circle model, and @caravan/circle asserts at import
+   * that the two agree.
    */
   PERIMETER_RING_RADIUS: 4,
-  /** TUNABLE (chunk 07). Segments forming the ring, each independently placed or left as a gap. */
-  PERIMETER_SEGMENTS: 32,
+  /** Fixed by design (chunk 07 QA). The ring's four corners are impassable wagon anchors, never segments. */
+  RING_ANCHORS: 4,
+  /** TUNABLE (chunk 07). Buyable segments forming the ring (corners excluded), each independently placed or left as a gap. */
+  PERIMETER_SEGMENTS: 28,
   /**
    * TUNABLE (chunk 07). Fence segments a caravan can pack for a trip. THE most important
    * balance lever in chunk 07: it is deliberately BELOW PERIMETER_SEGMENTS so a full ring is
    * unaffordable and choosing where the gap goes is a real decision. A test asserts
    * FENCE_MATERIAL_BUDGET < PERIMETER_SEGMENTS; raising it to the ring size deletes the game.
    */
-  FENCE_MATERIAL_BUDGET: 24,
+  FENCE_MATERIAL_BUDGET: 20,
   /** Fixed by design in MVP (chunk 07): the caravan core is a CORE_SIZE × CORE_SIZE block at the lattice centre, not player-placed. */
   CORE_SIZE: 3,
   /** TUNABLE (chunk 07). Minimum Euclidean distance between two unit posts, in cells. 1.0 = distinct cells. */
   MIN_POST_DISTANCE: fp(1),
   /** TUNABLE (chunk 07 / chunk 09 START_POSITION_BAND). Attackers start in the outermost N cells of their chosen edge. */
   ENTRY_BAND_DEPTH: 2,
+
+  // ────────────────────────────────────────────────────────────────────────────────────
+  // Chunk 10 — the resolver's tick loop and movement. The resolver never reads this
+  // registry: @caravan/circle's resolverTunables() hands these to it as plain input.
+  // ────────────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * TUNABLE (chunk 10) — but FIXED FOREVER once golden logs exist: changing it invalidates
+   * every stored replay. Ticks per second. 20 is fine enough for smooth playback, coarse
+   * enough to keep logs small. Must divide 1000 so content's millisecond durations convert
+   * to whole ticks without drift.
+   */
+  TICK_RATE: 20,
+  /** TUNABLE (chunk 10). Stalemate threshold, in seconds because that is what a player experiences. TICK_CAP = this × TICK_RATE (3,600), derived, never authored. */
+  BATTLE_LENGTH_CAP_SECONDS: 180,
+  /**
+   * TUNABLE (chunk 10). Paths are recomputed every 500 ms (= 10 ticks at TICK_RATE 20) — a
+   * fixed interval, never event-timing-dependent — and immediately on target change or a
+   * fence break. In milliseconds like every duration here; the resolver converts to ticks.
+   */
+  PATH_RECOMPUTE_INTERVAL: ms(500),
+  /** Fixed by design (chunk 07 QA). The lattice pathing graph is 4-connected: no diagonal moves, no corner cutting. The resolver accepts only 4. */
+  PATH_CONNECTIVITY: 4,
+  /** TUNABLE (chunk 10). 0.35 cells. Used for attack-range and ability-radius checks (chunks 11–12), never for collision — units overlap freely. */
+  UNIT_RADIUS: fpMilli(350),
+  /** TUNABLE (chunk 13, consumed from chunk 10). A full-state keyframe every 5 s (= 100 ticks) so playback can seek and truncation is detectable. */
+  LOG_KEYFRAME_INTERVAL: seconds(5),
 
   // ────────────────────────────────────────────────────────────────────────────────────
   // Chunk 16 — Coin economy and merge pricing. Coin buys PACE only (GUARDRAILS §2): nothing

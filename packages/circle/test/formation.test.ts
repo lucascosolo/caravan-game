@@ -1,3 +1,4 @@
+import { TUNABLES } from "@caravan/content";
 import { describe, expect, it } from "vitest";
 import {
   CORE_CENTER_CELL,
@@ -22,15 +23,15 @@ describe("formation validation", () => {
     const f = arrange(m, 4);
     const res = validateFormation(m, f, ALLOW_ALL);
     expect(res.ok).toBe(true);
-    expect(f.fences).toHaveLength(24);
-    expect(formationGaps(f)).toEqual([0, 1, 2, 3, 28, 29, 30, 31]);
+    expect(f.fences).toHaveLength(TUNABLES.FENCE_MATERIAL_BUDGET);
+    expect(formationGaps(f)).toEqual([0, 1, 2, 3, 24, 25, 26, 27]); // 28 segments − 20 budget = 8 gaps
     // The gap can go anywhere; a different read of the attacker, a different gap.
     expect(validateFormation(m, arrange(m, 20), ALLOW_ALL).ok).toBe(true);
     expect(formationGaps(arrange(m, 20))).toEqual([12, 13, 14, 15, 16, 17, 18, 19]);
     // Placing fewer segments than packed is fine too: holding material back is a choice.
     const sparse = { ...f, fences: f.fences.filter((p) => p.segment % 2 === 0) };
     expect(validateFormation(m, sparse, ALLOW_ALL).ok).toBe(true);
-    expect(formationGaps(sparse)).toHaveLength(32 - sparse.fences.length);
+    expect(formationGaps(sparse)).toHaveLength(TUNABLES.PERIMETER_SEGMENTS - sparse.fences.length);
   });
 
   it("holding a trap back is legal; a unit that is alive must be posted", () => {
@@ -92,7 +93,7 @@ describe("formation validation", () => {
     if (res.ok) return;
     expect(res.issues).toEqual([{ code: "type_locked", message: "living-unit type 'desert.vaquero' is not unlocked", subject: "desert.vaquero" }]);
     expect(codes(m, f, (id) => id !== "trap.tar_pot")).toEqual(["type_locked"]);
-    expect(codes(m, f, (id) => id !== "fence.brush_pile")).toEqual(Array(24).fill("type_locked"));
+    expect(codes(m, f, (id) => id !== "fence.brush_pile")).toEqual(Array(TUNABLES.FENCE_MATERIAL_BUDGET).fill("type_locked"));
   });
 
   it("a validated formation comes back in canonical order", () => {

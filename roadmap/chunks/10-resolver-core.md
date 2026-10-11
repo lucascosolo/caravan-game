@@ -1,6 +1,6 @@
 # Chunk 10 — Resolver core: tick loop & movement
 
-**Depends on:** 03, 07. **Status:** not started.
+**Depends on:** 03, 07. **Status:** built.
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 > **This is the highest-risk chunk in the project.** Build and test it in complete
