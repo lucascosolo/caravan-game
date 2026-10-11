@@ -29,9 +29,11 @@ import { buildApp } from "../src/app.js";
 import { withTransaction } from "../src/db/pool.js";
 import { appendCoinCredits } from "../src/economy/coin.js";
 import { appendEvents } from "../src/ledger/ledger.js";
-import { createTrip } from "../src/matchmaking/trips.js";
+import { drain } from "../src/jobs/worker.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
+import { TRIP_CAP_REGEN_MS, TRIPS_PER_HOUR_CAP } from "../src/trip/cap.js";
 import { appRolePool, testPool, truncateAll } from "./helpers.js";
+import { doubleHandlers } from "./trip-double.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.resolve(here, "../../web/src/test/contract");
@@ -234,11 +236,13 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     await record("store", "GET /me/store", await call(p, "GET", "/me/store"), 200);
     await record("cosmetics", "GET /me/cosmetics", await call(p, "GET", "/me/cosmetics"), 200);
 
-    // The trail: pack, open the trip, search, read, choose, arrange, commit.
+    // The trail: pack, ride out (chunk 15's start), search, read, choose, arrange, commit.
     const posted = riders.slice(0, 2);
     await record("manifest-pack", "POST /caravans/:id/manifest", await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: posted, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 20 } }), 201);
     await record("manifest", "GET /caravans/:id/manifest", await call(p, "GET", `/caravans/${p.caravanId}/manifest`), 200);
-    await withTransaction(pool, (c) => createTrip(c, p.caravanId));
+    const tripUrl = `/me/caravans/${p.caravanId}/trip`;
+    await record("trip-status-packed", "GET /me/caravans/:id/trip", await call(p, "GET", tripUrl), 200);
+    const started = (await record("trip-start", "POST /me/caravans/:id/trip/start", await call(p, "POST", `${tripUrl}/start`), 201)) as { tripId: string };
     const search = (await record("search", "POST /me/caravans/:id/encounters/:n/search", await call(p, "POST", `/me/caravans/${p.caravanId}/encounters/1/search`), 201)) as { menu: { candidates: { candidateId: string; owner: { displayName: string } }[] } };
     await record("candidates", "GET /me/caravans/:id/encounters/:n/candidates", await call(p, "GET", `/me/caravans/${p.caravanId}/encounters/1/candidates`), 200);
     const first = [...search.menu.candidates].sort((a, b) => (a.owner.displayName < b.owner.displayName ? -1 : 1))[0]!;
@@ -253,6 +257,52 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     await record("formation-put", "PUT /caravans/:id/encounters/:n/formation", await call(p, "PUT", `/caravans/${p.caravanId}/encounters/1/formation`, formation), 200);
     await record("formation", "GET /caravans/:id/encounters/:n/formation", await call(p, "GET", `/caravans/${p.caravanId}/encounters/1/formation`), 200);
     await record("formation-commit", "POST /caravans/:id/encounters/:n/formation/commit", await call(p, "POST", `/caravans/${p.caravanId}/encounters/1/formation/commit`), 200);
+
+    // Chunk 23: the trip loop's routes as the trip client reads them, resolved by chunk 15's
+    // deterministic double (encounter 1: held, every post takes 150, the trap fires, the fence breaks).
+    const resolve = (plans: Parameters<typeof doubleHandlers>[0], fallback?: Parameters<typeof doubleHandlers>[1]) =>
+      drain(appRole, { workerId: "contract", handlers: doubleHandlers(plans, fallback), retryBackoffMs: () => 0 });
+    await record("trip-commit", "POST /me/caravans/:id/trip/encounters/:n/commit", await call(p, "POST", `${tripUrl}/encounters/1/commit`), 202);
+    await record("trip-status-resolving", "GET /me/caravans/:id/trip", await call(p, "GET", tripUrl), 200);
+    await resolve({ 1: { kind: "caravan_held", unitDamage: 150, spendTraps: 1, fenceDamage: 1_000_000 } });
+    await record("trip-status-decide", "GET /me/caravans/:id/trip", await call(p, "GET", tripUrl), 200);
+    await record("trip-preview", "GET /me/caravans/:id/trip/preview", await call(p, "GET", `${tripUrl}/preview`), 200);
+    await record("trip-push", "POST /me/caravans/:id/trip/push", await call(p, "POST", `${tripUrl}/push`, { tripId: started.tripId, encounterIndex: 1 }), 200);
+
+    // Encounter 2 (a fourth party stands now: the first opponent is a recent one and is not served again).
+    const d = await register("contract_owner_d");
+    expect((await call(d, "PUT", "/me/party", partyOf(await giveUnits(d, ["desert.dust_rider", "desert.well_digger"])))).statusCode).toBe(200);
+    const s2 = (await call(p, "POST", `/me/caravans/${p.caravanId}/encounters/2/search`)).json() as { menu: { candidates: { candidateId: string; owner: { displayName: string } }[] } };
+    const c2 = [...s2.menu.candidates].sort((a, b) => (a.owner.displayName < b.owner.displayName ? -1 : 1))[0]!;
+    expect((await call(p, "POST", `/me/caravans/${p.caravanId}/encounters/2/choose`, { candidateId: c2.candidateId })).statusCode).toBe(200);
+    const formation2 = { v: 2, fences: [{ ref: "f1", segment: 1 }], traps: [], posts: formation.posts };
+    expect((await call(p, "PUT", `/caravans/${p.caravanId}/encounters/2/formation`, formation2)).statusCode).toBe(200);
+    expect((await call(p, "POST", `${tripUrl}/encounters/2/commit`)).statusCode).toBe(202);
+    await resolve({}, { kind: "caravan_held", unitDamage: 150 });
+    await record("trip-preview-2", "GET /me/caravans/:id/trip/preview", await call(p, "GET", `${tripUrl}/preview`), 200);
+    await record("trip-bank", "POST /me/caravans/:id/trip/bank", await call(p, "POST", `${tripUrl}/bank`, { tripId: started.tripId, encounterIndex: 2 }), 200);
+    await record("trip-status-banked", "GET /me/caravans/:id/trip", await call(p, "GET", tripUrl), 200);
+
+    // A second trip that is overrun at its first encounter (a fifth party: two are recent opponents now).
+    const e = await register("contract_owner_e");
+    expect((await call(e, "PUT", "/me/party", partyOf(await giveUnits(e, ["desert.dust_rider", "desert.well_digger"])))).statusCode).toBe(200);
+    expect((await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: posted, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 20 } })).statusCode).toBe(201);
+    expect((await call(p, "POST", `${tripUrl}/start`)).statusCode).toBe(201);
+    const s3r = await call(p, "POST", `/me/caravans/${p.caravanId}/encounters/1/search`);
+    expect(s3r.statusCode, s3r.body).toBe(201);
+    const s3 = s3r.json() as { menu: { candidates: { candidateId: string; owner: { displayName: string } }[] } };
+    const c3 = [...s3.menu.candidates].sort((a, b) => (a.owner.displayName < b.owner.displayName ? -1 : 1))[0]!;
+    expect((await call(p, "POST", `/me/caravans/${p.caravanId}/encounters/1/choose`, { candidateId: c3.candidateId })).statusCode).toBe(200);
+    expect((await call(p, "PUT", `/caravans/${p.caravanId}/encounters/1/formation`, formation)).statusCode).toBe(200);
+    expect((await call(p, "POST", `${tripUrl}/encounters/1/commit`)).statusCode).toBe(202);
+    await resolve({ 1: { kind: "caravan_overrun", unitDamage: 400, kill: [ordered[0]!] } });
+    await record("trip-status-overrun", "GET /me/caravans/:id/trip", await call(p, "GET", tripUrl), 200);
+
+    // The cap: one more use spent (fixture: the owner role moves the stored timestamp forward
+    // as a third start would), then the start refusal the client reads `cap` / `retryAfterSeconds` from.
+    await pool.query("UPDATE trip_cap SET tat_ms = $2 WHERE account_id = $1", [p.accountId, FROZEN_MS + TRIPS_PER_HOUR_CAP * TRIP_CAP_REGEN_MS]);
+    expect((await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: posted, traps: [], fence: null })).statusCode).toBe(201);
+    await record("trip-start-refused", "POST /me/caravans/:id/trip/start", await call(p, "POST", `${tripUrl}/start`), 409);
 
     // Write the fixtures (only when they changed, so a rerun leaves the tree clean).
     mkdirSync(OUT, { recursive: true });

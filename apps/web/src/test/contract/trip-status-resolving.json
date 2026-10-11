@@ -1,0 +1,47 @@
+{
+  "route": "GET /me/caravans/:id/trip",
+  "status": 200,
+  "body": {
+    "caravan": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "state": "on_trip"
+    },
+    "cap": {
+      "available": 2,
+      "cap": 3,
+      "regenMs": 1200000,
+      "nextRegenAtMs": 1790000060000,
+      "fullAtMs": 1790000060000,
+      "gate": "time"
+    },
+    "trip": {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "manifestId": "00000000-0000-4000-8000-000000000003",
+      "startedAt": "2026-10-11T12:00:00.000Z",
+      "endedAt": null,
+      "endReason": null,
+      "phase": "resolving",
+      "encountersResolved": 0,
+      "currentEncounter": 1,
+      "job": {
+        "id": "encounter:00000000-0000-4000-8000-000000000002:1",
+        "status": "queued",
+        "lastError": null
+      },
+      "decisionFor": null,
+      "unbankedCoin": 0,
+      "encounters": [],
+      "ending": null
+    },
+    "rules": {
+      "tripsPerHourCap": 3,
+      "tripCapRegenMs": 1200000,
+      "tripCapGate": "time",
+      "noRepairBetweenEncounters": true,
+      "restoreOnTripEnd": "full_on_bank_none_on_overrun",
+      "bankOfferedOnlyAfterSurviving": true,
+      "safetyBonusForPushing": false
+    },
+    "nowMs": 1790000000000
+  }
+}

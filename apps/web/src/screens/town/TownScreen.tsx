@@ -3,7 +3,8 @@
  * isometric island (src/iso: one renderer), never a wagon circle and never attacked
  * (GUARDRAILS §0): it holds the roster, the merge board, the mine and the banked Coin.
  *
- *   - the caravan's state, honestly: in town / packed, waiting to ride out / on a trip;
+ *   - the caravan's state, honestly: in town / packed, waiting to ride out / on a trip — from
+ *     the trip loop's status (chunk 15), with the trip cap and, when packed, "Ride out" (chunk 23);
  *   - the merge board: BOARD_SLOTS cells at the centre, units STATIC where the player left
  *     them, the overflow beyond; drag (or tap, tap) a unit onto one of the same type and
  *     level to open the merge preview; the 5 → 3 recipe has its own button per group;
@@ -17,6 +18,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, type Api } from "../../api/client.ts";
+import type { TripStatusView } from "../../api/tripTypes.ts";
 import type { CaravanSummary, EconomyView, ManifestView, RecruitView, RefugeeView } from "../../api/types.ts";
 import { useApi } from "../../auth/session.tsx";
 import { IsoCanvas, MIN_HIT_RADIUS_PX, type HitResult, type IsoCanvasHandle } from "../../iso/index.ts";
@@ -31,6 +33,7 @@ import { MinePanel } from "./MinePanel.tsx";
 import { OutfitScreen } from "./OutfitScreen.tsx";
 import { RecruitPanel } from "./RecruitPanel.tsx";
 import { RefugeePanel } from "./RefugeePanel.tsx";
+import { RideOutPanel, TripCapLine } from "./RideOutPanel.tsx";
 import { TOWN_GEOMETRY, dropMeaning, loadLayout, saveLayout, townSceneState, type TownDrag } from "./townScene.ts";
 
 const T = STRINGS.town;
@@ -65,6 +68,8 @@ interface Loaded {
   readonly refugees: Part<RefugeeView>;
   readonly refugeesReadAt: number;
   readonly recruit: Part<RecruitView>;
+  /** Chunk 23: the trip loop's status — the caravan's real state and the trip cap. */
+  readonly trip: Part<TripStatusView>;
 }
 
 function rosterOf(caravan: CaravanSummary): readonly RosterUnit[] {
@@ -113,11 +118,12 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
         if (!caravan) throw new ApiError(0, "bad_payload", STRINGS.app.badPayload, "GET /me caravans: expected at least one caravan");
         const economy = await api.economy();
         const shortestTrip = (economy.earn.encounterSchedule[0] ?? 0) + economy.earn.bankedTripBonus;
-        const [forecast, manifest, refugees, recruit] = await Promise.all([
+        const [forecast, manifest, refugees, recruit, trip] = await Promise.all([
           settle(api.economy(shortestTrip)),
           settle(readManifest(api, caravan.id)),
           settle(api.refugees(caravan.id)),
           settle(api.recruitList(caravan.id)),
+          settle(api.tripStatus(caravan.id)),
         ]);
         const units = rosterOf(caravan);
         const accountId = me.account.id;
@@ -139,6 +145,7 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
           refugees,
           refugeesReadAt: Date.now(),
           recruit,
+          trip,
         });
         setLoadError(null);
       } catch (err) {
@@ -155,7 +162,9 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
   const caravanId = loaded?.caravan.id ?? "";
   const accountId = loaded?.accountId ?? "";
   const units = useMemo(() => loaded?.units ?? [], [loaded]);
-  const onTrip = loaded?.caravan.state === "on_trip";
+  const tripStatus = loaded?.trip.kind === "ok" ? loaded.trip.value : null;
+  // The trip loop's own read is the truth about the caravan (chunk 15 moves the state); /me's copy is the fallback.
+  const onTrip = (tripStatus?.caravan.state ?? loaded?.caravan.state) === "on_trip";
   const manifest = loaded?.manifest.kind === "ok" ? loaded.manifest.value : null;
   const packedIds = useMemo(() => new Set(manifest ? manifest.packed.units.map((u) => u.ref) : []), [manifest]);
   const mergeBlocked = onTrip ? T.mergeOnTrip : null;
@@ -276,6 +285,7 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
           void load({ quiet: true });
         }}
         onPacked={() => void load({ quiet: true })}
+        onRodeOut={() => navigate("trail")}
       />
     );
   }
@@ -290,6 +300,19 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
       <p className="notice" data-testid="caravan-state" data-state={stateKind}>
         <strong>{loaded.caravan.name}:</strong> {stateLine}
       </p>
+      {tripStatus && !(manifest && !onTrip) && <TripCapLine status={tripStatus} />}
+      {tripStatus && manifest && !onTrip && (
+        <RideOutPanel
+          api={api}
+          caravanId={caravanId}
+          status={tripStatus}
+          onStarted={(_s, replayed) => {
+            if (replayed) setStatus(STRINGS.trip.rideOutAlreadyWent);
+            navigate("trail");
+          }}
+        />
+      )}
+      {loaded.trip.kind === "error" && <ErrorBox error={loaded.trip.error} onRetry={() => void load()} />}
       <p data-testid="town-balance">{T.balanceLine(loaded.economy.balance, loaded.economy.cap)}</p>
       {loadError && (
         // QA-17 S3: a failed RE-read (after a write, or a Retry) is shown above the board, never

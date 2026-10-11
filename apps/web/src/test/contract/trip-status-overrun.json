@@ -1,0 +1,107 @@
+{
+  "route": "GET /me/caravans/:id/trip",
+  "status": 200,
+  "body": {
+    "caravan": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "state": "in_town"
+    },
+    "cap": {
+      "available": 1,
+      "cap": 3,
+      "regenMs": 1200000,
+      "nextRegenAtMs": 1790000060000,
+      "fullAtMs": 1790000120000,
+      "gate": "time"
+    },
+    "trip": {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "manifestId": "00000000-0000-4000-8000-000000000003",
+      "startedAt": "2026-10-11T12:00:00.000Z",
+      "endedAt": "2026-10-11T12:00:01.000Z",
+      "endReason": "overrun",
+      "phase": "ended",
+      "encountersResolved": 1,
+      "currentEncounter": null,
+      "job": null,
+      "decisionFor": null,
+      "unbankedCoin": 0,
+      "encounters": [
+        {
+          "index": 1,
+          "outcome": "caravan_overrun",
+          "depth": 1024,
+          "deaths": [
+            "00000000-0000-4000-8000-000000000004"
+          ],
+          "coinAccrued": 0,
+          "decision": null,
+          "result": {
+            "jobId": "encounter:00000000-0000-4000-8000-000000000002:1",
+            "unitsKilled": [
+              {
+                "ref": "00000000-0000-4000-8000-000000000004",
+                "typeId": "desert.dust_rider",
+                "mergeLevel": 1,
+                "hpBefore": 620,
+                "maxHp": 620
+              }
+            ],
+            "unitsDamaged": [
+              {
+                "ref": "00000000-0000-4000-8000-000000000005",
+                "typeId": "desert.dust_rider",
+                "mergeLevel": 1,
+                "hpBefore": 620,
+                "hpAfter": 220,
+                "maxHp": 620
+              }
+            ],
+            "unitsUnhurt": [],
+            "trapsSpent": [],
+            "trapsUnfired": [
+              {
+                "ref": "t0",
+                "typeId": "trap.spike_pit"
+              }
+            ],
+            "fencesBroken": [],
+            "fencesDamaged": []
+          }
+        }
+      ],
+      "ending": {
+        "kind": "overrun",
+        "encounterIndex": 1,
+        "coinLost": 0,
+        "unitsLostOutright": [
+          {
+            "ref": "00000000-0000-4000-8000-000000000005",
+            "typeId": "desert.dust_rider",
+            "mergeLevel": 1
+          }
+        ],
+        "unitsDeMerged": [
+          {
+            "ref": "00000000-0000-4000-8000-000000000004",
+            "typeId": "desert.dust_rider",
+            "mergeLevel": 1,
+            "mergeLevelAfter": 1,
+            "diedAtEncounter": 1
+          }
+        ],
+        "lossesApplied": false
+      }
+    },
+    "rules": {
+      "tripsPerHourCap": 3,
+      "tripCapRegenMs": 1200000,
+      "tripCapGate": "time",
+      "noRepairBetweenEncounters": true,
+      "restoreOnTripEnd": "full_on_bank_none_on_overrun",
+      "bankOfferedOnlyAfterSurviving": true,
+      "safetyBonusForPushing": false
+    },
+    "nowMs": 1790000000000
+  }
+}

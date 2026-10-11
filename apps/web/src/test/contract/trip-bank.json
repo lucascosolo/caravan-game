@@ -1,0 +1,34 @@
+{
+  "route": "POST /me/caravans/:id/trip/bank",
+  "status": 200,
+  "body": {
+    "tripId": "00000000-0000-4000-8000-000000000001",
+    "encountersSurvived": 2,
+    "requested": 1400,
+    "credited": 1400,
+    "discarded": 0,
+    "balanceAfter": 2400,
+    "restored": {
+      "unitsHealed": [
+        {
+          "ref": "00000000-0000-4000-8000-000000000002",
+          "typeId": "desert.dust_rider",
+          "mergeLevel": 1,
+          "hpAtBank": 320,
+          "maxHp": 620
+        },
+        {
+          "ref": "00000000-0000-4000-8000-000000000003",
+          "typeId": "desert.dust_rider",
+          "mergeLevel": 1,
+          "hpAtBank": 320,
+          "maxHp": 620
+        }
+      ],
+      "trapsRestocked": 1,
+      "fenceSegmentsRebuilt": 1,
+      "deMergePending": []
+    },
+    "replayed": false
+  }
+}

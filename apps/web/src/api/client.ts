@@ -41,6 +41,8 @@ import {
   spendResultShape,
   unlocksShape,
 } from "./shapes.ts";
+import { bankResultShape, encounterCommitShape, pushResultShape, stakesPreviewShape, tripStartShape, tripStatusShape } from "./tripShapes.ts";
+import type { BankResult, EncounterCommitResult, PushResult, StakesPreview, TripStartResult, TripStatusView } from "./tripTypes.ts";
 import type {
   AuthResponse,
   ApiErrorBody,
@@ -129,6 +131,15 @@ export interface Api {
   searchCandidates(caravanId: string, encounterIndex: number): Promise<CandidateMenuResponse>;
   candidates(caravanId: string, encounterIndex: number): Promise<CandidateMenuResponse>;
   chooseCandidate(caravanId: string, encounterIndex: number, candidateId: string): Promise<ChoiceView>;
+  // The trip loop (chunk 15 routes, chunk 23 client). Start consumes one trip-cap use (409
+  // `trip_cap_exhausted` carries `cap` + `retryAfterSeconds` in `ApiError.body`); commit freezes
+  // the circle and queues its resolution; push / bank name the survived encounter they decide.
+  tripStatus(caravanId: string): Promise<TripStatusView>;
+  startTrip(caravanId: string): Promise<TripStartResult>;
+  commitEncounter(caravanId: string, encounterIndex: number): Promise<EncounterCommitResult>;
+  tripPreview(caravanId: string): Promise<StakesPreview>;
+  pushTrip(caravanId: string, tripId: string, encounterIndex: number): Promise<PushResult>;
+  bankTrip(caravanId: string, tripId: string, encounterIndex: number): Promise<BankResult>;
   // Economy & merging (chunk 16 routes), read by the Town tab (chunk 17). The preview is the
   // legibility contract: cost, balance (with pending trickle) and resulting stats before commit.
   // `prospectiveEarn` asks for the overflow forecast of a trip expected to earn that much.
@@ -223,6 +234,12 @@ export function createApi(opts: ApiOptions): Api {
     searchCandidates: (caravanId, n) => request("POST", `/me${caravans(caravanId)}/encounters/${n}/search`, menuShape),
     candidates: (caravanId, n) => request("GET", `/me${caravans(caravanId)}/encounters/${n}/candidates`, menuShape),
     chooseCandidate: (caravanId, n, candidateId) => request("POST", `/me${caravans(caravanId)}/encounters/${n}/choose`, choiceShape, { candidateId }),
+    tripStatus: (caravanId) => request("GET", `/me${caravans(caravanId)}/trip`, tripStatusShape),
+    startTrip: (caravanId) => request("POST", `/me${caravans(caravanId)}/trip/start`, tripStartShape),
+    commitEncounter: (caravanId, n) => request("POST", `/me${caravans(caravanId)}/trip/encounters/${n}/commit`, encounterCommitShape),
+    tripPreview: (caravanId) => request("GET", `/me${caravans(caravanId)}/trip/preview`, stakesPreviewShape),
+    pushTrip: (caravanId, tripId, encounterIndex) => request("POST", `/me${caravans(caravanId)}/trip/push`, pushResultShape, { tripId, encounterIndex }),
+    bankTrip: (caravanId, tripId, encounterIndex) => request("POST", `/me${caravans(caravanId)}/trip/bank`, bankResultShape, { tripId, encounterIndex }),
     economy: (prospectiveEarn) => request("GET", prospectiveEarn === undefined ? "/me/economy" : `/me/economy?prospectiveEarn=${Math.trunc(prospectiveEarn)}`, economyShape),
     previewMerge: (caravanId, instanceIds) => request("POST", `/me${caravans(caravanId)}/merge/preview`, mergePreviewShape, { instanceIds }),
     commitMerge: (caravanId, req) => request("POST", `/me${caravans(caravanId)}/merge`, mergeResultShape, req),

@@ -1,0 +1,335 @@
+/**
+ * BANK OR PUSH (chunk 23) — the single most important legibility screen in the game
+ * (PHASE-2 §23, GUARDRAILS §4). Shown only after surviving an encounter. Every stake the
+ * design names is itemized, each straight from `GET /me/caravans/:id/trip/preview`; nothing
+ * on this screen is computed by the client:
+ *
+ *   - unbanked Coin: the total and each encounter's share (trip state, never the balance);
+ *   - banking now: encounter Coin + delivery bonus, and the overflow forecast against the
+ *     store's room right now (what would be credited, what discarded);
+ *   - every packed unit: alive or dead (since which encounter), HP and damage carried, and
+ *     the merge level it would drop to on death;
+ *   - if overrun at the next encounter: all unbanked Coin lost, which units are lost outright
+ *     (alive now), which are de-merged instead (already dead);
+ *   - traps still armed / spent, fence segments intact (with damage) / destroyed;
+ *   - the next encounter: its reward, the bank total if survived, its difficulty (chunk 14's
+ *     escalation) and that its party arrives fresh;
+ *   - the last opponent's Reputation hooks (gap beyond the band, earn multiplier).
+ *
+ * Both choices go through a real modal that re-reads the preview first (README §4: a quote
+ * is current) and restates what is at stake. The decision names its encounter
+ * (`{ tripId, encounterIndex }`), so a lost answer can be retried with the very same body:
+ * the server replays it, never decides twice. There is nothing to buy here (GUARDRAILS §2).
+ */
+import { FIXED_ONE } from "@caravan/content";
+import { useCallback, useEffect, useState } from "react";
+import { ApiError, type Api } from "../../api/client.ts";
+import type { BankResult, PushResult, StakesPreview } from "../../api/tripTypes.ts";
+import { ErrorBox } from "../../shell/ErrorBox.tsx";
+import { Modal } from "../../shell/Modal.tsx";
+import { STRINGS } from "../../strings.ts";
+import { fenceLabel, trapTypeName, unitLabel } from "./tripNames.ts";
+
+const T = STRINGS.trip;
+
+const asApiError = (err: unknown): ApiError => (err instanceof ApiError ? err : new ApiError(0, "unknown", STRINGS.app.genericError));
+
+export type Decided = { readonly kind: "pushed"; readonly result: PushResult } | { readonly kind: "banked"; readonly result: BankResult };
+
+export interface BankOrPushScreenProps {
+  readonly api: Api;
+  readonly caravanId: string;
+  readonly tripId: string;
+  /** The survived encounter this decision is about. */
+  readonly encounterIndex: number;
+  readonly onDecided: (d: Decided) => void;
+}
+
+/** Grouped trap names: "Spike Pit ×2, Snare". */
+function trapNames(traps: readonly { readonly typeId: string }[]): string {
+  const counts = new Map<string, number>();
+  for (const t of traps) counts.set(t.typeId, (counts.get(t.typeId) ?? 0) + 1);
+  return [...counts].map(([id, n]) => (n > 1 ? `${trapTypeName(id)} ×${n}` : trapTypeName(id))).join(", ");
+}
+
+export function Stakes({ preview }: { readonly preview: StakesPreview }): JSX.Element {
+  const p = preview;
+  const f = p.bankNow.forecast;
+  const damagedFences = p.fences.intact.filter((x) => x.hp < x.maxHp);
+  const rep = p.lastOpponent?.reputation;
+  return (
+    <>
+      <section className="card" data-testid="stake-unbanked">
+        <h2>{T.unbankedHeading}</h2>
+        <p>
+          <strong>{T.unbankedTotal(p.unbankedCoin.total)}</strong>
+        </p>
+        <ul className="plain">
+          {p.unbankedCoin.byEncounter.map((e) => (
+            <li key={e.index}>{T.unbankedEncounter(e.index, e.coin)}</li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="card" data-testid="stake-bank">
+        <h2>{T.bankHeading}</h2>
+        <p>{T.bankLine(p.bankNow.encounterCoin, p.bankNow.deliveryBonus, p.bankNow.total)}</p>
+        <p data-testid="stake-bank-forecast" className={f.wouldDiscard > 0 ? "error" : undefined} role={f.wouldDiscard > 0 ? "alert" : undefined}>
+          {f.wouldDiscard > 0 ? T.bankForecastOverflow(f.wouldCredit, f.wouldDiscard, f.balance, f.cap) : T.bankForecastFits(f.wouldCredit, f.balance, f.cap)}
+        </p>
+      </section>
+
+      <section className="card" data-testid="stake-units">
+        <h2>{T.unitsHeading}</h2>
+        <ul className="plain">
+          {p.units.map((u) => (
+            <li key={u.ref} data-testid={`stake-unit-${u.ref}`} data-alive={u.alive ? "true" : "false"}>
+              <strong>{unitLabel(u)}</strong>
+              <div>{u.alive ? T.unitAlive(u.hp, u.maxHp, u.damage) : u.diedAtEncounter !== null ? T.unitDead(u.diedAtEncounter) : T.unitDeadAtLevel}</div>
+              <div className="hint">{u.alive ? T.unitOnDeath(u.mergeLevel, u.mergeLevelOnDeath) : T.unitDemerge(u.mergeLevel, u.mergeLevelOnDeath)}</div>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="card" data-testid="stake-overrun">
+        <h2>{T.overrunHeading}</h2>
+        <p>
+          <strong>{T.overrunCoin(p.ifOverrun.coinLost)}</strong>
+        </p>
+        <p>{T.overrunLost}</p>
+        <ul className="plain" data-testid="stake-overrun-lost">
+          {p.ifOverrun.unitsLostOutright.length === 0 ? <li className="hint">{T.none}</li> : p.ifOverrun.unitsLostOutright.map((u) => <li key={u.ref}>{unitLabel(u)}</li>)}
+        </ul>
+        <p>{T.overrunDemerged}</p>
+        <ul className="plain" data-testid="stake-overrun-demerged">
+          {p.ifOverrun.unitsDeMergedNotDestroyed.length === 0 ? (
+            <li className="hint">{T.none}</li>
+          ) : (
+            p.ifOverrun.unitsDeMergedNotDestroyed.map((u) => (
+              <li key={u.ref}>
+                {unitLabel(u)} · {T.unitDemerge(u.mergeLevel, u.mergeLevelAfter)}
+              </li>
+            ))
+          )}
+        </ul>
+      </section>
+
+      <section className="card" data-testid="stake-traps">
+        <h2>{T.trapsHeading}</h2>
+        <p>
+          {T.trapsRemaining(p.traps.remaining.length)}
+          {p.traps.remaining.length > 0 ? `: ${trapNames(p.traps.remaining)}` : ""}
+        </p>
+        <p>
+          {T.trapsSpent(p.traps.spent.length)}
+          {p.traps.spent.length > 0 ? `: ${trapNames(p.traps.spent)}` : ""}
+        </p>
+      </section>
+
+      <section className="card" data-testid="stake-fences">
+        <h2>{T.fencesHeading}</h2>
+        <p>{T.fencesIntact(p.fences.intact.length)}</p>
+        {damagedFences.length > 0 && (
+          <ul className="plain">
+            {damagedFences.map((x) => (
+              <li key={x.ref}>
+                {fenceLabel(x)} · {T.fenceHp(x.hp, x.maxHp)}
+              </li>
+            ))}
+          </ul>
+        )}
+        <p>{T.fencesDestroyed(p.fences.destroyed.length)}</p>
+        {p.fences.destroyed.length > 0 && (
+          <ul className="plain">
+            {p.fences.destroyed.map((x) => (
+              <li key={x.ref}>{fenceLabel(x)}</li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="card" data-testid="stake-next">
+        <h2>{T.nextHeading(p.nextEncounter.index)}</h2>
+        <p>{T.nextReward(p.nextEncounter.reward)}</p>
+        <p>{T.nextBankTotal(p.nextEncounter.bankTotalIfSurvived)}</p>
+        <p data-testid="stake-next-difficulty">
+          {p.nextEncounter.difficulty.harderThanThisEncounter
+            ? T.nextDifficulty(p.nextEncounter.difficulty.escalationApplied, p.nextEncounter.difficulty.risePerEncounter)
+            : T.nextDifficultySame(p.nextEncounter.difficulty.escalationApplied)}
+        </p>
+        {p.nextEncounter.partyArrivesFresh && <p>{T.nextFresh}</p>}
+      </section>
+
+      {rep && (rep.gapBeyondBand !== undefined || rep.sandbagEarnMultiplier !== undefined) && (
+        <section className="card" data-testid="stake-opponent">
+          <h2>{T.lastOpponentHeading}</h2>
+          <p className="hint">
+            {[
+              rep.gapBeyondBand !== undefined ? T.lastOpponentGap(rep.gapBeyondBand) : null,
+              rep.sandbagEarnMultiplier !== undefined ? T.lastOpponentEarn(Math.round((rep.sandbagEarnMultiplier * 100) / FIXED_ONE)) : null,
+            ]
+              .filter((s): s is string => s !== null)
+              .join(" · ")}
+          </p>
+        </section>
+      )}
+    </>
+  );
+}
+
+type Confirm = { readonly kind: "bank" | "push"; readonly preview: StakesPreview | null; readonly lost: ApiError | null };
+
+export function BankOrPushScreen({ api, caravanId, tripId, encounterIndex, onDecided }: BankOrPushScreenProps): JSX.Element {
+  const [preview, setPreview] = useState<StakesPreview | null>(null);
+  const [loadError, setLoadError] = useState<ApiError | null>(null);
+  const [confirm, setConfirm] = useState<Confirm | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const load = useCallback(async (): Promise<StakesPreview | null> => {
+    setLoadError(null);
+    try {
+      const p = await api.tripPreview(caravanId);
+      setPreview(p);
+      return p;
+    } catch (err) {
+      setLoadError(asApiError(err));
+      return null;
+    }
+  }, [api, caravanId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const open = async (kind: "bank" | "push"): Promise<void> => {
+    setError(null);
+    setConfirm({ kind, preview: null, lost: null });
+    // Re-read the stakes before quoting them (README §4).
+    const fresh = await load();
+    setConfirm((c) => (c && c.kind === kind ? { ...c, preview: fresh } : c));
+  };
+
+  const decide = async (): Promise<void> => {
+    if (!confirm) return;
+    setBusy(true);
+    try {
+      if (confirm.kind === "bank") onDecided({ kind: "banked", result: await api.bankTrip(caravanId, tripId, encounterIndex) });
+      else onDecided({ kind: "pushed", result: await api.pushTrip(caravanId, tripId, encounterIndex) });
+      setConfirm(null);
+    } catch (err) {
+      const e = asApiError(err);
+      if (e.status === 0) {
+        // The decision may have landed; the same body replays it, never decides twice.
+        setConfirm((c) => (c ? { ...c, lost: e } : c));
+      } else {
+        setConfirm(null);
+        setError(e);
+        void load();
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (loadError && !preview) {
+    return (
+      <section>
+        <h1>{T.decideTitle(encounterIndex)}</h1>
+        <ErrorBox error={loadError} heading={T.decideLoadFailed} onRetry={() => void load()} />
+      </section>
+    );
+  }
+  if (!preview) {
+    return (
+      <section>
+        <h1>{T.decideTitle(encounterIndex)}</h1>
+        <p className="hint" role="status">
+          {STRINGS.app.loading}
+        </p>
+      </section>
+    );
+  }
+  const open_ = preview.decisionOpen && preview.decisionFor === encounterIndex && preview.tripId === tripId;
+  const quote = confirm?.preview ?? null;
+  const alive = (p: StakesPreview): number => p.units.filter((u) => u.alive).length;
+
+  return (
+    <section data-testid="bank-or-push" data-encounter={encounterIndex}>
+      <h1 id="decide-heading" tabIndex={-1}>
+        {T.decideTitle(encounterIndex)}
+      </h1>
+      <p className="hint">{T.decideIntro}</p>
+      {loadError && <ErrorBox error={loadError} heading={T.decideLoadFailed} onRetry={() => void load()} />}
+      {!open_ && (
+        <p className="error" role="alert" data-testid="decide-closed">
+          {T.decideClosed}
+        </p>
+      )}
+
+      <Stakes preview={preview} />
+
+      {error && <ErrorBox error={error} />}
+      <div className="actions">
+        <button type="button" className="btn btn--primary btn--block" disabled={!open_ || busy} onClick={() => void open("bank")} data-testid="bank-open">
+          {T.bankButton}
+        </button>
+        <button type="button" className="btn btn--block" disabled={!open_ || busy} onClick={() => void open("push")} data-testid="push-open">
+          {T.pushButton(preview.nextEncounter.index)}
+        </button>
+      </div>
+
+      {confirm && (
+        <Modal
+          title={confirm.kind === "bank" ? T.bankConfirmTitle : T.pushConfirmTitle(preview.nextEncounter.index)}
+          busy={busy}
+          onCancel={() => setConfirm(null)}
+          testId={confirm.kind === "bank" ? "bank-dialog" : "push-dialog"}
+          restoreFocusTo={() => document.getElementById("decide-heading")}
+          actions={
+            <>
+              <button type="button" className="btn" disabled={busy} onClick={() => setConfirm(null)}>
+                {T.decideNo}
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={busy || !quote || !quote.decisionOpen}
+                onClick={() => void decide()}
+                data-testid={confirm.kind === "bank" ? "bank-confirm" : "push-confirm"}
+              >
+                {busy ? (confirm.kind === "bank" ? T.banking : T.pushing) : confirm.lost ? T.decisionTryAgain : confirm.kind === "bank" ? T.bankYes : T.pushYes}
+              </button>
+            </>
+          }
+        >
+          {!quote ? (
+            <p className="hint" role="status">
+              {STRINGS.app.loading}
+            </p>
+          ) : confirm.kind === "bank" ? (
+            <>
+              <p data-testid="bank-quote">{T.bankConfirmBody(quote.bankNow.total, quote.bankNow.forecast.wouldCredit, quote.bankNow.forecast.wouldDiscard)}</p>
+              <p className="hint">{T.bankConfirmRefit}</p>
+            </>
+          ) : (
+            <>
+              <p data-testid="push-quote">{T.pushConfirmBody(quote.ifOverrun.coinLost, alive(quote))}</p>
+              <p>{T.nextReward(quote.nextEncounter.reward)}</p>
+              <p className="hint">{T.pushConfirmNoRepair}</p>
+            </>
+          )}
+          {quote && !quote.decisionOpen && <p className="error">{T.decideClosed}</p>}
+          {confirm.lost && (
+            <div className="error" role="alert" data-testid="decision-unconfirmed">
+              <div>{T.decisionUnconfirmed}</div>
+              <div>{T.decisionUnconfirmedBody}</div>
+              <div className="error__code">{confirm.lost.code}</div>
+            </div>
+          )}
+        </Modal>
+      )}
+    </section>
+  );
+}

@@ -17,6 +17,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { commitFormation } from "../circle/service.js";
 import { withTransaction } from "../db/pool.js";
+import { scheduleInlineDrain } from "../dev/testResolver.js";
 import type { CaravanRow } from "../db/types.js";
 import { findCaravanById } from "../repo/caravans.js";
 import { AppError, badRequest } from "../services/errors.js";
@@ -56,6 +57,8 @@ export async function tripRoutes(app: FastifyInstance): Promise<void> {
     const caravan = await ownCaravan(req);
     const n = encounterIndex(req.params.n);
     const { job, created } = await withTransaction(app.db, (client) => commitEncounter(client, caravan, n, commitFormation));
+    // Dev/test only (CARAVAN_TEST_RESOLVER=double): resolve it in-process shortly after this answer.
+    if (app.inlineEncounterWorker) scheduleInlineDrain(app.db, app.inlineEncounterWorker, (err) => app.log.error(err));
     return reply.code(created ? 202 : 200).send({ jobId: job.id, jobStatus: job.status, created });
   });
 

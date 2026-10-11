@@ -1,0 +1,29 @@
+{
+  "route": "GET /me/caravans/:id/trip",
+  "status": 200,
+  "body": {
+    "caravan": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "state": "in_town"
+    },
+    "cap": {
+      "available": 3,
+      "cap": 3,
+      "regenMs": 1200000,
+      "nextRegenAtMs": null,
+      "fullAtMs": null,
+      "gate": "time"
+    },
+    "trip": null,
+    "rules": {
+      "tripsPerHourCap": 3,
+      "tripCapRegenMs": 1200000,
+      "tripCapGate": "time",
+      "noRepairBetweenEncounters": true,
+      "restoreOnTripEnd": "full_on_bank_none_on_overrun",
+      "bankOfferedOnlyAfterSurviving": true,
+      "safetyBonusForPushing": false
+    },
+    "nowMs": 1790000000000
+  }
+}

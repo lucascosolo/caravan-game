@@ -1,0 +1,17 @@
+{
+  "route": "POST /me/caravans/:id/trip/start",
+  "status": 409,
+  "body": {
+    "error": "trip_cap_exhausted",
+    "message": "no trip starts left; the next one returns in 1200 s",
+    "cap": {
+      "available": 0,
+      "cap": 3,
+      "regenMs": 1200000,
+      "nextRegenAtMs": 1790000000000,
+      "fullAtMs": 1790000060000,
+      "gate": "time"
+    },
+    "retryAfterSeconds": 1200
+  }
+}
