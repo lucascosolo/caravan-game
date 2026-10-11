@@ -280,6 +280,36 @@ export const TUNABLES = {
   TRAP_SLOT_CAP: 6,
 
   // ────────────────────────────────────────────────────────────────────────────────────
+  // Chunk 07 — the wagon circle's placement lattice and material budget. Consumed by
+  // @caravan/circle; the resolver (chunk 10) reads the same values through it.
+  // ────────────────────────────────────────────────────────────────────────────────────
+
+  /** TUNABLE (chunk 07). Placement lattice size in cells. Driven by fight length vs. screen size. */
+  GRID_WIDTH: 32,
+  GRID_HEIGHT: 32,
+  /**
+   * TUNABLE (chunk 07). Chebyshev radius of the fence ring around the core centre, in cells.
+   * The ring is the square of cells at exactly this radius, so it has 8 × radius segments;
+   * PERIMETER_SEGMENTS below must equal that and a test asserts it.
+   */
+  PERIMETER_RING_RADIUS: 4,
+  /** TUNABLE (chunk 07). Segments forming the ring, each independently placed or left as a gap. */
+  PERIMETER_SEGMENTS: 32,
+  /**
+   * TUNABLE (chunk 07). Fence segments a caravan can pack for a trip. THE most important
+   * balance lever in chunk 07: it is deliberately BELOW PERIMETER_SEGMENTS so a full ring is
+   * unaffordable and choosing where the gap goes is a real decision. A test asserts
+   * FENCE_MATERIAL_BUDGET < PERIMETER_SEGMENTS; raising it to the ring size deletes the game.
+   */
+  FENCE_MATERIAL_BUDGET: 24,
+  /** Fixed by design in MVP (chunk 07): the caravan core is a CORE_SIZE × CORE_SIZE block at the lattice centre, not player-placed. */
+  CORE_SIZE: 3,
+  /** TUNABLE (chunk 07). Minimum Euclidean distance between two unit posts, in cells. 1.0 = distinct cells. */
+  MIN_POST_DISTANCE: fp(1),
+  /** TUNABLE (chunk 07 / chunk 09 START_POSITION_BAND). Attackers start in the outermost N cells of their chosen edge. */
+  ENTRY_BAND_DEPTH: 2,
+
+  // ────────────────────────────────────────────────────────────────────────────────────
   // Chunk 16 — Coin economy and merge pricing. Coin buys PACE only (GUARDRAILS §2): nothing
   // here reaches a stat, a resolution rule, or the merge cap. Plain integer Coin amounts.
   // ────────────────────────────────────────────────────────────────────────────────────

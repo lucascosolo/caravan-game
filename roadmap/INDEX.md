@@ -48,7 +48,7 @@ building the mirror image of this game is the easiest mistake available.
 | 04 | [Ladders & Reputation](chunks/04-ladders-and-reputation.md) | Per-pool use-driven ladders granting permanent unlock points; separate volatile Reputation number. | 01, 02 | built |
 | 05 | [Unlock webs (data + spend)](chunks/05-unlock-webs.md) | Three visible non-random webs; spending granted points to gain *access* (not instances). | 03, 04 | not started |
 | 06 | [Unlock web UI](chunks/06-unlock-web-ui.md) | Browsable web view for all three pools with costs visible before spending. | 05 | not started |
-| 07 | [Wagon circle model](chunks/07-wagon-circle-model.md) | Trip-locked manifest vs. per-encounter formation; fence segments with HP and forced gaps, trap and post placement, carry-forward attrition. | 03 | not started |
+| 07 | [Wagon circle model](chunks/07-wagon-circle-model.md) | Trip-locked manifest vs. per-encounter formation; fence segments with HP and forced gaps, trap and post placement, carry-forward attrition. | 03 | built |
 | 08 | [Encounter formation UI](chunks/08-encounter-formation-ui.md) | **The primary gameplay screen.** Scout the incoming party, arrange the circle against it, commit. Also builds the shared isometric renderer. | 07, 05, 14 | not started |
 | 09 | [Standing raid party](chunks/09-standing-raid-party.md) | The passive side: a party configured in town, never consumed, served into other players' trips, plus its results feed. | 03, 05, 07 | not started |
 | 10 | [Resolver core: tick loop & movement](chunks/10-resolver-core.md) | Fixed-timestep engine, continuous fixed-point movement, lattice pathing, fence collision. **Highest-risk chunk — build and test in isolation.** | 03, 07 | not started |

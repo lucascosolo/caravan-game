@@ -17,6 +17,7 @@
     "ledger:rebuild": "tsx src/ledger/rebuild.ts"
   },
   "dependencies": {
+    "@caravan/circle": "workspace:*",
     "@caravan/content": "workspace:*",
     "@caravan/resolver": "workspace:*",
     "fastify": "^5.6.1",

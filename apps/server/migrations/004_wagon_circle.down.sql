@@ -1,0 +1,14 @@
+DROP TRIGGER IF EXISTS wagon_formation_guard_truncate ON wagon_formation;
+DROP TRIGGER IF EXISTS wagon_formation_guard_delete ON wagon_formation;
+DROP TRIGGER IF EXISTS wagon_formation_guard_update ON wagon_formation;
+DROP TABLE IF EXISTS wagon_formation;
+DROP FUNCTION IF EXISTS wagon_formation_guard_delete();
+DROP FUNCTION IF EXISTS wagon_formation_guard_update();
+DROP TRIGGER IF EXISTS wagon_manifest_guard_truncate ON wagon_manifest;
+DROP TRIGGER IF EXISTS wagon_manifest_guard_delete ON wagon_manifest;
+DROP TRIGGER IF EXISTS wagon_manifest_guard_update ON wagon_manifest;
+DROP TRIGGER IF EXISTS wagon_manifest_guard_insert ON wagon_manifest;
+DROP TABLE IF EXISTS wagon_manifest;
+DROP FUNCTION IF EXISTS wagon_manifest_guard_delete();
+DROP FUNCTION IF EXISTS wagon_manifest_guard_update();
+DROP FUNCTION IF EXISTS wagon_manifest_guard_insert();

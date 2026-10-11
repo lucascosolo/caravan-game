@@ -17,6 +17,9 @@ importers:
 
   apps/server:
     dependencies:
+      '@caravan/circle':
+        specifier: workspace:*
+        version: link:../../packages/circle
       '@caravan/content':
         specifier: workspace:*
         version: link:../../packages/content
@@ -47,6 +50,22 @@ importers:
         version: 3.2.7(@types/node@22.20.5)(tsx@4.23.15)
 
   apps/web: {}
+
+  packages/circle:
+    dependencies:
+      '@caravan/content':
+        specifier: workspace:*
+        version: link:../content
+    devDependencies:
+      '@types/node':
+        specifier: ^22.19.0
+        version: 22.20.5
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@22.20.5)(tsx@4.23.15)
 
   packages/content:
     devDependencies:

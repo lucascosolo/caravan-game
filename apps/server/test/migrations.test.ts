@@ -40,6 +40,7 @@ describe("migrations", () => {
     expect(await tableNames()).toEqual([
       "account", "caravan", "home_town", "ledger_event", "ledger_snapshot", "pool_progress", "region",
       "resolution_job", "schema_migrations", "session", "standing_party", "unit_instance",
+      "wagon_formation", "wagon_manifest",
     ]);
 
     // Down one step, then back up: the pair is reversible.
@@ -61,8 +62,19 @@ describe("migrations", () => {
 
   it("does not model a persistent defensive layout or a billing table", async () => {
     const names = await tableNames();
-    for (const forbidden of ["base", "layout", "formation", "defense", "purchase", "billing", "entitlement"]) {
+    for (const forbidden of ["base", "layout", "defense", "purchase", "billing", "entitlement"]) {
       expect(names.some((n) => n.includes(forbidden)), `table matching '${forbidden}'`).toBe(false);
+    }
+    // A formation may exist only per ENCOUNTER of a trip-locked manifest (chunk 07), never as
+    // a standing layout: every formation-shaped table is keyed by encounter, not by owner.
+    for (const table of names.filter((n) => n.includes("formation"))) {
+      const cols = await pool.query<{ column_name: string }>(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = $1",
+        [table],
+      );
+      const columns = cols.rows.map((r) => r.column_name);
+      expect(columns, table).toContain("encounter_index");
+      expect(columns.filter((c) => /account|caravan/.test(c)), table).toEqual([]);
     }
   });
 });

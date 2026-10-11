@@ -1,6 +1,6 @@
 # Chunk 07 — Wagon circle model
 
-**Depends on:** 03. **Status:** not started.
+**Depends on:** 03. **Status:** built (2026-10-11; see ORCHESTRATION.md). QA pending.
 Read `/roadmap/GUARDRAILS.md` in full first, including §0 on which way round the game runs.
 
 ## Goal
