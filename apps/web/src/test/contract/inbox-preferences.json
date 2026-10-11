@@ -1,0 +1,83 @@
+{
+  "route": "PUT /me/inbox/preferences",
+  "status": 200,
+  "body": {
+    "items": [
+      {
+        "key": "refugees:1",
+        "category": "refugees_arrived",
+        "version": 1,
+        "occurredAtMs": 1790000120000,
+        "occurredAt": "2026-10-11T12:00:00.000Z",
+        "detail": {
+          "caravanId": "00000000-0000-4000-8000-000000000001",
+          "caravanName": "Caravan",
+          "regionId": "desert",
+          "arrivedAtMs": 1790000120000,
+          "currentMenuUnclaimed": true
+        },
+        "unread": true
+      },
+      {
+        "key": "trip_cap:2",
+        "category": "trip_cap_refilled",
+        "version": 2,
+        "occurredAtMs": 1790000060000,
+        "occurredAt": "2026-10-11T12:00:01.000Z",
+        "detail": {
+          "available": 3,
+          "cap": 3,
+          "fullAtMs": 1790000060000
+        },
+        "unread": true
+      },
+      {
+        "key": "mine:3",
+        "category": "mine_near_cap",
+        "version": 3,
+        "occurredAtMs": 1790000000000,
+        "occurredAt": "2026-10-11T12:00:02.000Z",
+        "detail": {
+          "balance": 50000,
+          "cap": 50000,
+          "atCap": true,
+          "thresholdPercent": 90,
+          "ratePerHour": 200,
+          "capReachedAtMs": null
+        },
+        "unread": true
+      }
+    ],
+    "unreadCount": 3,
+    "preferences": [
+      {
+        "category": "party_strike",
+        "enabled": true,
+        "defaultEnabled": true
+      },
+      {
+        "category": "refugees_arrived",
+        "enabled": true,
+        "defaultEnabled": false
+      },
+      {
+        "category": "trip_cap_refilled",
+        "enabled": true,
+        "defaultEnabled": false
+      },
+      {
+        "category": "mine_near_cap",
+        "enabled": true,
+        "defaultEnabled": false
+      },
+      {
+        "category": "packs_rotated",
+        "enabled": true,
+        "defaultEnabled": false
+      }
+    ],
+    "strikeBatchWindowMs": 3600000,
+    "horizonMs": 1209600000,
+    "delivery": "in_app"
+  }
+}

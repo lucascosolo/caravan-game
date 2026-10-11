@@ -11,7 +11,8 @@
 import { useEffect, useState } from "react";
 
 /** `packs` and `cosmetics` (chunk 20) are the Town's own sub-screens: the Town tab stays current on them. */
-export const ROUTES = ["town", "trail", "party", "webs", "packs", "cosmetics", "login"] as const;
+/** `inbox` (chunk 29) is opened from the header button; no tab is current on it. */
+export const ROUTES = ["town", "trail", "party", "webs", "packs", "cosmetics", "inbox", "login"] as const;
 export type Route = (typeof ROUTES)[number];
 export const DEFAULT_ROUTE: Route = "town";
 

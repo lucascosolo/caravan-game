@@ -2,9 +2,11 @@
  * The app shell: a thin header (who is signed in, sign out), a scrolling main area and a
  * fixed bottom tab bar sized for thumbs (56px tall, each tab a full-width 44px+ target).
  * Portrait-first; on wide screens the content column is capped at 720px, not stretched.
+ * The header also carries the inbox button and its unread badge (chunk 29).
  */
 import type { ReactNode } from "react";
 import { STRINGS } from "../strings.ts";
+import { InboxButton } from "./InboxButton.tsx";
 import { navigate, type Route } from "./router.tsx";
 
 const TABS: readonly { route: Route; label: string; glyph: string }[] = [
@@ -26,10 +28,14 @@ export function AppShell({ route, username, onSignOut, children }: AppShellProps
     <div className="shell">
       <main className="shell__main">
         <div className="sheet__head" style={{ marginBottom: 8 }}>
-          <span className="hint">{username}</span>
-          <button type="button" className="btn" onClick={onSignOut}>
-            {STRINGS.app.signOut}
-          </button>
+          <span className="hint shell__who">{username}</span>
+          {/* Chunk 29: the inbox, with the server's unread count. */}
+          <span className="shell__headactions">
+            <InboxButton route={route} />
+            <button type="button" className="btn" onClick={onSignOut}>
+              {STRINGS.app.signOut}
+            </button>
+          </span>
         </div>
         {children}
       </main>
