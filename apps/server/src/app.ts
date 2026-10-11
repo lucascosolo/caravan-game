@@ -11,6 +11,7 @@ import { authRoutes } from "./routes/auth.js";
 import { circleRoutes } from "./routes/circle.js";
 import { cosmeticRoutes } from "./routes/cosmetics.js";
 import { economyRoutes } from "./routes/economy.js";
+import { inboxRoutes } from "./routes/inbox.js";
 import { ledgerRoutes } from "./routes/ledger.js";
 import { matchmakingRoutes } from "./routes/matchmaking.js";
 import { meRoutes } from "./routes/me.js";
@@ -115,5 +116,6 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(cosmeticRoutes);
   await app.register(tripRoutes);
   await app.register(replayRoutes);
+  await app.register(inboxRoutes);
   return app;
 }

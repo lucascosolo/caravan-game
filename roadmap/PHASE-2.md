@@ -403,6 +403,92 @@ afterward where it struck", and today nothing tells the owner to check.
 **Definition of done.** A party owner who has not opened the game learns within a
 minute that their party overran a caravan, and one tap lands on the replay.
 
+**Status: built** (2026-10-11, chunk 29 Maker) — the in-app inbox; device push deferred (below). Build notes:
+
+- **Derived, not stored.** `apps/server/src/inbox/` (`derive.ts` pure, `service.ts` reads, `tunables.ts`).
+  Items are computed on every read: **party strikes** from the ledger (`party_served_as_encounter`
+  on the owner plus the owner-side events of the same resolution under `<job>`, `progression:<job>`,
+  `transfer:<job>` — the results feed's own join; each listed line is read through `listPartyFeed`),
+  **refugees arrived** from the current `refugee_menu` row's grid (a free menu is owed), **trip cap
+  refilled** from `trip_cap.tat_ms` (every use back), **mine near cap** from `peekTrickle` (read-only;
+  balance incl. pending ≥ `INBOX_MINE_NEAR_CAP_PERCENT` = 90% of the storage cap), **packs rotated**
+  from `weekIndexAt` (only a week that began after the account existed). A notice therefore cannot
+  disagree with the ledger or the timer it reports. Nothing in the module writes the ledger,
+  materializes the trickle, bootstraps / takes a refugee menu or touches a trip (a test greps it).
+  Season / contract events wait for group B.
+- **Migration 015** (`015_inbox`): `inbox_read (account_id, item_key, version)` —
+  the only stored state besides `inbox_preference (account_id, category, enabled)`. Read state is UI
+  state, deliberately not a ledger event. Each item has a stable KEY and an integer VERSION (strike
+  batch: newest seq; refugees / trip cap: the instant; mine: one per stretch between spends, keyed
+  by the last spend's seq; packs: per week). Unread = no mark at the item's version. A strike landing
+  in an already-read batch makes the batch unread again. Marks only move forward (trigger
+  `inbox_read_forward_only`, plus `GREATEST` in the upsert); the server stores min(version the client
+  saw, current version), so a stale or inflated mark can neither hide nor pre-read a new strike; keys
+  the account's inbox is not showing are refused (400 `unknown_item`), so no arbitrary rows. CHECKs on
+  key shape, non-negative version and known categories. Proven against `caravan_app`: decrease and key
+  change refused, TRUNCATE / DISABLE TRIGGER / DROP TRIGGER denied (42501).
+- **Batching** (§29): strikes group into fixed `INBOX_STRIKE_BATCH_WINDOW_MS` (1 h, epoch-aligned)
+  windows, ONE item per window with the count, held / overran / stalemate split and the Coin (incl. the
+  transferred and cap-discarded parts), Reputation and ladder totals — SQL sums over every strike in
+  the window, not just the listed ones. The newest `INBOX_STRIKES_PER_ITEM` (10) are itemized, each
+  with its own "Watch the fight"; the rest are counted with a pointer to the results feed. Horizon
+  14 days, at most 30 batches. All TUNABLE, in `inbox/tunables.ts` (presentation knobs, not balance —
+  same decision as chunk 02's job knobs).
+- **No identity leak.** A strike line carries exactly what the results feed shows of the defender —
+  username, caravan name, region — picked field by field; not the account id (the ledger payload's
+  `defenderAccountId` is never read) and not even the caravan id. The web guard (`inboxShapes.ts`)
+  REFUSES a defender with an `accountId`, so a server regression fails loudly, not silently.
+- **Per-category opt-out** with the §29 defaults (strikes on, everything else off). An off category is
+  not listed and not counted in the badge. Free, instant, server-side.
+- **Never nags toward spending.** No item links to the store or a spend; the mine and pack notices
+  state facts and have no button; the pack copy says the Coin per tier never changes. The web test
+  asserts the whole screen's text has no buy / purchase / spend / deal / offer / sale / store / $ /
+  hurry wording and the mine / packs cards have no buttons.
+- **Routes:** `GET /me/inbox`, `GET /me/inbox/unread` (the badge; same derivation without the
+  per-strike lines), `POST /me/inbox/read` (`{all: true}` | `{marks: [{key, version}]}`, ≤ 100),
+  `PUT /me/inbox/preferences` (`{preferences: {<category>: boolean}}`). Registered in `app.ts`.
+- **Client.** Header button "✉ Inbox" with the server's unread count as a text badge and in its
+  accessible name (`shell/InboxButton.tsx`), polled every `INBOX_POLL_MS` (60 s, TUNABLE) while the
+  page is visible, on every route change and on becoming visible; the Inbox screen publishes the
+  server's count after a mark or a preference change through an in-memory signal
+  (`shell/inboxSignal.ts`). New route `#/inbox` (lazy `screens/inbox/InboxScreen.tsx`; no tab is
+  current on it). "Watch the fight" is chunk 22's `WatchFight` (owner view, decided by the replay
+  route), and tapping it marks the batch read. Strings in `STRINGS.inbox`; 44 px targets; fits 320 px;
+  no storage.
+- **Deferred: device push.** §29 asks for web push under a PWA and native push under chunk 34, "with an
+  in-app inbox as the fallback and the record". There is no service worker, manifest or VAPID setup
+  yet, so this chunk builds the inbox (the record) and the `delivery: "in_app"` field says so; the
+  screen tells the player nothing is sent to their device. The DoD's "a party owner who has NOT opened
+  the game learns within a minute" therefore holds only for an owner with the app open (60 s poll);
+  a closed app learns on next open. Push delivery should hang off `readUnread` / the strike batches
+  (the batching and opt-out are already server-side) when the PWA / chunk 34 lands.
+- **Tests.** Server `test/inbox.test.ts` (21): pure derivation (batching, unread-by-version, each
+  timer), two real double-resolved strikes (held + overran) = one item whose totals equal the feed's,
+  per-line Coin equals the feed's per job, no defender account / caravan id anywhere in the body, the
+  replay route answers the owner for every listed job, defender's inbox has none, read / re-open /
+  stale-mark / clamp, unknown-key and malformed-body refusals, ten strikes → one item counting ten,
+  opt-out / opt-in, each timer category (read-only: no menu written, no ledger row), the caravan_app
+  guards, a source grep. Contract (`contract.test.ts`): `inbox.json` (the real-resolver strike, owner
+  view), `inbox-unread.json`, `inbox-read.json` (mark-all), `inbox-preferences.json` (refugees, trip
+  cap, mine on the player's account two hours on); keys / versions renamed by position so reruns are
+  byte-identical (verified). Web: `inboxShapes.test.ts` (4, incl. the accountId refusal),
+  `InboxScreen.test.tsx` (8: copy, Watch → replay dialog + read mark, mark one / all with the badge
+  following, the timers without selling, prefs, Retry, the badge's polling / 99+ / failure / route).
+  E2E `e2e/inbox.spec.ts`: a fresh owner with two fixture strikes (ledger rows in the handler's shape,
+  inserted as the app role like smoke.spec's grant) sees badge 1, reads the batch, fits 360 / 320 px,
+  Watch the fight opens the replay dialog (the fixture job has no stored fight, so the player shows
+  its not-found state) and marks it read on the server, opt-out empties and opt-in restores.
+- **Observed results (this branch).** `pnpm typecheck` clean; `pnpm lint` and `pnpm test:boundary`
+  pass; server suite 625 passed, 1 skipped / 35 files; web suite 314 passed / 29 files; `pnpm build`
+  passes (bundle check: battlefield.ts, fixed.ts, replay.ts); `pnpm e2e` 7 passed (inbox, formation,
+  smoke ×2, store, town, trip).
+- **For QA.** The mine notice's `occurredAt` is presentational (the crossing instant is computed for
+  pending trickle, else the last credit). A spend that leaves the balance above the line starts a new
+  mine notice (default off). `inbox_read` rows for expired keys are not pruned yet (bounded by the
+  14-day horizon's items per account). Small wiring in shared files: `app.ts`, `client.ts`,
+  `AppShell.tsx`, `router.tsx`, `App.tsx`, `townFixtures.ts` / `FormationScreen.test.tsx` fake apis,
+  `migrations.test.ts` table list, `contract.test.ts` (appended at the end).
+
 ## 30. Account lifecycle — **M**, extends 01
 
 **Goal.** Chunk 01 ships a minimal login. A store-listed game needs the rest.

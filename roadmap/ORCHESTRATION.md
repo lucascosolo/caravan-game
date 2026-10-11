@@ -2653,3 +2653,7 @@ file's "QA round 1 closed"; punch list marked.
 files, 589 tests passed; `@caravan/content` 82, `@caravan/web` 217 passed; root `pnpm typecheck`,
 `pnpm lint`, `pnpm test:boundary` clean.
 
+
+## 2026-10-11 — chunk 29 merged; device push deferred
+
+Chunk 29's in-app inbox is merged; its migration was renumbered 017 → 015 on merge (014 is chunk 15's void path, 016 goes to the chunk 13 fix round, 017 to chunk 24 onboarding). Decision: device push (web push and native push) is deferred to the app-store wrapper chunk. The in-app inbox, which §29 calls "the fallback and the record", is the play-test scope. Rejected: building a service worker and VAPID setup now. A play test runs with the app open, and push adds hosting and permission work that has no deploy target yet. The final review may challenge this. Also fixed on merge: the Party feed's outcome strings were keyed on the resolver's internal end reasons (`core_overrun`, `tick_cap`), not the outcome kinds the server sends, so every real strike read "Outcome: recorded".

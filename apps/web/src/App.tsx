@@ -11,6 +11,8 @@ const PartyScreen = lazy(() => import("./screens/party/PartyScreen.tsx").then((m
 const TrailScreen = lazy(() => import("./screens/trail/TrailScreen.tsx").then((m) => ({ default: m.TrailScreen })));
 // Chunk 20: the storefront and the cosmetics screen are lazy chunks too (kept out of the login chunk).
 const PacksScreen = lazy(() => import("./screens/store/PacksScreen.tsx").then((m) => ({ default: m.PacksScreen })));
+// Chunk 29: the inbox (lazy: its "Watch the fight" opens the replay player, which draws on the canvas).
+const InboxScreen = lazy(() => import("./screens/inbox/InboxScreen.tsx").then((m) => ({ default: m.InboxScreen })));
 const CosmeticsScreen = lazy(() => import("./screens/store/CosmeticsScreen.tsx").then((m) => ({ default: m.CosmeticsScreen })));
 import { AppShell } from "./shell/AppShell.tsx";
 import { ErrorBoundary } from "./shell/ErrorBoundary.tsx";
@@ -49,6 +51,9 @@ function Routed(): JSX.Element {
       break;
     case "cosmetics":
       screen = <CosmeticsScreen />;
+      break;
+    case "inbox":
+      screen = <InboxScreen />;
       break;
     case "town":
     case "login":

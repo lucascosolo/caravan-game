@@ -1,0 +1,444 @@
+/**
+ * Chunk 29 — the in-app inbox (PHASE-2 §29). Driven through the routes on the server's own DB
+ * role (caravan_app), with real resolutions written by the trip loop and the deterministic
+ * double, so every strike item is checked against the ledger it is derived from:
+ *
+ *   - a party strike shows up for the party's OWNER with what happened (held / overran), where
+ *     (the caravan's public name, the encounter), what it earned, and a replay link that the
+ *     replay route answers for the owner;
+ *   - strikes in one window are ONE item with a count; the totals are the results feed's;
+ *   - the item never carries the defender's account id (nor their caravan id);
+ *   - read state lives on the server, moves only forward, and a strike landing after a read
+ *     makes its batch unread again; a stale mark cannot hide it;
+ *   - per-category opt-out with the §29 defaults (strikes on, the rest off);
+ *   - refugees arrived, trip cap refilled, mine near cap, packs rotated — derived from the
+ *     timers that already exist, read-only;
+ *   - nothing here writes to the ledger; the schema guards hold against caravan_app.
+ */
+import { entryBand, type PartyConfig } from "@caravan/circle";
+import { TUNABLES, weekBounds, weekIndexAt } from "@caravan/content";
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
+import type pg from "pg";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { buildApp } from "../src/app.js";
+import { withTransaction } from "../src/db/pool.js";
+import { appendCoinCredits } from "../src/economy/coin.js";
+import { drain } from "../src/jobs/worker.js";
+import { appendEvents } from "../src/ledger/ledger.js";
+import { createUnitInstance } from "../src/repo/unitInstances.js";
+import { doubleHandlers, type EncounterPlan } from "../src/dev/tripDouble.js";
+import { REFUGEE_REFRESH_INTERVAL_MS } from "../src/acquisition/refugeeMenu.js";
+import { finishItems, mineItem, packsItem, refugeeItem, strikeItem, strikeWindowOf, tripCapItem, type InboxStrike } from "../src/inbox/derive.js";
+import { readInbox } from "../src/inbox/service.js";
+import { INBOX_CATEGORIES, INBOX_STRIKE_BATCH_WINDOW_MS, INBOX_STRIKES_PER_ITEM } from "../src/inbox/tunables.js";
+import { TRIP_CAP_REGEN_MS, TRIPS_PER_HOUR_CAP } from "../src/trip/cap.js";
+import { appRolePool, expectDbError, testPool, truncateAll, unique } from "./helpers.js";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const pool = testPool();
+let appRole: pg.Pool;
+let app: FastifyInstance;
+
+interface Player {
+  token: string;
+  username: string;
+  accountId: string;
+  caravanId: string;
+  caravanName: string;
+}
+
+async function register(prefix = "ib"): Promise<Player> {
+  const username = unique(prefix);
+  const res = await app.inject({ method: "POST", url: "/auth/register", payload: { username, password: "correct horse battery", region: "desert" } });
+  expect(res.statusCode, res.body).toBe(201);
+  const b = res.json();
+  return { token: b.token, username, accountId: b.account.id, caravanId: b.caravan.id, caravanName: b.caravan.name };
+}
+
+function call(p: Player, method: "GET" | "POST" | "PUT", url: string, payload?: unknown): Promise<LightMyRequestResponse> {
+  const opts: InjectOptions = { method, url, headers: { authorization: `Bearer ${p.token}` } };
+  if (payload !== undefined) opts.payload = payload as NonNullable<InjectOptions["payload"]>;
+  return app.inject(opts);
+}
+
+async function giveUnits(p: Player, typeIds: readonly string[]): Promise<string[]> {
+  const ids: string[] = [];
+  for (const unitTypeId of typeIds) ids.push((await createUnitInstance(pool, { caravanId: p.caravanId, unitTypeId, mergeLevel: 1 })).id);
+  return ids;
+}
+
+const EDGES = ["north", "east", "south", "west"] as const;
+function partyOf(units: readonly string[]): PartyConfig {
+  return { v: 1, units: units.map((ref, i) => ({ ref, stance: "nearest" as const, edge: EDGES[i % 4]!, cell: entryBand(EDGES[i % 4]!)[3 + i]! })), siege: ["siege.battering_wagon"] };
+}
+
+async function makeOwner(): Promise<Player> {
+  const o = await register("own");
+  const res = await call(o, "PUT", "/me/party", partyOf(await giveUnits(o, ["desert.dust_rider", "desert.well_digger"])));
+  expect(res.statusCode, res.body).toBe(200);
+  return o;
+}
+
+/** A defender rides out, chooses `owner`'s party at encounter 1, commits, and the double resolves it with `plan`. Returns the job id. */
+async function strike(owner: Player, plan: EncounterPlan): Promise<{ defender: Player; jobId: string }> {
+  const d = await register("def");
+  const units = await giveUnits(d, ["desert.dust_rider", "desert.dust_rider"]);
+  expect((await call(d, "POST", `/caravans/${d.caravanId}/manifest`, { units, traps: [], fence: { tierId: "fence.brush_pile", count: 4 } })).statusCode).toBe(201);
+  const trip = `/me/caravans/${d.caravanId}/trip`;
+  expect((await call(d, "POST", `${trip}/start`)).statusCode).toBe(201);
+  const s = await call(d, "POST", `/me/caravans/${d.caravanId}/encounters/1/search`);
+  expect(s.statusCode, s.body).toBe(201);
+  const cand = (s.json().menu.candidates as { candidateId: string; owner: { displayName: string } }[]).find((c) => c.owner.displayName === owner.username);
+  expect(cand, `${owner.username} is in the menu`).toBeDefined();
+  expect((await call(d, "POST", `/me/caravans/${d.caravanId}/encounters/1/choose`, { candidateId: cand!.candidateId })).statusCode).toBe(200);
+  const formation = { v: 2, fences: [{ ref: "f0", segment: 0 }], traps: [], posts: [...units].sort().map((ref, i) => ({ ref, cell: { x: 13 + i * 5, y: 13 }, stance: "guard" })) };
+  expect((await call(d, "PUT", `/caravans/${d.caravanId}/encounters/1/formation`, formation)).statusCode).toBe(200);
+  const c = await call(d, "POST", `${trip}/encounters/1/commit`);
+  expect(c.statusCode, c.body).toBe(202);
+  await drain(appRole, { workerId: "inbox-test", handlers: doubleHandlers({ 1: plan }), retryBackoffMs: () => 0 });
+  expect((await call(d, "GET", trip)).statusCode).toBe(200); // settles
+  return { defender: d, jobId: c.json().jobId };
+}
+
+async function inbox(p: Player): Promise<InboxBody> {
+  const res = await call(p, "GET", "/me/inbox");
+  expect(res.statusCode, res.body).toBe(200);
+  return res.json();
+}
+
+interface InboxBody {
+  items: { key: string; category: string; version: number; unread: boolean; occurredAt: string; detail: Record<string, unknown> & { strikes?: Record<string, unknown>[] } }[];
+  unreadCount: number;
+  preferences: { category: string; enabled: boolean; defaultEnabled: boolean }[];
+  delivery: string;
+}
+
+async function ledgerCount(accountId: string): Promise<number> {
+  return (await pool.query<{ n: number }>("SELECT count(*)::int AS n FROM ledger_event WHERE account_id = $1", [accountId])).rows[0]!.n;
+}
+
+beforeAll(async () => {
+  await truncateAll(pool);
+  appRole = appRolePool();
+  app = await buildApp({ db: appRole });
+});
+
+afterAll(async () => {
+  await app.close();
+  await appRole.end();
+  await pool.end();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// Pure derivation
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+describe("inbox derivation (pure)", () => {
+  const W = INBOX_STRIKE_BATCH_WINDOW_MS;
+  const s = (seq: number, ms: number): InboxStrike => ({
+    seq,
+    occurredAt: new Date(ms).toISOString(),
+    jobId: `job${seq}`,
+    encounterIndex: 1,
+    outcomeKind: "caravan_overrun",
+    defender: { username: "u", caravanName: "c", regionId: "desert" },
+    coinEarned: 1,
+    coinTransferred: 0,
+    reputationDelta: 1,
+    ladderPointsGained: 1,
+  });
+  const totals = (window: number, count: number, maxSeq: number) => ({ window, count, maxSeq, held: 0, overran: count, stalemate: 0, coinEarned: count, coinTransferred: 0, coinDiscardedAtCap: 0, reputationDelta: count, ladderPointsGained: count });
+
+  it("batches a window into one item: the count is the window's, only that window's strikes are listed, newest first", () => {
+    const w = 500_000;
+    const listed = [s(10, w * W + 5), s(12, w * W + 900), s(9, (w - 1) * W + 3)];
+    const item = strikeItem(totals(w, 7, 12), listed);
+    expect(item.key).toBe(`strike:${w}`);
+    expect(item.version).toBe(12);
+    const d = item.detail as { count: number; strikes: InboxStrike[]; notListed: number; windowStartMs: number; windowEndMs: number };
+    expect(d.count).toBe(7);
+    expect(d.strikes.map((x) => x.seq)).toEqual([12, 10]);
+    expect(d.notListed).toBe(5);
+    expect(d.windowStartMs).toBe(w * W);
+    expect(d.windowEndMs).toBe((w + 1) * W);
+    expect(item.occurredAtMs).toBe(w * W + 900);
+    expect(strikeWindowOf(w * W + W - 1)).toBe(w);
+    expect(strikeWindowOf(w * W + W)).toBe(w + 1);
+  });
+
+  it("is unread until a mark reaches the item's version; a newer version is unread again", () => {
+    const item = strikeItem(totals(1, 1, 40), []);
+    expect(finishItems([item], new Map())[0]!.unread).toBe(true);
+    expect(finishItems([item], new Map([[item.key, 40]]))[0]!.unread).toBe(false);
+    expect(finishItems([item], new Map([[item.key, 39]]))[0]!.unread).toBe(true);
+  });
+
+  it("refugees: an item only once the free menu is owed, keyed by caravan and grid point", () => {
+    const caravan = { id: "c1", name: "Wheels", regionId: "desert" };
+    expect(refugeeItem(caravan, null, 100, 1_000)).toBeNull();
+    expect(refugeeItem(caravan, { windowOpenedAtMs: 1_000, claimed: true }, 100, 1_099)).toBeNull();
+    const item = refugeeItem(caravan, { windowOpenedAtMs: 1_000, claimed: false }, 100, 1_100)!;
+    expect(item).toMatchObject({ key: "refugees:c1:1100", version: 1_100, detail: { caravanName: "Wheels", currentMenuUnclaimed: true } });
+  });
+
+  it("trip cap: an item at the instant every use is back; none before the first use or while uses are out", () => {
+    expect(tripCapItem(0, 3, 5_000, 1e9)).toBeNull();
+    expect(tripCapItem(6_000, 3, 5_000, 1e9)).toBeNull();
+    expect(tripCapItem(4_000, 3, 5_000, 1e9)).toMatchObject({ key: "trip_cap:4000", detail: { available: 3, cap: 3, fullAtMs: 4_000 } });
+    expect(tripCapItem(4_000, 3, 5_000, 500)).toBeNull(); // past the horizon
+  });
+
+  it("mine: near the cap at the threshold, says when the trickle stops, and none below it", () => {
+    const base = { ledgerBalance: 44_000, cap: 50_000, accruedFromMs: 0, nextCoinInMs: 10, msPerCoin: 18_000, ratePerHour: 200, lastSpendSeq: 7, lastCreditMs: 0 };
+    expect(mineItem({ ...base, balance: 44_999 }, 1_000_000, 90)).toBeNull();
+    const near = mineItem({ ...base, balance: 45_000 }, 1_000_000_000, 90)!;
+    expect(near).toMatchObject({ key: "mine:7", detail: { atCap: false, balance: 45_000, cap: 50_000 } });
+    expect((near.detail as { capReachedAtMs: number }).capReachedAtMs).toBe(1_000_000_000 + 10 + 4_999 * 18_000);
+    expect(mineItem({ ...base, balance: 50_000, ledgerBalance: 50_000 }, 1_000_000, 90)!.detail).toMatchObject({ atCap: true, capReachedAtMs: null });
+  });
+
+  it("packs: one item per week, never for a week that began before the account existed", () => {
+    const week = { index: 3, startsAtMs: 1_000, endsAtMs: 2_000 };
+    expect(packsItem(week, 1_500)).toBeNull();
+    expect(packsItem(week, 900)).toMatchObject({ key: "packs:3", version: 1 });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// Through the routes, against the ledger
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+describe("party strikes in the owner's inbox", () => {
+  let owner: Player;
+  let held: { defender: Player; jobId: string };
+  let overran: { defender: Player; jobId: string };
+
+  beforeAll(async () => {
+    // Strikes batch by fixed window: keep this block's strikes (about 3 s of work) clear of a
+    // window boundary so "same window" is a fact of the fixture, not of the wall clock.
+    const left = INBOX_STRIKE_BATCH_WINDOW_MS - (Date.now() % INBOX_STRIKE_BATCH_WINDOW_MS);
+    if (left < 12_000) await new Promise((r) => setTimeout(r, left + 50));
+    owner = await makeOwner();
+    await makeOwner();
+    await makeOwner(); // three parties in the band: a full candidate menu
+    held = await strike(owner, { kind: "caravan_held" });
+    overran = await strike(owner, { kind: "caravan_overrun" });
+  });
+
+  it("a fresh account has an empty inbox, the §29 defaults, and in-app delivery only", async () => {
+    const p = await register();
+    const body = await inbox(p);
+    expect(body.items).toEqual([]);
+    expect(body.unreadCount).toBe(0);
+    expect(body.delivery).toBe("in_app");
+    expect(body.preferences.map((x) => [x.category, x.enabled, x.defaultEnabled])).toEqual(INBOX_CATEGORIES.map((c) => [c, c === "party_strike", c === "party_strike"]));
+    expect((await call(p, "GET", "/me/inbox/unread")).json()).toEqual({ unreadCount: 0 });
+    expect((await app.inject({ method: "GET", url: "/me/inbox" })).statusCode).toBe(401);
+  });
+
+  it("two strikes in one window are ONE unread item with a count, both outcomes, and the feed's totals", async () => {
+    const body = await inbox(owner);
+    const strikes = body.items.filter((i) => i.category === "party_strike");
+    expect(strikes).toHaveLength(1);
+    const item = strikes[0]!;
+    expect(item.unread).toBe(true);
+    expect(body.unreadCount).toBe(1);
+    expect(item.detail).toMatchObject({ count: 2, held: 1, overran: 1, stalemate: 0, other: 0, notListed: 0 });
+    const feed = (await call(owner, "GET", "/me/party/feed")).json().entries as { jobId: string; coinEarned: number; coinTransferred: number; reputationDelta: number; ladderPointsGained: number; seq: number }[];
+    expect(feed).toHaveLength(2);
+    const sum = (k: "coinEarned" | "coinTransferred" | "reputationDelta" | "ladderPointsGained") => feed.reduce((a, e) => a + e[k], 0);
+    expect(item.detail).toMatchObject({ coinEarned: sum("coinEarned"), coinTransferred: sum("coinTransferred"), reputationDelta: sum("reputationDelta"), ladderPointsGained: sum("ladderPointsGained") });
+    expect(item.version).toBe(Math.max(...feed.map((e) => e.seq)));
+    // Each strike: what happened, where, what it earned, and the replay link.
+    const lines = item.detail.strikes!;
+    expect(lines.map((l) => l["jobId"])).toEqual([overran.jobId, held.jobId]);
+    expect(lines[0]).toMatchObject({ outcomeKind: "caravan_overrun", encounterIndex: 1, defender: { username: overran.defender.username, caravanName: overran.defender.caravanName, regionId: "desert" } });
+    expect(lines[1]).toMatchObject({ outcomeKind: "caravan_held", defender: { username: held.defender.username } });
+    // The strike's Coin is what the feed credited for that very job.
+    for (const l of lines) expect(l["coinEarned"]).toBe(feed.find((e) => e.jobId === l["jobId"])!.coinEarned);
+  });
+
+  it("never carries the struck player's account id (nor their caravan id)", async () => {
+    const text = JSON.stringify(await inbox(owner));
+    for (const d of [held.defender, overran.defender]) {
+      expect(text).not.toContain(d.accountId);
+      expect(text).not.toContain(d.caravanId);
+    }
+    expect(text).not.toMatch(/accountId/);
+  });
+
+  it("one tap from a strike lands on the replay: the route answers the owner for each listed job", async () => {
+    const lines = (await inbox(owner)).items[0]!.detail.strikes!;
+    for (const l of lines) {
+      const r = await call(owner, "GET", `/me/encounters/${encodeURIComponent(String(l["jobId"]))}/replay`);
+      expect(r.statusCode, r.body).toBe(200);
+      expect(r.json().viewer).toBe("party_owner");
+    }
+  });
+
+  it("the defender's inbox shows nothing of the party's side", async () => {
+    expect((await inbox(held.defender)).items.filter((i) => i.category === "party_strike")).toEqual([]);
+  });
+
+  it("read state is the server's: marking clears the badge, a later strike re-opens the batch, a stale mark cannot hide it", async () => {
+    const before = await inbox(owner);
+    const item = before.items[0]!;
+    const before_ledger = await ledgerCount(owner.accountId);
+    const marked = await call(owner, "POST", "/me/inbox/read", { marks: [{ key: item.key, version: item.version }] });
+    expect(marked.statusCode, marked.body).toBe(200);
+    expect(marked.json().unreadCount).toBe(0);
+    expect((await call(owner, "GET", "/me/inbox/unread")).json()).toEqual({ unreadCount: 0 });
+    expect(await ledgerCount(owner.accountId), "reading writes no ledger event").toBe(before_ledger);
+
+    // A third strike in the same window: the same item, a newer version, unread again.
+    await strike(owner, { kind: "caravan_held" });
+    const after = await inbox(owner);
+    expect(after.items.filter((i) => i.category === "party_strike")).toHaveLength(1);
+    const again = after.items[0]!;
+    expect(again.key).toBe(item.key);
+    expect(again.version).toBeGreaterThan(item.version);
+    expect(again.unread).toBe(true);
+    expect(again.detail["count"]).toBe(3);
+
+    // A replayed stale mark (the old version) keeps it unread; a mark ABOVE the current version is clamped to it.
+    expect((await call(owner, "POST", "/me/inbox/read", { marks: [{ key: item.key, version: item.version }] })).json().unreadCount).toBe(1);
+    expect((await call(owner, "POST", "/me/inbox/read", { marks: [{ key: item.key, version: Number.MAX_SAFE_INTEGER }] })).json().unreadCount).toBe(0);
+    const stored = await pool.query<{ version: number }>("SELECT version FROM inbox_read WHERE account_id = $1 AND item_key = $2", [owner.accountId, item.key]);
+    expect(stored.rows[0]!.version).toBe(again.version);
+  });
+
+  it("refuses marks for keys the inbox is not showing, and malformed bodies", async () => {
+    const other = await register();
+    const ownersKey = (await inbox(owner)).items[0]!.key;
+    expect((await call(other, "POST", "/me/inbox/read", { marks: [{ key: ownersKey, version: 1 }] })).json().error).toBe("unknown_item");
+    for (const bad of [null, [], {}, { all: false }, { all: true, marks: [] }, { marks: [] }, { marks: [{ key: ownersKey }] }, { marks: [{ key: ownersKey, version: -1 }] }, { marks: [{ key: ownersKey, version: 1, extra: 1 }] }, { nope: 1 }]) {
+      const r = await call(other, "POST", "/me/inbox/read", bad);
+      expect(r.statusCode, JSON.stringify(bad)).toBe(400);
+    }
+    expect((await pool.query("SELECT 1 FROM inbox_read WHERE account_id = $1", [other.accountId])).rowCount).toBe(0);
+  });
+
+  it("ten strikes in one window are one item with a count of ten, itemizing the newest INBOX_STRIKES_PER_ITEM", async () => {
+    const o = await register("ten");
+    const drafts = Array.from({ length: 10 }, (_, i) => ({
+      type: "party_served_as_encounter" as const,
+      accountId: o.accountId,
+      resolverVersion: 1,
+      payload: { jobId: `ten:${o.accountId}:${i}`, tripId: null, encounterIndex: 1 + (i % 3), defenderAccountId: held.defender.accountId, defenderCaravanId: held.defender.caravanId, outcome: { kind: i % 2 ? "caravan_held" : "caravan_overrun" } },
+    }));
+    // Fixture: the shape chunk 13's handler writes, one causation each, all within this window.
+    for (const [i, d] of drafts.entries()) await withTransaction(pool, (c) => appendEvents(c, `test:inbox:ten:${o.accountId}:${i}`, [d]));
+    const body = await inbox(o);
+    const strikes = body.items.filter((i) => i.category === "party_strike");
+    // Ten writes inside one second can straddle a window boundary at most once.
+    const total = strikes.reduce((a, i) => a + (i.detail["count"] as number), 0);
+    expect(total).toBe(10);
+    expect(strikes.length).toBeLessThanOrEqual(2);
+    if (strikes.length === 1) expect(strikes[0]!.detail).toMatchObject({ count: 10, held: 5, overran: 5, notListed: 10 - INBOX_STRIKES_PER_ITEM });
+    expect(JSON.stringify(body)).not.toContain(held.defender.accountId);
+    // Mark all.
+    const all = await call(o, "POST", "/me/inbox/read", { all: true });
+    expect(all.json().unreadCount).toBe(0);
+  });
+
+  it("opting out of strikes hides them from the list and the badge; opting back in restores them", async () => {
+    const o = await register("opt");
+    await withTransaction(pool, (c) =>
+      appendEvents(c, `test:inbox:opt:${o.accountId}`, [
+        { type: "party_served_as_encounter", accountId: o.accountId, resolverVersion: 1, payload: { jobId: `opt:${o.accountId}`, tripId: null, encounterIndex: 1, defenderAccountId: held.defender.accountId, defenderCaravanId: held.defender.caravanId, outcome: { kind: "caravan_held" } } },
+      ]),
+    );
+    expect((await call(o, "GET", "/me/inbox/unread")).json().unreadCount).toBe(1);
+    const off = await call(o, "PUT", "/me/inbox/preferences", { preferences: { party_strike: false } });
+    expect(off.statusCode, off.body).toBe(200);
+    expect(off.json()).toMatchObject({ items: [], unreadCount: 0 });
+    expect(off.json().preferences.find((p: { category: string }) => p.category === "party_strike")).toEqual({ category: "party_strike", enabled: false, defaultEnabled: true });
+    expect((await call(o, "GET", "/me/inbox/unread")).json().unreadCount).toBe(0);
+    expect((await call(o, "PUT", "/me/inbox/preferences", { preferences: { party_strike: true } })).json().unreadCount).toBe(1);
+    for (const bad of [{ preferences: { nope: true } }, { preferences: { party_strike: "yes" } }, { preferences: {} }, {}, { preferences: { party_strike: true }, x: 1 }]) {
+      expect((await call(o, "PUT", "/me/inbox/preferences", bad)).statusCode, JSON.stringify(bad)).toBe(400);
+    }
+  });
+});
+
+describe("timers in the inbox (off by default, read-only)", () => {
+  it("refugees arrived: a free menu owed at the drip's grid point, only when opted in, without touching the menu", async () => {
+    const p = await register("ref");
+    expect((await call(p, "GET", `/me/caravans/${p.caravanId}/refugees`)).statusCode).toBe(200); // bootstraps menu 1
+    const menu = (await pool.query<{ window_opened_at_ms: number }>("SELECT window_opened_at_ms FROM refugee_menu WHERE caravan_id = $1", [p.caravanId])).rows[0]!;
+    const due = Number(menu.window_opened_at_ms) + REFUGEE_REFRESH_INTERVAL_MS;
+    expect((await readInbox(appRole, p.accountId, due + 1)).items).toEqual([]); // off by default
+    await call(p, "PUT", "/me/inbox/preferences", { preferences: { refugees_arrived: true } });
+    expect((await readInbox(appRole, p.accountId, due - 1)).items).toEqual([]);
+    const body = await readInbox(appRole, p.accountId, due + 1);
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0]).toMatchObject({ category: "refugees_arrived", unread: true, detail: { caravanId: p.caravanId, caravanName: p.caravanName, arrivedAtMs: due, currentMenuUnclaimed: true } });
+    const rows = await pool.query("SELECT sequence FROM refugee_menu WHERE caravan_id = $1", [p.caravanId]);
+    expect(rows.rowCount, "the inbox never takes or writes a menu").toBe(1);
+  });
+
+  it("trip cap refilled: an item at the instant every use is back", async () => {
+    const p = await register("cap");
+    await call(p, "PUT", "/me/inbox/preferences", { preferences: { trip_cap_refilled: true } });
+    const units = await giveUnits(p, ["desert.dust_rider"]);
+    expect((await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units, traps: [], fence: null })).statusCode).toBe(201);
+    const t0 = Date.now();
+    expect((await call(p, "POST", `/me/caravans/${p.caravanId}/trip/start`)).statusCode).toBe(201);
+    const tat = Number((await pool.query<{ tat_ms: number }>("SELECT tat_ms FROM trip_cap WHERE account_id = $1", [p.accountId])).rows[0]!.tat_ms);
+    expect(tat).toBeGreaterThanOrEqual(t0 + TRIP_CAP_REGEN_MS);
+    expect((await readInbox(appRole, p.accountId, tat - 1)).items).toEqual([]);
+    const body = await readInbox(appRole, p.accountId, tat);
+    expect(body.items).toEqual([expect.objectContaining({ category: "trip_cap_refilled", key: `trip_cap:${tat}`, detail: { available: TRIPS_PER_HOUR_CAP, cap: TRIPS_PER_HOUR_CAP, fullAtMs: tat } })]);
+  });
+
+  it("mine near cap: from the trickle's read-only peek, and the read writes no ledger event", async () => {
+    const p = await register("mine");
+    await call(p, "PUT", "/me/inbox/preferences", { preferences: { mine_near_cap: true } });
+    expect((await inbox(p)).items).toEqual([]);
+    await withTransaction(pool, (c) => appendCoinCredits(c, { causationId: `test:inbox:mine:${p.accountId}`, accountId: p.accountId, credits: [{ amount: TUNABLES.COIN_STORAGE_CAP - 100, reason: "test_setup" }] }));
+    const n = await ledgerCount(p.accountId);
+    const body = await inbox(p);
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0]).toMatchObject({ category: "mine_near_cap", detail: { cap: TUNABLES.COIN_STORAGE_CAP, atCap: false } });
+    expect(body.items[0]!.detail["balance"]).toBeGreaterThanOrEqual(TUNABLES.COIN_STORAGE_CAP - 100);
+    expect(await ledgerCount(p.accountId)).toBe(n);
+  });
+
+  it("packs rotated: one item for a week that began after the account existed; it states the rotation and nothing else", async () => {
+    const p = await register("packs");
+    await call(p, "PUT", "/me/inbox/preferences", { preferences: { packs_rotated: true } });
+    expect((await inbox(p)).items, "this week began before the account").toEqual([]);
+    const next = weekIndexAt(Date.now()) + 1;
+    const body = await readInbox(appRole, p.accountId, weekBounds(next).startsAtMs + 1);
+    expect(body.items).toEqual([expect.objectContaining({ category: "packs_rotated", key: `packs:${next}`, detail: { weekIndex: next, ...weekBounds(next) } })]);
+  });
+});
+
+describe("schema guards against caravan_app (migration 017)", () => {
+  it("read marks only move forward, keys are shaped, categories are known; no TRUNCATE, no trigger toggling", async () => {
+    const p = await register("guard");
+    await appRole.query("INSERT INTO inbox_read (account_id, item_key, version) VALUES ($1, 'strike:1', 5)", [p.accountId]);
+    expect((await expectDbError(appRole, "UPDATE inbox_read SET version = 4 WHERE account_id = $1", [p.accountId]))?.message).toMatch(/only moves forward/);
+    expect((await expectDbError(appRole, "UPDATE inbox_read SET item_key = 'strike:2' WHERE account_id = $1", [p.accountId]))?.message).toMatch(/immutable/);
+    expect(await expectDbError(appRole, "UPDATE inbox_read SET version = 6 WHERE account_id = $1", [p.accountId])).toBeNull();
+    expect((await expectDbError(appRole, "INSERT INTO inbox_read (account_id, item_key, version) VALUES ($1, 'no key shape', 1)", [p.accountId]))?.code).toBe("23514");
+    expect((await expectDbError(appRole, "INSERT INTO inbox_read (account_id, item_key, version) VALUES ($1, 'strike:3', -1)", [p.accountId]))?.code).toBe("23514");
+    expect((await expectDbError(appRole, "INSERT INTO inbox_preference (account_id, category, enabled) VALUES ($1, 'store_deals', true)", [p.accountId]))?.code).toBe("23514");
+    expect((await expectDbError(appRole, "TRUNCATE inbox_read"))?.code).toBe("42501");
+    expect((await expectDbError(appRole, "ALTER TABLE inbox_read DISABLE TRIGGER inbox_read_forward_only"))?.code).toBe("42501");
+    expect((await expectDbError(appRole, "DROP TRIGGER inbox_read_forward_only ON inbox_read"))?.code).toBe("42501");
+  });
+
+  it("the inbox module never writes the ledger, never reaches the store or a debit, and never reads a defender account id into a response", () => {
+    const dir = join(HERE, "../src/inbox");
+    for (const f of readdirSync(dir)) {
+      const src = readFileSync(join(dir, f), "utf8");
+      expect(src, f).not.toMatch(/appendEvents|appendCoinCredits|spendCoin|accrueTrickle|from "\.\.\/store\//);
+      expect(src, f).not.toMatch(/INSERT INTO ledger_event|UPDATE ledger_event/);
+      expect(src, f).not.toMatch(/defenderAccountId/);
+    }
+  });
+});

@@ -110,6 +110,10 @@ function fakeApi(over: Partial<Api> = {}): Api {
     equipCosmetic: notCalled,
     unequipCosmetic: notCalled,
     replay: notCalled,
+    inbox: notCalled,
+    inboxUnread: notCalled,
+    markInboxRead: notCalled,
+    setInboxPreferences: notCalled,
     ...over,
   };
 }

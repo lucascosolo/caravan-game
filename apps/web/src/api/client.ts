@@ -49,6 +49,8 @@ import {
 } from "./shapes.ts";
 import { bankResultShape, encounterCommitShape, pushResultShape, stakesPreviewShape, tripStartShape, tripStatusShape } from "./tripShapes.ts";
 import { replayShape } from "./replayShapes.ts";
+import { inboxShape, inboxUnreadShape } from "./inboxShapes.ts";
+import type { InboxCategoryView, InboxMarkRequest, InboxUnreadView, InboxView } from "./inboxTypes.ts";
 import type { ReplayView } from "./replayTypes.ts";
 import type { BankResult, EncounterCommitResult, PushResult, StakesPreview, TripStartResult, TripStatusView } from "./tripTypes.ts";
 import type {
@@ -187,6 +189,11 @@ export interface Api {
   // The replay of a resolved encounter (chunk 13 route, chunk 22 player), for either
   // participant. 409 `not_resolved`, 410 `replay_expired`, 404 for anyone else.
   replay(jobId: string): Promise<ReplayView>;
+  // The in-app inbox (chunk 29 routes). Derived by the server; read state is the server's.
+  inbox(): Promise<InboxView>;
+  inboxUnread(): Promise<InboxUnreadView>;
+  markInboxRead(req: InboxMarkRequest): Promise<InboxView>;
+  setInboxPreferences(preferences: Partial<Record<InboxCategoryView, boolean>>): Promise<InboxView>;
 }
 
 function isErrorBody(value: unknown): value is ApiErrorBody {
@@ -287,5 +294,9 @@ export function createApi(opts: ApiOptions): Api {
     equipCosmetic: (cosmeticId) => request("POST", "/me/cosmetics/equip", equipResultShape, { cosmeticId }),
     unequipCosmetic: (slot) => request("POST", "/me/cosmetics/unequip", unequipResultShape, { slot }),
     replay: (jobId) => request("GET", `/me/encounters/${encodeURIComponent(jobId)}/replay`, replayShape),
+    inbox: () => request("GET", "/me/inbox", inboxShape),
+    inboxUnread: () => request("GET", "/me/inbox/unread", inboxUnreadShape),
+    markInboxRead: (req) => request("POST", "/me/inbox/read", inboxShape, req),
+    setInboxPreferences: (preferences) => request("PUT", "/me/inbox/preferences", inboxShape, { preferences }),
   };
 }
