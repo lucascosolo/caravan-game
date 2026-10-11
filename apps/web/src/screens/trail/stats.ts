@@ -7,7 +7,7 @@
  * `emphasis` says which the caller is drawing bigger — defense for a posted unit, offense
  * for an attacker.
  */
-import { FIXED_POINT_SCALE, getUnitType, mergeStatMult, scaleInt, type Ability, type AffinityCategory } from "@caravan/content";
+import { FIXED_POINT_SCALE, getUnitType, type Ability, type AffinityCategory } from "@caravan/content";
 import type { ManifestUnit } from "@caravan/circle";
 import { fixedToText, millisToText } from "../webs/catalogue.ts";
 import { STRINGS } from "../../strings.ts";
@@ -75,7 +75,6 @@ function abilityOf(a: Ability): UnitCard["ability"] {
 export function defenderCard(u: ManifestUnit): UnitCard | null {
   const t = getUnitType(u.typeId);
   if (!t) return null;
-  const mult = mergeStatMult(u.mergeLevel);
   return {
     ref: u.ref,
     typeId: u.typeId,
@@ -84,9 +83,11 @@ export function defenderCard(u: ManifestUnit): UnitCard | null {
     mergeLevel: u.mergeLevel,
     hp: u.hp,
     maxHp: u.maxHp,
+    // Ratings never merge-scale (chunk 03 QA B1; chunk 09 QA X1 made `toBattlefield` hand the
+    // resolver the unscaled defense). Merge scales HP and damage output only: `hp` / `maxHp`
+    // above are the manifest's, already at this merge level.
     offense: t.offense,
-    // What the battlefield carries for a post (chunk 07 toBattlefield): defense × merge multiplier.
-    defense: scaleInt(t.defense, mult),
+    defense: t.defense,
     emphasis: "defense",
     lines: [
       { label: S.moveSpeed, value: fixedToText(t.moveSpeed) },

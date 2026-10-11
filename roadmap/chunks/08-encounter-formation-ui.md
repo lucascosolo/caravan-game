@@ -207,8 +207,10 @@ reload shows it locked). `scripts/e2e.mjs` seeds a run-unique account, packs via
 and opens the trip with chunk 14's `createTrip` SQL (the trip route is chunk 15's).
 
 **Decisions / flags for QA.**
-- Posted-unit defense is shown as `scaleInt(type.defense, mergeStatMult(level))`, matching
-  what chunk 07's `toBattlefield` hands the resolver; attacker ratings are the view's.
+- Posted-unit defense is shown UNSCALED (`type.defense`), matching what chunk 07's
+  `toBattlefield` hands the resolver since chunk 09's QA X1: ratings never merge-scale, only
+  HP and damage output do (chunk 03 QA B1). HP is the manifest's, already at merge level.
+  Attacker ratings are the view's. (Integration fix at merge; `stats.test.ts` pins it.)
 - The canvas is `position: sticky` so a drag from the tray always has the ground in view;
   everything in the screen has `scroll-margin-top` so focus/scroll-into-view lands below it.
 - Siege has no cell in the model; the scene draws it beside the party's first entry edge.
