@@ -8,6 +8,7 @@
  * In every case: no job commits more than once, balances equal the sum of the log, and
  * the party template is byte-identical afterwards.
  */
+import { TUNABLES } from "@caravan/content";
 import { RESOLVER_VERSION } from "@caravan/resolver";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startingRosterTypes } from "../src/acquisition/startingRoster.js";
@@ -126,7 +127,7 @@ describe("many resolutions for one account at once", () => {
     // trips for one account racing each other.
     const b = await pool.query<{ id: string }>("INSERT INTO caravan (account_id, region_id, name) VALUES ($1, 'badlands', 'B') RETURNING id", [accountId]);
     caravanB = b.rows[0]!.id;
-    await pool.query("INSERT INTO pool_progress (pool, caravan_id, reputation) VALUES ('living', $1, 1000)", [caravanB]);
+    await pool.query("INSERT INTO pool_progress (pool, caravan_id, reputation) VALUES ('living', $1, $2)", [caravanB, TUNABLES.REPUTATION_START]);
   });
 
   it("balances equal the sum of the log; no job commits twice; both caravans' ladders are right", async () => {

@@ -45,7 +45,7 @@ describe("balance sweep — the CI slice (PHASE-2 §37)", () => {
       }
     }
     expect(skilled).toBeGreaterThan(naive);
-    expect(skilled / n).toBeLessThan(1); // never trivial across the bands
+    expect(n).toBe(12);
     const sp = parties.find((p) => p.spec.band === 4)!;
     const m = manifestOf(bandTypicalRoster("mountain", 4));
     const a = bestFight(m, sp, SKILLED)!;

@@ -207,9 +207,9 @@
     },
     "nextEncounter": {
       "index": 1,
-      "reward": 1000,
-      "band": 3,
-      "bankTotalIfSurvived": 1125,
+      "reward": 600,
+      "band": 1,
+      "bankTotalIfSurvived": 725,
       "difficulty": {
         "escalationApplied": -150,
         "risePerEncounter": 15

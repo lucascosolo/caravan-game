@@ -27,18 +27,18 @@
       "perUnit": {
         "hp": 620,
         "offense": 95,
-        "defense": 55,
+        "defense": 83,
         "damageOutputMult": 1024,
         "multDen": 1024,
-        "referenceHit": 60
+        "referenceHit": 50
       },
       "combined": {
         "hp": 1240,
         "offense": 95,
-        "defense": 55,
+        "defense": 83,
         "damageOutputMult": 1024,
         "multDen": 1024,
-        "referenceHit": 120
+        "referenceHit": 100
       }
     },
     "produced": {
@@ -47,18 +47,18 @@
       "perUnit": {
         "hp": 775,
         "offense": 95,
-        "defense": 55,
+        "defense": 83,
         "damageOutputMult": 1280,
         "multDen": 1024,
-        "referenceHit": 75
+        "referenceHit": 62
       },
       "combined": {
         "hp": 775,
         "offense": 95,
-        "defense": 55,
+        "defense": 83,
         "damageOutputMult": 1280,
         "multDen": 1024,
-        "referenceHit": 75
+        "referenceHit": 62
       }
     },
     "slotsFreed": 1,

@@ -127,7 +127,7 @@ describe("GET /me/party on a fresh account", () => {
     expect(v.rules).toEqual({ template: true, neverConsumed: true, unitsMayAlsoBePackedOnTrips: true, ratingInUse: "offense", stances: ["nearest", "traps", "core"] });
     // The two given, plus the starting roster every caravan is created with (chunk 24 QA D1).
     expect(v.roster.length).toBe(2 + startingRosterTypes("desert").length);
-    expect(v.roster.find((r: { instanceId: string }) => r.instanceId === p.units[0])).toMatchObject({ typeId: "desert.dust_rider", mergeLevel: 1, slotCost: 1, offense: 95, defense: 55, unlocked: true, inParty: false, packedOnTrip: false, aliveOnTrip: null });
+    expect(v.roster.find((r: { instanceId: string }) => r.instanceId === p.units[0])).toMatchObject({ typeId: "desert.dust_rider", mergeLevel: 1, slotCost: 1, offense: 95, defense: 83, unlocked: true, inParty: false, packedOnTrip: false, aliveOnTrip: null });
     expect(v.siegeCatalog.map((s: { typeId: string; unlocked: boolean }) => [s.typeId, s.unlocked])).toEqual([
       ["siege.battering_wagon", true],
       ["siege.fence_cutters", false],

@@ -244,7 +244,8 @@ describe("chunk 12 QA: defensive stalemate farming — the worst-case healer tur
         }
         rows.push(`${stance} turtle vs ${size} raiders L${level}: held ${held}/8 with healers, ${heldWithout}/8 with tanks instead; healing offset ${((100 * healed) / taken).toFixed(1)}% of post damage`);
         expect(held, rows[rows.length - 1]).toBeLessThanOrEqual(4);
-        expect(held - heldWithout, rows[rows.length - 1]).toBeLessThanOrEqual(1);
+        // Chunk 37 balance pass: ≤ 1 → ≤ 2. Healing now offsets ~16 % of post damage (nearer the 25–35 % target than v6's 7.5–16 %), so it may turn two of eight losses into holds; the turtle stays unreliable (the ≤ 4 bar above).
+        expect(held - heldWithout, rows[rows.length - 1]).toBeLessThanOrEqual(2);
       }
     }
     process.stdout.write(`healer turtle sweep:\n  ${rows.join("\n  ")}\n`);
@@ -383,12 +384,12 @@ describe("chunk 12 QA: attrition still bites — release gate", () => {
   // caravan up between fights would put it back near 100 %.)
   const DEGRADED_BELOW = 0.9;
   /**
-   * Raiders per light encounter. Chunk 37 balance pass (BALANCE-LOG.md): 2 → 3. With defense
+   * Raiders per light encounter. Chunk 37 balance pass (BALANCE-LOG.md): 2 → 4. With defense
    * ratings ×1.5 two level-1 raiders barely scratch the turtle, so there was nothing left for
-   * healing to undo and the gate measured nothing; three keeps the encounters light (all survived)
-   * but real.
+   * healing to undo and the gate measured nothing; with four every encounter is still survived
+   * but costs real HP (measured: arrival 8–40 % with healing, 1–17 % without; delta 7–25 points).
    */
-  const LIGHT_RAIDERS = 3;
+  const LIGHT_RAIDERS = 4;
 
   /** The same circle with the healers' satchels emptied of effect (healFraction 0): identical units, positions and fights otherwise. */
   function noHealing(circle: ReturnType<typeof turtleCircle>): ReturnType<typeof turtleCircle> {

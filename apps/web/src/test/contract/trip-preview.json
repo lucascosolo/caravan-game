@@ -7,24 +7,24 @@
     "decisionOpen": true,
     "decisionFor": 1,
     "unbankedCoin": {
-      "total": 1000,
+      "total": 600,
       "byEncounter": [
         {
           "index": 1,
-          "coin": 1000
+          "coin": 600
         }
       ]
     },
     "bankNow": {
-      "encounterCoin": 1000,
+      "encounterCoin": 600,
       "deliveryBonus": 125,
-      "total": 1125,
+      "total": 725,
       "forecast": {
         "balance": 1000,
         "cap": 50000,
         "room": 49000,
-        "prospectiveEarn": 1125,
-        "wouldCredit": 1125,
+        "prospectiveEarn": 725,
+        "wouldCredit": 725,
         "wouldDiscard": 0,
         "atCap": false
       },
@@ -66,7 +66,7 @@
       }
     ],
     "ifOverrun": {
-      "coinLost": 1000,
+      "coinLost": 600,
       "unitsLostOutright": [
         {
           "ref": "00000000-0000-4000-8000-000000000002",
@@ -227,9 +227,9 @@
     },
     "nextEncounter": {
       "index": 2,
-      "reward": 1347,
-      "band": 3,
-      "bankTotalIfSurvived": 2597,
+      "reward": 808,
+      "band": 1,
+      "bankTotalIfSurvived": 1658,
       "difficulty": {
         "escalationApplied": 15,
         "risePerEncounter": 15,
@@ -241,11 +241,11 @@
       "encounterIndex": 1,
       "reputation": {
         "band": {
-          "low": 1000,
-          "high": 1299,
-          "index": 3
+          "low": 400,
+          "high": 699,
+          "index": 1
         },
-        "rating": 1000,
+        "rating": 400,
         "gapBeyondBand": 0,
         "gapFromCaravan": 0,
         "sandbagEarnMultiplier": 1024

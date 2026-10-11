@@ -74,7 +74,7 @@ describe("the replay player, the caravan's side (the server's recorded fight)", 
     expect(within(summary).getByTestId("replay-depth-explained")).toHaveTextContent(STRINGS.replay.depthExplained);
     expect(within(summary).getByTestId("replay-loot")).toHaveTextContent(`Loot reported for the raiding party's owner: ${view.outcome!.loot} Coin.`);
     expect(within(summary).getByTestId("replay-tally")).toHaveTextContent("Raiders down: 2 of 2");
-    expect(within(summary).getByTestId("replay-tally")).toHaveTextContent("Your posted units down: 1 of 2");
+    expect(within(summary).getByTestId("replay-tally")).toHaveTextContent("Your posted units down: 0 of 2");
     expect(within(summary).getByTestId("replay-tally")).toHaveTextContent("Traps sprung: 1 of 1");
     // No end card before the end; the canvas has every unit at tick 0, and the lattice is off (nothing is being placed).
     expect(screen.queryByTestId("replay-end-card")).toBeNull();
@@ -88,21 +88,21 @@ describe("the replay player, the caravan's side (the server's recorded fight)", 
     const view = replayCaravan();
     await renderPlayer(view);
     const ticks = (view.log as { ticks: number }).ticks;
-    scrubTo(369);
+    scrubTo(519);
     const feed = screen.getByTestId("replay-feed");
-    expect(feed).toHaveTextContent("Your Spike Pit sprang on the raiders' Well Digger: 250 damage.");
-    expect(feed).not.toHaveTextContent("fell.");
+    expect(feed).toHaveTextContent("Your Spike Pit sprang on the raiders' Well Digger: 375 damage.");
+    expect(feed).not.toHaveTextContent("raiders' Well Digger fell.");
     expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-spent", "1");
     scrubTo(ticks - 1);
     const end = screen.getByTestId("replay-end-card");
     expect(end).toHaveAttribute("data-outcome", view.outcome!.kind);
     expect(end).toHaveTextContent("End of the fight");
     expect(end).toHaveTextContent("Your caravan held.");
-    expect(feed).toHaveTextContent("Your Well Digger 1 fell.");
-    expect(feed).toHaveTextContent("The raiders' Dust Rider used Spur On: dashed");
-    expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-units", "1");
+    expect(feed).not.toHaveTextContent("Your Well Digger 1 fell.");
+    expect(feed).toHaveTextContent("The raiders' Well Digger fell.");
+    expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-units", "2");
     expect(screen.getByTestId("replay-play")).toHaveTextContent("Watch again");
-    expect(screen.getByTestId("replay-time")).toHaveTextContent(/^0:39 \/ 0:39$/);
+    expect(screen.getByTestId("replay-time")).toHaveTextContent(/^0:30 \/ 0:30$/);
   });
 
   it("key moments hide the hits; everything shows them again", async () => {
@@ -127,7 +127,7 @@ describe("the replay player, the caravan's side (the server's recorded fight)", 
     expect(Number(scrub.value)).toBe(2 * interval - 1);
     await userEvent.click(screen.getByTestId("replay-prev-keyframe"));
     expect(Number(scrub.value)).toBe(interval - 1);
-    expect(scrub).toHaveAttribute("aria-valuetext", "0:04 of 0:39");
+    expect(scrub).toHaveAttribute("aria-valuetext", "0:04 of 0:30");
     await userEvent.click(screen.getByTestId("replay-to-end"));
     expect(screen.getByTestId("replay-end-card")).toBeInTheDocument();
   });

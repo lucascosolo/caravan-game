@@ -181,7 +181,7 @@ describe("FormationScreen", () => {
     expect(tray.getByTestId("fence-destroyed-heading")).toHaveTextContent("Destroyed segments");
     expect(screen.getByTestId("iso-canvas").getAttribute("data-attackers")).toBe(String(scout.scout.units.length));
     // Both ratings for a defender, defense emphasized.
-    const pair = tray.getAllByRole("group", { name: /Offense 95, Defense 55/ })[0]!;
+    const pair = tray.getAllByRole("group", { name: /Offense 95, Defense 83/ })[0]!;
     expect(pair.querySelector(".statpair__stat--big .statpair__lbl")?.textContent).toBe("Defense");
     // N2: a chip's accessible name is its content.
     for (const b of screen.getByTestId("manifest-tray").querySelectorAll(".chip__btn")) expect(b.hasAttribute("aria-label")).toBe(false);

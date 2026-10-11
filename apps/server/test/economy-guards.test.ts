@@ -104,8 +104,8 @@ describe("earn schedule", () => {
 
   it("chunk 19 QA D2a: encounter Coin scales with the living display band, +COIN_ENCOUNTER_BAND_SCALE_BP per band, floored; the delivery does not", () => {
     expect(TUNABLES.COIN_ENCOUNTER_BAND_SCALE_BP).toBe(5000);
-    // REPUTATION_START (1000) is display band 3: × 2.5.
-    expect(bandOf(TUNABLES.REPUTATION_START).index).toBe(3);
+    // REPUTATION_START (400 since the chunk 37 balance pass) is display band 1: × 1.5. Band 3 is × 2.5.
+    expect(bandOf(TUNABLES.REPUTATION_START).index).toBe(1);
     expect(encounterCoinSchedule(5, 3)).toEqual([1000, 1347, 1817, 2452, 3307]);
     expect(encounterCoinSchedule(3, 1)).toEqual([600, 808, 1090]);
     for (let band = 0; band <= 12; band++) {
