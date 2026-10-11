@@ -13,7 +13,12 @@
 import type {
   AuthResponse,
   ApiErrorBody,
+  FormationBody,
+  FormationView,
+  IssueView,
+  ManifestView,
   MeResponse,
+  PackManifestRequest,
   ProgressionResponse,
   SpendRequest,
   SpendResult,
@@ -27,6 +32,8 @@ export class ApiError extends Error {
     public readonly status: number,
     public readonly code: string,
     message: string,
+    /** Chunk 07's validation errors carry every issue at once; surfaced exactly, never summarized. */
+    public readonly issues: readonly IssueView[] = [],
   ) {
     super(message);
     this.name = "ApiError";
@@ -56,6 +63,12 @@ export interface Api {
   unlocks(): Promise<UnlocksResponse>;
   progression(): Promise<ProgressionResponse>;
   spendUnlock(req: SpendRequest): Promise<SpendResult>;
+  // Wagon circle (chunk 07 routes). All owner-only; a foreign caravan is a 404.
+  packManifest(caravanId: string, req: PackManifestRequest): Promise<{ manifest: ManifestView }>;
+  manifest(caravanId: string): Promise<{ manifest: ManifestView }>;
+  saveFormation(caravanId: string, encounterIndex: number, formation: FormationBody): Promise<{ formation: FormationView }>;
+  formation(caravanId: string, encounterIndex: number): Promise<{ formation: FormationView }>;
+  commitFormation(caravanId: string, encounterIndex: number): Promise<{ formation: FormationView }>;
 }
 
 function isErrorBody(value: unknown): value is ApiErrorBody {
@@ -91,7 +104,10 @@ export function createApi(opts: ApiOptions): Api {
     }
     if (!res.ok) {
       if (res.status === 401) opts.onUnauthorized?.();
-      if (isErrorBody(parsed)) throw new ApiError(res.status, parsed.error, parsed.message);
+      if (isErrorBody(parsed)) {
+        const issues = (parsed as { issues?: unknown }).issues;
+        throw new ApiError(res.status, parsed.error, parsed.message, Array.isArray(issues) ? (issues as IssueView[]) : []);
+      }
       throw new ApiError(res.status, "http_error", `${res.status} ${res.statusText}`.trim());
     }
     return parsed as T;
@@ -105,5 +121,10 @@ export function createApi(opts: ApiOptions): Api {
     unlocks: () => request("GET", "/me/unlocks"),
     progression: () => request("GET", "/me/progression"),
     spendUnlock: (req) => request("POST", "/me/unlocks/spend", req),
+    packManifest: (caravanId, req) => request("POST", `/caravans/${encodeURIComponent(caravanId)}/manifest`, req),
+    manifest: (caravanId) => request("GET", `/caravans/${encodeURIComponent(caravanId)}/manifest`),
+    saveFormation: (caravanId, n, formation) => request("PUT", `/caravans/${encodeURIComponent(caravanId)}/encounters/${n}/formation`, formation),
+    formation: (caravanId, n) => request("GET", `/caravans/${encodeURIComponent(caravanId)}/encounters/${n}/formation`),
+    commitFormation: (caravanId, n) => request("POST", `/caravans/${encodeURIComponent(caravanId)}/encounters/${n}/formation/commit`),
   };
 }

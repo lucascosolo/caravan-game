@@ -42,6 +42,14 @@ function run(cmd, args, opts = {}) {
 const seedCode = await run(process.execPath, [seedEntry], { env });
 if (seedCode !== 0) process.exit(seedCode);
 
+// 1b. Chunk 08: a run-unique account for the formation e2e. Trip state (a locked manifest,
+// a committed formation) is never reset by design, so the formation spec needs an account
+// that starts in town every run. Same roster as `dev` (seed.ts honours the override).
+const formationUser = process.env.E2E_FORMATION_USERNAME ?? `e2e_formation_${Date.now().toString(36)}`;
+const formationPassword = process.env.E2E_FORMATION_PASSWORD ?? "e2epassword";
+const seed2 = await run(process.execPath, [seedEntry], { env: { ...env, SEED_USERNAME: formationUser, SEED_PASSWORD: formationPassword } });
+if (seed2 !== 0) process.exit(seed2);
+
 // 2. Start the built server and wait for /health.
 const server = spawn(process.execPath, [serverEntry], { cwd: repoRoot, env, stdio: ["ignore", "inherit", "inherit"] });
 let serverExited = false;
@@ -68,7 +76,9 @@ if (!healthy) {
 // 3. Playwright against vite preview (its /api proxy points at this server).
 let code = 1;
 try {
-  code = await run("pnpm", ["--filter", "@caravan/web", "e2e"], { env: { ...process.env, CARAVAN_API_URL: `http://${host}:${port}` } });
+  code = await run("pnpm", ["--filter", "@caravan/web", "e2e"], {
+    env: { ...process.env, CARAVAN_API_URL: `http://${host}:${port}`, E2E_FORMATION_USERNAME: formationUser, E2E_FORMATION_PASSWORD: formationPassword },
+  });
 } finally {
   server.kill("SIGTERM");
   await new Promise((r) => {

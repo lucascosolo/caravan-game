@@ -1,6 +1,7 @@
 import { useSession, SessionProvider } from "./auth/session.tsx";
 import { LoginScreen } from "./screens/login/LoginScreen.tsx";
 import { Placeholder } from "./screens/Placeholder.tsx";
+import { TrailScreen } from "./screens/trail/TrailScreen.tsx";
 import { WebsScreen } from "./screens/webs/WebsScreen.tsx";
 import { AppShell } from "./shell/AppShell.tsx";
 import { useRoute } from "./shell/router.tsx";
@@ -24,7 +25,7 @@ function Routed(): JSX.Element {
       screen = <WebsScreen />;
       break;
     case "trail":
-      screen = <Placeholder title={STRINGS.tabs.trail} body={STRINGS.placeholder.trail} />;
+      screen = <TrailScreen />;
       break;
     case "party":
       screen = <Placeholder title={STRINGS.tabs.party} body={STRINGS.placeholder.party} />;
