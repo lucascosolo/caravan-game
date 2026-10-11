@@ -88,9 +88,9 @@ describe("deterministic ids and idempotent enqueue", () => {
     expect((await getJob(pool, a.job.id))!.input).toEqual(a.job.input);
     expect((await listEventsByCausation(pool, `enqueue:${a.job.id}`)).length).toBe(1);
     // The generic queue applies the same rule to any job id.
-    await enqueueJob(pool, { id: "test:conflict", kind: TEST_COIN_KIND, accountId: defender.accountId, caravanId: defender.caravanId, input: { amount: 1 } });
-    expect((await enqueueJob(pool, { id: "test:conflict", kind: TEST_COIN_KIND, accountId: defender.accountId, caravanId: defender.caravanId, input: { amount: 1 } })).created).toBe(false);
-    await expect(enqueueJob(pool, { id: "test:conflict", kind: TEST_COIN_KIND, accountId: defender.accountId, caravanId: defender.caravanId, input: { amount: 2 } })).rejects.toBeInstanceOf(JobInputConflictError);
+    await enqueueJob(pool, { id: "test:conflict", kind: TEST_COIN_KIND, accountId: defender.accountId, caravanId: defender.caravanId, input: { resolverVersion: RESOLVER_VERSION, amount: 1 } });
+    expect((await enqueueJob(pool, { id: "test:conflict", kind: TEST_COIN_KIND, accountId: defender.accountId, caravanId: defender.caravanId, input: { resolverVersion: RESOLVER_VERSION, amount: 1 } })).created).toBe(false);
+    await expect(enqueueJob(pool, { id: "test:conflict", kind: TEST_COIN_KIND, accountId: defender.accountId, caravanId: defender.caravanId, input: { resolverVersion: RESOLVER_VERSION, amount: 2 } })).rejects.toBeInstanceOf(JobInputConflictError);
   });
 
   it("the job input carries both snapshots and the resolver version", async () => {
@@ -170,7 +170,7 @@ describe("lease, complete, retry, park", () => {
       kind: TEST_COIN_KIND,
       accountId: defender.accountId,
       caravanId: defender.caravanId,
-      input: { amount: 17 },
+      input: { resolverVersion: RESOLVER_VERSION, amount: 17 },
     });
     const coinBefore = (await readLiveProjection(pool, defender.accountId)).coinBalance;
     let crashes = 0;
@@ -212,7 +212,7 @@ describe("lease, complete, retry, park", () => {
         throw new Error("always fails");
       },
     };
-    const { job } = await enqueueJob(pool, { id: "test:boom", kind: "boom", accountId: defender.accountId, caravanId: defender.caravanId, input: {} });
+    const { job } = await enqueueJob(pool, { id: "test:boom", kind: "boom", accountId: defender.accountId, caravanId: defender.caravanId, input: { resolverVersion: RESOLVER_VERSION } });
     const outcomes = await drain(pool, { workerId: "w1", handlers: boom, retryBackoffMs });
     expect(outcomes.map((o) => o.kind)).toEqual(Array(JOB_MAX_ATTEMPTS).fill("failed"));
     const parked = (await getJob(pool, job.id))!;
@@ -222,14 +222,14 @@ describe("lease, complete, retry, park", () => {
   });
 
   it("an unknown job kind fails and parks rather than committing anything", async () => {
-    await enqueueJob(pool, { id: "test:unknown", kind: "no_such_kind", accountId: defender.accountId, caravanId: defender.caravanId, input: {} });
+    await enqueueJob(pool, { id: "test:unknown", kind: "no_such_kind", accountId: defender.accountId, caravanId: defender.caravanId, input: { resolverVersion: RESOLVER_VERSION } });
     const outcomes = await drain(pool, { workerId: "w1", handlers, retryBackoffMs });
     expect(outcomes.every((o) => o.kind === "failed")).toBe(true);
     expect((await getJob(pool, "test:unknown"))!.status).toBe("parked");
   });
 
   it("an expired lease can be re-leased, and the stale worker's completion is refused", async () => {
-    const { job } = await enqueueJob(pool, { id: "test:fence", kind: TEST_COIN_KIND, accountId: defender.accountId, caravanId: defender.caravanId, input: { amount: 5 } });
+    const { job } = await enqueueJob(pool, { id: "test:fence", kind: TEST_COIN_KIND, accountId: defender.accountId, caravanId: defender.caravanId, input: { resolverVersion: RESOLVER_VERSION, amount: 5 } });
     const coinBefore = (await readLiveProjection(pool, defender.accountId)).coinBalance;
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
@@ -248,7 +248,7 @@ describe("lease, complete, retry, park", () => {
   });
 
   it("a lease that would exceed max_attempts parks the job instead", async () => {
-    await enqueueJob(pool, { id: "test:expire-park", kind: TEST_COIN_KIND, accountId: defender.accountId, caravanId: defender.caravanId, input: { amount: 1 }, maxAttempts: 1 });
+    await enqueueJob(pool, { id: "test:expire-park", kind: TEST_COIN_KIND, accountId: defender.accountId, caravanId: defender.caravanId, input: { resolverVersion: RESOLVER_VERSION, amount: 1 }, maxAttempts: 1 });
     const never = new Promise<void>(() => undefined);
     void runOnce(pool, { workerId: "stuck", handlers, retryBackoffMs, visibilityTimeoutMs: 1, beforeComplete: () => never });
     await sleep(30);
@@ -278,7 +278,7 @@ describe("history is frozen", () => {
       const err = await expectDbError(pool, sql, [job.id]);
       expect(err?.code, sql).toBe("23514");
     }
-    const queued = await enqueueJob(pool, { id: "test:immutable-input", kind: TEST_COIN_KIND, accountId: defender.accountId, caravanId: defender.caravanId, input: { amount: 1 } });
+    const queued = await enqueueJob(pool, { id: "test:immutable-input", kind: TEST_COIN_KIND, accountId: defender.accountId, caravanId: defender.caravanId, input: { resolverVersion: RESOLVER_VERSION, amount: 1 } });
     expect((await expectDbError(pool, "UPDATE resolution_job SET input = '{\"amount\": 2}' WHERE id = $1", [queued.job.id]))?.code).toBe("23514");
     expect((await expectDbError(pool, "UPDATE resolution_job SET attempts = 0 WHERE id = $1", [job.id]))?.code).toBe("23514");
   });

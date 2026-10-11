@@ -90,6 +90,10 @@ export interface ResolutionJobRow {
   result: Record<string, unknown> | null;
   created_at: Date;
   completed_at: Date | null;
+  /** Operator requeue audit (QA-02 R2-S3): written only by resolution_job_requeue(). */
+  requeued_at: Date | null;
+  requeued_by: string | null;
+  requeue_count: number;
 }
 
 export interface StandingPartyRow {

@@ -679,3 +679,48 @@ clean. `DATABASE_URL=...caravan_test_qa02 pnpm --filter @caravan/server ledger:r
 unfenced signatures); its reproductions live in the regression file instead.
 
 **Next:** QA re-audit of chunk 02 (status stays `built` until QA signs off).
+
+### 2026-10-11 — chunk 02 QA round 2 closed
+
+Maker closed R2-S1–S4 and R2-N1–N3 from `roadmap/qa/02-punchlist.md` (details per item
+there). Migration 002 and `db/roles.sql` edited in place (nothing deployed). Regression
+file: `apps/server/test/qa02-round2.test.ts` (18 tests, the reviewer's fence-probe
+reproductions); the round-1 B1a regression in `qa02-regressions.test.ts` was rewritten
+for the new leasing rule; `jobs.test.ts` / `concurrency.test.ts` stamp `resolverVersion`.
+
+**Signature / behaviour changes other chunks should know about** (all in `src/jobs`;
+`enqueueEncounterResolution` and the worker's public surface are unchanged):
+
+- **Every job input must carry an integer `resolverVersion`** (CHECK, R2-S1). Any chunk
+  that calls `enqueueJob` directly (none in `src` today besides the encounter handler)
+  must stamp it; `enqueueEncounterResolution` already does.
+- **A worker leases only jobs for its own `RESOLVER_VERSION`** (R2-S2).
+  `leaseNextJob(db, workerId, visibilityTimeoutMs, resolverVersion = RESOLVER_VERSION)`;
+  a job for another version stays queued, untouched, until a worker on that version runs.
+  Chunk 13's version bump therefore strands nothing and parks nothing during a rolling
+  deploy; it only has to bump the constant.
+- **Job state moves only through SQL functions** (R2-S3): `resolution_job_{lease,
+  complete,fail,park,requeue}` are SECURITY DEFINER (owner, pinned `search_path`), and
+  the app role has no UPDATE on `status, leased_by, attempts, lease_expires_at,
+  requeued_at, requeued_by, requeue_count`. `queue.ts` keeps its exported names and
+  signatures and calls the functions. **Re-run `db/roles.sql` after migrating**
+  (`pnpm db:migrate` / `db:reset` do; the test suite's global setup does).
+- `requeueParkedJob(db, id, { extraAttempts?, requeuedBy? })` records
+  `requeued_at / requeued_by / requeue_count` on the row (`ResolutionJobRow` gained the
+  three columns); `requeuedBy` defaults to `DEFAULT_REQUEUED_BY` (`"operator"`).
+- Trigger + CHECK tightening (R2-S4, N3): `completed` only from `leased` by the lease
+  holder; a lease must increase `attempts`; `parked` only from `leased`; a queued row has
+  `attempts < max_attempts`; `result`/`completed_at` only on a completed row. Nothing in
+  `src` took any of the refused transitions; an owner-connection script that flips a
+  parked job back to `queued` by hand must now also raise `max_attempts` (or call
+  `requeueParkedJob`).
+- Park-on-exhaustion records `leased_by = NULL` (R2-N1); the lease clock is
+  `clock_timestamp()` (R2-N2).
+
+**Verification** (isolated worktree off `roadmap/phase-2-spec` @ 443f122):
+`cd apps/server && TEST_DATABASE_URL=...caravan_test_f02 npx vitest run` → 17 files,
+242 tests passing, twice in a row. Root `pnpm typecheck`, `pnpm lint`, `pnpm test:boundary`
+clean. The probe file itself was not re-run (it imports from the shared checkout and P5/P7
+assert the old lenient behaviour on purpose); its cases live in the regression file.
+
+**Next:** QA re-audit of chunk 02 round 2 (status stays `built` until QA signs off).

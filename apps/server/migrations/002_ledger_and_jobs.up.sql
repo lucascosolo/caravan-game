@@ -336,14 +336,40 @@ CREATE TABLE resolution_job (
   result           jsonb,
   created_at       timestamptz NOT NULL DEFAULT now(),
   completed_at     timestamptz,
+  -- QA-02 R2-S3: the operator path leaves a record. Written only by resolution_job_requeue()
+  -- (the app role cannot UPDATE these columns, db/roles.sql).
+  requeued_at      timestamptz,
+  requeued_by      text,
+  requeue_count    integer     NOT NULL DEFAULT 0,
   CONSTRAINT resolution_job_input_is_object   CHECK (jsonb_typeof(input) = 'object'),
+  -- QA-02 R2-S1: every job names the resolver version it was enqueued for, as an integer
+  -- JSON number in int4 range (the lease filters on it, R2-S2). A missing, null, string or
+  -- fractional version is refused at enqueue, never treated as "any version".
+  CONSTRAINT resolution_job_input_has_resolver_version CHECK (
+    jsonb_is_integer(input->'resolverVersion')
+    AND (input->>'resolverVersion')::numeric BETWEEN 0 AND 2147483647
+  ),
   CONSTRAINT resolution_job_max_attempts_pos  CHECK (max_attempts > 0),
   CONSTRAINT resolution_job_attempts_nonneg   CHECK (attempts >= 0),
+  CONSTRAINT resolution_job_requeue_count_nonneg CHECK (requeue_count >= 0),
   CONSTRAINT resolution_job_completed_shape   CHECK (
     (status = 'completed') = (result IS NOT NULL AND completed_at IS NOT NULL)
   ),
+  -- QA-02 R2-N3: a result exists only on a completed row (completed_shape alone let a
+  -- stale or forged result sit on a queued/leased/parked row).
+  CONSTRAINT resolution_job_result_only_when_completed CHECK (
+    status = 'completed' OR (result IS NULL AND completed_at IS NULL)
+  ),
   CONSTRAINT resolution_job_leased_shape      CHECK (
     status <> 'leased' OR lease_expires_at IS NOT NULL
+  ),
+  -- QA-02 R2-S4: a queued job always has budget. Strict (<, not <=): the lease takes
+  -- attempts + 1 and parks when that exceeds max_attempts, so a queued row at
+  -- attempts = max_attempts could only ever park on its next lease. Every writer keeps
+  -- this (fail re-queues only below max; requeue sets max = attempts + extra), and a raw
+  -- 'parked' -> 'queued' flip that leaves max_attempts alone is refused here.
+  CONSTRAINT resolution_job_queued_has_budget CHECK (
+    status <> 'queued' OR attempts < max_attempts
   ),
   -- QA-02 S2: the job's caravan belongs to the job's (defending) account.
   CONSTRAINT resolution_job_caravan_owned_by_account
@@ -374,6 +400,34 @@ BEGIN
     RAISE EXCEPTION 'resolution_job.attempts never decreases (job %)', OLD.id
       USING ERRCODE = 'check_violation';
   END IF;
+  -- QA-02 R2-S4: the trigger permits only what the fence permits, so an owner connection
+  -- (or a future bug in a writer) cannot take a transition no worker could take.
+  -- Completion is the act of the lease holder: from 'leased', by the same worker, at the
+  -- same attempt.
+  IF NEW.status = 'completed' AND (
+       OLD.status <> 'leased' OR NEW.attempts <> OLD.attempts
+       OR NEW.leased_by IS DISTINCT FROM OLD.leased_by
+  ) THEN
+    RAISE EXCEPTION 'resolution_job % can only be completed from leased by the worker holding the lease', OLD.id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  -- A lease is a new attempt: becoming leased, changing hands, or moving the expiry all
+  -- require attempts to have grown. (A leased row that keeps its lease may still change
+  -- other columns, e.g. last_error.)
+  IF NEW.status = 'leased'
+     AND NOT (OLD.status = 'leased'
+              AND NEW.leased_by IS NOT DISTINCT FROM OLD.leased_by
+              AND NEW.lease_expires_at IS NOT DISTINCT FROM OLD.lease_expires_at)
+     AND NEW.attempts <= OLD.attempts THEN
+    RAISE EXCEPTION 'resolution_job % lease must be a new attempt (attempts must increase)', OLD.id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  -- Parking is a verdict on an attempt: only a leased job parks (an exhausted expired lease
+  -- or a non-retryable failure). A queued job has budget and nothing to park for.
+  IF NEW.status = 'parked' AND OLD.status NOT IN ('leased', 'parked') THEN
+    RAISE EXCEPTION 'resolution_job % can only be parked from leased', OLD.id
+      USING ERRCODE = 'check_violation';
+  END IF;
   RETURN NEW;
 END
 $$ LANGUAGE plpgsql;
@@ -393,3 +447,126 @@ CREATE TRIGGER resolution_job_guard_delete
   BEFORE DELETE ON resolution_job FOR EACH ROW EXECUTE FUNCTION resolution_job_guard_delete();
 CREATE TRIGGER resolution_job_guard_truncate
   BEFORE TRUNCATE ON resolution_job FOR EACH STATEMENT EXECUTE FUNCTION guard_refuse_truncate();
+
+-- ---------------------------------------------------------------------------------
+-- Status writers (QA-02 R2-S3)
+-- ---------------------------------------------------------------------------------
+-- The ONLY way a job's status, lease or attempt counter moves. Each runs as the table
+-- owner (SECURITY DEFINER, search_path pinned) so db/roles.sql can REVOKE UPDATE on
+-- (status, leased_by, attempts, lease_expires_at, requeued_*) from the app role: a raw
+-- UPDATE from the server's connection is a privilege error, and every transition that does
+-- happen went through the fence below AND the guard trigger above (defense in depth). All
+-- run inside the caller's transaction; the row lock a writer takes is held to COMMIT.
+--
+-- Time is clock_timestamp() throughout (QA-02 R2-N2), the same clock the completion fence
+-- reads: a lease issued late in a long transaction expires relative to when it was issued,
+-- and readiness is judged when the lease is taken, not when the transaction began.
+
+-- Lease the next ready job for this worker, oldest first: queued and past its
+-- next_attempt_at, or leased with an expired lease, and (QA-02 R2-S2) enqueued for exactly
+-- p_resolver_version, so a worker on another version never takes it, never burns one of
+-- its attempts and never parks it during a rolling deploy. SKIP LOCKED: any number of
+-- workers may call this at once. A job whose next lease would exceed max_attempts is
+-- parked instead (leased_by NULL: no worker ran that attempt, QA-02 R2-N1) and the search
+-- continues. Returns zero rows when nothing is ready.
+CREATE FUNCTION resolution_job_lease(p_worker text, p_visibility_ms integer, p_resolver_version integer)
+RETURNS SETOF resolution_job
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_id  text;
+  v_row resolution_job;
+BEGIN
+  IF p_worker IS NULL OR p_worker = '' THEN
+    RAISE EXCEPTION 'resolution_job_lease: worker id is required' USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+  IF p_visibility_ms IS NULL OR p_visibility_ms <= 0 THEN
+    RAISE EXCEPTION 'resolution_job_lease: visibility timeout must be positive' USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+  IF p_resolver_version IS NULL THEN
+    RAISE EXCEPTION 'resolution_job_lease: resolver version is required' USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+  LOOP
+    SELECT id INTO v_id FROM resolution_job
+     WHERE (input->>'resolverVersion')::integer = p_resolver_version
+       AND ((status = 'queued' AND next_attempt_at <= clock_timestamp())
+         OR (status = 'leased' AND lease_expires_at < clock_timestamp()))
+     ORDER BY created_at, id
+     FOR UPDATE SKIP LOCKED
+     LIMIT 1;
+    IF NOT FOUND THEN RETURN; END IF;
+    UPDATE resolution_job j SET
+      attempts         = j.attempts + 1,
+      status           = CASE WHEN j.attempts + 1 > j.max_attempts THEN 'parked'::job_status ELSE 'leased'::job_status END,
+      leased_by        = CASE WHEN j.attempts + 1 > j.max_attempts THEN NULL ELSE p_worker END,
+      lease_expires_at = CASE WHEN j.attempts + 1 > j.max_attempts THEN NULL
+                              ELSE clock_timestamp() + (p_visibility_ms * interval '1 millisecond') END,
+      last_error       = CASE WHEN j.attempts + 1 > j.max_attempts THEN coalesce(j.last_error, 'lease expired') ELSE j.last_error END
+    WHERE j.id = v_id
+    RETURNING j.* INTO v_row;
+    IF v_row.status = 'leased' THEN
+      RETURN NEXT v_row;
+      RETURN;
+    END IF;
+    -- parked on this pass; look for another
+  END LOOP;
+END
+$$;
+
+-- Record completion. Fenced (QA-02 B1): only while the row is leased to p_worker at
+-- p_attempts and the lease is live. Zero rows when the fence no longer holds.
+CREATE FUNCTION resolution_job_complete(p_id text, p_result jsonb, p_worker text, p_attempts integer)
+RETURNS SETOF resolution_job
+LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  UPDATE resolution_job SET status = 'completed', result = p_result, completed_at = clock_timestamp(),
+    lease_expires_at = NULL, last_error = NULL
+  WHERE id = p_id AND status = 'leased' AND leased_by = p_worker AND attempts = p_attempts
+    AND lease_expires_at > clock_timestamp()
+  RETURNING *
+$$;
+
+-- Record a failed attempt: back to queued after p_backoff_ms, or parked once max_attempts
+-- is reached. Fenced on the attempt number and, when given, the worker. Zero rows when
+-- the fence no longer holds (a superseded lease records nothing).
+CREATE FUNCTION resolution_job_fail(p_id text, p_attempts integer, p_error text, p_backoff_ms integer, p_worker text)
+RETURNS SETOF resolution_job
+LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  UPDATE resolution_job SET
+    status = CASE WHEN attempts >= max_attempts THEN 'parked'::job_status ELSE 'queued'::job_status END,
+    lease_expires_at = NULL,
+    next_attempt_at = clock_timestamp() + (greatest(p_backoff_ms, 0) * interval '1 millisecond'),
+    last_error = left(p_error, 2000)
+  WHERE id = p_id AND status = 'leased' AND attempts = p_attempts AND (p_worker IS NULL OR leased_by = p_worker)
+  RETURNING *
+$$;
+
+-- Park a leased job at once (a non-retryable failure). Fenced like resolution_job_fail.
+CREATE FUNCTION resolution_job_park(p_id text, p_attempts integer, p_error text, p_worker text)
+RETURNS SETOF resolution_job
+LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  UPDATE resolution_job SET status = 'parked', lease_expires_at = NULL, last_error = left(p_error, 2000)
+  WHERE id = p_id AND status = 'leased' AND attempts = p_attempts AND (p_worker IS NULL OR leased_by = p_worker)
+  RETURNING *
+$$;
+
+-- Operator path (QA-02 B1c): a parked job back to the queue with a fresh budget of
+-- p_extra_attempts on top of the attempts already spent (attempts never decreases), and an
+-- audit record of who did it and when (QA-02 R2-S3). Zero rows unless the job is parked,
+-- so a concurrent double requeue is idempotent: one caller gets the row.
+CREATE FUNCTION resolution_job_requeue(p_id text, p_extra_attempts integer, p_requeued_by text)
+RETURNS SETOF resolution_job
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+BEGIN
+  IF p_extra_attempts IS NULL OR p_extra_attempts < 1 THEN
+    RAISE EXCEPTION 'resolution_job_requeue: extra attempts must be a positive integer' USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+  IF p_requeued_by IS NULL OR p_requeued_by = '' THEN
+    RAISE EXCEPTION 'resolution_job_requeue: requeued_by is required' USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+  RETURN QUERY
+    UPDATE resolution_job SET status = 'queued', max_attempts = attempts + p_extra_attempts,
+      next_attempt_at = clock_timestamp(), leased_by = NULL, lease_expires_at = NULL,
+      requeued_at = clock_timestamp(), requeued_by = p_requeued_by, requeue_count = requeue_count + 1
+    WHERE id = p_id AND status = 'parked'
+    RETURNING *;
+END
+$$;
