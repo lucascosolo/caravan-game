@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS ledger_event_unlock_grant_once_per_rung;

@@ -6,6 +6,7 @@ import { authRoutes } from "./routes/auth.js";
 import { economyRoutes } from "./routes/economy.js";
 import { ledgerRoutes } from "./routes/ledger.js";
 import { meRoutes } from "./routes/me.js";
+import { progressionRoutes } from "./routes/progression.js";
 import { AppError } from "./services/errors.js";
 
 declare module "fastify" {
@@ -49,6 +50,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(authRoutes);
   await app.register(meRoutes);
   await app.register(ledgerRoutes);
+  await app.register(progressionRoutes);
   await app.register(economyRoutes);
   return app;
 }

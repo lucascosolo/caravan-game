@@ -45,7 +45,7 @@ building the mirror image of this game is the easiest mistake available.
 | 01 | [Data model & auth scaffolding](chunks/01-data-model-and-auth.md) | Account/caravan schema with the load-bearing progress split, plus minimal auth. | — | done |
 | 02 | [Event ledger & job queue](chunks/02-ledger-and-job-queue.md) | Append-only event log for Coin/Reputation/outcomes, and the one-shot resolution job queue. | 01 | built |
 | 03 | [Content data & tunables registry](chunks/03-content-data-and-tunables.md) | Living units (per region), traps, siege, abilities, affinity matrix — all balance numbers in one tunables file. | 01 | built |
-| 04 | [Ladders & Reputation](chunks/04-ladders-and-reputation.md) | Per-pool use-driven ladders granting permanent unlock points; separate volatile Reputation number. | 01, 02 | not started |
+| 04 | [Ladders & Reputation](chunks/04-ladders-and-reputation.md) | Per-pool use-driven ladders granting permanent unlock points; separate volatile Reputation number. | 01, 02 | built |
 | 05 | [Unlock webs (data + spend)](chunks/05-unlock-webs.md) | Three visible non-random webs; spending granted points to gain *access* (not instances). | 03, 04 | not started |
 | 06 | [Unlock web UI](chunks/06-unlock-web-ui.md) | Browsable web view for all three pools with costs visible before spending. | 05 | not started |
 | 07 | [Wagon circle model](chunks/07-wagon-circle-model.md) | Trip-locked manifest vs. per-encounter formation; fence segments with HP and forced gaps, trap and post placement, carry-forward attrition. | 03 | not started |

@@ -1,6 +1,6 @@
 # Chunk 04 — Ladders & Reputation
 
-**Depends on:** 01, 02. **Status:** not started.
+**Depends on:** 01, 02. **Status:** built (2026-10-11; QA pending).
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 ## Goal
@@ -57,17 +57,17 @@ and the outcome — no randomness, no time decay that reads the clock at compute
 
 ## Definition of done
 
-- [ ] Reputation and ladder are separate fields per pool, never derived from each other.
-- [ ] Reputation has no spend path. A test asserts no API can debit it as a cost.
-- [ ] Ladder progress is attributed only to pools actually used in a fight.
-- [ ] Losses earn ladder progress; a test asserts the loss gain is > 0 and < the win gain.
-- [ ] Ladder levels cannot decrease — proven by test across every outcome type
+- [x] Reputation and ladder are separate fields per pool, never derived from each other.
+- [x] Reputation has no spend path. A test asserts no API can debit it as a cost.
+- [x] Ladder progress is attributed only to pools actually used in a fight.
+- [x] Losses earn ladder progress; a test asserts the loss gain is > 0 and < the win gain.
+- [x] Ladder levels cannot decrease — proven by test across every outcome type
       including full wipe.
-- [ ] Rung crossing grants unlock points exactly once, ever. A test replays the same
+- [x] Rung crossing grants unlock points exactly once, ever. A test replays the same
       progress event and asserts no double grant.
-- [ ] Granted unlock points cannot be revoked by any path.
-- [ ] Scope split honored: trap/siege at account level, living-unit at caravan level.
-- [ ] Reputation adjustment is a pure function; same inputs → same delta, every time.
+- [x] Granted unlock points cannot be revoked by any path.
+- [x] Scope split honored: trap/siege at account level, living-unit at caravan level.
+- [x] Reputation adjustment is a pure function; same inputs → same delta, every time.
 
 ## QA guardrail checks for this chunk
 
@@ -84,3 +84,33 @@ and the outcome — no randomness, no time decay that reads the clock at compute
   unlock points, and it rises only through use.
 - **Double-grant under concurrency:** two stops resolving simultaneously that both
   cross the same rung must grant once, not twice.
+
+## Build notes (Maker, 2026-10-11)
+
+Implemented in `apps/server/src/progression/` (`ladder.ts`, `reputation.ts` pure;
+`outcome.ts` the `deriveProgressionEvents` pure derivation plus the `applyEncounterOutcome`
+DB wrapper; `view.ts` read models), routes `GET /me/progression`,
+`GET /me/progression/events`, `GET /progression/rules`, migration
+`003_unlock_grant_once` (unique index: one `unlock_points_granted` per pool/owner/rung),
+tunables under "Chunk 04" in `packages/content/src/tunables.ts`. Tests:
+`apps/server/test/progression-pure.test.ts`, `apps/server/test/progression.test.ts`.
+
+Readings of the brief that QA should check:
+- **Matchmaking ratings.** The caravan's rating is its `living` Reputation (caravan-level);
+  the standing party's rating is its owner's `siege` Reputation (the account-level
+  offense pool — a party is an account-level object, so its rating must be too). The
+  gap used for scaling is between those two. Both always move on every encounter; `trap`
+  Reputation moves only when traps were fielded; the owner's own living Reputation never
+  moves for a passive result.
+- **Ladder attribution.** Active side: `living` and `trap` when fielded. Passive side:
+  `siege` when fielded. The party's living units are a template, not a deployment, so
+  they earn no living ladder — keeps the active side the living pool's path.
+- **Ladder points are cumulative** (`LADDER_POINTS_TO_RUNG` is the floor(100·n^1.5)
+  table); no reset on crossing, so every delta is positive and the fold is monotone.
+- **Gains.** Caravan: held = stalemate = `LADDER_GAIN_DEFENSE_HELD` (25), overrun =
+  `LADDER_GAIN_LOSS` (10). Party: overrun = `LADDER_GAIN_WIN` (30), held = `LADDER_GAIN_LOSS`,
+  stalemate = `LADDER_GAIN_STALEMATE` (10). Capped ladders write no event.
+- **Gap scaling** is applied to all four Reputation deltas (not only the attacker's win),
+  as a clamped linear ramp in fixed-point: ×(1 ± gap/400), clamped to [×0.25, ×2].
+  Floor 100; a clamped loss records `floored: true` and the unclamped value.
+- A self-encounter (same account both sides) is refused.
