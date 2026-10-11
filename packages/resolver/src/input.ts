@@ -29,6 +29,7 @@ import {
   assertBattlefield,
   assertCell,
   assertIntegersOnly,
+  cellOf,
   eachOf,
   isEntryCell,
   isEntryEdge,
@@ -48,6 +49,7 @@ import {
   type Millis,
   type TrapCategory,
 } from "./battlefield.js";
+import { FIXED_POINT_SCALE } from "./fixed.js";
 
 /** The three targeting stances (chunk 09 STANCES). Fixed by design — exactly these. */
 export const STANCES = ["nearest", "traps", "core"] as const;
@@ -96,6 +98,30 @@ export interface Party {
 }
 
 export const PARTY_VERSION = 1 as const;
+
+/**
+ * Magnitude bounds on everything the simulation multiplies together (QA-10 S3/S4). These
+ * are VALIDATION limits, not balance: within them hits × cooldownTicks × speedPerTick
+ * (≤ 10⁶ × (60 000 ms × 1000 ticks/s / 1000) × 65 536 ≈ 3.9·10¹⁵ < 2⁵³), every squared
+ * distance and every tick count stays a safe integer, so the breach-edge clamp (path.ts
+ * BREACH_COST_MAX) is the only saturation in the resolver. Content's values sit orders of
+ * magnitude below them. A test pins the worst-case product as a safe integer.
+ */
+export const INPUT_BOUNDS = {
+  /** hp / maxHp of units, posts and fence segments. */
+  maxHp: 1_000_000,
+  /** offense, defense, trap damage. */
+  maxRating: 1_000_000,
+  /** Fixed cells per second: 64 cells/s, twice the field per second. */
+  maxMoveSpeed: 64 * FIXED_POINT_SCALE,
+  /** Fixed cells: ranges, radii, dash distance — twice the field. */
+  maxDistance: 64 * FIXED_POINT_SCALE,
+  /** Any duration in ms: cooldowns, intervals. One minute. */
+  maxMillis: 60_000,
+  maxTickRate: 1000,
+  /** battleLengthCapSeconds: one hour. */
+  maxBattleSeconds: 3600,
+} as const;
 
 /**
  * The tunables chunk 10 consumes, as plain integers. Defaults (chunk 10 brief) are in
@@ -166,6 +192,12 @@ function positiveInt(v: unknown, where: string, min: number): number {
   return v as number;
 }
 
+function boundedInt(v: unknown, where: string, min: number, max: number): number {
+  const n = positiveInt(v, where, min);
+  if (n > max) fail(`${where} must be ≤ ${max}`);
+  return n;
+}
+
 function nonEmptyString(v: unknown, where: string): string {
   if (typeof v !== "string" || v.length === 0) fail(`${where} must be a non-empty string`);
   return v as string;
@@ -180,7 +212,7 @@ function assertAbility(v: unknown, where: string): void {
   oneOf(base.archetype, `${where}.archetype`, ABILITY_ARCHETYPES);
   nonEmptyString(base.displayName, `${where}.displayName`);
   if (typeof base.description !== "string") fail(`${where}.description must be a string`);
-  positiveInt(base.cooldown, `${where}.cooldown`, 1);
+  boundedInt(base.cooldown, `${where}.cooldown`, 1, INPUT_BOUNDS.maxMillis);
   for (const k of ABILITY_EXTRA_KEYS[base.archetype as string] ?? []) positiveInt(base[k], `${where}.${k}`, 0);
 }
 
@@ -201,14 +233,14 @@ export function assertParty(v: unknown): asserts v is Party {
     if (!isEntryEdge(entry.edge)) fail(`${where}.entry.edge is not an edge`);
     assertCell(entry.cell, `${where}.entry.cell`, fail);
     if (!isEntryCell(entry.cell as Cell, entry.edge as EntryEdge)) fail(`${where}.entry.cell is outside the ${String(entry.edge)} entry band`);
-    const hp = positiveInt(o.hp, `${where}.hp`, 1);
-    const maxHp = positiveInt(o.maxHp, `${where}.maxHp`, 1);
+    const hp = boundedInt(o.hp, `${where}.hp`, 1, INPUT_BOUNDS.maxHp);
+    const maxHp = boundedInt(o.maxHp, `${where}.maxHp`, 1, INPUT_BOUNDS.maxHp);
     if (hp > maxHp) fail(`${where}.hp exceeds maxHp`);
     oneOf(o.affinity, `${where}.affinity`, AFFINITY_CATEGORIES);
-    positiveInt(o.offense, `${where}.offense`, 1);
-    positiveInt(o.moveSpeed, `${where}.moveSpeed`, 0);
-    positiveInt(o.attackRange, `${where}.attackRange`, 0);
-    positiveInt(o.attackCooldown, `${where}.attackCooldown`, 1);
+    boundedInt(o.offense, `${where}.offense`, 1, INPUT_BOUNDS.maxRating);
+    boundedInt(o.moveSpeed, `${where}.moveSpeed`, 1, INPUT_BOUNDS.maxMoveSpeed);
+    boundedInt(o.attackRange, `${where}.attackRange`, 0, INPUT_BOUNDS.maxDistance);
+    boundedInt(o.attackCooldown, `${where}.attackCooldown`, 1, INPUT_BOUNDS.maxMillis);
     assertAbility(o.ability, `${where}.ability`);
   });
   eachOf(p.siege, "party.siege", fail).forEach((s, i) => {
@@ -226,18 +258,21 @@ export function assertParty(v: unknown): asserts v is Party {
 
 export function assertTunables(v: unknown): asserts v is ResolverTunables {
   const t = onlyKeys(v, "tunables", INPUT_KEYS.tunables, fail);
-  positiveInt(t.tickRate, "tunables.tickRate", 1);
-  positiveInt(t.battleLengthCapSeconds, "tunables.battleLengthCapSeconds", 1);
-  positiveInt(t.pathRecomputeIntervalMs, "tunables.pathRecomputeIntervalMs", 1);
-  positiveInt(t.unitRadius, "tunables.unitRadius", 0);
-  positiveInt(t.keyframeIntervalMs, "tunables.keyframeIntervalMs", 1);
+  boundedInt(t.tickRate, "tunables.tickRate", 1, INPUT_BOUNDS.maxTickRate);
+  boundedInt(t.battleLengthCapSeconds, "tunables.battleLengthCapSeconds", 1, INPUT_BOUNDS.maxBattleSeconds);
+  boundedInt(t.pathRecomputeIntervalMs, "tunables.pathRecomputeIntervalMs", 1, INPUT_BOUNDS.maxMillis);
+  boundedInt(t.unitRadius, "tunables.unitRadius", 0, INPUT_BOUNDS.maxDistance);
+  boundedInt(t.keyframeIntervalMs, "tunables.keyframeIntervalMs", 1, INPUT_BOUNDS.maxMillis);
   if (t.pathConnectivity !== 4) fail("tunables.pathConnectivity must be 4 (4-connected lattice, no diagonals; fixed by design)");
 }
 
 /**
  * Full input validation: shape of all three parts, then the cross-checks the shape guards
  * cannot see — grid size matches the lattice, fences sit on ring cells at their own
- * segment, unique refs, posts and traps off the fences, hp bounds.
+ * segment, unique refs, posts and traps off the fences, hp bounds, every `pos` inside its
+ * own `cell` (QA-10 N3), and every mover at least one fixed unit per tick
+ * (moveSpeed ≥ tickRate, QA-10 S4 — a slower unit would floor to a speed of 0 and never
+ * move, which no content value is meant to express).
  */
 export function assertResolveInput(v: unknown): asserts v is ResolveInput {
   const i = onlyKeys(v, "input", INPUT_KEYS.input, fail);
@@ -249,6 +284,7 @@ export function assertResolveInput(v: unknown): asserts v is ResolveInput {
   assertParty(i.party);
   assertTunables(i.tunables);
   const b = i.battlefield as Battlefield;
+  const tunables = i.tunables as ResolverTunables;
   if (b.grid.width !== GRID_WIDTH || b.grid.height !== GRID_HEIGHT) fail(`battlefield grid ${b.grid.width}×${b.grid.height} is not the ${GRID_WIDTH}×${GRID_HEIGHT} lattice`);
   // The anchors are the four ring corners, exactly, in RING_ANCHORS order: the geometry
   // is the resolver's, the input only confirms it (a replay must mean the same thing).
@@ -262,6 +298,7 @@ export function assertResolveInput(v: unknown): asserts v is ResolveInput {
     if (!seg) fail(`fences[${idx}].segment ${f.segment} is not a ring segment`);
     if (!sameCell(seg!.cell, f.cell)) fail(`fences[${idx}].cell is not segment ${f.segment}'s cell`);
     if (f.hp < 0 || f.maxHp < 1 || f.hp > f.maxHp) fail(`fences[${idx}] hp ${f.hp}/${f.maxHp} out of range`);
+    if (f.maxHp > INPUT_BOUNDS.maxHp) fail(`fences[${idx}].maxHp must be ≤ ${INPUT_BOUNDS.maxHp}`);
     oneOf(f.category, `fences[${idx}].category`, FENCE_CATEGORIES);
     if (refs.includes(f.ref)) fail(`duplicate fence ref '${f.ref}'`);
     refs.push(f.ref);
@@ -271,6 +308,8 @@ export function assertResolveInput(v: unknown): asserts v is ResolveInput {
   const trapRefs: string[] = [];
   b.traps.forEach((t, idx) => {
     if (!isInBounds(t.cell) || isRingCell(t.cell) || isAnchorCell(t.cell)) fail(`traps[${idx}].cell is on the ring, an anchor, or off the lattice`);
+    if (!sameCell(cellOf(t.pos), t.cell)) fail(`traps[${idx}].pos lies outside its cell`);
+    if (t.damage > INPUT_BOUNDS.maxRating) fail(`traps[${idx}].damage must be ≤ ${INPUT_BOUNDS.maxRating}`);
     if (trapRefs.includes(t.ref)) fail(`duplicate trap ref '${t.ref}'`);
     trapRefs.push(t.ref);
     oneOf(t.category, `traps[${idx}].category`, TRAP_CATEGORIES);
@@ -280,7 +319,14 @@ export function assertResolveInput(v: unknown): asserts v is ResolveInput {
   b.posts.forEach((p, idx) => {
     if (!isInBounds(p.cell) || isRingCell(p.cell) || isAnchorCell(p.cell)) fail(`posts[${idx}].cell is on the ring, an anchor, or off the lattice`);
     if (p.hp < 1 || p.hp > p.maxHp) fail(`posts[${idx}] hp ${p.hp}/${p.maxHp} out of range (dead units are not posted)`);
+    if (p.maxHp > INPUT_BOUNDS.maxHp) fail(`posts[${idx}].maxHp must be ≤ ${INPUT_BOUNDS.maxHp}`);
     if (p.defense < 1) fail(`posts[${idx}].defense must be ≥ 1`);
+    if (p.defense > INPUT_BOUNDS.maxRating) fail(`posts[${idx}].defense must be ≤ ${INPUT_BOUNDS.maxRating}`);
+    if (!sameCell(cellOf(p.pos), p.cell)) fail(`posts[${idx}].pos lies outside its cell`);
+    if (p.moveSpeed < tunables.tickRate) fail(`posts[${idx}].moveSpeed ${p.moveSpeed} is below the tick rate ${tunables.tickRate}: it would never move`);
+    if (p.moveSpeed > INPUT_BOUNDS.maxMoveSpeed) fail(`posts[${idx}].moveSpeed must be ≤ ${INPUT_BOUNDS.maxMoveSpeed}`);
+    if (p.attackRange > INPUT_BOUNDS.maxDistance || p.aggroRadius > INPUT_BOUNDS.maxDistance || p.leashDistance > INPUT_BOUNDS.maxDistance) fail(`posts[${idx}] range/radius/leash must be ≤ ${INPUT_BOUNDS.maxDistance}`);
+    if (p.attackCooldown > INPUT_BOUNDS.maxMillis) fail(`posts[${idx}].attackCooldown must be ≤ ${INPUT_BOUNDS.maxMillis}`);
     if (postRefs.includes(p.ref)) fail(`duplicate post ref '${p.ref}'`);
     postRefs.push(p.ref);
     oneOf(p.affinity, `posts[${idx}].affinity`, AFFINITY_CATEGORIES);
@@ -291,6 +337,7 @@ export function assertResolveInput(v: unknown): asserts v is ResolveInput {
     if (unitRefs.includes(u.ref)) fail(`duplicate party unit ref '${u.ref}'`);
     unitRefs.push(u.ref);
     if (ringIndexAt(u.entry.cell) !== null) fail(`party.units[${idx}] starts on the ring`);
+    if (u.moveSpeed < tunables.tickRate) fail(`party.units[${idx}].moveSpeed ${u.moveSpeed} is below the tick rate ${tunables.tickRate}: it would never move`);
   });
   const siegeRefs: string[] = [];
   (i.party as Party).siege.forEach((s) => {

@@ -18,5 +18,5 @@ export * from "./path.js";
 export * from "./log.js";
 export { resolve, type EndReason, type FenceSummary, type ResolveOutput, type TrapSummary, type UnitSummary } from "./resolve.js";
 export { type FenceState, type SimState, type Side, type Target, type TrapState, type UnitState, initialState, msToTicks, speedPerTick } from "./state.js";
-export { runTick, retargetPhase, pathPhase, movementPhase, attackPhase, deathPhase, breachCostFor } from "./tick.js";
+export { runTick, retargetPhase, pathPhase, movementPhase, attackPhase, deathPhase, breachCostFor, legOffset, planRoute, routeCost } from "./tick.js";
 export { fenceHitDamage, siegeFenceMult } from "./hooks.js";

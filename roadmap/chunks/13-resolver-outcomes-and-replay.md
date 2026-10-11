@@ -128,3 +128,14 @@ checked against.
   hook the design is anchored on simply isn't delivered. A replay that only serves the
   player who was there is a design regression, not a missing nice-to-have.
 - **No pay-to-win:** the resolver still cannot see entitlement state.
+
+## Notes from chunk 10 QA
+
+- **Log budget (QA-10 N4).** Chunk 10's log is already ≈ 80 KB for a 180 s fight with 24
+  entities, BEFORE any combat, trap or ability events (keyframes every 5 s carry every
+  unit, fence and trap; `path` events carry full waypoint lists). When fixing LOG_FORMAT
+  here, budget for chunks 11–12's events on top of that: consider 10 s keyframes (seeking
+  precision is a renderer concern, not a fidelity one — interpolation between keyframes is
+  exact by contract) and/or shorter keys, and measure the full-length corpus before
+  freezing the format. The interpolation contract the renderer must follow is in
+  `packages/resolver/src/log.ts` (leg-parametric movement; `hold` is load-bearing).

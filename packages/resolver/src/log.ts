@@ -8,6 +8,27 @@
  * short and fixed; the order of events within a tick is the phase order, then unit id.
  *
  * The log is RETURNED inside the output, never written: the resolver has no I/O.
+ *
+ * INTERPOLATION CONTRACT (chunk 13's renderer reproduces positions from these events
+ * alone; the determinism probe's replica interpolator pins it):
+ *   - `path` at tick t: the unit's route becomes `wp`, starting a new LEG from the position
+ *     it holds at the start of tick t's movement (= its position after tick t−1). No `path`
+ *     event means the route AND the leg in progress are unchanged — a recompute that yields
+ *     the same route is silent on purpose.
+ *   - Each tick the unit is not holding it advances `speed` along its route: a leg from
+ *     anchor A to waypoint W of integer length len = isqrt(|W−A|²) places it at
+ *     A + sign(d) × floor(|d| × progress / len) per axis, d = W − A (rounded toward A,
+ *     tick.ts `legOffset`); when the leg's remaining length fits the
+ *     tick's budget it lands exactly on W, consumes it, and the surplus carries into the
+ *     next leg (whose anchor is W). A waypoint with a breach index is not entered while
+ *     that fence is intact (`fence_broken` lifts it).
+ *   - `hold` is LOAD-BEARING: it is the only record of ticks in which a unit with a route
+ *     did not move (engaged in range, breaching, arrived). A renderer that ignores `hold`
+ *     and keeps advancing along `wp` will diverge from the authoritative positions, and a
+ *     `path` event never re-states a hold. `holding` is edge-triggered: it stays in force
+ *     until the next `hold` for that unit.
+ *   - `keyframe` carries authoritative positions for seeking and for detecting a truncated
+ *     log; interpolation between keyframes must reproduce them exactly.
  */
 import type { Target } from "./state.js";
 

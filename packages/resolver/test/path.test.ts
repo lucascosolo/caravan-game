@@ -4,7 +4,7 @@
  * LOS test's corner conservatism.
  */
 import { describe, expect, it } from "vitest";
-import { CELL_ANCHOR, COST_INFINITE, STEP_COST, cellCenter, cellKey, emptyGrid, findPath, losClear, smoothPath, type Cell, type PathGrid } from "../src/index.js";
+import { BREACH_COST_MAX, CELL_ANCHOR, COST_INFINITE, LOS_LEG_MARGIN, STEP_COST, cellCenter, cellKey, emptyGrid, findPath, losClear, smoothPath, type Cell, type PathGrid } from "../src/index.js";
 
 function gridWith(blocked: readonly Cell[], fences: readonly { cell: Cell; index: number }[] = []): PathGrid {
   const g = emptyGrid();
@@ -95,6 +95,29 @@ describe("findPath (4-connected A*)", () => {
     expect(findPath(gridWith([], box), { x: 0, y: 0 }, { x: 10, y: 10 }, noBreach)).toBeNull();
     expect(findPath(gridWith([], box), { x: 0, y: 0 }, { x: 10, y: 10 }, () => 0)).not.toBeNull();
   });
+
+  it("QA-10 S3: a finite breach cost, however large, is clamped to BREACH_COST_MAX and stays passable; only COST_INFINITE is a wall", () => {
+    expect(BREACH_COST_MAX).toBeLessThan(COST_INFINITE);
+    const box = [{ x: 9, y: 10 }, { x: 11, y: 10 }, { x: 10, y: 9 }, { x: 10, y: 11 }].map((cell, i) => ({ cell, index: i }));
+    // Anything finite below the sentinel is a priced edge (the tick loop clamps its own price
+    // to BREACH_COST_MAX before it gets here; `breachCostFor` is tested in movement.test.ts).
+    const huge = findPath(gridWith([], box), { x: 0, y: 0 }, { x: 10, y: 10 }, () => COST_INFINITE - 1)!;
+    expect(huge).not.toBeNull();
+    expect(huge.filter((s) => s.breach >= 0)).toHaveLength(1);
+    expect(findPath(gridWith([], box), { x: 0, y: 0 }, { x: 10, y: 10 }, () => BREACH_COST_MAX)).not.toBeNull();
+    // Two clamped edges in one route: the sum exceeds 2³¹ and must still order correctly.
+    const walls = [];
+    for (let x = 0; x < 32; x++) walls.push({ cell: { x, y: 10 }, index: x }, { cell: { x, y: 12 }, index: 32 + x });
+    const twice = findPath(gridWith([], walls), { x: 15, y: 8 }, { x: 15, y: 14 }, () => COST_INFINITE - 1)!;
+    expect(twice).not.toBeNull();
+    expect(twice.filter((s) => s.breach >= 0).map((s) => s.cell)).toEqual([{ x: 15, y: 10 }, { x: 15, y: 12 }]);
+    expect(twice).toHaveLength(6);
+    // A clamped edge is still dearer than any detour the lattice can offer.
+    const fences = [];
+    for (let x = 1; x < 32; x++) fences.push({ cell: { x, y: 10 }, index: x });
+    const detour = findPath(gridWith([], fences), { x: 15, y: 8 }, { x: 15, y: 12 }, () => BREACH_COST_MAX * 4)!;
+    expect(detour.every((s) => s.breach < 0)).toBe(true);
+  });
 });
 
 describe("losClear (integer supercover)", () => {
@@ -122,6 +145,27 @@ describe("losClear (integer supercover)", () => {
     expect(losClear(g, cellCenter({ x: 1, y: 4 }), cellCenter({ x: 8, y: 4 }))).toBe(true);
     expect(losClear(g, { x: 5 * 1024 as never, y: 3 * 1024 + 512 as never }, cellCenter({ x: 2, y: 3 }))).toBe(false);
     expect(losClear(emptyGrid(), { x: 5 * 1024 as never, y: 3 * 1024 + 512 as never }, cellCenter({ x: 2, y: 3 }))).toBe(true);
+  });
+
+  it("QA-10 S2: with a margin, a segment passing NEAR a corner is treated as touching all three cells; the exact rule (margin 0) is unchanged", () => {
+    // Centre (2,2) → centre (4,4) runs exactly through the corner between (3,2) and (2,3).
+    // Shift the start 2 units down: the line now passes 2 units from that corner, through
+    // (2,3) and never (3,2). Exact LOS does not see (3,2); the leg margin (2) does.
+    const g = gridWith([{ x: 3, y: 2 }]);
+    const a = { x: 2560 as never, y: 2562 as never };
+    const b = { x: 4608 as never, y: 4610 as never };
+    expect(losClear(g, a, b)).toBe(true);
+    expect(losClear(g, a, b, LOS_LEG_MARGIN)).toBe(false);
+    // 10 units off the corner is outside the margin.
+    expect(losClear(g, { x: 2560 as never, y: 2570 as never }, { x: 4608 as never, y: 4618 as never }, LOS_LEG_MARGIN)).toBe(true);
+    // A segment that passes within the margin of a corner and ENDS in the cell beyond the
+    // first crossing is clear: the walk must not step diagonally past its end cell.
+    expect(losClear(emptyGrid(), { x: 2561 as never, y: 2560 as never }, { x: 3072 as never, y: 3071 as never }, LOS_LEG_MARGIN)).toBe(true);
+    expect(losClear(emptyGrid(), { x: 2560 as never, y: 2561 as never }, { x: 3071 as never, y: 3072 as never }, LOS_LEG_MARGIN)).toBe(true);
+    expect(losClear(g, { x: 2561 as never, y: 2560 as never }, { x: 3072 as never, y: 3071 as never }, LOS_LEG_MARGIN)).toBe(false);
+    // Through the exact corner: every rule agrees.
+    expect(losClear(g, cellCenter({ x: 2, y: 2 }), cellCenter({ x: 4, y: 4 }))).toBe(false);
+    expect(losClear(g, cellCenter({ x: 2, y: 2 }), cellCenter({ x: 4, y: 4 }), LOS_LEG_MARGIN)).toBe(false);
   });
 });
 
@@ -163,6 +207,7 @@ describe("smoothPath (string pulling)", () => {
     let prev = from;
     for (const w of wps) {
       expect(losClear(g, prev, w)).toBe(true);
+      expect(losClear(g, prev, w, LOS_LEG_MARGIN), "every leg clears the margin, not just the exact rule").toBe(true);
       prev = w;
     }
     expect(wps.length).toBeGreaterThanOrEqual(2);

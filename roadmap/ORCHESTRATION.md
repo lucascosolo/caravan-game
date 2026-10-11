@@ -1490,3 +1490,58 @@ field-by-field scout comparison, whether any code can re-resolve a party after t
 reroll gate's immunity to any Coin surface, and whether chunk 15 can drive
 `createTrip → search → choose → commitFormation → enqueueChosenEncounter` without touching
 `encounter_candidates` directly.
+### 2026-10-11 — Chunk 10 (resolver core): QA round 1 closed (S1–S4, N1–N3; N4 forwarded) — `[resolver-bump]` 1 → 2
+
+Maker closed `roadmap/qa/10-punchlist.md` in an isolated worktree branched from
+`roadmap/phase-2-spec` at 1109f4f. **`RESOLVER_VERSION` is now 2**; there is no golden corpus
+yet so nothing else gates it (`pnpm determinism`: 6 scenarios, 3 processes × 3 runs agree).
+Details per item are in the punch list (`[closed]` marks) and in
+`chunks/10-resolver-core.md` § "QA round 1 — closed". What other chunks should know:
+
+- **Movement is leg-parametric** (`UnitState.legX/legY/legLen/legProgress`; position =
+  anchor + sign(d) × floor(|d| × progress / len), `tick.ts legOffset`) and smoothing accepts a
+  leg only if `losClear(…, LOS_LEG_MARGIN = 2)` holds — a near-corner pass counts as touching
+  all three cells. A corner clip is impossible by construction; the landing-cell check plus
+  an exact `losClear(prev, next)` stay as a defensive stop-and-replan. **Log format
+  unchanged**; `log.ts` now carries the INTERPOLATION CONTRACT chunk 13's renderer must
+  follow (the leg rule; `hold` is load-bearing and edge-triggered).
+- **Breach price** = `((hits − 1) × cooldownTicks + max(0, cooldownRemaining − 1)) ×
+  speedPerTick`, clamped to `BREACH_COST_MAX`. The punch list's "+1 recompute tick" was
+  measured and NOT added (phase 2 recomputes before phase 3 moves; a 1-hit breach costs 0
+  extra ticks).
+- **ROUTE_CHOICE** (`planRoute`, new): the both-ways test exposed that the lattice's Manhattan
+  detour price made v1 smash fences it could walk round (a 2-cell sidestep = 4 steps ≈ 54
+  ticks on the lattice, 5 ticks on foot). When the best lattice route breaches, the best
+  breach-free lattice route is also found and the two *smoothed* routes are compared on
+  walked length + breach price; a tie walks round. Residual on the gap-5/6/7 fixtures: two
+  single-HP-step cases 8 and 17 ticks slower than optimal (plan aims at gap cell centres);
+  the test pins "within one attack cooldown" and exact choices at the ends.
+- **`findPath` costs are plain integers**; any finite breach cost is clamped to
+  `BREACH_COST_MAX = COST_INFINITE − 1 − STEP_COST`; `COST_INFINITE` remains the callback's
+  explicit "cannot breach" (chunk 11's siege hook may still return it).
+- **`INPUT_BOUNDS`** (new export, `input.ts`): hp/ratings ≤ 10⁶, speeds/distances ≤ 64 cells,
+  durations ≤ 60 s, tickRate ≤ 1000, battle ≤ 1 h, `moveSpeed ≥ tickRate` for every mover,
+  every post/trap `pos` inside its `cell`. Content's values sit far inside
+  (`packages/circle/test/battlefield.test.ts` pins it). Chunks 11/12: author within them.
+- New exports: `BREACH_COST_MAX`, `LOS_LEG_MARGIN`, `INPUT_BOUNDS`, `legOffset`, `planRoute`,
+  `routeCost`; `losClear(grid, a, b, margin = 0)` gained an optional 4th parameter.
+- Fixtures: `cornerClipScenario()` (the reviewer's seeded `rand4` as literals) and
+  `sealed-ring-1e6-hp` joined `scenarios()`.
+
+**Verification:** resolver **64 passing** (was 53; 11 new QA regressions), circle 67, content
+58; `pnpm lint`, `pnpm test:boundary`, `pnpm determinism` clean; typecheck clean for
+resolver / circle / content / web. Two things NOT mine, left alone: `apps/server` typecheck
+fails in `src/acquisition/recruit.ts:79` (chunk 18, commit 3248ffd — region id possibly
+undefined), and circle's "QA S8" `performance.now() < 50 ms` assertion flakes under parallel
+vitest load (passes 3/3 alone). Reviewer's `probe.ts` (copied to `scratchpad/qa10wt`, import
+paths pointed at the worktree, replica interpolator updated to the leg rule): `cannotHappen 0,
+crossedBlocked 0, insideBlocked 0, oob 0, revisits 0, maxGroundedStall 0; interpolation
+divergences 0; keyframe mismatches 0; model-vs-actual mismatches 2` — both are two units
+sharing one segment in `rand53` (46/48 single-hitter breaches tick-exact; the per-unit price
+does not model help). `pathprobe.ts`: case 5's 2e6-HP ring is now refused by validation; at
+the 1e6 bound the unit breaches (24 hits, target never null); case 10 still prints
+`speedPerTick 0` because it bypasses validation (`resolve()` refuses that input).
+`AGENTS.md`'s "53 tests" note for the resolver is stale (64) — not edited, outside this task's
+file list.
+
+**Next:** QA re-audit of chunk 10 round 1; then chunk 11 may start on RESOLVER_VERSION 2.

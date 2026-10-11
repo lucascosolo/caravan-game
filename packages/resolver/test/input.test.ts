@@ -4,7 +4,7 @@
  * can get in (GUARDRAILS §2).
  */
 import { describe, expect, it } from "vitest";
-import { RING_ANCHORS, assertResolveInput, resolve } from "../src/index.js";
+import { INPUT_BOUNDS, RING_ANCHORS, assertResolveInput, resolve } from "../src/index.js";
 import { DEFAULT_TUNABLES, battlefield, clone, fence, input, party, post, unit } from "./fixtures.js";
 
 type Mut = Record<string, unknown>;
@@ -60,6 +60,41 @@ describe("assertResolveInput", () => {
     expect(() => assertResolveInput(mutated((o) => (pt(o).units = [])))).toThrow(/empty/);
     expect(() => assertResolveInput(mutated((o) => (tn(o).pathConnectivity = 8)))).toThrow(/pathConnectivity must be 4/);
     expect(() => resolve(mutated((o) => (tn(o).pathConnectivity = 8)))).toThrow(/pathConnectivity/);
+  });
+
+  it("QA-10 S4: a mover slower than one fixed unit per tick (moveSpeed < tickRate) is refused, for units and posts", () => {
+    expect(() => assertResolveInput(mutated((o) => ((pt(o).units as Mut[])[0]!.moveSpeed = 19)))).toThrow(/moveSpeed 19 is below the tick rate 20/);
+    expect(() => assertResolveInput(mutated((o) => ((pt(o).units as Mut[])[0]!.moveSpeed = 20)))).not.toThrow();
+    expect(() => assertResolveInput(mutated((o) => ((pt(o).units as Mut[])[0]!.moveSpeed = 0)))).toThrow(/moveSpeed must be an integer ≥ 1/);
+    expect(() => assertResolveInput(mutated((o) => ((bf(o).posts as Mut[])[0]!.moveSpeed = 19)))).toThrow(/posts\[0\]\.moveSpeed 19 is below the tick rate/);
+    // The bound follows the tick rate: at 40 ticks/s, 39 is too slow.
+    expect(() => assertResolveInput(mutated((o) => { tn(o).tickRate = 40; (pt(o).units as Mut[])[0]!.moveSpeed = 39; }))).toThrow(/below the tick rate 40/);
+  });
+
+  it("QA-10 N3: a post's or trap's pos must lie inside its own cell", () => {
+    expect(() => assertResolveInput(mutated((o) => ((bf(o).posts as Mut[])[0]!.pos = { x: 15 * 1024 + 512, y: 9 * 1024 })))).toThrow(/posts\[0\]\.pos lies outside its cell/);
+    expect(() => assertResolveInput(mutated((o) => ((bf(o).posts as Mut[])[0]!.pos = { x: 15 * 1024 + 1023, y: 8 * 1024 })))).not.toThrow();
+    const withTrap = clone(base()) as unknown as Mut;
+    (bf(withTrap).traps as unknown[]).push({ ref: "t", cell: { x: 5, y: 5 }, pos: { x: 6 * 1024, y: 5 * 1024 + 512 }, typeId: "trap.spike_pit", category: "groundwork", affinity: "grit", damage: 250, effect: null });
+    expect(() => assertResolveInput(withTrap)).toThrow(/traps\[0\]\.pos lies outside its cell/);
+  });
+
+  it("QA-10 S3: magnitudes are bounded so the breach price and every product stays a safe integer", () => {
+    expect(INPUT_BOUNDS.maxHp).toBe(1_000_000);
+    expect(() => assertResolveInput(mutated((o) => { (pt(o).units as Mut[])[0]!.hp = 1_000_001; (pt(o).units as Mut[])[0]!.maxHp = 1_000_001; }))).toThrow(/hp must be ≤ 1000000/);
+    expect(() => assertResolveInput(mutated((o) => { (bf(o).fences as Mut[])[0]!.hp = 1_000_001; (bf(o).fences as Mut[])[0]!.maxHp = 1_000_001; }))).toThrow(/fences\[0\]\.maxHp must be ≤ 1000000/);
+    expect(() => assertResolveInput(mutated((o) => { (bf(o).fences as Mut[])[0]!.hp = 1_000_000; (bf(o).fences as Mut[])[0]!.maxHp = 1_000_000; }))).not.toThrow();
+    expect(() => assertResolveInput(mutated((o) => ((pt(o).units as Mut[])[0]!.attackCooldown = 60_001)))).toThrow(/attackCooldown must be ≤ 60000/);
+    expect(() => assertResolveInput(mutated((o) => ((pt(o).units as Mut[])[0]!.attackCooldown = 60_000)))).not.toThrow();
+    expect(() => assertResolveInput(mutated((o) => ((pt(o).units as Mut[])[0]!.moveSpeed = 64 * 1024 + 1)))).toThrow(/moveSpeed must be ≤ 65536/);
+    expect(() => assertResolveInput(mutated((o) => ((pt(o).units as Mut[])[0]!.offense = 1_000_001)))).toThrow(/offense must be ≤ 1000000/);
+    expect(() => assertResolveInput(mutated((o) => (tn(o).tickRate = 1001)))).toThrow(/tickRate must be ≤ 1000/);
+    expect(() => assertResolveInput(mutated((o) => (tn(o).battleLengthCapSeconds = 3601)))).toThrow(/battleLengthCapSeconds must be ≤ 3600/);
+    expect(() => assertResolveInput(mutated((o) => ((bf(o).posts as Mut[])[0]!.defense = 1_000_001)))).toThrow(/defense must be ≤ 1000000/);
+    // The worst case inside the bounds — hits × cooldownTicks × speedPerTick — is a safe integer.
+    const worst = INPUT_BOUNDS.maxHp * ((INPUT_BOUNDS.maxMillis * INPUT_BOUNDS.maxTickRate) / 1000) * INPUT_BOUNDS.maxMoveSpeed;
+    expect(worst).toBe(3_932_160_000_000_000);
+    expect(Number.isSafeInteger(worst)).toBe(true);
   });
 
   it("resolve() validates before touching anything", () => {

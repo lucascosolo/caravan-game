@@ -5,6 +5,8 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  BREACH_COST_MAX,
+  CELL_FREE,
   CORE_CENTER,
   CORE_CENTER_CELL,
   FIELD_HEIGHT,
@@ -12,11 +14,16 @@ import {
   GRID_HEIGHT,
   RING_ANCHORS,
   RING_SEGMENTS,
+  breachCostFor,
   cellCenter,
+  cellKey,
   cellOf,
   distSq,
   initialState,
   isCoreCell,
+  legOffset,
+  losClear,
+  movementPhase,
   normalizeInput,
   resolve,
   ringSegment,
@@ -24,7 +31,7 @@ import {
   type LogEvent,
   type ResolveOutput,
 } from "../src/index.js";
-import { DEFAULT_TUNABLES, SHORT_TUNABLES, battlefield, fence, input, ms, party, post, ringExcept, trap, unit } from "./fixtures.js";
+import { DEFAULT_TUNABLES, SHORT_TUNABLES, battlefield, clone, cornerClipScenario, fence, input, ms, party, post, ringExcept, scenarios, trap, unit } from "./fixtures.js";
 
 const keyframes = (out: ResolveOutput) => out.log.filter((e): e is Extract<LogEvent, { k: "keyframe" }> => e.k === "keyframe");
 const events = <K extends LogEvent["k"]>(out: ResolveOutput, k: K) => out.log.filter((e): e is Extract<LogEvent, { k: K }> => e.k === k);
@@ -36,7 +43,7 @@ describe("fixed-timestep loop", () => {
     expect(out.tickCap).toBe(60);
     expect(out.ticks).toBe(60);
     expect(out.end).toBe("tick_cap");
-    expect(out.resolverVersion).toBe(1);
+    expect(out.resolverVersion).toBe(2);
     const full = resolve(input(battlefield(), party([unit({ ref: "a" })])));
     expect(full.tickCap).toBe(3600);
     expect(full.ticks).toBe(3600);
@@ -80,8 +87,8 @@ describe("continuous movement", () => {
 
   it("goes round through a gap when that is cheaper than breaking through", () => {
     // Gap at segment 6 (cell (18,11)), three cells east of the unit's line; brush pile is 300 HP,
-    // offense 95 → 4 hits × 20 ticks × 76 = 6080 (≈ 6 cells) vs a 6-cell detour: equal-ish, so
-    // make the fence sturdier to force the detour.
+    // offense 95 → (4 − 1) hits × 20 ticks × 76 = 4560 (≈ 4.5 cells) of standing still vs a
+    // detour of about a cell on foot: the detour wins; a sturdier fence makes it unambiguous.
     const out = resolve(input(battlefield({ fences: ringExcept([6], 1000) }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES));
     expect(out.units[0]!.reachedCoreTick).toBeGreaterThan(0);
     expect(events(out, "fence_hit")).toHaveLength(0);
@@ -254,6 +261,152 @@ describe("tie-breaks and ordering", () => {
       { t, k: "fence_hit", u: 0, f: 3, damage: 40, hp: 40 },
       { t, k: "fence_hit", u: 1, f: 3, damage: 40, hp: 0 },
     ]);
+  });
+});
+
+describe("QA-10 round 1 regressions", () => {
+  const field = (gaps: number[], hp: number) => battlefield({ fences: ringExcept(gaps, hp) });
+
+  it("S2: the rand4 corner-clip fixture — every tick's displacement passes the EXACT line-of-sight rule and every position is in a free cell", () => {
+    const state = initialState(normalizeInput(clone(cornerClipScenario())));
+    const log: LogEvent[] = [];
+    let moves = 0;
+    for (; state.tick < state.tickCap; state.tick++) {
+      const before = state.units.map((u) => ({ x: u.x, y: u.y }));
+      const grid = new Int32Array(state.grid); // what movement ran against (phase 8 may free a cell afterwards)
+      runTick(state, log);
+      for (let id = 0; id < state.attackerCount; id++) {
+        const u = state.units[id]!;
+        const p = before[id]!;
+        expect(grid[cellKey(cellOf({ x: u.x, y: u.y }))], `tick ${state.tick} unit ${id} stands in a blocked cell`).toBe(CELL_FREE);
+        if (p.x === u.x && p.y === u.y) continue;
+        moves++;
+        expect(losClear(grid, p as never, { x: u.x, y: u.y }), `tick ${state.tick} unit ${id} moved (${p.x},${p.y})→(${u.x},${u.y}) across a blocked cell`).toBe(true);
+        expect(u.pathDirty, "the defensive stop-and-replan branch never fires").toBe(false);
+      }
+    }
+    expect(moves).toBeGreaterThan(1000);
+    // In v1 unit u1 (id 1) clipped the corner of an intact segment at tick 143 on this fixture.
+    expect(state.units[1]!.ref).toBe("u1");
+  });
+
+  it("S2: movement is leg-parametric — the position after k ticks is anchor + legOffset(d, k × speed, len), so rounding never accumulates; a same-route recompute keeps the leg", () => {
+    // Open field from (10,0) to the core (a line that clears the ring anchors): one diagonal
+    // leg of ≈ 15.8 cells that every 10-tick recompute re-derives identically, so the route
+    // is set once and the leg is never restarted.
+    const out = resolve(input(battlefield(), party([unit({ ref: "a", cell: { x: 10, y: 0 } })]), { ...SHORT_TUNABLES, keyframeIntervalMs: ms(50) }));
+    const paths = events(out, "path");
+    expect(paths).toHaveLength(1);
+    expect(paths[0]!.t).toBe(0);
+    expect(paths[0]!.wp).toEqual([[CORE_CENTER.x, CORE_CENTER.y, -1]]);
+    const start = cellCenter({ x: 10, y: 0 });
+    const dx = CORE_CENTER.x - start.x;
+    const dy = CORE_CENTER.y - start.y;
+    const len = Math.floor(Math.sqrt(dx * dx + dy * dy));
+    expect(len).toBe(16190);
+    let checked = 0;
+    for (const k of keyframes(out)) {
+      const progress = 76 * (k.t + 1);
+      if (progress >= len) break;
+      expect([k.units[0]!.x, k.units[0]!.y], `tick ${k.t}`).toEqual([start.x + legOffset(dx, progress, len), start.y + legOffset(dy, progress, len)]);
+      checked++;
+    }
+    expect(checked).toBe(213); // ticks 0..212 are mid-leg; tick 213 lands exactly on the centre
+    expect(keyframes(out)[213]!.units[0]).toMatchObject({ x: CORE_CENTER.x, y: CORE_CENTER.y });
+    expect(events(out, "hold")).toEqual([{ t: 214, k: "hold", u: 0, holding: true }]);
+    // v1 re-aimed from the rounded position each tick, so drift accumulated over 213 ticks;
+    // the parametric position is within one unit of the exact line to the end.
+    const last = keyframes(out)[212]!.units[0]!;
+    expect(Math.abs(last.x - (start.x + (dx * 76 * 213) / len))).toBeLessThan(1);
+    expect(Math.abs(last.y - (start.y + (dy * 76 * 213) / len))).toBeLessThan(1);
+  });
+
+  it("N1: a step that would land exactly on a waypoint consumes it in the same tick, and a negative leg never reaches its waypoint early", () => {
+    const mk = (moveSpeed: number) => initialState(normalizeInput(input(battlefield(), party([unit({ ref: "a", cell: { x: 15, y: 0 }, moveSpeed })]), SHORT_TUNABLES)));
+    // dx = dy = 54: d² = 5832 > 76² but isqrt(5832) = 76 = the tick's budget. v1 stepped onto the
+    // waypoint without consuming it and spent the next tick consuming it in place.
+    const s = mk(1536);
+    const u = s.units[0]!;
+    const start = { x: u.x, y: u.y };
+    u.waypoints = [{ x: (u.x + 54) as never, y: (u.y + 54) as never, breach: -1 }];
+    const log: LogEvent[] = [];
+    movementPhase(s, log);
+    expect([u.x, u.y]).toEqual([start.x + 54, start.y + 54]);
+    expect(u.waypoints).toHaveLength(0);
+    expect(u.holding).toBe(false);
+    movementPhase(s, log);
+    expect(u.holding).toBe(true);
+    // Negative leg of length 98 at 97 per tick: floor toward −∞ would give −70 = the whole leg
+    // on tick 1 (on the waypoint, waypoint unconsumed); the magnitude floor gives −69.
+    expect(Math.floor((-70 * 97) / 98)).toBe(-70);
+    expect(legOffset(-70, 97, 98)).toBe(-69);
+    expect(legOffset(70, 97, 98)).toBe(69);
+    const s2 = mk(1940);
+    const u2 = s2.units[0]!;
+    const start2 = { x: u2.x, y: u2.y };
+    u2.waypoints = [{ x: (u2.x - 70) as never, y: (u2.y - 70) as never, breach: -1 }];
+    movementPhase(s2, log);
+    expect([u2.x, u2.y]).toEqual([start2.x - 69, start2.y - 69]);
+    expect(u2.waypoints).toHaveLength(1);
+    movementPhase(s2, log);
+    expect([u2.x, u2.y]).toEqual([start2.x - 70, start2.y - 70]);
+    expect(u2.waypoints).toHaveLength(0);
+  });
+
+  it("S1: the breach price is the stationary time — (hits − 1) cooldowns plus the cooldown still running — clamped to BREACH_COST_MAX", () => {
+    const state = initialState(normalizeInput(input(battlefield({ fences: [fence({ segment: 3, maxHp: 300 })] }), party([unit({ ref: "a", offense: 95, attackCooldown: 1000 })]), SHORT_TUNABLES)));
+    const u = state.units[0]!;
+    const cost = breachCostFor(state, u);
+    expect(cost(0)).toBe((4 - 1) * 20 * 76); // ⌈300 / 95⌉ = 4 hits; v1 priced 4 × 20 × 76
+    u.cooldownRemaining = 1; // fires on the arrival tick (phase 6 decrements, then checks)
+    expect(cost(0)).toBe(3 * 20 * 76);
+    u.cooldownRemaining = 5;
+    expect(cost(0)).toBe((3 * 20 + 4) * 76);
+    u.cooldownRemaining = 0;
+    state.fences[0]!.hp = 95;
+    expect(cost(0)).toBe(0);
+    const weak = initialState(normalizeInput(input(battlefield({ fences: [fence({ segment: 3, maxHp: 1_000_000 })] }), party([unit({ ref: "a", offense: 1 })]), SHORT_TUNABLES)));
+    expect(breachCostFor(weak, weak.units[0]!)(0)).toBe(BREACH_COST_MAX); // 999 999 × 20 × 76 ≈ 1.5e9 > COST_INFINITE
+  });
+
+  it("S1: breach vs detour is decided by MEASURED time — resolved both ways, the chosen route is the quicker one to within one attack cooldown, exactly at the unambiguous ends", () => {
+    const cooldownTicks = 20; // 1000 ms at 20 ticks/s; one hit's worth, the planner's resolution
+    const timeTo = (gaps: number[], hp: number) => {
+      const out = resolve(input(field(gaps, hp), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES));
+      return { t: out.units[0]!.reachedCoreTick, breached: events(out, "fence_hit").length > 0 };
+    };
+    // A forced breach of h hits costs exactly (h − 1) cooldowns over a one-hit breach.
+    expect(timeTo([], 95).t).toBeGreaterThan(0);
+    expect(timeTo([], 95 * 5).t - timeTo([], 95).t).toBe(4 * cooldownTicks);
+    for (const gap of [5, 6, 7]) {
+      const detour = timeTo([gap], 1_000_000);
+      expect(detour.breached).toBe(false);
+      for (const hits of [1, 2, 3, 4, 5, 8, 12]) {
+        const hp = 95 * hits;
+        const breach = timeTo([], hp); // forced: no gap
+        const chosen = timeTo([gap], hp);
+        const label = `gap ${gap}, ${hits} hits: chosen ${chosen.t} (${chosen.breached ? "breach" : "detour"}) vs breach ${breach.t} / detour ${detour.t}`;
+        expect(chosen.t, label).toBe(chosen.breached ? breach.t : detour.t);
+        expect(chosen.t, label).toBeLessThanOrEqual(Math.min(breach.t, detour.t) + cooldownTicks);
+      }
+      expect(timeTo([gap], 95).breached, `gap ${gap}: one hit beats any detour`).toBe(true);
+      expect(timeTo([gap], 95 * 12).breached, `gap ${gap}: eleven cooldowns never beat the detour`).toBe(false);
+    }
+    // The v1 lattice-only comparison breached through a 190-HP segment with a gap two cells away
+    // (4 lattice steps ≈ 54 ticks "saved" for a walk that really costs 5): pinned.
+    expect(timeTo([5], 190).breached).toBe(false);
+  });
+
+  it("S3: a 1 000 000-HP sealed ring is breached, not treated as a wall — the unit keeps its target, stands at the segment and chips it all fight", () => {
+    const out = resolve(scenarios().find((s) => s.name === "sealed-ring-1e6-hp")!.input);
+    expect(events(out, "target")).toEqual([{ t: 0, k: "target", u: 0, target: { kind: "core", id: -1 } }]);
+    const hits = events(out, "fence_hit");
+    expect(hits).toHaveLength(24); // arrival + every 20 ticks until the 600-tick cap
+    const seg3 = out.fences.find((f) => f.segment === 3)!;
+    expect(hits.every((h) => h.f === seg3.f && h.damage === 1)).toBe(true);
+    expect(seg3.hp).toBe(1_000_000 - 24);
+    expect(cellOf({ x: out.units[0]!.x as never, y: out.units[0]!.y as never })).toEqual({ x: 15, y: 10 });
+    expect(events(out, "hold").map((h) => h.holding)).toEqual([true]);
   });
 });
 

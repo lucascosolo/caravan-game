@@ -161,6 +161,27 @@ export function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
 }
 
+/**
+ * QA-10 S2 regression: the reviewer's seeded random scenario `rand4` (probe rng 12345,
+ * scenario index 4), in which RESOLVER_VERSION 1 let unit u1 clip through the corner of an
+ * intact segment at tick 143. Pinned as literals so the corpus never depends on a PRNG.
+ */
+export function cornerClipScenario(): ResolveInput {
+  const u = (ref: string, stance: Stance, edge: EntryEdge, cell: Cell, moveSpeed: number, offense: number, attackCooldown: number) => unit({ ref, stance, edge, cell, moveSpeed, offense, attackCooldown });
+  return input(
+    battlefield({ fences: ringExcept([3, 10, 12, 16, 17], 100), traps: [trap("t0", { x: 15, y: 12 }), trap("t1", { x: 8, y: 8 })] }),
+    party([
+      u("u0", "traps", "north", { x: 17, y: 0 }, 1024, 40, 1800),
+      u("u1", "nearest", "north", { x: 10, y: 1 }, 1536, 110, 1000),
+      u("u2", "nearest", "north", { x: 19, y: 0 }, 1536, 40, 800),
+      u("u3", "nearest", "west", { x: 0, y: 16 }, 1536, 110, 1000),
+      u("u4", "traps", "north", { x: 31, y: 0 }, 1024, 95, 1800),
+      u("u5", "traps", "west", { x: 0, y: 18 }, 1024, 40, 1000),
+    ]),
+    { ...DEFAULT_TUNABLES, battleLengthCapSeconds: 60 },
+  );
+}
+
 /** The scenarios the determinism harness runs. Keep this list growing in chunks 11–13. */
 export function scenarios(): { name: string; input: ResolveInput }[] {
   const north = (ref: string, stance: Stance, x: number) => unit({ ref, stance, edge: "north", cell: { x, y: 1 } });
@@ -170,5 +191,7 @@ export function scenarios(): { name: string; input: ResolveInput }[] {
     { name: "gapped-ring-three-stances", input: input(battlefield({ fences: ringExcept([3, 17]), traps: [trap("t1", { x: 13, y: 13 }), trap("t2", { x: 17, y: 18 })], posts: [post("p1", { x: 15, y: 13 }), post("p2", { x: 14, y: 17 })] }), party([north("a", "core", 15), north("b", "nearest", 20), south("c", "traps", 10), south("d", "core", 15)]), SHORT_TUNABLES) },
     { name: "sealed-ring-breach", input: input(battlefield({ fences: ringExcept([], 100), posts: [post("p1", { x: 15, y: 14 })] }), party([north("a", "core", 15), unit({ ref: "b", stance: "nearest", edge: "west", cell: { x: 0, y: 15 } })]), SHORT_TUNABLES) },
     { name: "full-length-mixed", input: input(battlefield({ fences: ringExcept([0, 1, 2, 3, 4, 5, 6, 7]), traps: [trap("t1", { x: 11, y: 10 })], posts: [post("p1", { x: 15, y: 12 }), post("p2", { x: 18, y: 16 })] }), party([north("a", "core", 2), north("b", "nearest", 29), south("c", "traps", 15), unit({ ref: "d", stance: "core", edge: "east", cell: { x: 31, y: 3 } })])) },
+    { name: "corner-clip-rand4", input: cornerClipScenario() },
+    { name: "sealed-ring-1e6-hp", input: input(battlefield({ fences: ringExcept([], 1_000_000) }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, offense: 1 })]), SHORT_TUNABLES) },
   ];
 }
