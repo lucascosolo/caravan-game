@@ -1,0 +1,72 @@
+{
+  "route": "POST /me/store/purchase",
+  "status": 201,
+  "body": {
+    "sandbox": true,
+    "replayed": false,
+    "purchase": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "weekIndex": 39,
+      "tier": 1,
+      "backend": "sandbox_stub",
+      "sandboxReceipt": "sandbox:00000000-0000-4000-8000-000000000002",
+      "priceCents": 500,
+      "contents": [
+        {
+          "kind": "coin",
+          "amount": 6000
+        },
+        {
+          "kind": "cosmetic",
+          "cosmeticId": "fence_style.weathered_grey"
+        }
+      ],
+      "coin": {
+        "requested": 6000,
+        "credited": 6000,
+        "discarded": 0
+      },
+      "causationId": "pack:00000000-0000-4000-8000-000000000003:w39:t1",
+      "purchasedAt": "2026-10-11T12:00:00.000Z",
+      "settled": true,
+      "settledAt": "2026-10-11T12:00:00.000Z"
+    },
+    "coin": {
+      "requested": 6000,
+      "credited": 6000,
+      "discarded": 0,
+      "balanceAfter": 7000,
+      "cap": 50000
+    },
+    "trickle": {
+      "credited": 0,
+      "discarded": 0,
+      "materialized": false,
+      "accruedFromMs": 1790000000000,
+      "accruedThroughMs": 1790000000000,
+      "balanceBeforeCredit": 1000
+    },
+    "cosmeticsGranted": [
+      "fence_style.weathered_grey"
+    ],
+    "cosmeticsAlreadyOwned": [],
+    "events": [
+      {
+        "seq": 7,
+        "type": "coin_purchased",
+        "payload": {
+          "tier": 1,
+          "amount": 6000,
+          "reason": "pack_purchase",
+          "backend": "sandbox_stub",
+          "cosmetics": [
+            "fence_style.weathered_grey"
+          ],
+          "weekIndex": 39,
+          "priceCents": 500,
+          "chargedCents": 0
+        }
+      }
+    ]
+  }
+}

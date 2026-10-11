@@ -7,7 +7,7 @@
  * render (a tier builds a row of the graph) or an unbounded list cannot stall the page.
  */
 import { GRID_HEIGHT, GRID_WIDTH, formationFromJson, isEntryEdge, isTargetingStance, manifestFromJson, partyConfigFromJson, type PartyScoutView, type ScoutSiege, type ScoutUnit } from "@caravan/circle";
-import { getSiegeType, getUnitType, isAbilityArchetype, isAffinityCategory, mergeStatMult, type Ability, type Fixed, type Millis, type SiegeCounter } from "@caravan/content";
+import { getSiegeType, getUnitType, isAbilityArchetype, isCosmeticKind, isAffinityCategory, mergeStatMult, type Ability, type Fixed, type Millis, type SiegeCounter } from "@caravan/content";
 import { ShapeError, array, boolean, integer, literal, nullable, object, optional, string, type Guard } from "./shape.ts";
 import type {
   AcquiredView,
@@ -49,6 +49,21 @@ import type {
   UnlockPoints,
   UnlockWebView,
   UnlocksResponse,
+  CatalogCosmeticView,
+  CosmeticInfoView,
+  CosmeticsView,
+  EquipResult,
+  OwnedCosmeticView,
+  PackContentView,
+  PackOfferBaseView,
+  PackOfferView,
+  PackPurchaseView,
+  PurchaseResult,
+  PurchasesList,
+  StoreOverflowView,
+  StoreView,
+  UnequipResult,
+  UpcomingWeekView,
 } from "./types.ts";
 
 /** Largest tier the client will lay out as a row. The authored webs stop at 4. */
@@ -557,3 +572,157 @@ export const partyFeedShape: Guard<PartyFeedPage> = object({
   nextBefore: integer({ min: 0 }),
   hasMore: boolean(),
 });
+
+// ── Store & cosmetics (chunk 20 routes), the Packs and Cosmetics screens ─────────────
+//
+// Legibility (GUARDRAILS §4) and no pay-to-win (§2) are checked here, not only drawn:
+//   - a pack's contents are exactly two kinds, coin | cosmetic, with exactly one coin entry;
+//   - the offer's headline `coin` and its `cosmetics` list must AGREE with `contents` (the
+//     exact list the purchase grants), so the screen can never show one thing and sell another;
+//   - the storefront must say it is the sandbox stub with no real charges: this client's copy
+//     says "no real money moves", and a body that claims otherwise is a bad body;
+//   - a cosmetic carries no numeric field at all (nothing the guard reads could be a stat).
+
+const PACK_TIER = literal(1, 2, 3);
+const HASH = (v: unknown, path: string): string => {
+  if (typeof v !== "string" || !/^[0-9a-f]{64}$/.test(v)) throw new ShapeError(path, "64-char lowercase sha256 hex", v);
+  return v;
+};
+const TEXT = string({ maxLength: 2048 });
+const MAX_COSMETICS = 1024;
+
+const cosmeticInfoFields = {
+  id: ID,
+  kind: predicate(isCosmeticKind, "cosmetic kind"),
+  displayName: NAME,
+  description: TEXT,
+  appliesTo: nullable(ID),
+  reviewNote: TEXT,
+  slot: ID,
+};
+const cosmeticInfo: Guard<CosmeticInfoView> = object(cosmeticInfoFields);
+
+const packContent: Guard<PackContentView> = (v, path) => {
+  const { kind } = object({ kind: literal("coin", "cosmetic") })(v, path);
+  if (kind === "coin") return { kind, amount: integer({ min: 1, max: 1_000_000_000 })((v as Record<string, unknown>)["amount"], `${path}.amount`) };
+  return { kind, cosmeticId: ID((v as Record<string, unknown>)["cosmeticId"], `${path}.cosmeticId`) };
+};
+const packContents: Guard<readonly PackContentView[]> = (v, path) => {
+  const list = array(packContent, { maxLength: 16 })(v, path);
+  if (list.filter((c) => c.kind === "coin").length !== 1) throw new ShapeError(path, "exactly one coin entry", v);
+  return list;
+};
+
+const offerBaseFields = {
+  id: ID,
+  weekIndex: integer({ min: 0 }),
+  tier: PACK_TIER,
+  priceCents: integer({ min: 0, max: 1_000_000 }),
+  priceDisplay: string({ maxLength: 32 }),
+  coin: COIN,
+  cosmetics: array(cosmeticInfo, { maxLength: 16 }),
+  contents: packContents,
+  contentsHash: HASH,
+};
+
+/** `coin` and `cosmetics` must be exactly what `contents` grants, in the same order. */
+function agreeing<T extends PackOfferBaseView>(inner: Guard<T>): Guard<T> {
+  return (v, path) => {
+    const o = inner(v, path);
+    const coin = o.contents.find((c) => c.kind === "coin");
+    if (!coin || coin.amount !== o.coin) throw new ShapeError(`${path}.coin`, `the coin entry of contents (${coin?.amount ?? "none"})`, o.coin);
+    const granted = o.contents.flatMap((c) => (c.kind === "cosmetic" ? [c.cosmeticId] : []));
+    const shown = o.cosmetics.map((c) => c.id);
+    if (granted.length !== shown.length || granted.some((id, i) => id !== shown[i])) {
+      throw new ShapeError(`${path}.cosmetics`, `the cosmetic entries of contents (${granted.join(", ") || "none"})`, shown.join(", "));
+    }
+    return o;
+  };
+}
+
+const storeOverflow: Guard<StoreOverflowView> = object({
+  balance: COIN,
+  cap: COIN,
+  room: COIN,
+  prospectiveEarn: COIN,
+  wouldCredit: COIN,
+  wouldDiscard: COIN,
+  atCap: boolean(),
+  warn: boolean(),
+  message: string({ maxLength: 1024 }),
+});
+
+const offerBase: Guard<PackOfferBaseView> = agreeing(object(offerBaseFields));
+const offer: Guard<PackOfferView> = agreeing(
+  object({ ...offerBaseFields, purchased: boolean(), purchasedAt: nullable(TIMESTAMP), purchaseId: nullable(ID), overflow: storeOverflow }),
+);
+const upcomingWeek: Guard<UpcomingWeekView> = object({ weekIndex: integer({ min: 0 }), startsAtMs: MS, endsAtMs: MS, offers: array(offerBase, { maxLength: 3 }) });
+
+export const storeShape: Guard<StoreView> = object({
+  backend: object({ name: ID, sandbox: literal(true), realCharges: literal(false), message: TEXT }),
+  week: object({ index: integer({ min: 0 }), startsAtMs: MS, endsAtMs: MS, nowMs: MS }),
+  balance: object({ balance: COIN, cap: COIN, room: COIN, atCap: boolean(), pendingTrickle: COIN }),
+  offers: array(offer, { maxLength: 3 }),
+  combined: object({ tiers: array(PACK_TIER, { maxLength: 3 }), coin: COIN, overflow: storeOverflow }),
+  upcoming: array(upcomingWeek, { maxLength: 8 }),
+  ceiling: object({
+    weeklyPayCeiling: COIN,
+    freeWeeklyEarnEstimate: integer({ min: 1, max: 1_000_000_000 }),
+    paidToFreeRatioBp: integer({ min: 0, max: 10_000_000 }),
+    paidToFreeRatioMaxBp: integer({ min: 0, max: 10_000_000 }),
+    storageCap: COIN,
+    purchaseLimitPerTierPerWeek: integer({ min: 1, max: 16 }),
+    note: TEXT,
+  }),
+});
+
+const packPurchase: Guard<PackPurchaseView> = object({
+  id: ID,
+  weekIndex: integer({ min: 0 }),
+  tier: PACK_TIER,
+  backend: ID,
+  sandboxReceipt: nullable(string({ maxLength: 256 })),
+  priceCents: integer({ min: 0, max: 1_000_000 }),
+  contents: packContents,
+  coin: object({ requested: COIN, credited: COIN, discarded: COIN }),
+  purchasedAt: TIMESTAMP,
+  settled: boolean(),
+});
+
+export const purchaseResultShape: Guard<PurchaseResult> = object({
+  sandbox: literal(true),
+  replayed: boolean(),
+  purchase: packPurchase,
+  coin: object({ requested: COIN, credited: COIN, discarded: COIN, balanceAfter: COIN, cap: COIN }),
+  cosmeticsGranted: array(ID, { maxLength: 16 }),
+  cosmeticsAlreadyOwned: array(ID, { maxLength: 16 }),
+});
+
+export const purchasesShape: Guard<PurchasesList> = object({ purchases: array(packPurchase, { maxLength: 100_000 }) });
+
+/** slot → cosmetic id. */
+const equipMap: Guard<Readonly<Record<string, string>>> = (v, path) => {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) throw new ShapeError(path, "object", v);
+  const entries = Object.entries(v as Record<string, unknown>);
+  if (entries.length > 64) throw new ShapeError(path, "at most 64 slots", v);
+  const out: Record<string, string> = {};
+  for (const [slot, id] of entries) out[ID(slot, `${path} key`)] = ID(id, `${path}.${slot}`);
+  return out;
+};
+
+const ownedCosmetic: Guard<OwnedCosmeticView> = object({ ...cosmeticInfoFields, purchaseId: ID, grantedAt: TIMESTAMP, equipped: boolean() });
+const catalogCosmetic: Guard<CatalogCosmeticView> = object({
+  ...cosmeticInfoFields,
+  owned: boolean(),
+  nextOffer: nullable(object({ weekIndex: integer({ min: 0 }), tier: PACK_TIER })),
+});
+
+export const cosmeticsShape: Guard<CosmeticsView> = object({
+  kinds: array(predicate(isCosmeticKind, "cosmetic kind"), { maxLength: 16 }),
+  owned: array(ownedCosmetic, { maxLength: MAX_COSMETICS }),
+  equipped: equipMap,
+  catalog: array(catalogCosmetic, { maxLength: MAX_COSMETICS }),
+});
+
+export const equipResultShape: Guard<EquipResult> = object({ slot: ID, cosmeticId: ID, equipped: equipMap });
+export const unequipResultShape: Guard<UnequipResult> = object({ slot: ID, cleared: boolean(), equipped: equipMap });

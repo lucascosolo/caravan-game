@@ -497,6 +497,28 @@ before acting):**
   reserve posts fire back, a breacher ignores posts that cannot reach it, and guards no longer
   chase detours out of aggro or leash. Re-run the matrix before tuning.
 
+**Balance notes carried in (chunk 12 QA, measured at RESOLVER_VERSION 5; version 6 changed
+fence breaching and the breaker's first use, so re-measure):**
+- Win matrix with abilities: the attacker wins 63.5 % (63.7 % without); abilities flip 29 of
+  1024 matchups. Range still dominates (ranged attackers 75.3 % vs melee 58.1 %).
+- Healers are the weakest archetype in full fights: 7.5–16 % of post damage healed against 8
+  raiders, under the 25–35 % target (they die early). In LIGHT encounters it is the other way
+  round: across three survived 2-raider encounters the same healer circle arrives at 82.6–89.9 %
+  of full HP with healing and 60.3–70.4 % with healing switched off — healing undoes 56–66 % of
+  the attrition there (chunk 12 QA N3 gate, version 6). The heal ceiling keeps it to this
+  fight's damage, but the offset is over target when fights are mild.
+- Core-stance runners reach the core about 5 s in, before most abilities first fire: hold rate
+  is decided by approach coverage, not abilities.
+- Version 6 (chunk 12 QA D1/D2): one unit takes at most half a segment's max HP per tick
+  (`FENCE_HIT_SEGMENT_CAP`), so every full segment needs two blows. Siege is still ×4; on 300- and
+  400-HP timber most siege hits are now clipped to the cap, and a lone segment beside a gap is
+  walked around even with siege. The breaker's first use is ×0.25 of its cooldown
+  (`STRUCTURE_BREAKER_FIRST_USE_MULT`): breaker firings over the QA corpus went from 3 to 12.
+  Revisit the six breakers' multipliers (×4–×5.5) against a cap that now binds most of them.
+- Merge ceiling with abilities (one-floor buff): the worst HP × effective DPS step is 1.6402
+  (a posted gunslinger against an offense-120 raider at disadvantage, level 3 → 4) against the 5/3 bar; it was
+  1.6856 with two floors.
+
 **Definition of done.** No single type predicts outcomes above threshold in the sweep,
 the alpha's bank-versus-push curve shows real decisions at encounters two through five,
 and the grind-wall dashboard shows the paid path as optional across deciles.

@@ -8,15 +8,26 @@
  * ABILITY_COOLDOWN (state.ts `abilityFields`): cooldownTicks = msToTicks(cooldown). The
  * ability may fire on any tick ≥ `abilityReadyTick`; after firing on tick t the next ready
  * tick is t + cooldownTicks. ABILITY_FIRST_USE_DELAY: the first ready tick is
- * floor(cooldownTicks × abilityFirstUseDelayMult / 1.0) — the full cooldown by default, so a
- * 9 s ability first fires on tick 180 at the earliest (the 181st tick).
+ * floor(cooldownTicks × firstUse / 1.0), firstUse = abilityFirstUseDelayMult (×1.0: the full
+ * cooldown, so a 9 s ability first fires on tick 180 at the earliest, the 181st tick) for
+ * every archetype except the structure breaker, whose first use is
+ * STRUCTURE_BREAKER_FIRST_USE_MULT (×0.25, QA-12 D2: a 12 s breaker first readies on tick 60)
+ * — FENCE_HIT_SEGMENT_CAP keeps an early swing safe. A per-archetype value (state.ts
+ * `abilityFields`), never a per-type one.
  *
  * ABILITY_TRIGGER_RULE: an ability fires on the FIRST tick on which it is ready AND its
  * targeting condition (below) is satisfiable; otherwise it waits, already ready, and is
- * re-tested every tick. No cast is ever wasted into nothing and there is no charge-up. A
- * caster at 0 HP that is still `alive` (killed earlier this tick — it dies in phase 8) fires
- * like every other unit (SIMULTANEOUS_DAMAGE, chunk 11; a dash excepted, DASH_NOT_DYING): an ability can fire on the tick its
- * caster dies.
+ * re-tested every tick. There is no charge-up. The cooldown (and a heal's charge) is spent
+ * when the firing APPLIES, not when it is decided; a decided firing whose effect would be
+ * void by then is SKIPPED — nothing logged, nothing spent, still ready next tick
+ * (ABILITY_SKIP_VOID, QA-12 N1/N2): a dash or a self buff whose caster is at 0 HP at apply
+ * time (brought there earlier in phase 7 or before it), and a heal whose every target is at
+ * 0 HP by step (b). A burst or heavy strike whose targets were brought to 0 earlier in step
+ * (a) still lands and is spent (it fired at living targets, against the start-of-phase
+ * state; its damage is simply absorbed by a unit already dying). Otherwise a caster at 0 HP
+ * that is still `alive` (killed earlier this tick — it dies in phase 8) fires like every
+ * other unit (SIMULTANEOUS_DAMAGE, chunk 11): a strike, burst, breaker or heal can fire on
+ * the tick its caster dies.
  *
  * ABILITY_SKIPS_ZERO_HP: no ability ever targets a unit already at 0 HP (it dies in phase 8),
  * and such a unit does not make a condition satisfiable. Units are otherwise targeted while
@@ -28,8 +39,9 @@
  *      of phase 7 (positions after phases 3/5, HP after phases 4/6). Nothing is mutated while
  *      deciding, so no firing can change another's targets — order cannot leak into choice.
  *   2. APPLY, damage first — (a) every firing that is NOT a heal, in ascending caster id
- *      (burst, heavy strike, structure breaker, self buff, dash); then (b) every heal, in
- *      ascending caster id.
+ *      (burst, heavy strike, structure breaker, self buff, dash — an attacker's dash springs
+ *      the traps on its path right there); then (b) every heal, in ascending caster id.
+ *      ABILITY_SKIP_VOID (above) is checked as each firing applies.
  *   HEAL_VS_DAMAGE_SAME_TICK (pinned by a test): a heal can NEVER save a unit from damage that
  *   lands on the same tick, whatever the two units' ids. Damage from phases 4 and 6 is
  *   already in before phase 7, and ability damage is applied before any heal, so a unit
@@ -87,7 +99,9 @@
  *                     posts and unreleased `reserve` posts never move, so never dash), and the
  *                     dash would cover ground (DASH_NEVER_EMPTY: a trial run of the step on a
  *                     restored copy of the unit's movement fields moves it > 0 — not blocked
- *                     by an intact breach segment next, not pinned at its leash).
+ *                     by an intact breach segment next, not pinned at its leash). At apply
+ *                     time a caster at 0 HP (brought there earlier in phase 7) does not dash
+ *                     (ABILITY_SKIP_VOID).
  *                     Effect: move `distance` further along the CURRENT route by the movement
  *                     leg rule (move.ts `advance`), landing on and consuming waypoints, stopping
  *                     short of an intact breach segment. The route is a smoothed path that never
@@ -95,25 +109,39 @@
  *                     refuses any step into or across a blocked cell, so a dash NEVER passes
  *                     through an intact fence or anchor. A pursuing post's dash is clamped at its
  *                     leash (posted.ts LEASH_CLAMP; it disengages on its next phase 5 if it
- *                     still wants to go further). DASH_SPRINGS_TRAPS: an attacker's dash path
- *                     is kept and prepended to its next tick's sweep, so phase 4 of the NEXT
- *                     tick tests traps against the dash and that tick's step as one polyline (a
- *                     dash cannot tunnel over a trap; the trap fires one tick after the dash).
- *                     A dash ending on a core cell records `core_reached` on the dash tick.
+ *                     still wants to go further). DASH_SPRINGS_TRAPS (QA-12 B1): an attacker's
+ *                     dash polyline (start, every waypoint landed on, end) is tested against
+ *                     the traps IMMEDIATELY, inside phase 7 right after its own dash, with
+ *                     every phase-4 rule (traps.ts `springTraps`: swept-segment test, ascending
+ *                     trap index, TRAP_SKIPS_ZERO_HP, siege nullify, spent on firing) — so a
+ *                     dash can never carry a unit over a trap, and that holds on the tick-cap
+ *                     tick too. Dashes apply in ascending caster id, so two attackers dashing
+ *                     over the same trap on one tick: the lower id springs it. Only AFTER that,
+ *                     and only if the dasher's HP is still > 0, a dash ending on a core cell
+ *                     records `core_reached` on the dash tick (a unit a trap kills on its dash
+ *                     never reaches the core).
  *   structure_breaker condition: the caster is an attacker breaching a segment it can hit now
- *                     (orthogonally adjacent, intact, HP > 0 — combat.ts `breachableFence`).
- *                     Posted units never hit fence, so a posted breaker never fires (an
- *                     intended lopsidedness). Target: that segment. STRUCTURE_BREAKER_DAMAGE:
- *                       merged = rating × mergeMult (floored) [× buff, never both]
+ *                     (orthogonally adjacent, intact, HP > 0 — combat.ts `breachableFence`)
+ *                     AND it has room left under FENCE_HIT_SEGMENT_CAP this tick (combat.ts
+ *                     `fenceHitRoom` ≥ 1 — its phase-6 hit this tick counts). Posted units never
+ *                     hit fence, so a posted breaker never fires (an intended lopsidedness).
+ *                     Target: that segment. STRUCTURE_BREAKER_DAMAGE:
+ *                       merged = floor(rating × mergeMult [× buffMult while in force]) — one floor
  *                       mult   = fenceDamageMult + (siegeFenceDamageMult − 1.0) if the party's
  *                                siege counters the segment's category, else fenceDamageMult
- *                       damage = max(1, min(floor(merged × mult), floor(maxHp × segmentCap)))
+ *                       damage = min(max(1, floor(merged × mult)), room)
+ *                       room   = fenceHitCap − what the caster already dealt the segment this tick
+ *                       fenceHitCap = max(1, floor(maxHp × fenceHitSegmentCap))
  *                     SIEGE_ADDITIVE: the two BONUSES add (×5 and ×4 → ×8), they never
- *                     multiply (×20). STRUCTURE_BREAKER_SEGMENT_CAP (×0.50 by default): one
- *                     breaker hit takes at most half a segment's max HP, so no segment of any
- *                     tier is ever one-shot by the ability (the worst case without it — a level-5
- *                     Buffalo Bull, offense 120, ×5 with stone siege — is floor(292 × 8) = 2336
- *                     against a 1000-HP Stacked Stone segment; see the chunk 12 Build notes).
+ *                     multiply (×20). FENCE_HIT_SEGMENT_CAP (×0.50 by default, QA-12 D1, combat.ts
+ *                     step 6) is ONE rule for every fence hit, not a breaker rule: a unit takes
+ *                     at most half a segment's MAX HP from it PER TICK, its phase-6 hit (normal,
+ *                     buffed, siege-multiplied) and its phase-7 breaker summed. A segment at full
+ *                     HP therefore needs at least two blows from one unit on two different ticks
+ *                     (several units breaching one segment each have their own allowance). The
+ *                     uncapped worst case — a level-5 Buffalo Bull, offense 120, ×5 with stone
+ *                     siege — would be floor(292 × 8) = 2336 against a 1000-HP Stacked Stone
+ *                     segment; its normal siege hit alone would be 1168. Both are clipped to 500.
  *                     Affinity never applies (a segment has none).
  *
  * MERGE: no ability field scales with merge level (chunk 03 QA S1). Radii, distances,
@@ -127,12 +155,13 @@
  * Siege has no abilities: siege pieces are not units and never enter this phase.
  */
 import { cellOf, isCoreCell } from "./battlefield.js";
-import { abilityHitDamage, atLeastOne, breachableFence, dealtOutput, engaged, unitDistSq } from "./combat.js";
+import { abilityHitDamage, atLeastOne, breachableFence, dealtOutput, engaged, fenceHitRoom, landFenceHit, unitDistSq } from "./combat.js";
 import { FIXED_ONE, scaleInt, type Fixed } from "./fixed.js";
 import type { AbilityEffectLog, LogEvent } from "./log.js";
 import { advanceMeasured } from "./move.js";
 import { advanceWithinLeash } from "./posted.js";
 import type { SimState, UnitState } from "./state.js";
+import { springTraps } from "./traps.js";
 
 /** One decided firing: the caster and its targets (unit ids, or one fence index for structure_breaker). */
 interface Firing {
@@ -253,26 +282,26 @@ function decide(state: SimState, u: UnitState): number[] | null {
       return canDash(state, u, a.distance) ? [u.id] : null;
     case "structure_breaker": {
       const f = breachableFence(state, u);
-      return f === null ? null : [f.index];
+      return f === null || fenceHitRoom(state, u, f) < 1 ? null : [f.index];
     }
   }
 }
 
-/** STRUCTURE_BREAKER_DAMAGE (see header): additive with siege, capped per segment, min 1. */
+/** STRUCTURE_BREAKER_DAMAGE (see header): additive with siege, min 1, clipped to the caster's FENCE_HIT_SEGMENT_CAP room this tick. */
 export function structureBreakerDamage(state: SimState, u: UnitState, fenceIndex: number, fenceDamageMult: Fixed): number {
   const fence = state.fences[fenceIndex]!;
   const mult = (fence.siegeCountered ? fenceDamageMult + state.siegeFenceDamageMult - FIXED_ONE : fenceDamageMult) as Fixed;
-  const raw = scaleInt(dealtOutput(state, u, u.rating), mult);
-  const cap = scaleInt(fence.maxHp, state.structureBreakerSegmentCap);
-  return atLeastOne(raw < cap ? raw : cap);
+  const raw = atLeastOne(scaleInt(dealtOutput(state, u, u.rating), mult));
+  const room = fenceHitRoom(state, u, fence);
+  return raw < room ? raw : room;
 }
 
 function unitEffect(v: UnitState, amount: number): AbilityEffectLog {
   return { kind: "unit", id: v.id, amount, hp: v.hp };
 }
 
-/** Step 2(a): every non-heal firing. */
-function applyNonHeal(state: SimState, f: Firing, log: LogEvent[]): void {
+/** Step 2(a): one non-heal firing. Returns false when it is skipped (ABILITY_SKIP_VOID). */
+function applyNonHeal(state: SimState, f: Firing, log: LogEvent[]): boolean {
   const u = f.caster;
   const a = u.ability;
   const t = state.tick;
@@ -287,44 +316,48 @@ function applyNonHeal(state: SimState, f: Firing, log: LogEvent[]): void {
         tg.push(unitEffect(v, damage));
       }
       log.push({ t, k: "ability", u: u.id, a: a.archetype, tg });
-      return;
+      return true;
     }
     case "structure_breaker": {
       const fence = state.fences[f.targets[0]!]!;
+      // Decided with room ≥ 1, and nothing earlier in phase 7 touches this caster's allowance.
       const damage = structureBreakerDamage(state, u, fence.index, a.fenceDamageMult);
-      fence.hp = fence.hp - damage < 0 ? 0 : fence.hp - damage;
+      landFenceHit(state, u, fence, damage);
       log.push({ t, k: "ability", u: u.id, a: "structure_breaker", tg: [{ kind: "fence", id: fence.index, amount: damage, hp: fence.hp }] });
-      return;
+      return true;
     }
     case "self_buff": {
+      if (u.hp === 0) return false; // ABILITY_SKIP_VOID: a dying caster's buff would never carry a hit
       u.buffEndTick = t + u.buffTicks;
       log.push({ t, k: "ability", u: u.id, a: "self_buff", tg: [unitEffect(u, u.buffTicks)], until: u.buffEndTick });
-      return;
+      return true;
     }
     case "dash": {
-      // The dash's own sweep (attackers: kept for the next tick's trap test).
+      if (u.hp === 0) return false; // ABILITY_SKIP_VOID (DASH_NOT_DYING at apply time, QA-12 N1)
       u.sweep = [{ x: u.x, y: u.y }];
       const used = dashStep(state, u, a.distance);
       log.push({ t, k: "ability", u: u.id, a: "dash", tg: [unitEffect(u, used)], x: u.x, y: u.y });
       if (u.side === "attacker") {
-        u.pendingSweep = u.sweep;
-        if (u.reachedCoreTick < 0 && isCoreCell(cellOf({ x: u.x, y: u.y }))) {
+        // DASH_SPRINGS_TRAPS: the dash path meets the traps now, then (if it survived) the core.
+        springTraps(state, u, log);
+        if (u.hp > 0 && u.reachedCoreTick < 0 && isCoreCell(cellOf({ x: u.x, y: u.y }))) {
           u.reachedCoreTick = t;
           log.push({ t, k: "core_reached", u: u.id });
         }
       }
-      return;
+      return true;
     }
     case "heal_radius":
-      return; // step (b)
+      return false; // step (b)
   }
 }
 
-/** Step 2(b): a heal. */
-function applyHeal(state: SimState, f: Firing, log: LogEvent[]): void {
+/** Step 2(b): one heal. Returns false when it is skipped (ABILITY_SKIP_VOID: every target at 0 HP). */
+function applyHeal(state: SimState, f: Firing, log: LogEvent[]): boolean {
   const u = f.caster;
   const a = u.ability;
-  if (a.archetype !== "heal_radius") return;
+  if (a.archetype !== "heal_radius") return false;
+  if (f.targets.every((id) => state.units[id]!.hp === 0)) return false;
   u.abilityCharges--;
   const tg: AbilityEffectLog[] = [];
   for (const id of f.targets) {
@@ -339,6 +372,12 @@ function applyHeal(state: SimState, f: Firing, log: LogEvent[]): void {
     tg.push(unitEffect(v, amount));
   }
   log.push({ t: state.tick, k: "ability", u: u.id, a: "heal_radius", tg, charges: u.abilityCharges });
+  return true;
+}
+
+/** The cooldown is spent when a firing applies (ABILITY_SKIP_VOID: a skipped firing stays ready). */
+function spend(state: SimState, f: Firing): void {
+  f.caster.abilityReadyTick = state.tick + f.caster.abilityCooldownTicks;
 }
 
 export function abilityPhase(state: SimState, log: LogEvent[]): void {
@@ -347,9 +386,8 @@ export function abilityPhase(state: SimState, log: LogEvent[]): void {
     if (!u.alive || state.tick < u.abilityReadyTick) continue;
     const targets = decide(state, u);
     if (targets === null) continue; // ABILITY_TRIGGER_RULE: wait, already ready
-    u.abilityReadyTick = state.tick + u.abilityCooldownTicks;
     firings.push({ caster: u, targets });
   }
-  for (const f of firings) if (f.caster.ability.archetype !== "heal_radius") applyNonHeal(state, f, log);
-  for (const f of firings) if (f.caster.ability.archetype === "heal_radius") applyHeal(state, f, log);
+  for (const f of firings) if (f.caster.ability.archetype !== "heal_radius" && applyNonHeal(state, f, log)) spend(state, f);
+  for (const f of firings) if (f.caster.ability.archetype === "heal_radius" && applyHeal(state, f, log)) spend(state, f);
 }

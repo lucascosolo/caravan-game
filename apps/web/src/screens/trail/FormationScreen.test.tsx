@@ -97,6 +97,12 @@ function fakeApi(over: Partial<Api> = {}): Api {
     party: notCalled,
     saveParty: notCalled,
     partyFeed: notCalled,
+    store: notCalled,
+    purchasePack: notCalled,
+    storePurchases: notCalled,
+    cosmetics: notCalled,
+    equipCosmetic: notCalled,
+    unequipCosmetic: notCalled,
     ...over,
   };
 }

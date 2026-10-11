@@ -518,3 +518,151 @@ export interface PartyFeedPage {
   readonly nextBefore: number;
   readonly hasMore: boolean;
 }
+
+// ── Store & cosmetics (chunk 20 routes), the Packs and Cosmetics screens ─────────────
+
+export type CosmeticKindView = "unit_skin" | "wagon_skin" | "fence_style" | "town_decoration" | "party_banner";
+export type PackTierView = 1 | 2 | 3;
+
+/** A cosmetic as the server describes it. Purely visual: there is no numeric field to show. */
+export interface CosmeticInfoView {
+  readonly id: string;
+  readonly kind: CosmeticKindView;
+  readonly displayName: string;
+  readonly description: string;
+  /** The living unit type a skin applies to; null for every other kind. */
+  readonly appliesTo: string | null;
+  readonly reviewNote: string;
+  /** The equip slot it occupies: the kind, or `unit_skin:<unit type id>`. */
+  readonly slot: string;
+}
+
+/** One entry of what a pack grants. Exactly two kinds exist; nothing else can be sold. */
+export type PackContentView = { readonly kind: "coin"; readonly amount: number } | { readonly kind: "cosmetic"; readonly cosmeticId: string };
+
+/** What crediting an amount would do to the balance right now (chunk 16's forecast). */
+export interface StoreOverflowView {
+  readonly balance: number;
+  readonly cap: number;
+  readonly room: number;
+  readonly prospectiveEarn: number;
+  readonly wouldCredit: number;
+  readonly wouldDiscard: number;
+  readonly atCap: boolean;
+  readonly warn: boolean;
+  readonly message: string;
+}
+
+export interface PackOfferBaseView {
+  readonly id: string;
+  readonly weekIndex: number;
+  readonly tier: PackTierView;
+  readonly priceCents: number;
+  readonly priceDisplay: string;
+  /** Fixed week to week. */
+  readonly coin: number;
+  readonly cosmetics: readonly CosmeticInfoView[];
+  /** The exact list the purchase grants (the guard checks `coin` and `cosmetics` agree with it). */
+  readonly contents: readonly PackContentView[];
+  /** sha256 of the canonical contents; sent back with the purchase (QA-20 S2). */
+  readonly contentsHash: string;
+}
+
+export interface PackOfferView extends PackOfferBaseView {
+  readonly purchased: boolean;
+  readonly purchasedAt: string | null;
+  readonly purchaseId: string | null;
+  readonly overflow: StoreOverflowView;
+}
+
+export interface UpcomingWeekView {
+  readonly weekIndex: number;
+  readonly startsAtMs: number;
+  readonly endsAtMs: number;
+  readonly offers: readonly PackOfferBaseView[];
+}
+
+export interface StoreView {
+  readonly backend: { readonly name: string; readonly sandbox: true; readonly realCharges: false; readonly message: string };
+  readonly week: { readonly index: number; readonly startsAtMs: number; readonly endsAtMs: number; readonly nowMs: number };
+  readonly balance: { readonly balance: number; readonly cap: number; readonly room: number; readonly atCap: boolean; readonly pendingTrickle: number };
+  readonly offers: readonly PackOfferView[];
+  /** Every still-unpurchased tier at once (tiers stack within a week). */
+  readonly combined: { readonly tiers: readonly PackTierView[]; readonly coin: number; readonly overflow: StoreOverflowView };
+  readonly upcoming: readonly UpcomingWeekView[];
+  readonly ceiling: {
+    /** THE pay-to-accelerate number: all three tiers combined. */
+    readonly weeklyPayCeiling: number;
+    readonly freeWeeklyEarnEstimate: number;
+    readonly paidToFreeRatioBp: number;
+    readonly paidToFreeRatioMaxBp: number;
+    readonly storageCap: number;
+    readonly purchaseLimitPerTierPerWeek: number;
+    readonly note: string;
+  };
+}
+
+export interface PurchaseRequest {
+  readonly tier: PackTierView;
+  readonly weekIndex: number;
+  readonly contentsHash: string;
+}
+
+export interface PackPurchaseView {
+  readonly id: string;
+  readonly weekIndex: number;
+  readonly tier: PackTierView;
+  readonly backend: string;
+  /** Null only while the row is an unsettled reservation. */
+  readonly sandboxReceipt: string | null;
+  readonly priceCents: number;
+  readonly contents: readonly PackContentView[];
+  readonly coin: { readonly requested: number; readonly credited: number; readonly discarded: number };
+  readonly purchasedAt: string;
+  readonly settled: boolean;
+}
+
+export interface PurchaseResult {
+  readonly sandbox: true;
+  /** True => this tier was already bought this week; the stored outcome came back and nothing moved. */
+  readonly replayed: boolean;
+  readonly purchase: PackPurchaseView;
+  readonly coin: { readonly requested: number; readonly credited: number; readonly discarded: number; readonly balanceAfter: number; readonly cap: number };
+  readonly cosmeticsGranted: readonly string[];
+  readonly cosmeticsAlreadyOwned: readonly string[];
+}
+
+export interface PurchasesList {
+  readonly purchases: readonly PackPurchaseView[];
+}
+
+export interface OwnedCosmeticView extends CosmeticInfoView {
+  readonly purchaseId: string;
+  readonly grantedAt: string;
+  readonly equipped: boolean;
+}
+
+export interface CatalogCosmeticView extends CosmeticInfoView {
+  readonly owned: boolean;
+  readonly nextOffer: { readonly weekIndex: number; readonly tier: PackTierView } | null;
+}
+
+export interface CosmeticsView {
+  readonly kinds: readonly CosmeticKindView[];
+  readonly owned: readonly OwnedCosmeticView[];
+  /** slot → cosmetic id. */
+  readonly equipped: Readonly<Record<string, string>>;
+  readonly catalog: readonly CatalogCosmeticView[];
+}
+
+export interface EquipResult {
+  readonly slot: string;
+  readonly cosmeticId: string;
+  readonly equipped: Readonly<Record<string, string>>;
+}
+
+export interface UnequipResult {
+  readonly slot: string;
+  readonly cleared: boolean;
+  readonly equipped: Readonly<Record<string, string>>;
+}

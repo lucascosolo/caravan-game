@@ -160,6 +160,7 @@ export function resolverTunables(): ResolverTunables {
     siegeFenceDamageMult: TUNABLES.SIEGE_FENCE_DAMAGE_MULT,
     leashHysteresisMult: TUNABLES.LEASH_HYSTERESIS_MULT,
     abilityFirstUseDelayMult: TUNABLES.ABILITY_FIRST_USE_DELAY_MULT,
-    structureBreakerSegmentCap: TUNABLES.STRUCTURE_BREAKER_SEGMENT_CAP,
+    structureBreakerFirstUseMult: TUNABLES.STRUCTURE_BREAKER_FIRST_USE_MULT,
+    fenceHitSegmentCap: TUNABLES.FENCE_HIT_SEGMENT_CAP,
   };
 }

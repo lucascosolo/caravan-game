@@ -25,6 +25,12 @@ import {
   refugeeViewShape,
   spendResultShape,
   unlocksShape,
+  cosmeticsShape,
+  equipResultShape,
+  purchaseResultShape,
+  purchasesShape,
+  storeShape,
+  unequipResultShape,
 } from "../../api/shapes.ts";
 import { bankResultShape, encounterCommitShape, pushResultShape, stakesPreviewShape, tripCapRefusalShape, tripStartShape, tripStatusShape } from "../../api/tripShapes.ts";
 
@@ -64,9 +70,15 @@ export const CONTRACT_GUARDS: Readonly<Record<string, Guard<unknown> | null>> = 
   "trip-status-overrun": tripStatusShape,
   // The 409 body the client reads through ApiError.body (cap + retryAfterSeconds).
   "trip-start-refused": tripCapRefusalShape,
-  // No client screen reads these yet (chunk 20's storefront and the cosmetics screen add their guards).
-  store: null,
-  cosmetics: null,
+  // Chunk 20's Packs and Cosmetics screens.
+  store: storeShape,
+  "store-purchase": purchaseResultShape,
+  "store-purchase-replay": purchaseResultShape,
+  "store-purchases": purchasesShape,
+  cosmetics: cosmeticsShape,
+  "cosmetics-owned": cosmeticsShape,
+  "cosmetics-equip": equipResultShape,
+  "cosmetics-unequip": unequipResultShape,
 };
 
 /** Null when `body` passes the route's guard (or the route has none); else the guard's reason. */

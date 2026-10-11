@@ -333,7 +333,7 @@ describe("the preview is the scout: what the owner sees is byte-for-byte what a 
     // Every field the model carries reaches the scout: stance, edge, cell, both ratings, merged hp, ability, siege counters.
     const u = served.units.find((x) => x.mergeLevel === 5)!;
     expect(u).toMatchObject({ typeId: "desert.well_digger", ratingInUse: "offense", slotCost: 1 });
-    expect(Object.keys(u).sort()).toEqual(["ability", "affinity", "attackCooldown", "attackRange", "cell", "damagePerHitMult", "defense", "displayName", "edge", "hp", "mergeLevel", "moveSpeed", "offense", "pos", "ratingInUse", "ref", "slotCost", "stance", "typeId"]);
+    expect(Object.keys(u).sort()).toEqual(["ability", "abilityDisplay", "affinity", "attackCooldown", "attackRange", "cell", "damagePerHitMult", "defense", "displayName", "edge", "hp", "mergeLevel", "moveSpeed", "offense", "pos", "ratingInUse", "ref", "slotCost", "stance", "typeId"]);
     expect(served.siege[0]!.targetTypeIds).toEqual(["fence.brush_pile", "fence.split_rail"]);
   });
 });

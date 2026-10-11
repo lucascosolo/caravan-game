@@ -339,15 +339,37 @@ describe("HEAL_VS_DAMAGE_SAME_TICK: a heal never saves a unit from damage landin
     s.units[2]!.abilityReadyTick = 0;
     const log = phase7(s, 0);
     const evs = abilities(log);
+    // The heal was decided against the start of the phase (the ally had 100 HP), but its only
+    // target is at 0 HP by step (b): ABILITY_SKIP_VOID (QA-12 N2) — it is not logged, spends no
+    // charge and no cooldown, and stays ready.
+    expect(evs.map((e) => [e.u, e.a])).toEqual([[2, "heavy_strike"]]);
+    expect(evs[0]!.tg).toEqual([{ kind: "unit", id: 1, amount: 140, hp: 0 }]);
+    expect(s.units[0]!.abilityCharges).toBe(4);
+    expect(s.units[0]!.abilityReadyTick).toBe(0);
+    deathPhase(s, log);
+    expect(s.units[1]!.alive).toBe(false);
+  });
+
+  it("ABILITY_SKIP_VOID (QA-12 N2): a heal with one target still alive after step (a) fires and spends its charge; the dead target gets 0", () => {
+    const s = mk(input(battlefield({ posts: [post("p", { x: 4, y: 4 }, { ability: HEAVY })] }), party([unit({ ref: "a", ability: HEAL, hp: 1000 }), unit({ ref: "b", hp: 1000 })])));
+    place(s.units[0]!, C(10), C(9));
+    place(s.units[1]!, C(10), C(10));
+    place(s.units[2]!, C(10), C(11));
+    s.units[0]!.hp = 900; // the healer itself is wounded and survives
+    s.units[1]!.hp = 100;
+    s.units[0]!.abilityReadyTick = 0;
+    s.units[2]!.abilityReadyTick = 0;
+    const evs = abilities(phase7(s, 0));
     expect(evs.map((e) => [e.u, e.a])).toEqual([
       [2, "heavy_strike"],
       [0, "heal_radius"],
     ]);
-    expect(evs[0]!.tg).toEqual([{ kind: "unit", id: 1, amount: 140, hp: 0 }]);
-    // The heal still fires (it was decided against the start of the phase: the ally had 100 HP) but restores 0.
-    expect(evs[1]!.tg.find((t) => t.id === 1)).toEqual({ kind: "unit", id: 1, amount: 0, hp: 0 });
-    deathPhase(s, log);
-    expect(s.units[1]!.alive).toBe(false);
+    expect(evs[1]!.tg).toEqual([
+      { kind: "unit", id: 0, amount: 99, hp: 999 }, // floor(1000 × 102/1024)
+      { kind: "unit", id: 1, amount: 0, hp: 0 },
+    ]);
+    expect(s.units[0]!.abilityCharges).toBe(3);
+    expect(s.units[0]!.abilityReadyTick).toBe(s.units[0]!.abilityCooldownTicks);
   });
 
   it("mirrored — post healer, attacker burst: the ally post dies too; and lethal damage from phase 6 is never healed", () => {
@@ -359,8 +381,11 @@ describe("HEAL_VS_DAMAGE_SAME_TICK: a heal never saves a unit from damage landin
     s.units[0]!.abilityReadyTick = 0;
     s.units[1]!.abilityReadyTick = 0;
     const evs = abilities(phase7(s, 0));
-    expect(evs.map((e) => e.a)).toEqual(["burst_radius", "heal_radius"]);
+    // The heal's only target died in step (a): skipped (ABILITY_SKIP_VOID), still ready, charge kept.
+    expect(evs.map((e) => e.a)).toEqual(["burst_radius"]);
     expect(s.units[2]!.hp).toBe(0);
+    expect(s.units[1]!.abilityCharges).toBe(4);
+    expect(s.units[1]!.abilityReadyTick).toBe(0);
     // Non-lethal: the heal applies to the HP left after the tick's damage, capped at the start HP.
     const t = mk(input(battlefield({ posts: [post("h", { x: 4, y: 4 }, { ability: HEAL }), post("p", { x: 4, y: 4 })] }), party([unit({ ref: "a", ability: BURST })])));
     place(t.units[0]!, C(10), C(10));
@@ -478,12 +503,15 @@ describe("dash", () => {
     }
   });
 
-  it("DASH_SPRINGS_TRAPS: a dash that carries an attacker over a trap springs it in the next tick's phase 4 — a dash cannot tunnel", () => {
+  it("DASH_SPRINGS_TRAPS (QA-12 B1): a dash that carries an attacker over a trap springs it in phase 7 of the dash tick, right after the dash — a dash cannot tunnel", () => {
     // Down x = 15 at 76/tick; first dash at floor(180 × 341/1024) = 59: y 5072 → 8656, over the trap at (15,6) (centre 6656, reach 1126).
     const out = resolve(input(battlefield({ traps: [trap("t", { x: 15, y: 6 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), { ...SHORT_TUNABLES, abilityFirstUseDelayMult: fx(341) }));
     const dash = abilities(out.log).find((e) => e.a === "dash")!;
     expect(dash.t).toBe(59);
-    expect(events(out, "trap_fired").map((e) => [e.t, e.i, e.u])).toEqual([[60, 0, 0]]);
+    expect(events(out, "trap_fired").map((e) => [e.t, e.i, e.u])).toEqual([[59, 0, 0]]);
+    // Logged straight after the dash event, in the same tick.
+    const i = out.log.findIndex((e) => e.k === "ability" && e.a === "dash");
+    expect(out.log[i + 1]).toMatchObject({ t: 59, k: "trap_fired", i: 0, u: 0 });
   });
 
   it("a posted guard dashes only while pursuing, never past its leash", () => {
@@ -507,11 +535,11 @@ describe("structure_breaker", () => {
     expect(structureBreakerDamage(s, s.units[0]!, 0, fx(5120))).toBe(760);
   });
 
-  it("STRUCTURE_BREAKER_SEGMENT_CAP: one breaker hit never takes more than half the segment's MAX HP — the worst case (offense 120 × level 5 × (5.5 + 4 − 1)) on a 1000-HP segment is 500, so no segment is ever one-shot", () => {
+  it("FENCE_HIT_SEGMENT_CAP (QA-12 D1): a breaker hit, like every fence hit, takes at most half the segment's MAX HP per tick — the worst case (offense 120 × level 5 × (5.5 + 4 − 1)) on a 1000-HP segment is 500", () => {
     const s = mk(input(battlefield({ fences: [fence({ segment: 3, maxHp: 1000, category: "stone" })] }), party([unit({ ref: "a", ability: BREAKER, mergeLevel: 5, offense: 120 })], [{ ref: "s", typeId: "siege.blasting_crate", counters: { kind: "fence", category: "stone" } }])));
     // Uncapped: floor(120 × 2500/1024) = 292, × (5632 + 4096 − 1024)/1024 = floor(292 × 8.5) = 2482.
     expect(structureBreakerDamage(s, s.units[0]!, 0, fx(5632))).toBe(500);
-    // A damaged segment at or below half can be finished — that is not a one-shot.
+    // The cap is of MAX HP, at least 1: a segment already at or below half can be finished by one blow.
     for (const maxHp of [1, 2, 3, 300, 400, 650, 1000, 1_000_000]) {
       const t = mk(input(battlefield({ fences: [fence({ segment: 3, maxHp })] }), party([unit({ ref: "a", ability: BREAKER, mergeLevel: 5, offense: 1_000_000 })], [{ ref: "s", typeId: "x", counters: { kind: "fence", category: "timber" } }])));
       const d = structureBreakerDamage(t, t.units[0]!, 0, fx(64 * 1024));
@@ -588,8 +616,12 @@ describe("ABILITY_FIELD_BOUNDS and the chunk 12 tunables are validated at both e
     expect(() => assertResolveInput(withAbility({ ...DASH, distance: INPUT_BOUNDS.maxDistance + 1 }))).toThrow(/distance/);
     expect(() => assertResolveInput(withAbility({ ...BREAKER, fenceDamageMult: 1000 }))).toThrow(/fenceDamageMult/);
     expect(() => assertResolveInput(tunables({ abilityFirstUseDelayMult: INPUT_BOUNDS.maxMult + 1 }))).toThrow(/abilityFirstUseDelayMult/);
-    expect(() => assertResolveInput(tunables({ structureBreakerSegmentCap: 0 }))).toThrow(/structureBreakerSegmentCap/);
-    expect(() => assertResolveInput(tunables({ structureBreakerSegmentCap: 1025 }))).toThrow(/structureBreakerSegmentCap/);
+    expect(() => assertResolveInput(tunables({ fenceHitSegmentCap: 0 }))).toThrow(/fenceHitSegmentCap must be an integer ≥ 1/);
+    expect(() => assertResolveInput(tunables({ fenceHitSegmentCap: 1025 }))).toThrow(/fenceHitSegmentCap must be ≤ 1024/);
+    expect(() => assertResolveInput(tunables({ structureBreakerFirstUseMult: -1 }))).toThrow(/structureBreakerFirstUseMult must be an integer ≥ 0/);
+    expect(() => assertResolveInput(tunables({ structureBreakerFirstUseMult: INPUT_BOUNDS.maxMult + 1 }))).toThrow(/structureBreakerFirstUseMult must be ≤/);
+    // The retired v5 key is refused as an unknown key, not silently ignored.
+    expect(() => assertResolveInput(tunables({ structureBreakerSegmentCap: 512 }))).toThrow(/structureBreakerSegmentCap/);
     expect(() => assertResolveInput(tunables({}))).not.toThrow();
   });
 });

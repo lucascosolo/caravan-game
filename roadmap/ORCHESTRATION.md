@@ -2346,3 +2346,108 @@ lists the banked trip's dead units for the per-death de-merge.
 **Next:** adversarial QA of chunk 15 against GUARDRAILS §0/§1/§4/bounded stakes and the chunk
 checklist — especially push-scouting (can the next party be seen before deciding?), bank exactly
 once, attrition persistence across 3+ encounters, and the lock order against merges and the worker.
+
+### 2026-10-11 — Chunk 20 web screens (Packs + Cosmetics, sandboxed): client side `built`
+
+Maker, worktree branch off `roadmap/phase-2-spec` @ 65ba73e. Chunk 20 stays `done` in INDEX
+(its server half was QA'd); this adds the client the chunk file said it lacked. Details in
+`roadmap/chunks/20-monetization-packs.md` § Web screens.
+
+- **Screens.** `apps/web/src/screens/store/PacksScreen.tsx` (`#/packs`, from the Town's "Packs"
+  entry — the "Coming soon" card is gone) and `CosmeticsScreen.tsx` (`#/cosmetics`, also a new
+  Town entry), both lazy chunks; shared pieces in `PackParts.tsx`. Sandbox banner, combined
+  ceiling in words, per-tier and combined overflow forecast, purchase state, next week's
+  preview; cosmetics "purely visual" notice, equip / unequip per slot, refusals verbatim with
+  names for ids.
+- **Purchase decisions honoured.** `{tier, weekIndex, contentsHash}` from a re-read made when
+  the confirm opens; 409 `offer_changed` / `offer_not_current` → re-read and show the NEW
+  contents in the same dialog before any retry; 200 replay → "already yours"; status 0 →
+  `SpendError` + same-body "Try again".
+- **Guards.** Six in `src/api/shapes.ts`; they also refuse an offer whose headline Coin /
+  cosmetics disagree with `contents`, any content kind but coin | cosmetic, more or fewer than
+  one coin entry, and a body not claiming the sandbox / no real charges.
+- **Outside `apps/web`.** `apps/server/test/contract.test.ts` records six more bodies (purchase
+  201, replay 200, purchases, cosmetics after a purchase, equip, unequip), LAST, so the trail
+  fixtures' sequence-drawn ids and seeds are unchanged; its header now says the store files
+  follow the real week's rotation.
+
+**Test output.** `pnpm --filter @caravan/web typecheck` clean; `pnpm --filter @caravan/web test`
+22 files / 217 passed, 0 skipped (contract: "skipped: none"), run three times; `build` ok
+(`PacksScreen` 8.5 kB, `CosmeticsScreen` 4.2 kB lazy chunks); `pnpm e2e` (E2E_PORT 4001,
+E2E_WEB_PORT 4301, dev DB `caravan_dev_c20w`) 5 passed (smoke ×2, formation, town, store),
+twice; server `test/contract.test.ts` 2 passed, twice, fixtures byte-identical on the rerun;
+root `pnpm typecheck` clean. The full server suite was not re-run (no server source changed).
+### 2026-10-11 — Chunk 12 (unit abilities) QA round 1 closed: B1, D1+S1+S2, D2, S3–S5, N1–N4 — `[resolver-bump]` 5 → 6
+
+Maker in an isolated worktree off `roadmap/phase-2-spec` @ `8b360fb` (Record chunk 12 QA punch
+list). Every item `[closed]` in `roadmap/qa/12-punchlist.md` with its mechanism, test and probe
+before/after; chunk 12 Build notes updated and a "QA round 1" section added. **`RESOLVER_VERSION`
+is now 6.** What other chunks need to know:
+
+- **B1 — dash vs traps:** an attacker's dash path is tested against the traps INSIDE phase 7,
+  right after its dash (`traps.ts springTraps`, phase 4's rules), then `core_reached` only if HP
+  > 0. Log order on a dash tick: `ability`(dash) → `trap_fired`/`trap_nullified` → `core_reached`.
+- **D1 — one fence-hit rule `FENCE_HIT_SEGMENT_CAP` (×0.50):** a unit takes at most
+  max(1, floor(maxHp / 2)) from one segment per tick, normal + buffed + siege + breaker summed.
+  Siege stays ×4. Consequences: a 300-HP segment under ×4 siege now takes two blows (150 + 150)
+  instead of one; a lone segment next to a gap is walked around even with siege; the level-5
+  Buffalo Bull + stone siege takes Stacked Stone in 500 + 500 over two ticks (v5: one 1168 blow).
+- **D2 — `STRUCTURE_BREAKER_FIRST_USE_MULT` (×0.25):** breakers first fire at a quarter of their
+  cooldown; breaker firings over the QA corpus 3 → 12.
+- **Input contract:** `ResolverTunables.structureBreakerSegmentCap` is REPLACED by
+  `fenceHitSegmentCap` (512) and `structureBreakerFirstUseMult` (256) is new; the old key is
+  refused as unknown. `resolverTunables()` builds both. Any stored v5 input that carries the old
+  key will not re-resolve under v6 (the version bump already separates them).
+- **S3:** merge × buff is one product, one floor (`fixed.ts scaleInt2`); worst HP × effective DPS
+  step with abilities 1.6856 → 1.6402 (< 5/3), now a content invariant.
+- **S4 — replay (chunk 13):** a leash-clamped pursuit step is logged as
+  `{k: "disengage", why: "leash", amount}` — that tick the post moves exactly `amount` along its
+  route, not `speed`. `packages/resolver/test/replica.test.ts` reproduces every position of the
+  determinism corpus from the log alone (0 divergences, 0 keyframe mismatches).
+- **N1/N2 (ABILITY_SKIP_VOID):** cooldowns and heal charges are spent at APPLY time; a dash or self
+  buff whose caster is at 0 HP, and a heal whose every target is at 0 HP, are skipped (not logged,
+  still ready).
+
+**Scout view changes — relay to the chunk 08 / web fixer** (`PartyScoutView.units[]` =
+`ScoutUnit` from `@caravan/circle`, served by the chunk 14 scout routes). `SCOUT_VIEW_VERSION`
+unchanged (1); no field renamed or removed. One new field on every unit:
+`abilityDisplay: AbilityDisplay` (content type, built by `abilityDisplay(type.ability,
+type.attackRange)`). Always present from `scoutUnit`; typed `abilityDisplay?:` only so
+`apps/web/src/api/shapes.ts`'s `scoutUnit` guard (which strips unknown keys) still compiles —
+the web must add it to the guard to receive it. Exactly these keys, every value a display-ready
+decimal STRING (no unit, no sign, trailing zeros dropped) or `null` where the archetype has none:
+1. `archetype` — the ability archetype (same as `ability.archetype`).
+2. `cooldownSeconds` — e.g. `"9"`.
+3. `firstUseSeconds` — when it can first fire, on the tick grid: cooldown × 1.0, a breaker's
+   × 0.25 (`"3"` for a 12 s breaker).
+4. `reachCells` — centre-to-centre reach: radius + UNIT_RADIUS for burst / heal (`"2.85"` for a
+   2.5-cell heal), attack range + UNIT_RADIUS for heavy strike / self buff; `null` for dash and
+   structure breaker.
+5. `damageMultiplier` — × a normal hit for burst / heavy strike, the breaker's fence multiplier
+   before siege (`"4.5"`); else `null`.
+6. `healPercent` — whole percent of the TARGET's max HP per cast (`"10"`, `"12"`); else `null`.
+7. `healCeiling` — `"start_of_fight_hp"` for heals (never above the HP it started this fight
+   with); else `null`.
+8. `charges` — number (heal casts per fight) or `null`.
+9. `buffPercent` — whole percent damage bonus (`"35"`); else `null`.
+10. `buffSeconds` — buff length (`"4"`); else `null`.
+11. `dashCells` — dash distance (`"3.5"`); else `null`.
+12. `fenceHitCapPercent` — `"50"` on structure breakers (the per-tick fence-hit cap); else `null`.
+Content descriptions also changed (they are in `ability.description`): every one now ends
+"First use after X s.", healers read "…to each ally within R cells, never above the HP it started
+this fight with.", breakers "…; with its normal hit it takes at most half a segment's max HP per
+tick." The web should show `abilityDisplay` numbers rather than re-deriving them from the
+fixed-point `ability` (which rendered 9.96 % / 34.96 %).
+
+**Balance (PHASE-2.md §37 updated):** healing undoes 56–66 % of attrition in light encounters
+(healer circle 82.6–89.9 % vs 60.3–70.4 % with healing off) while still only 7.5–16 % in full
+fights — the N3 gate pins delta > 5 points and ≥ 30 % of the loss kept; worth a chunk 37 look.
+
+**Verification (real output):** resolver 190 passed (13 files; new `qa12.test.ts` 18,
+`replica.test.ts` 1; budget best 60.1 ms), circle 102, content 82, web 138; `pnpm typecheck`,
+`pnpm lint` (self-test 66 lines), `pnpm test:boundary` (16 src files), `pnpm determinism`
+(harness passed; no golden corpus yet) clean. Server suite not run (no DB change; no server file
+touched). The full-load budget test can exceed 100 ms under the parallel suite on a 4-core box
+(seen once at 111 ms; 60–78 ms alone).
+
+**Next:** QA re-audit of chunk 12 against the punch list; relay the scout-view fields above.

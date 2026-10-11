@@ -16,7 +16,8 @@
  * FIXED + 60 s × their rank in the file (their ORDER is the fact a client can rely on; the
  * distance to the database's own `now()` jitters by milliseconds). A rerun rewrites the
  * files byte-identically unless the server's answer changed — except the store and
- * cosmetics, whose weekly rotation follows the real week (no client guard reads them yet).
+ * cosmetics files, whose weekly rotation follows the real week: their CONTENT moves with the
+ * calendar, their SHAPE (which the client's guards check) does not.
  */
 import { entryBand, type PartyConfig } from "@caravan/circle";
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
@@ -233,7 +234,7 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     await record("merge-preview", "POST /me/caravans/:id/merge/preview", await call(p, "POST", `/me/caravans/${p.caravanId}/merge/preview`, { instanceIds: riders.slice(0, 2) }), 200);
     await record("refugees", "GET /me/caravans/:id/refugees", await call(p, "GET", `/me/caravans/${p.caravanId}/refugees`), 200);
     await record("recruit", "GET /me/caravans/:id/recruit", await call(p, "GET", `/me/caravans/${p.caravanId}/recruit`), 200);
-    await record("store", "GET /me/store", await call(p, "GET", "/me/store"), 200);
+    const store = (await record("store", "GET /me/store", await call(p, "GET", "/me/store"), 200)) as { week: { index: number }; offers: { tier: number; contentsHash: string }[] };
     await record("cosmetics", "GET /me/cosmetics", await call(p, "GET", "/me/cosmetics"), 200);
 
     // The trail: pack, ride out (chunk 15's start), search, read, choose, arrange, commit.
@@ -303,6 +304,20 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     await pool.query("UPDATE trip_cap SET tat_ms = $2 WHERE account_id = $1", [p.accountId, FROZEN_MS + TRIPS_PER_HOUR_CAP * TRIP_CAP_REGEN_MS]);
     expect((await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: posted, traps: [], fence: null })).statusCode).toBe(201);
     await record("trip-start-refused", "POST /me/caravans/:id/trip/start", await call(p, "POST", `${tripUrl}/start`), 409);
+
+    // The storefront's writes (chunk 20 web screens), recorded LAST so the rows they insert do
+    // not shift the sequence-drawn ids (and so the seeds) of the trail fixtures above: buy
+    // tier 1, buy it again (the 200 replay), the purchase list, then equip and unequip the
+    // first cosmetic the purchase granted.
+    const tier1 = store.offers.find((o) => o.tier === 1)!;
+    const buy = { tier: 1, weekIndex: store.week.index, contentsHash: tier1.contentsHash };
+    const bought = (await record("store-purchase", "POST /me/store/purchase", await call(p, "POST", "/me/store/purchase", buy), 201)) as { cosmeticsGranted: string[] };
+    await record("store-purchase-replay", "POST /me/store/purchase (repeat)", await call(p, "POST", "/me/store/purchase", buy), 200);
+    await record("store-purchases", "GET /me/store/purchases", await call(p, "GET", "/me/store/purchases"), 200);
+    await record("cosmetics-owned", "GET /me/cosmetics (after a purchase)", await call(p, "GET", "/me/cosmetics"), 200);
+    const granted = bought.cosmeticsGranted[0]!;
+    const equipped = (await record("cosmetics-equip", "POST /me/cosmetics/equip", await call(p, "POST", "/me/cosmetics/equip", { cosmeticId: granted }), 200)) as { slot: string };
+    await record("cosmetics-unequip", "POST /me/cosmetics/unequip", await call(p, "POST", "/me/cosmetics/unequip", { slot: equipped.slot }), 200);
 
     // Write the fixtures (only when they changed, so a rerun leaves the tree clean).
     mkdirSync(OUT, { recursive: true });
