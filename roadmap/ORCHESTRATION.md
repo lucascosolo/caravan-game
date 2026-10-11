@@ -1239,11 +1239,45 @@ the migrated test database the smoke step already uses.
 particular whether any string reads as "you get a unit", whether anything is hidden on a
 locked node, and the direct-API bypass (which chunk 05 covers server-side).
 
+### 2026-10-11 — Chunk 18 (unit acquisition): QA round 1 punch list closed
+
+**Closed** in a worktree on top of `0896b8f` (`roadmap/qa/18-punchlist.md`: D1, D2, S1–S3,
+N1–N5 all `[closed]`). Files touched: `apps/server/src/acquisition/{refugees,grant}.ts`,
+`routes/acquisition.ts`, `db/types.ts`, migration `007_refugee_menu` (in place: new column),
+`test/acquisition.test.ts` (41 → 51), the chunk file, the punch list, this entry.
+
+- **D1 — a free refresh is taken, never pushed.** GET writes only the caravan's first menu
+  (bootstrap) and otherwise never; past the timer it reports `timer.freeRefreshDue` and leaves
+  an unclaimed menu alone. New free, idempotent `POST /me/caravans/:id/refugees/refresh
+  {fromSequence}` takes the owed menu (201; 200 replay; `forfeitedOffers` when the current menu
+  was unclaimed; 409 `free_refresh_not_due` / `stale_menu`). A claim of the current menu takes
+  it in the same request. A reroll while one is owed is 409 `free_refresh_due`, unpaid.
+- **D2 — fixed grid.** `refugee_menu.window_opened_at_ms`: a free menu's grid point
+  (`anchor + k·interval`, the latest ≤ now; CHECK `<= generated_at_ms`), copied onto its
+  rerolls. 16 menus/day whatever the polling cadence; a week away still yields one menu, on the
+  grid. The window-opener row is no longer read.
+- **S1/S3** `sequence` / `fromSequence` required and bounded to `1..2147483647` → 400 before
+  any query. **N2** `msUntilFreeRefresh` clamped to `[0, interval]`. **N3** `menu_corrupt`
+  (409, names the caravan) replaces the bare `Error`s. **N1/N4/N5** documented in the chunk
+  file (migration 007; three slots not three types; reroll deliberately cheaper than recruit).
+- **Regressions from the reviewer's probes:** golden sha256 of 5 000 draws
+  (`c489d769…ec152`, pinned), the `{}` double-tap reroll, the lost-response claim retry
+  across a free refresh, the claim landing at 90:01, clock skew, replay of every stored row,
+  the junk-request sweep (NUL in a type id, upper-cased ids, non-object bodies).
+
+**Test command:** `TEST_DATABASE_URL=postgres://caravan:caravan@localhost:5432/caravan_test_f18 pnpm --filter @caravan/server exec vitest run`
+— see the closing report for the counts. `pnpm typecheck`, `pnpm lint`, `pnpm test:boundary` clean.
+
+**Client note:** the web client (chunk 11 onward) must send `menu.sequence` back on every
+mutating refugee call and show a "take your free menu" action when `timer.freeRefreshDue`.
+
+**Next:** QA re-review of chunk 18 against the closed list.
+
 ### 2026-10-11 — Chunk 18 (unit acquisition: refugee drip & mercenary recruit): `not started` → `built`
 
 **Built** in a worktree on top of `c977601`. New: `apps/server/src/acquisition/{refugeeMenu,
 grant,refugees,recruit,index}.ts`, `apps/server/src/routes/acquisition.ts` (registered in
-`app.ts`, append only), migration `006_refugee_menu` (one row per menu ever offered: seed,
+`app.ts`, append only), migration `007_refugee_menu` (one row per menu ever offered: seed,
 the pool drawn from, the offers, `generated_at_ms`, the claim), a chunk 18 block in
 `packages/content/src/tunables.ts` (`REFUGEE_REFRESH_INTERVAL_MINUTES` 90,
 `REFUGEE_OFFER_COUNT` 3, `REFUGEE_REROLL_COST_SCHEDULE` [150, 300, 600],

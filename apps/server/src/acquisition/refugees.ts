@@ -5,17 +5,26 @@
  * pool (chunk 05's reached set — nothing else), stored in `refugee_menu` with its seed and
  * the pool it was drawn from. The player takes exactly ONE offer per menu; which one is
  * always their choice, and the pick yields exactly that type — no further randomness
- * (GUARDRAILS §1). Menus arrive two ways:
+ * (GUARDRAILS §1). There is one menu at a time; menus arrive three ways:
  *
- *   free    every REFUGEE_REFRESH_INTERVAL_MINUTES, lazily: the first read (or claim, or
- *           reroll) after the timer is up generates the next menu — one menu, however long
- *           the player was away (no stockpiling), and the timer restarts from that moment.
- *           A free refresh replaces the current menu whether or not it was claimed, and
- *           opens a new reroll window.
- *   reroll  Coin, through `spendCoin`, at REFUGEE_REROLL_COST_SCHEDULE[rerolls so far in
- *           this window]: a SOONER menu from the SAME pool and the same draw, nothing more.
- *           A reroll does not move the free timer, so it is purely additive, and the next
- *           free menu is always the same distance away whether or not the player paid.
+ *   free     one per REFUGEE_REFRESH_INTERVAL_MINUTES, on a FIXED GRID (QA D2): the caravan's
+ *            first menu sets the anchor and every free menu sits on anchor + k·interval, so
+ *            the rate is the same for everyone whatever their polling cadence. A due refresh
+ *            is TAKEN, never pushed (QA D1): a free refresh never replaces an unclaimed menu
+ *            on its own. It is taken by a claim of the current menu (the next menu is
+ *            generated in the same request) or by `POST .../refugees/refresh` (free,
+ *            idempotent), which forfeits an unclaimed menu knowingly. One menu per take,
+ *            however long the player was away (no stockpiling).
+ *   reroll   Coin, through `spendCoin`, at REFUGEE_REROLL_COST_SCHEDULE[rerolls so far in
+ *            this window]: a SOONER menu from the SAME pool and the same draw, nothing more.
+ *            A reroll never moves the free timer, and is refused (never charged) while a free
+ *            refresh is due: Coin is never charged for a menu the timer owed.
+ *   bootstrap the caravan's first menu, written by the first GET (the only write a GET ever
+ *            does: there is nothing to forfeit and nothing to replace).
+ *
+ * GET never writes otherwise (QA S2): past the timer it reports `timer.freeRefreshDue` and
+ * leaves the menu alone. Every mutating request names the menu it is looking at
+ * (`sequence` / `fromSequence`, required — QA S1) so a retry can never land on a later menu.
  *
  * The wall clock enters exactly once: "is the free timer up", via `nowMs` (injectable; the
  * route passes Date.now()). The draw itself is `refugeeMenu.ts`, pure and seeded by
@@ -26,7 +35,8 @@
  * Idempotency: a claim's causation id is `refugee_claim:<caravan>:<sequence>`; concurrent
  * or retried claims of one menu serialize on the account append lock and every one after
  * the first returns the stored outcome (one instance). A reroll's is
- * `refugee_reroll:<caravan>:<from sequence>`; a retry that names `fromSequence` replays.
+ * `refugee_reroll:<caravan>:<from sequence>`; a retry replays its stored menu. A refresh
+ * writes no ledger event; its retry replays when the menu after `fromSequence` is free.
  */
 import { TUNABLES, getUnitType } from "@caravan/content";
 import type pg from "pg";
@@ -36,7 +46,7 @@ import type { LedgerEventRow } from "../ledger/events.js";
 import { appendEvents, causationExists, listEventsByCausation, lockAccountForAppend } from "../ledger/ledger.js";
 import { spendCoin } from "../economy/coin.js";
 import { peekTrickle } from "../economy/trickle.js";
-import { badRequest, conflict } from "../services/errors.js";
+import { AppError, badRequest, conflict } from "../services/errors.js";
 import { reachedNodeIds, type AccessOwner } from "../unlocks/access.js";
 import {
   grantUnit,
@@ -55,6 +65,11 @@ import { REFUGEE_REFRESH_INTERVAL_MS, drawForSequence, rerollCost } from "./refu
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // Storage
 // ─────────────────────────────────────────────────────────────────────────────────────────
+
+/** A stored row that cannot be served: the one error class for "the data is not what this module writes" (QA N3). */
+export function menuCorrupt(caravanId: string, detail: string): AppError {
+  return new AppError(409, "menu_corrupt", `refugee menu state for caravan ${caravanId} is inconsistent: ${detail}`);
+}
 
 async function readCurrentMenu(db: Queryable, caravanId: string): Promise<RefugeeMenuRow | null> {
   const res = await db.query<RefugeeMenuRow>("SELECT * FROM refugee_menu WHERE caravan_id = $1 ORDER BY sequence DESC LIMIT 1", [caravanId]);
@@ -77,44 +92,61 @@ async function insertMenu(
   sequence: number,
   origin: "free" | "reroll",
   windowSequence: number,
+  windowOpenedAtMs: number,
   nowMs: number,
 ): Promise<RefugeeMenuRow> {
   const pool = await unlockedLivingPool(client, owner);
   const draw = drawForSequence(owner.caravanId, sequence, pool);
   const res = await client.query<RefugeeMenuRow>(
-    `INSERT INTO refugee_menu (caravan_id, sequence, origin, window_sequence, seed, pool_type_ids, offered_type_ids, generated_at_ms)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8) RETURNING *`,
-    [owner.caravanId, sequence, origin, windowSequence, draw.seed, JSON.stringify(draw.pool), JSON.stringify(draw.offers), nowMs],
+    `INSERT INTO refugee_menu (caravan_id, sequence, origin, window_sequence, seed, pool_type_ids, offered_type_ids, generated_at_ms, window_opened_at_ms)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9) RETURNING *`,
+    [owner.caravanId, sequence, origin, windowSequence, draw.seed, JSON.stringify(draw.pool), JSON.stringify(draw.offers), nowMs, windowOpenedAtMs],
   );
   return res.rows[0]!;
 }
 
-interface CurrentMenu {
-  menu: RefugeeMenuRow;
-  /** The free menu that opened this reroll window (== `menu` when the current menu is free). */
-  windowOpener: RefugeeMenuRow;
-  /** True when this call generated a free menu. */
-  refreshed: boolean;
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// The free timer: a fixed grid (QA D2), taken rather than pushed (QA D1)
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+/** When the free window after `menu`'s opens. */
+export function nextFreeRefreshAtMs(menu: Pick<RefugeeMenuRow, "window_opened_at_ms">): number {
+  return menu.window_opened_at_ms + REFUGEE_REFRESH_INTERVAL_MS;
+}
+
+export function isFreeRefreshDue(menu: Pick<RefugeeMenuRow, "window_opened_at_ms">, nowMs: number): boolean {
+  return nowMs >= nextFreeRefreshAtMs(menu);
 }
 
 /**
- * The menu as of `nowMs`: the stored current one, or a fresh free one if there is none yet
- * or the timer is up. Must run under the account append lock (it may write).
+ * The grid point a free refresh taken at `nowMs` belongs to: the latest
+ * `anchor + k·interval` that is <= nowMs. Ten intervals late still yields one menu, and the
+ * next window opens one interval after THIS grid point, not one interval after the read.
  */
-async function ensureCurrentMenu(client: pg.PoolClient, owner: AccessOwner, nowMs: number): Promise<CurrentMenu> {
-  const current = await readCurrentMenu(client, owner.caravanId);
-  if (!current) {
-    const menu = await insertMenu(client, owner, 1, "free", 1, nowMs);
-    return { menu, windowOpener: menu, refreshed: true };
-  }
-  const opener = current.window_sequence === current.sequence ? current : await readMenu(client, owner.caravanId, current.window_sequence);
-  if (!opener) throw new Error(`refugee menu ${owner.caravanId}#${current.window_sequence} (window opener) is missing`);
-  if (nowMs >= opener.generated_at_ms + REFUGEE_REFRESH_INTERVAL_MS) {
-    const next = current.sequence + 1;
-    const menu = await insertMenu(client, owner, next, "free", next, nowMs);
-    return { menu, windowOpener: menu, refreshed: true };
-  }
-  return { menu: current, windowOpener: opener, refreshed: false };
+function gridPointFor(menu: Pick<RefugeeMenuRow, "window_opened_at_ms">, nowMs: number): number {
+  const k = Math.floor((nowMs - menu.window_opened_at_ms) / REFUGEE_REFRESH_INTERVAL_MS);
+  return menu.window_opened_at_ms + Math.max(1, k) * REFUGEE_REFRESH_INTERVAL_MS;
+}
+
+/** Write the free menu the timer owes after `current`. Caller has checked `isFreeRefreshDue` and holds the account lock. */
+async function takeFreeRefresh(client: pg.PoolClient, owner: AccessOwner, current: RefugeeMenuRow, nowMs: number): Promise<RefugeeMenuRow> {
+  const next = current.sequence + 1;
+  return insertMenu(client, owner, next, "free", next, gridPointFor(current, nowMs), nowMs);
+}
+
+/** The caravan's first menu: sets the grid anchor. Holds the lock; re-reads in case a concurrent bootstrap won. */
+async function bootstrapMenu(client: pg.PoolClient, owner: AccessOwner, nowMs: number): Promise<{ menu: RefugeeMenuRow; created: boolean }> {
+  await lockAccountForAppend(client, owner.accountId);
+  const raced = await readCurrentMenu(client, owner.caravanId);
+  if (raced) return { menu: raced, created: false };
+  return { menu: await insertMenu(client, owner, 1, "free", 1, nowMs, nowMs), created: true };
+}
+
+/** The current menu for a mutating request: must exist (GET bootstraps it). Caller holds the lock. */
+async function requireCurrentMenu(client: pg.PoolClient, caravanId: string): Promise<RefugeeMenuRow> {
+  const current = await readCurrentMenu(client, caravanId);
+  if (!current) throw conflict("no_menu", `caravan ${caravanId} has no refugee menu yet; GET .../refugees first`);
+  return current;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -126,6 +158,7 @@ export interface RefugeeOffer extends UnitTypeSummary {
 }
 
 export interface RefugeeMenuView {
+  /** Pass this back as `sequence` (claim) or `fromSequence` (reroll, refresh). */
   sequence: number;
   origin: "free" | "reroll";
   /** How many Coin rerolls produced menus in this window before this one (0 = the free menu). */
@@ -133,6 +166,7 @@ export interface RefugeeMenuView {
   /** Replay inputs, stored: the seed and the exact pool the offers were drawn from. */
   seed: number;
   poolTypeIds: string[];
+  /** Exactly REFUGEE_OFFER_COUNT slots; with a pool smaller than that, slots repeat types (the UI collapses them). */
   offers: RefugeeOffer[];
   generatedAtMs: number;
   claimed: { unitTypeId: string; instanceId: string; claimedAtMs: number } | null;
@@ -143,11 +177,14 @@ export interface RefugeeView {
   menu: RefugeeMenuView;
   timer: {
     intervalMs: number;
-    /** When the free menu that opened this window was generated — the timer's anchor. Rerolls never move it. */
+    /** The grid point this menu's window belongs to. Rerolls never move it; free menus step it by whole intervals. */
     windowOpenedAtMs: number;
     nextFreeRefreshAtMs: number;
+    /** Clamped to [0, intervalMs] so a clock that went backwards cannot show more than one interval. */
     msUntilFreeRefresh: number;
-    /** True when this read generated a fresh free menu. */
+    /** True when the next free menu is owed: claim the current one, or POST .../refresh { fromSequence } to take it. */
+    freeRefreshDue: boolean;
+    /** True when THIS request generated a free menu (a bootstrap, a claim's follow-on refresh, or a refresh). */
     refreshedNow: boolean;
   };
   reroll: {
@@ -158,6 +195,8 @@ export interface RefugeeView {
     affordable: boolean;
     /** Rerolling replaces the current menu; if it is unclaimed, its offers are forfeited. */
     forfeitsUnclaimedOffer: boolean;
+    /** A reroll is refused (409 `free_refresh_due`, never charged) while a free refresh is due. */
+    blockedByFreeRefresh: boolean;
   };
   /** Ledger balance plus the pending trickle — what a spend right now is checked against. */
   balance: number;
@@ -166,6 +205,9 @@ export interface RefugeeView {
 }
 
 function menuView(menu: RefugeeMenuRow): RefugeeMenuView {
+  if (!Array.isArray(menu.offered_type_ids) || menu.offered_type_ids.length === 0 || !Array.isArray(menu.pool_type_ids)) {
+    throw menuCorrupt(menu.caravan_id, `menu ${menu.sequence} holds ${JSON.stringify(menu.offered_type_ids)} as its offers`);
+  }
   return {
     sequence: menu.sequence,
     origin: menu.origin,
@@ -174,7 +216,7 @@ function menuView(menu: RefugeeMenuRow): RefugeeMenuView {
     poolTypeIds: menu.pool_type_ids,
     offers: menu.offered_type_ids.map((id, slot) => {
       const unit = getUnitType(id);
-      if (!unit) throw new Error(`stored refugee offer '${id}' is not in content`);
+      if (!unit) throw menuCorrupt(menu.caravan_id, `menu ${menu.sequence} offers '${String(id)}', which is not a living unit type in content`);
       return { slot, ...summarizeUnit(unit) };
     }),
     generatedAtMs: menu.generated_at_ms,
@@ -185,26 +227,37 @@ function menuView(menu: RefugeeMenuRow): RefugeeMenuView {
   };
 }
 
-async function buildView(db: Queryable, owner: AccessOwner, cur: CurrentMenu, nowMs: number, balance: number, pendingTrickle: number): Promise<RefugeeView> {
-  const nextIndex = cur.menu.sequence - cur.menu.window_sequence;
+async function buildView(
+  db: Queryable,
+  owner: AccessOwner,
+  menu: RefugeeMenuRow,
+  refreshedNow: boolean,
+  nowMs: number,
+  balance: number,
+  pendingTrickle: number,
+): Promise<RefugeeView> {
+  const nextIndex = menu.sequence - menu.window_sequence;
   const nextCost = rerollCost(nextIndex);
-  const nextFreeRefreshAtMs = cur.windowOpener.generated_at_ms + REFUGEE_REFRESH_INTERVAL_MS;
+  const nextAt = nextFreeRefreshAtMs(menu);
+  const due = isFreeRefreshDue(menu, nowMs);
   return {
     caravanId: owner.caravanId,
-    menu: menuView(cur.menu),
+    menu: menuView(menu),
     timer: {
       intervalMs: REFUGEE_REFRESH_INTERVAL_MS,
-      windowOpenedAtMs: cur.windowOpener.generated_at_ms,
-      nextFreeRefreshAtMs,
-      msUntilFreeRefresh: Math.max(0, nextFreeRefreshAtMs - nowMs),
-      refreshedNow: cur.refreshed,
+      windowOpenedAtMs: menu.window_opened_at_ms,
+      nextFreeRefreshAtMs: nextAt,
+      msUntilFreeRefresh: Math.min(REFUGEE_REFRESH_INTERVAL_MS, Math.max(0, nextAt - nowMs)),
+      freeRefreshDue: due,
+      refreshedNow,
     },
     reroll: {
       nextCost,
       nextIndex,
       schedule: TUNABLES.REFUGEE_REROLL_COST_SCHEDULE,
       affordable: balance >= nextCost,
-      forfeitsUnclaimedOffer: cur.menu.claimed_type_id === null,
+      forfeitsUnclaimedOffer: menu.claimed_type_id === null,
+      blockedByFreeRefresh: due,
     },
     balance,
     pendingTrickle,
@@ -213,18 +266,24 @@ async function buildView(db: Queryable, owner: AccessOwner, cur: CurrentMenu, no
 }
 
 /**
- * GET: the current menu (generating the free one if the timer is up), the timer, the next
- * reroll cost and the balance. Under the account lock because it may write a menu row.
+ * GET: the current menu, the timer, the next reroll cost and the balance. Writes nothing —
+ * except the caravan's very first menu, which it bootstraps (nothing to forfeit, nothing to
+ * replace). Past the timer it reports `freeRefreshDue` and leaves the menu alone (QA D1/S2).
  */
 export async function viewRefugees(pool: pg.Pool, input: { accountId: string; caravanId: string; nowMs?: number }): Promise<RefugeeView> {
   const caravanId = normalizeCaravanId(input.caravanId);
   const nowMs = input.nowMs ?? Date.now();
   return withTransaction(pool, async (client) => {
-    await lockAccountForAppend(client, input.accountId);
     const owner = await readOwnedCaravan(client, input.accountId, caravanId, false);
-    const cur = await ensureCurrentMenu(client, owner, nowMs);
+    let menu = await readCurrentMenu(client, caravanId);
+    let refreshedNow = false;
+    if (!menu) {
+      const boot = await bootstrapMenu(client, owner, nowMs);
+      menu = boot.menu;
+      refreshedNow = boot.created;
+    }
     const trickle = await peekTrickle(client, input.accountId, nowMs);
-    return buildView(client, owner, cur, nowMs, trickle.balance, trickle.pending);
+    return buildView(client, owner, menu, refreshedNow, nowMs, trickle.balance, trickle.pending);
   });
 }
 
@@ -239,6 +298,7 @@ export interface ClaimResult {
   /** The instance, or null on a replay whose instance has since been merged away or lost. */
   instance: UnitInstanceRow | null;
   events: LedgerEventRow[];
+  /** The state after the claim: the next free menu when one was due (taken here), else the claimed menu. */
   view: RefugeeView;
 }
 
@@ -263,23 +323,24 @@ async function readInstance(db: Queryable, caravanId: string, instanceId: string
 }
 
 /**
- * Take one offer from the current menu. `sequence`, if given, must be the menu the client
- * is looking at: a claim against a menu that has since been replaced is refused (409
- * `menu_expired`) rather than silently applied to the new one.
+ * Take one offer from menu `sequence` (required: the menu the client is looking at). A claim
+ * against a menu that has since been replaced is refused (409 `menu_expired`) rather than
+ * silently applied to the new one. An unclaimed menu is never expired by the timer alone
+ * (QA D1): claiming it past the timer succeeds, and the due free menu is generated in the
+ * same request.
  */
 export async function claimRefugee(
   pool: pg.Pool,
-  input: { accountId: string; caravanId: string; unitTypeId: unknown; sequence?: unknown; nowMs?: number },
+  input: { accountId: string; caravanId: string; unitTypeId: unknown; sequence: unknown; nowMs?: number },
 ): Promise<ClaimResult> {
   const caravanId = normalizeCaravanId(input.caravanId);
   const unitTypeId = normalizeUnitTypeId(input.unitTypeId);
-  const wanted = normalizeSequence(input.sequence, "sequence");
+  const sequence = normalizeSequence(input.sequence, "sequence");
   const nowMs = input.nowMs ?? Date.now();
   return withTransaction(pool, async (client) => {
     await lockAccountForAppend(client, input.accountId);
     const owner = await readOwnedCaravan(client, input.accountId, caravanId, true);
-    const cur = await ensureCurrentMenu(client, owner, nowMs);
-    const sequence = wanted ?? cur.menu.sequence;
+    const current = await requireCurrentMenu(client, caravanId);
     const causationId = claimCausationId(caravanId, sequence);
     const prior = await findAcquired(client, causationId);
     if (prior) {
@@ -292,17 +353,17 @@ export async function claimRefugee(
         acquired: prior.acquired,
         instance: await readInstance(client, caravanId, prior.acquired.instanceId),
         events: prior.events,
-        view: await buildView(client, owner, cur, nowMs, trickle.balance, trickle.pending),
+        view: await buildView(client, owner, current, false, nowMs, trickle.balance, trickle.pending),
       };
     }
-    if (sequence !== cur.menu.sequence) {
-      throw conflict("menu_expired", `menu ${sequence} has been replaced by menu ${cur.menu.sequence}; read the current menu and pick again`);
+    if (sequence !== current.sequence) {
+      throw conflict("menu_expired", `menu ${sequence} has been replaced by menu ${current.sequence}; read the current menu and pick again`);
     }
-    if (cur.menu.claimed_type_id !== null) {
-      throw conflict("menu_claimed", `menu ${sequence} was already claimed for '${cur.menu.claimed_type_id}'; one pick per menu`);
+    if (current.claimed_type_id !== null) {
+      throw conflict("menu_claimed", `menu ${sequence} was already claimed for '${current.claimed_type_id}'; one pick per menu`);
     }
-    if (!cur.menu.offered_type_ids.includes(unitTypeId)) {
-      throw badRequest("not_offered", `'${unitTypeId}' is not one of menu ${sequence}'s offers: ${cur.menu.offered_type_ids.join(", ")}`);
+    if (!current.offered_type_ids.includes(unitTypeId)) {
+      throw badRequest("not_offered", `'${unitTypeId}' is not one of menu ${sequence}'s offers: ${current.offered_type_ids.join(", ")}`);
     }
     // The boundary: access is re-checked here against the ledger, never trusted from the row.
     const grant = await grantUnit(client, owner, unitTypeId, "refugee", 0, { menuSequence: sequence });
@@ -313,14 +374,80 @@ export async function claimRefugee(
       [caravanId, sequence, grant.unit.id, grant.instance.id, nowMs],
     );
     if (upd.rowCount !== 1) throw conflict("menu_claimed", `menu ${sequence} was claimed underneath this request`);
-    const after = (await readMenu(client, caravanId, sequence))!;
+    // The claim takes the due free refresh (QA D1): the next menu arrives in this request.
+    const due = isFreeRefreshDue(current, nowMs);
+    const after = due ? await takeFreeRefresh(client, owner, current, nowMs) : (await readMenu(client, caravanId, sequence))!;
     const trickle = await peekTrickle(client, input.accountId, nowMs);
     return {
       replayed: false,
       acquired: grant.payload,
       instance: grant.instance,
       events,
-      view: await buildView(client, owner, { ...cur, menu: after }, nowMs, trickle.balance, trickle.pending),
+      view: await buildView(client, owner, after, due, nowMs, trickle.balance, trickle.pending),
+    };
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// Refresh: take the free menu the timer owes (QA D1) — free, idempotent, explicit
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+export interface RefreshResult {
+  /** True when the menu after `fromSequence` was already a free one: the stored menu, nothing new. */
+  replayed: boolean;
+  fromSequence: number;
+  produced: RefugeeMenuView;
+  /** The offers of the unclaimed menu this refresh forfeited, or null when it was claimed (or on a replay). */
+  forfeitedOffers: RefugeeOffer[] | null;
+  view: RefugeeView;
+}
+
+/**
+ * Take the due free refresh explicitly. `fromSequence` (required) is the current menu; if it
+ * is unclaimed its offers are forfeited — knowingly, which is why this is a POST and not a
+ * side effect of reading. Refused while the timer is not up (409 `free_refresh_not_due`).
+ * A retry whose first attempt landed replays (200) because the menu after `fromSequence`
+ * is then a free one; a reroll in that slot means the player did something else: 409
+ * `stale_menu`.
+ */
+export async function refreshRefugees(
+  pool: pg.Pool,
+  input: { accountId: string; caravanId: string; fromSequence: unknown; nowMs?: number },
+): Promise<RefreshResult> {
+  const caravanId = normalizeCaravanId(input.caravanId);
+  const fromSequence = normalizeSequence(input.fromSequence, "fromSequence");
+  const nowMs = input.nowMs ?? Date.now();
+  return withTransaction(pool, async (client) => {
+    await lockAccountForAppend(client, input.accountId);
+    const owner = await readOwnedCaravan(client, input.accountId, caravanId, true);
+    const current = await requireCurrentMenu(client, caravanId);
+    const trickle = await peekTrickle(client, input.accountId, nowMs);
+    if (fromSequence < current.sequence) {
+      const next = await readMenu(client, caravanId, fromSequence + 1);
+      if (next && next.origin === "free") {
+        return {
+          replayed: true,
+          fromSequence,
+          produced: menuView(next),
+          forfeitedOffers: null,
+          view: await buildView(client, owner, current, false, nowMs, trickle.balance, trickle.pending),
+        };
+      }
+    }
+    if (fromSequence !== current.sequence) {
+      throw conflict("stale_menu", `fromSequence ${fromSequence} is not the current menu (${current.sequence}); read the current menu and decide again`);
+    }
+    if (!isFreeRefreshDue(current, nowMs)) {
+      throw conflict("free_refresh_not_due", `the next free menu opens at ${nextFreeRefreshAtMs(current)} (in ${nextFreeRefreshAtMs(current) - nowMs} ms); reroll for Coin to see one sooner`);
+    }
+    const forfeited = current.claimed_type_id === null ? menuView(current).offers : null;
+    const produced = await takeFreeRefresh(client, owner, current, nowMs);
+    return {
+      replayed: false,
+      fromSequence,
+      produced: menuView(produced),
+      forfeitedOffers: forfeited,
+      view: await buildView(client, owner, produced, true, nowMs, trickle.balance, trickle.pending),
     };
   });
 }
@@ -343,22 +470,22 @@ export interface RerollResult {
 
 export async function rerollRefugees(
   pool: pg.Pool,
-  input: { accountId: string; caravanId: string; fromSequence?: unknown; nowMs?: number },
+  input: { accountId: string; caravanId: string; fromSequence: unknown; nowMs?: number },
 ): Promise<RerollResult> {
   const caravanId = normalizeCaravanId(input.caravanId);
-  const wantedFrom = normalizeSequence(input.fromSequence, "fromSequence");
+  const fromSequence = normalizeSequence(input.fromSequence, "fromSequence");
   const nowMs = input.nowMs ?? Date.now();
   return withTransaction(pool, async (client) => {
     await lockAccountForAppend(client, input.accountId);
     const owner = await readOwnedCaravan(client, input.accountId, caravanId, true);
-    // A due free refresh happens first, for free: Coin is never charged for a menu the timer owed.
-    const cur = await ensureCurrentMenu(client, owner, nowMs);
-    const fromSequence = wantedFrom ?? cur.menu.sequence;
+    const current = await requireCurrentMenu(client, caravanId);
     const causationId = rerollCausationId(caravanId, fromSequence);
     if (await causationExists(client, causationId)) {
       const events = await listEventsByCausation(client, causationId);
       const produced = await readMenu(client, caravanId, fromSequence + 1);
-      if (!produced) throw new Error(`reroll ${causationId} committed but menu ${fromSequence + 1} is missing`);
+      if (!produced || produced.origin !== "reroll") {
+        throw menuCorrupt(caravanId, `reroll ${causationId} committed but menu ${fromSequence + 1} is ${produced ? `a ${produced.origin} menu` : "missing"}`);
+      }
       const trickle = await peekTrickle(client, input.accountId, nowMs);
       const coinCost = Number(events[0]?.payload["amount"] ?? 0);
       return {
@@ -368,21 +495,24 @@ export async function rerollRefugees(
         coinCost,
         events,
         balanceAfter: trickle.balance,
-        view: await buildView(client, owner, cur, nowMs, trickle.balance, trickle.pending),
+        view: await buildView(client, owner, current, false, nowMs, trickle.balance, trickle.pending),
       };
     }
-    if (fromSequence !== cur.menu.sequence) {
-      throw conflict("stale_menu", `fromSequence ${fromSequence} is not the current menu (${cur.menu.sequence}); read the current menu and decide again`);
+    if (fromSequence !== current.sequence) {
+      throw conflict("stale_menu", `fromSequence ${fromSequence} is not the current menu (${current.sequence}); read the current menu and decide again`);
     }
-    const index = cur.menu.sequence - cur.menu.window_sequence;
+    // Coin is never charged for a menu the timer owes: take the free one first (claim or refresh).
+    if (isFreeRefreshDue(current, nowMs)) {
+      throw conflict("free_refresh_due", `a free menu is due for menu ${current.sequence}; claim it or POST .../refugees/refresh instead of paying`);
+    }
+    const index = current.sequence - current.window_sequence;
     const cost = rerollCost(index);
-    const toSequence = cur.menu.sequence + 1;
+    const toSequence = current.sequence + 1;
     const spend = await spendCoin(client, input.accountId, cost, "refugee_reroll", nowMs, {
       causationId,
       extra: { caravanId, fromSequence, toSequence, rerollIndex: index },
     });
-    const produced = await insertMenu(client, owner, toSequence, "reroll", cur.menu.window_sequence, nowMs);
-    const next: CurrentMenu = { menu: produced, windowOpener: cur.windowOpener, refreshed: cur.refreshed };
+    const produced = await insertMenu(client, owner, toSequence, "reroll", current.window_sequence, current.window_opened_at_ms, nowMs);
     return {
       replayed: false,
       fromSequence,
@@ -390,7 +520,7 @@ export async function rerollRefugees(
       coinCost: cost,
       events: spend.events,
       balanceAfter: spend.balanceAfter,
-      view: await buildView(client, owner, next, nowMs, spend.balanceAfter, 0),
+      view: await buildView(client, owner, produced, false, nowMs, spend.balanceAfter, 0),
     };
   });
 }

@@ -10,11 +10,11 @@ import { LIVING_UNIT_TYPES, TUNABLES, unitsForRegion } from "@caravan/content";
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { drawRefugeeMenu, fnv1a32, menuSeed, replayMenu, rerollCost, REFUGEE_REFRESH_INTERVAL_MS } from "../src/acquisition/refugeeMenu.js";
-import { claimRefugee, rerollRefugees, viewRefugees } from "../src/acquisition/refugees.js";
+import { drawForSequence, drawRefugeeMenu, fnv1a32, menuSeed, replayMenu, rerollCost, REFUGEE_REFRESH_INTERVAL_MS } from "../src/acquisition/refugeeMenu.js";
+import { claimRefugee, refreshRefugees, rerollRefugees, viewRefugees } from "../src/acquisition/refugees.js";
 import { recruitMercenary, viewRecruit } from "../src/acquisition/recruit.js";
 import { buildApp } from "../src/app.js";
 import { withTransaction } from "../src/db/pool.js";
@@ -90,13 +90,9 @@ async function setBalance(accountId: string, target: number): Promise<void> {
   });
 }
 
-/** Pretend the window-opening free menu was generated `ms` earlier (the only clock the drip reads). */
+/** Pretend every menu so far was generated `ms` earlier (the free-timer grid moves with it; it is the only clock the drip reads). */
 async function backdateWindow(caravanId: string, ms: number): Promise<void> {
-  await pool.query(
-    `UPDATE refugee_menu SET generated_at_ms = generated_at_ms - $2
-     WHERE caravan_id = $1 AND sequence = (SELECT max(window_sequence) FROM refugee_menu WHERE caravan_id = $1)`,
-    [caravanId, ms],
-  );
+  await pool.query("UPDATE refugee_menu SET generated_at_ms = generated_at_ms - $2, window_opened_at_ms = window_opened_at_ms - $2 WHERE caravan_id = $1", [caravanId, ms]);
 }
 
 async function menuRows(caravanId: string): Promise<RefugeeMenuRow[]> {
@@ -277,7 +273,7 @@ describe("refugee drip: menu, timer, claim", () => {
     expect(await spentEvents(p.accountId)).toHaveLength(0);
 
     // Same pick again: a replay, nothing new.
-    const retry = await call(p, "POST", `/me/caravans/${p.caravanId}/refugees/claim`, { unitTypeId: pick });
+    const retry = await call(p, "POST", `/me/caravans/${p.caravanId}/refugees/claim`, { unitTypeId: pick, sequence: 1 });
     expect(retry.statusCode).toBe(200);
     expect(retry.json().replayed).toBe(true);
     expect(retry.json().acquired.instanceId).toBe(body.instance.id);
@@ -286,7 +282,7 @@ describe("refugee drip: menu, timer, claim", () => {
     // A different pick from the same menu: refused, nothing written.
     if (other) {
       const snap = await snapshot(p);
-      const second = await call(p, "POST", `/me/caravans/${p.caravanId}/refugees/claim`, { unitTypeId: other });
+      const second = await call(p, "POST", `/me/caravans/${p.caravanId}/refugees/claim`, { unitTypeId: other, sequence: 1 });
       expect(second.statusCode).toBe(409);
       expect(second.json().error).toBe("menu_claimed");
       expect(await snapshot(p)).toBe(snap);
@@ -300,7 +296,7 @@ describe("refugee drip: menu, timer, claim", () => {
     const notOffered = DESERT_STARTERS.find((id) => !offered.has(id));
     if (!notOffered) return; // both starters offered on this seed; nothing to refuse
     const snap = await snapshot(p);
-    const res = await call(p, "POST", `/me/caravans/${p.caravanId}/refugees/claim`, { unitTypeId: notOffered });
+    const res = await call(p, "POST", `/me/caravans/${p.caravanId}/refugees/claim`, { unitTypeId: notOffered, sequence: 1 });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toBe("not_offered");
     expect(await snapshot(p)).toBe(snap);
@@ -310,7 +306,7 @@ describe("refugee drip: menu, timer, claim", () => {
     const p = await registerPlayer();
     const v = await viewRefugees(pool, owner(p));
     const pick = v.menu.offers[0]!.unitTypeId;
-    const results = await Promise.all(Array.from({ length: 8 }, () => claimRefugee(pool, { ...owner(p), unitTypeId: pick })));
+    const results = await Promise.all(Array.from({ length: 8 }, () => claimRefugee(pool, { ...owner(p), unitTypeId: pick, sequence: v.menu.sequence })));
     expect(results.filter((r) => !r.replayed)).toHaveLength(1);
     expect(results.filter((r) => r.replayed)).toHaveLength(7);
     const ids = new Set(results.map((r) => r.acquired.instanceId));
@@ -320,55 +316,86 @@ describe("refugee drip: menu, timer, claim", () => {
     expect((await verifyProjection(pool, p.accountId)).ok).toBe(true);
   });
 
-  it("the free timer: no new menu before the interval; one new free menu after it (however long away), which resets the reroll window", async () => {
+  it("the free timer: no new menu before the interval; after it the GET reports it due and writes nothing; taking it yields ONE free menu on the grid, which resets the reroll window", async () => {
     const p = await registerPlayer();
     const t0 = 1_700_000_000_000;
     const first = await viewRefugees(pool, { ...owner(p), nowMs: t0 });
     expect(first.menu.sequence).toBe(1);
+    expect(first.timer.freeRefreshDue).toBe(false);
     // Claim, then wait just under the interval: same (claimed) menu.
-    await claimRefugee(pool, { ...owner(p), unitTypeId: first.menu.offers[0]!.unitTypeId, nowMs: t0 + 1 });
+    await claimRefugee(pool, { ...owner(p), unitTypeId: first.menu.offers[0]!.unitTypeId, sequence: 1, nowMs: t0 + 1 });
     const early = await viewRefugees(pool, { ...owner(p), nowMs: t0 + INTERVAL - 1 });
     expect(early.menu.sequence).toBe(1);
     expect(early.menu.claimed).not.toBeNull();
     expect(early.timer.msUntilFreeRefresh).toBe(1);
+    expect(early.timer.freeRefreshDue).toBe(false);
     expect(early.timer.refreshedNow).toBe(false);
-    // Ten intervals later: ONE new free menu (no stockpiling), timer anchored now.
-    const late = await viewRefugees(pool, { ...owner(p), nowMs: t0 + 10 * INTERVAL });
-    expect(late.menu.sequence).toBe(2);
-    expect(late.menu.origin).toBe("free");
-    expect(late.menu.claimed).toBeNull();
-    expect(late.timer.refreshedNow).toBe(true);
-    expect(late.timer.windowOpenedAtMs).toBe(t0 + 10 * INTERVAL);
-    expect(late.timer.msUntilFreeRefresh).toBe(INTERVAL);
-    expect(late.reroll).toMatchObject({ nextCost: 150, nextIndex: 0 });
+    // Ten intervals later the GET says the free menu is owed — and leaves everything alone (D1/S2).
+    const late = await viewRefugees(pool, { ...owner(p), nowMs: t0 + 10 * INTERVAL + 5 });
+    expect(late.menu.sequence).toBe(1);
+    expect(late.timer).toMatchObject({ freeRefreshDue: true, msUntilFreeRefresh: 0, refreshedNow: false, nextFreeRefreshAtMs: t0 + INTERVAL });
+    expect(late.reroll.blockedByFreeRefresh).toBe(true);
+    expect(await menuRows(p.caravanId)).toHaveLength(1);
+    // Taking it: ONE new free menu (no stockpiling), on the grid (D2): window 10, not "now".
+    const taken = await refreshRefugees(pool, { ...owner(p), fromSequence: 1, nowMs: t0 + 10 * INTERVAL + 5 });
+    expect(taken.replayed).toBe(false);
+    expect(taken.forfeitedOffers).toBeNull(); // menu 1 was claimed; nothing lost
+    expect(taken.produced).toMatchObject({ sequence: 2, origin: "free", rerollsThisWindow: 0, claimed: null });
+    expect(taken.view.timer).toMatchObject({ refreshedNow: true, windowOpenedAtMs: t0 + 10 * INTERVAL, nextFreeRefreshAtMs: t0 + 11 * INTERVAL, msUntilFreeRefresh: INTERVAL - 5, freeRefreshDue: false });
+    expect(taken.view.reroll).toMatchObject({ nextCost: 150, nextIndex: 0, blockedByFreeRefresh: false });
     expect(await menuRows(p.caravanId)).toHaveLength(2);
     // The old, claimed menu replays its stored pick and grants nothing new.
-    const replay = await claimRefugee(pool, { ...owner(p), unitTypeId: first.menu.offers[0]!.unitTypeId, sequence: 1, nowMs: t0 + 10 * INTERVAL });
+    const replay = await claimRefugee(pool, { ...owner(p), unitTypeId: first.menu.offers[0]!.unitTypeId, sequence: 1, nowMs: t0 + 10 * INTERVAL + 6 });
     expect(replay.replayed).toBe(true);
     expect(await unitAcquiredEvents(p.accountId)).toHaveLength(1);
   });
 
-  it("claiming an expired, unclaimed menu is refused; the clock enters only as 'is the timer up'", async () => {
+  it("an unclaimed menu is never expired by the timer alone (D1): a claim past the timer succeeds and takes the due refresh in the same request; only an explicit refresh forfeits it", async () => {
     const p = await registerPlayer();
     const t0 = 1_700_000_000_000;
     const first = await viewRefugees(pool, { ...owner(p), nowMs: t0 });
-    const second = await viewRefugees(pool, { ...owner(p), nowMs: t0 + INTERVAL });
-    expect(second.menu.sequence).toBe(2);
-    const err = await appErr(claimRefugee(pool, { ...owner(p), unitTypeId: first.menu.offers[0]!.unitTypeId, sequence: 1, nowMs: t0 + INTERVAL + 1 }));
+    // The reviewer's probe: picked at 89:59, the request lands at 90:01.
+    const late = await claimRefugee(pool, { ...owner(p), unitTypeId: first.menu.offers[0]!.unitTypeId, sequence: 1, nowMs: t0 + INTERVAL + 1 });
+    expect(late.replayed).toBe(false);
+    expect(late.acquired.unitTypeId).toBe(first.menu.offers[0]!.unitTypeId);
+    // ...and the free menu the timer owed arrived with it, anchored to the grid.
+    expect(late.view.menu).toMatchObject({ sequence: 2, origin: "free", claimed: null });
+    expect(late.view.timer).toMatchObject({ refreshedNow: true, windowOpenedAtMs: t0 + INTERVAL, nextFreeRefreshAtMs: t0 + 2 * INTERVAL });
+    const rows = await menuRows(p.caravanId);
+    expect(rows.map((r) => [r.sequence, r.origin, r.claimed_type_id !== null])).toEqual([[1, "free", true], [2, "free", false]]);
+    // Menu 2 sits unclaimed past its timer: still claimable, until the player forfeits it explicitly.
+    const stillThere = await viewRefugees(pool, { ...owner(p), nowMs: t0 + 5 * INTERVAL });
+    expect(stillThere.menu).toMatchObject({ sequence: 2, claimed: null });
+    expect(stillThere.timer.freeRefreshDue).toBe(true);
+    const forfeited = await refreshRefugees(pool, { ...owner(p), fromSequence: 2, nowMs: t0 + 5 * INTERVAL });
+    expect(forfeited.forfeitedOffers!.map((o) => o.unitTypeId)).toEqual(stillThere.menu.offers.map((o) => o.unitTypeId));
+    expect(forfeited.produced.sequence).toBe(3);
+    const err = await appErr(claimRefugee(pool, { ...owner(p), unitTypeId: stillThere.menu.offers[0]!.unitTypeId, sequence: 2, nowMs: t0 + 5 * INTERVAL + 1 }));
     expect(err.code).toBe("menu_expired");
+    expect(await unitAcquiredEvents(p.accountId)).toHaveLength(1);
     // The menus were drawn from (caravan, sequence) only: regenerating from stored inputs matches, whatever the clock said.
     for (const row of await menuRows(p.caravanId)) expect(replayMenu(row).ok).toBe(true);
     const bySeed = drawRefugeeMenu(DESERT_STARTERS, menuSeed(p.caravanId, 2)).offers;
-    expect(second.menu.offers.map((o) => o.unitTypeId)).toEqual(bySeed);
+    expect(late.view.menu.offers.map((o) => o.unitTypeId)).toEqual(bySeed);
   });
 
-  it("through HTTP: backdating the window opener makes the next read a free refresh", async () => {
+  it("through HTTP: backdating the window makes the next read report a due refresh; POST /refresh takes it", async () => {
     const p = await registerPlayer();
     await call(p, "GET", `/me/caravans/${p.caravanId}/refugees`);
     await backdateWindow(p.caravanId, INTERVAL);
     const res = await call(p, "GET", `/me/caravans/${p.caravanId}/refugees`);
-    expect(res.json().menu.sequence).toBe(2);
-    expect(res.json().timer.refreshedNow).toBe(true);
+    expect(res.json().menu.sequence).toBe(1);
+    expect(res.json().timer).toMatchObject({ freeRefreshDue: true, refreshedNow: false });
+    expect(await menuRows(p.caravanId)).toHaveLength(1);
+    const take = await call(p, "POST", `/me/caravans/${p.caravanId}/refugees/refresh`, { fromSequence: 1 });
+    expect(take.statusCode, take.body).toBe(201);
+    expect(take.json().produced.sequence).toBe(2);
+    expect(take.json().forfeitedOffers).toHaveLength(3);
+    expect(take.json().refugees.timer.refreshedNow).toBe(true);
+    const again = await call(p, "POST", `/me/caravans/${p.caravanId}/refugees/refresh`, { fromSequence: 1 });
+    expect(again.statusCode).toBe(200);
+    expect(again.json().replayed).toBe(true);
+    expect(await menuRows(p.caravanId)).toHaveLength(2);
   });
 });
 
@@ -382,7 +409,7 @@ describe("refugee reroll: Coin buys a sooner menu, never a wider or better one (
     const anchor = v0.timer.windowOpenedAtMs;
     const costs: number[] = [];
     for (let i = 0; i < 4; i++) {
-      const r = await rerollRefugees(pool, { ...owner(p), nowMs: t0 + 1000 * (i + 1) });
+      const r = await rerollRefugees(pool, { ...owner(p), fromSequence: i + 1, nowMs: t0 + 1000 * (i + 1) });
       expect(r.replayed).toBe(false);
       costs.push(r.coinCost);
       expect(r.produced.sequence).toBe(i + 2);
@@ -398,11 +425,16 @@ describe("refugee reroll: Coin buys a sooner menu, never a wider or better one (
     expect((await readCoinBalance(pool, p.accountId)).balance).toBe(5_000 - 1650);
     expect(await spentEvents(p.accountId)).toHaveLength(4);
     for (const row of await menuRows(p.caravanId)) expect(replayMenu(row).ok).toBe(true);
-    // The window opener is still menu 1; the free refresh lands on time and resets the price.
-    const free = await viewRefugees(pool, { ...owner(p), nowMs: anchor + INTERVAL });
-    expect(free.menu.sequence).toBe(6);
-    expect(free.menu.origin).toBe("free");
-    expect(free.reroll.nextCost).toBe(150);
+    // The window opener is still menu 1; the free refresh is due on time, a fifth reroll is refused unpaid, and taking it resets the price.
+    const due = await viewRefugees(pool, { ...owner(p), nowMs: anchor + INTERVAL });
+    expect(due.menu.sequence).toBe(5);
+    expect(due.timer.freeRefreshDue).toBe(true);
+    expect((await appErr(rerollRefugees(pool, { ...owner(p), fromSequence: 5, nowMs: anchor + INTERVAL }))).code).toBe("free_refresh_due");
+    expect(await spentEvents(p.accountId)).toHaveLength(4);
+    const free = await refreshRefugees(pool, { ...owner(p), fromSequence: 5, nowMs: anchor + INTERVAL });
+    expect(free.produced).toMatchObject({ sequence: 6, origin: "free" });
+    expect(free.view.timer).toMatchObject({ windowOpenedAtMs: anchor + INTERVAL, nextFreeRefreshAtMs: anchor + 2 * INTERVAL });
+    expect(free.view.reroll.nextCost).toBe(150);
     expect((await verifyProjection(pool, p.accountId)).ok).toBe(true);
   });
 
@@ -412,7 +444,7 @@ describe("refugee reroll: Coin buys a sooner menu, never a wider or better one (
     const v = (await call(p, "GET", `/me/caravans/${p.caravanId}/refugees`)).json();
     expect(v.reroll).toMatchObject({ nextCost: 150, affordable: false });
     const snap = await snapshot(p);
-    const res = await call(p, "POST", `/me/caravans/${p.caravanId}/refugees/reroll`, {});
+    const res = await call(p, "POST", `/me/caravans/${p.caravanId}/refugees/reroll`, { fromSequence: v.menu.sequence });
     expect(res.statusCode).toBe(409);
     expect(res.json().error).toBe("insufficient_coin");
     expect(await snapshot(p)).toBe(snap);
@@ -421,6 +453,7 @@ describe("refugee reroll: Coin buys a sooner menu, never a wider or better one (
   it("a retried reroll (same fromSequence) is charged once; a stale fromSequence is refused", async () => {
     const p = await registerPlayer();
     await setBalance(p.accountId, 2_000);
+    await viewRefugees(pool, owner(p));
     const results = await Promise.all(Array.from({ length: 5 }, () => rerollRefugees(pool, { ...owner(p), fromSequence: 1 })));
     expect(results.filter((r) => !r.replayed)).toHaveLength(1);
     expect(results.every((r) => r.produced.sequence === 2)).toBe(true);
@@ -435,9 +468,11 @@ describe("refugee reroll: Coin buys a sooner menu, never a wider or better one (
     const p = await registerPlayer();
     await setBalance(p.accountId, TUNABLES.COIN_STORAGE_CAP);
     const seen = new Set<string>();
+    let seq = (await viewRefugees(pool, owner(p))).menu.sequence;
     for (let i = 0; i < 50; i++) {
       if ((await readCoinBalance(pool, p.accountId)).balance < 600) await setBalance(p.accountId, TUNABLES.COIN_STORAGE_CAP);
-      const r = await rerollRefugees(pool, owner(p));
+      const r = await rerollRefugees(pool, { ...owner(p), fromSequence: seq });
+      seq = r.produced.sequence;
       for (const o of r.produced.offers) seen.add(o.unitTypeId);
     }
     expect([...seen].sort()).toEqual(DESERT_STARTERS);
@@ -448,7 +483,8 @@ describe("refugee reroll: Coin buys a sooner menu, never a wider or better one (
     const widened = new Set<string>();
     for (let i = 0; i < 40; i++) {
       if ((await readCoinBalance(pool, p.accountId)).balance < 600) await setBalance(p.accountId, TUNABLES.COIN_STORAGE_CAP);
-      const r = await rerollRefugees(pool, owner(p));
+      const r = await rerollRefugees(pool, { ...owner(p), fromSequence: seq });
+      seq = r.produced.sequence;
       expect(r.produced.poolTypeIds).toEqual([...DESERT_STARTERS, DESERT_LOCKED_T1].sort());
       for (const o of r.produced.offers) widened.add(o.unitTypeId);
     }
@@ -456,16 +492,24 @@ describe("refugee reroll: Coin buys a sooner menu, never a wider or better one (
     for (const row of await menuRows(p.caravanId)) expect(replayMenu(row).ok).toBe(true);
   });
 
-  it("a due free refresh is served before a reroll is charged (Coin is never charged for a menu the timer owed)", async () => {
+  it("a reroll is refused, unpaid, while a free refresh is due (Coin is never charged for a menu the timer owed); taking the free one unblocks it", async () => {
     const p = await registerPlayer();
     await setBalance(p.accountId, 1_000);
     const t0 = 1_700_000_000_000;
     await viewRefugees(pool, { ...owner(p), nowMs: t0 });
     const r = await appErr(rerollRefugees(pool, { ...owner(p), fromSequence: 1, nowMs: t0 + INTERVAL }));
-    expect(r.code).toBe("stale_menu");
+    expect(r.code).toBe("free_refresh_due");
     expect(await spentEvents(p.accountId)).toHaveLength(0);
+    expect(await menuRows(p.caravanId)).toHaveLength(1);
     const v = await viewRefugees(pool, { ...owner(p), nowMs: t0 + INTERVAL });
-    expect(v.menu).toMatchObject({ sequence: 2, origin: "free" });
+    expect(v.menu.sequence).toBe(1);
+    expect(v.reroll.blockedByFreeRefresh).toBe(true);
+    const free = await refreshRefugees(pool, { ...owner(p), fromSequence: 1, nowMs: t0 + INTERVAL });
+    expect(free.produced).toMatchObject({ sequence: 2, origin: "free" });
+    const paid = await rerollRefugees(pool, { ...owner(p), fromSequence: 2, nowMs: t0 + INTERVAL + 1 });
+    expect(paid).toMatchObject({ replayed: false, coinCost: 150 });
+    expect(paid.produced).toMatchObject({ sequence: 3, origin: "reroll", rerollsThisWindow: 1 });
+    expect(paid.view.timer.windowOpenedAtMs).toBe(t0 + INTERVAL);
   });
 });
 
@@ -588,7 +632,7 @@ describe("the unlock web is the only access gate (GUARDRAILS §3) — the centra
       const recruit = await call(p, "POST", `/me/caravans/${p.caravanId}/recruit`, { unitTypeId: typeId });
       expect(recruit.statusCode, recruit.body).toBe(409);
       expect(recruit.json().error).toBe("not_unlocked");
-      const claim = await call(p, "POST", `/me/caravans/${p.caravanId}/refugees/claim`, { unitTypeId: typeId });
+      const claim = await call(p, "POST", `/me/caravans/${p.caravanId}/refugees/claim`, { unitTypeId: typeId, sequence: 1 });
       expect([400, 409]).toContain(claim.statusCode); // not_offered or not_unlocked: never an instance
       expect(await snapshot(p)).toBe(snap);
       expect((await readCoinBalance(pool, p.accountId)).balance).toBe(TUNABLES.COIN_STORAGE_CAP);
@@ -598,13 +642,14 @@ describe("the unlock web is the only access gate (GUARDRAILS §3) — the centra
   it("exhaustive: with the storage cap in Coin, no living type outside the reached set can be produced by either path", async () => {
     const p = await registerPlayer("mountain");
     await setBalance(p.accountId, TUNABLES.COIN_STORAGE_CAP);
+    await viewRefugees(pool, owner(p)); // menu 1 exists, so the claim reaches the gate rather than `no_menu`
     const reached = await reachedNodeIds(pool, "living", owner(p));
     const unreached = LIVING_UNIT_TYPES.map((u) => u.id).filter((id) => !reached.has(id));
     expect(unreached.length).toBe(LIVING_UNIT_TYPES.length - 2);
     for (const typeId of unreached) {
       const e1 = await appErr(recruitMercenary(pool, { ...owner(p), unitTypeId: typeId }));
       expect(e1.code, typeId).toBe("not_unlocked");
-      const e2 = await appErr(claimRefugee(pool, { ...owner(p), unitTypeId: typeId }));
+      const e2 = await appErr(claimRefugee(pool, { ...owner(p), unitTypeId: typeId, sequence: 1 }));
       expect(["not_offered", "not_unlocked"], typeId).toContain(e2.code);
     }
     const roster = await listUnitInstancesForCaravan(pool, p.caravanId);
@@ -680,7 +725,7 @@ describe("storage guard, ownership, split, and the on-trip caravan", () => {
     const snap = await snapshot(p);
     const full = await appErr(recruitMercenary(pool, { ...owner(p), unitTypeId: "desert.dust_rider" }));
     expect(full.code).toBe("inventory_full");
-    const claim = await appErr(claimRefugee(pool, { ...owner(p), unitTypeId: v.menu.offers[0]!.unitTypeId }));
+    const claim = await appErr(claimRefugee(pool, { ...owner(p), unitTypeId: v.menu.offers[0]!.unitTypeId, sequence: v.menu.sequence }));
     expect(claim.code).toBe("inventory_full");
     expect(await snapshot(p)).toBe(snap);
     expect((await readCoinBalance(pool, p.accountId)).balance).toBe(2_000 - RECRUIT);
@@ -695,8 +740,9 @@ describe("storage guard, ownership, split, and the on-trip caravan", () => {
     await setBalance(b.accountId, 5_000);
     for (const [method, url, payload] of [
       ["GET", `/me/caravans/${a.caravanId}/refugees`, undefined],
-      ["POST", `/me/caravans/${a.caravanId}/refugees/claim`, { unitTypeId: "desert.dust_rider" }],
-      ["POST", `/me/caravans/${a.caravanId}/refugees/reroll`, {}],
+      ["POST", `/me/caravans/${a.caravanId}/refugees/claim`, { unitTypeId: "desert.dust_rider", sequence: 1 }],
+      ["POST", `/me/caravans/${a.caravanId}/refugees/refresh`, { fromSequence: 1 }],
+      ["POST", `/me/caravans/${a.caravanId}/refugees/reroll`, { fromSequence: 1 }],
       ["GET", `/me/caravans/${a.caravanId}/recruit`, undefined],
       ["POST", `/me/caravans/${a.caravanId}/recruit`, { unitTypeId: "desert.dust_rider" }],
     ] as const) {
@@ -786,5 +832,215 @@ describe("generous acquisition: rebuilding a wiped level-3 unit from zero (the w
     expect(roster).toHaveLength(1);
     expect(roster[0]!.merge_level).toBe(3);
     expect((await readCoinBalance(pool, p.accountId)).balance).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+describe("QA round 1 punch list (roadmap/qa/18-punchlist.md): the reviewer's probes as regressions", () => {
+  const t0 = 1_800_000_000_000;
+
+  it("D1/S2: a GET past the timer never writes — not a menu row, not a ledger event — however often it is polled", async () => {
+    const p = await registerPlayer();
+    await viewRefugees(pool, { ...owner(p), nowMs: t0 });
+    const before = await snapshot(p);
+    for (const at of [t0 + INTERVAL, t0 + INTERVAL + 1, t0 + 3 * INTERVAL, t0 + 100 * INTERVAL]) {
+      const v = await viewRefugees(pool, { ...owner(p), nowMs: at });
+      expect(v.menu.sequence).toBe(1);
+      expect(v.timer).toMatchObject({ freeRefreshDue: true, refreshedNow: false, msUntilFreeRefresh: 0 });
+      const http = await call(p, "GET", `/me/caravans/${p.caravanId}/refugees`);
+      expect(http.statusCode).toBe(200);
+    }
+    expect(await snapshot(p)).toBe(before);
+    expect(await menuRows(p.caravanId)).toHaveLength(1);
+  });
+
+  it("D2: the free timer is a fixed grid — taking every refresh 50 minutes late still yields 16 menus a day, each anchored to its grid point; one menu per take, never two", async () => {
+    const p = await registerPlayer();
+    const first = await viewRefugees(pool, { ...owner(p), nowMs: t0 });
+    expect(first.timer.windowOpenedAtMs).toBe(t0);
+    const late = 50 * 60_000;
+    let seq = 1;
+    for (let k = 1; k <= 16; k++) {
+      const at = t0 + k * INTERVAL + late;
+      // One ms before the grid point: not due.
+      if (k === 1) expect((await appErr(refreshRefugees(pool, { ...owner(p), fromSequence: seq, nowMs: t0 + INTERVAL - 1 }))).code).toBe("free_refresh_not_due");
+      const r = await refreshRefugees(pool, { ...owner(p), fromSequence: seq, nowMs: at });
+      expect(r.produced.sequence).toBe(seq + 1);
+      expect(r.view.timer.windowOpenedAtMs).toBe(t0 + k * INTERVAL); // the grid point, not `at`
+      expect(r.view.timer.nextFreeRefreshAtMs).toBe(t0 + (k + 1) * INTERVAL);
+      expect(r.view.timer.msUntilFreeRefresh).toBe(INTERVAL - late);
+      // Immediately again: nothing stockpiled.
+      expect((await appErr(refreshRefugees(pool, { ...owner(p), fromSequence: seq + 1, nowMs: at }))).code).toBe("free_refresh_not_due");
+      seq = r.produced.sequence;
+    }
+    // 16 refreshes in the 24 h after the anchor (the 16th was taken at 24 h 50 min; its window opened at 24 h).
+    expect(seq).toBe(17);
+    expect(await menuRows(p.caravanId)).toHaveLength(17);
+    // Away for a week: ONE menu, on the grid, and the next window one interval after it.
+    const week = t0 + 16 * INTERVAL + 7 * 24 * 3_600_000 + 12_345;
+    const back = await refreshRefugees(pool, { ...owner(p), fromSequence: 17, nowMs: week });
+    const k = Math.floor((week - t0) / INTERVAL);
+    expect(back.view.timer.windowOpenedAtMs).toBe(t0 + k * INTERVAL);
+    expect(back.view.timer.nextFreeRefreshAtMs).toBe(t0 + (k + 1) * INTERVAL);
+    expect(await menuRows(p.caravanId)).toHaveLength(18);
+    // Rerolls inherit the window's grid point and never move it.
+    await setBalance(p.accountId, 1_000);
+    const paid = await rerollRefugees(pool, { ...owner(p), fromSequence: 18, nowMs: week + 1 });
+    expect(paid.view.timer.windowOpenedAtMs).toBe(t0 + k * INTERVAL);
+    expect((await menuRows(p.caravanId)).at(-1)!.window_opened_at_ms).toBe(t0 + k * INTERVAL);
+    for (const row of await menuRows(p.caravanId)) expect(replayMenu(row).ok).toBe(true);
+  });
+
+  it("S1: `fromSequence` is required — two concurrent `{}` rerolls are both 400s and charge nothing (the reviewer's double-tap)", async () => {
+    const p = await registerPlayer();
+    await setBalance(p.accountId, 2_000);
+    await viewRefugees(pool, owner(p));
+    const snap = await snapshot(p);
+    const dbl = await Promise.all([
+      call(p, "POST", `/me/caravans/${p.caravanId}/refugees/reroll`, {}),
+      call(p, "POST", `/me/caravans/${p.caravanId}/refugees/reroll`, {}),
+    ]);
+    expect(dbl.map((r) => r.statusCode)).toEqual([400, 400]);
+    expect(dbl.map((r) => r.json().error)).toEqual(["invalid_fromSequence", "invalid_fromSequence"]);
+    expect(await snapshot(p)).toBe(snap);
+    expect((await readCoinBalance(pool, p.accountId)).balance).toBe(2_000);
+    // With it named, two concurrent rerolls of the same menu charge once (the second replays).
+    const named = await Promise.all([
+      call(p, "POST", `/me/caravans/${p.caravanId}/refugees/reroll`, { fromSequence: 1 }),
+      call(p, "POST", `/me/caravans/${p.caravanId}/refugees/reroll`, { fromSequence: 1 }),
+    ]);
+    expect(named.map((r) => r.statusCode).sort()).toEqual([200, 201]);
+    expect((await readCoinBalance(pool, p.accountId)).balance).toBe(2_000 - 150);
+    expect(await menuRows(p.caravanId)).toHaveLength(2);
+    const refresh = await call(p, "POST", `/me/caravans/${p.caravanId}/refugees/refresh`, {});
+    expect(refresh.statusCode).toBe(400);
+    expect(refresh.json().error).toBe("invalid_fromSequence");
+  });
+
+  it("S1: `sequence` is required on claim — a lost-response retry names its menu and replays across a free refresh (one instance), while an unnamed retry is a 400", async () => {
+    const p = await registerPlayer();
+    const v = await viewRefugees(pool, { ...owner(p), nowMs: t0 });
+    const pick = v.menu.offers[0]!.unitTypeId;
+    const unnamed = await call(p, "POST", `/me/caravans/${p.caravanId}/refugees/claim`, { unitTypeId: pick });
+    expect(unnamed.statusCode).toBe(400);
+    expect(unnamed.json().error).toBe("invalid_sequence");
+    expect(await unitAcquiredEvents(p.accountId)).toHaveLength(0);
+    const c1 = await claimRefugee(pool, { ...owner(p), unitTypeId: pick, sequence: 1, nowMs: t0 + 10 });
+    expect(c1.replayed).toBe(false);
+    // The response was lost; the client retries after the timer rolled over (the reviewer's probe 3).
+    const c2 = await claimRefugee(pool, { ...owner(p), unitTypeId: pick, sequence: 1, nowMs: t0 + INTERVAL + 10 });
+    expect(c2.replayed).toBe(true);
+    expect(c2.acquired.instanceId).toBe(c1.acquired.instanceId);
+    expect((await listUnitInstancesForCaravan(pool, p.caravanId)).filter((r) => r.unit_type_id === pick)).toHaveLength(1);
+    expect(await unitAcquiredEvents(p.accountId)).toHaveLength(1);
+    // A replay generates nothing: the due refresh is still waiting to be taken.
+    expect(await menuRows(p.caravanId)).toHaveLength(1);
+    expect(c2.view.timer.freeRefreshDue).toBe(true);
+  });
+
+  it("S3: sequence fields are bounded to 1..2147483647 on every route — out of range, non-integer, or non-number is a 400, never a 500 or a query", async () => {
+    const p = await registerPlayer();
+    await setBalance(p.accountId, 5_000);
+    await call(p, "GET", `/me/caravans/${p.caravanId}/refugees`);
+    const snap = await snapshot(p);
+    const bad = [1e308, 9007199254740993, 2147483648, 0, -1, 1.5, "1", true, null, Number.NaN, Number.POSITIVE_INFINITY];
+    for (const value of bad) {
+      const claim = await call(p, "POST", `/me/caravans/${p.caravanId}/refugees/claim`, { unitTypeId: "desert.dust_rider", sequence: value });
+      expect(claim.statusCode, `claim sequence=${String(value)}`).toBe(400);
+      expect(claim.json().error).toBe("invalid_sequence");
+      for (const route of ["reroll", "refresh"]) {
+        const r = await call(p, "POST", `/me/caravans/${p.caravanId}/refugees/${route}`, { fromSequence: value });
+        expect(r.statusCode, `${route} fromSequence=${String(value)}`).toBe(400);
+        expect(r.json().error).toBe("invalid_fromSequence");
+      }
+    }
+    // The bound itself is a valid value: it passes validation and reaches the menu check.
+    const edge = await call(p, "POST", `/me/caravans/${p.caravanId}/refugees/claim`, { unitTypeId: "desert.dust_rider", sequence: 2147483647 });
+    expect(edge.statusCode).toBe(409);
+    expect(edge.json().error).toBe("menu_expired");
+    const edgeReroll = await call(p, "POST", `/me/caravans/${p.caravanId}/refugees/reroll`, { fromSequence: 2147483647 });
+    expect(edgeReroll.json().error).toBe("stale_menu");
+    expect(await snapshot(p)).toBe(snap);
+  });
+
+  it("N2: a clock that goes backwards shows at most one interval until the next free menu, and writes nothing", async () => {
+    const p = await registerPlayer();
+    await viewRefugees(pool, { ...owner(p), nowMs: t0 });
+    const skewed = await viewRefugees(pool, { ...owner(p), nowMs: t0 - 5 * INTERVAL });
+    expect(skewed.timer.msUntilFreeRefresh).toBe(INTERVAL);
+    expect(skewed.timer.freeRefreshDue).toBe(false);
+    expect(await menuRows(p.caravanId)).toHaveLength(1);
+    // Forward again: the grid is untouched.
+    const normal = await viewRefugees(pool, { ...owner(p), nowMs: t0 + INTERVAL / 2 });
+    expect(normal.timer.msUntilFreeRefresh).toBe(INTERVAL / 2);
+  });
+
+  it("N3: a stored menu the module could not have written is a 409 `menu_corrupt` naming the caravan, not a 500; nothing is written around it", async () => {
+    const p = await registerPlayer();
+    await viewRefugees(pool, { ...owner(p), nowMs: t0 });
+    for (const offers of [["desert.dust_rider", "desert.nobody", "desert.dust_rider"], []]) {
+      await pool.query("UPDATE refugee_menu SET offered_type_ids = $2::jsonb WHERE caravan_id = $1 AND sequence = 1", [p.caravanId, JSON.stringify(offers)]);
+      const get = await call(p, "GET", `/me/caravans/${p.caravanId}/refugees`);
+      expect(get.statusCode, JSON.stringify(offers)).toBe(409);
+      expect(get.json().error).toBe("menu_corrupt");
+      expect(get.json().message).toContain(p.caravanId);
+      const direct = await appErr(viewRefugees(pool, { ...owner(p), nowMs: t0 }));
+      expect(direct).toBeInstanceOf(AppError);
+      expect(direct.statusCode).toBe(409);
+      // A refresh that would forfeit the corrupt menu is refused the same way, before it writes.
+      const refresh = await appErr(refreshRefugees(pool, { ...owner(p), fromSequence: 1, nowMs: t0 + INTERVAL }));
+      expect(refresh.code).toBe("menu_corrupt");
+      expect(await menuRows(p.caravanId)).toHaveLength(1);
+    }
+  });
+
+  it("N3: a reroll whose causation committed without its menu is `menu_corrupt`, not a bare Error", async () => {
+    const p = await registerPlayer();
+    await setBalance(p.accountId, 1_000);
+    await viewRefugees(pool, { ...owner(p), nowMs: t0 });
+    await rerollRefugees(pool, { ...owner(p), fromSequence: 1, nowMs: t0 + 1 });
+    await pool.query("DELETE FROM refugee_menu WHERE caravan_id = $1 AND sequence = 2", [p.caravanId]);
+    const err = await appErr(rerollRefugees(pool, { ...owner(p), fromSequence: 1, nowMs: t0 + 2 }));
+    expect(err.code).toBe("menu_corrupt");
+    expect(err.message).toContain(p.caravanId);
+    expect(await spentEvents(p.accountId)).toHaveLength(1);
+  });
+
+  it("determinism golden (the reviewer's det.ts): 5 000 draws over an 8-type pool hash to a pinned value; every stored row in the suite replays", async () => {
+    const eight = ["desert.dust_rider", "desert.well_digger", "desert.sand_sharpshooter", "desert.a", "desert.b", "desert.c", "desert.d", "desert.e"];
+    const lines: string[] = [];
+    for (let seq = 1; seq <= 5000; seq++) lines.push(JSON.stringify(drawForSequence("7b3c1b3e-1111-4222-8333-444455556666", seq, eight)));
+    const digest = createHash("sha256").update(lines.join("\n")).digest("hex");
+    // Pinned on 2026-10-11. A change here is a change to what every caravan is offered: bump deliberately, never silently.
+    expect(digest).toBe("c489d769a917c3af613efbd282ca7164c5532a123f9ba14e46912cbbc15ec152");
+    const all = (await pool.query<RefugeeMenuRow>("SELECT * FROM refugee_menu")).rows;
+    expect(all.length).toBeGreaterThan(50);
+    const broken = all.filter((r) => !replayMenu(r).ok);
+    // The only rows that fail to replay are the ones tests tampered with deliberately — and every one of
+    // those offers something outside its own stored pool, which the module never writes.
+    expect(broken.length).toBeGreaterThan(0);
+    expect(broken.every((r) => r.offered_type_ids.length === 0 || r.offered_type_ids.some((id) => !r.pool_type_ids.includes(id)))).toBe(true);
+  });
+
+  it("the reviewer's junk-request sweep: odd type ids and an upper-cased caravan id are 4xx or normalized, never 500s, and write nothing", async () => {
+    const p = await registerPlayer();
+    await setBalance(p.accountId, 5_000);
+    await call(p, "GET", `/me/caravans/${p.caravanId}/refugees`);
+    const snap = await snapshot(p);
+    for (const typeId of ["DESERT.DUST_RIDER", "desert.dust_rider ", "desert.dust_rider\u0000", "mountain.dust_rider", "x".repeat(100)]) {
+      const recruit = await call(p, "POST", `/me/caravans/${p.caravanId}/recruit`, { unitTypeId: typeId });
+      expect(recruit.statusCode, JSON.stringify(typeId)).toBe(409);
+      expect(recruit.json().error).toBe("not_unlocked");
+      const claim = await call(p, "POST", `/me/caravans/${p.caravanId}/refugees/claim`, { unitTypeId: typeId, sequence: 1 });
+      expect([400, 409], JSON.stringify(typeId)).toContain(claim.statusCode);
+    }
+    for (const body of ["not json", '"str"', "[1, 2]"]) {
+      const r = await app.inject({ method: "POST", url: `/me/caravans/${p.caravanId}/refugees/claim`, headers: { authorization: `Bearer ${p.token}`, "content-type": "application/json" }, payload: body });
+      expect(r.statusCode, body).toBe(400);
+    }
+    expect(await snapshot(p)).toBe(snap);
+    const upper = await call(p, "GET", `/me/caravans/${p.caravanId.toUpperCase()}/recruit`);
+    expect(upper.statusCode).toBe(200);
+    expect((await call(p, "GET", `/me/caravans/00000000-0000-0000-0000-000000000000/refugees`)).statusCode).toBe(404);
   });
 });
