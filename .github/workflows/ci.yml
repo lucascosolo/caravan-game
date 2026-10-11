@@ -80,6 +80,11 @@ jobs:
       - name: Determinism harness (chunk 13; pending until it lands)
         run: pnpm determinism
 
+      # PHASE-2 §36: every golden-corpus fight (and the 180 s full-load fight) under 100 ms of CPU,
+      # timed ALONE — inside the parallel `pnpm test` the same test runs with a 2× load allowance.
+      - name: Resolver time budget (PHASE-2 §36, run alone)
+        run: pnpm perf:resolver
+
       - name: Build runnable server output and the web client
         run: pnpm build
 

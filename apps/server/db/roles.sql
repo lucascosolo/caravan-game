@@ -161,6 +161,20 @@ BEGIN
 END
 $$;
 
+-- PHASE-2 §36 (migration 022): a log past LOG_RETENTION or over LOG_SIZE_BUDGET is COMPACTED to
+-- its results summary, never just deleted. encounter_log_summary is written only by the owner's
+-- compaction (encounter_log_compact_rows, reached through encounter_log_prune and the scheduled
+-- encounter_log_retention_sweep; it reads the log row and the job's immutable result, nothing the
+-- caller passes) — the app role has no INSERT, UPDATE or DELETE on it.
+-- Guarded by to_regclass so this script still applies to a database rolled back below 022.
+DO $$
+BEGIN
+  IF to_regclass('public.encounter_log_summary') IS NOT NULL THEN
+    REVOKE INSERT, UPDATE, DELETE ON TABLE encounter_log_summary FROM caravan_app;
+    GRANT EXECUTE ON FUNCTION encounter_log_retention_sweep(integer) TO caravan_app;
+  END IF;
+END
+$$;
 -- ---------------------------------------------------------------------------------
 -- Chunk 30 QA (roadmap/qa/30-punchlist.md S1–S3, migration 024)
 -- ---------------------------------------------------------------------------------

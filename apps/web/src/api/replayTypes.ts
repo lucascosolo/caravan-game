@@ -6,7 +6,9 @@
  *     404 no_replay               not a participant, malformed or unknown id (no existence oracle)
  *     409 not_resolved            the fight has not been resolved yet (poll again)
  *     409 resolution_unavailable  the fight could not be resolved and never will be
- *     410 replay_expired          the stored log was pruned (LOG_RETENTION)
+ *     410 replay_expired          the stored log is gone and no summary was kept (pruned before PHASE-2 §36)
+ *   200 with `renderable: false`, `log: null` and `compacted` set: the log was compacted to its
+ *     results summary (LOG_RETENTION / LOG_SIZE_BUDGET, PHASE-2 §36) — outcome and tally stay.
  *   GET /me/encounters                 RecentFightsView (chunk 22 QA D2: the caravan's fights within retention)
  *
  * `log` is the stored replay exactly as the resolver encoded it (LOG_FORMAT, packages/
@@ -98,6 +100,31 @@ export interface ReplaySettledView {
   readonly trip: { readonly ended: boolean; readonly endReason: string | null; readonly unbankedCoin: number | null } | null;
 }
 
+/** The end-card tally the server kept when it compacted the log (PHASE-2 §36). */
+export interface ReplayCompactedTallyView {
+  readonly raiders: number;
+  readonly raidersFallen: number;
+  readonly defenders: number;
+  readonly defendersFallen: number;
+  readonly fences: number;
+  readonly fencesBroken: number;
+  readonly traps: number;
+  readonly trapsSprung: number;
+  /** Absent in tallies kept before the web player counted nullified traps apart. */
+  readonly trapsNullified?: number | undefined;
+  readonly coreReached: boolean;
+  readonly deepest: { readonly side: "attacker" | "defender"; readonly typeId: string; readonly displayName: string } | null;
+}
+
+/** Present only when the tick log was compacted away (PHASE-2 §36). */
+export interface ReplayCompactedView {
+  readonly reason: "retention" | "size_budget";
+  readonly compactedAt: string;
+  readonly logCreatedAt: string;
+  /** Null for a fight resolved before the server kept tallies. */
+  readonly tally: ReplayCompactedTallyView | null;
+}
+
 export interface ReplayView {
   readonly jobId: string;
   readonly viewer: ReplayViewer;
@@ -114,8 +141,10 @@ export interface ReplayView {
   readonly outcome: ReplayOutcomeView | null;
   readonly labels: ReplayLabelsView;
   readonly settled: ReplaySettledView;
-  /** The stored LOG_FORMAT object, untouched; null when none was recorded. */
+  /** The stored LOG_FORMAT object, untouched; null when none was recorded (or it was compacted). */
   readonly log: unknown;
+  /** PHASE-2 §36: set when the log was compacted to its results summary; absent otherwise. */
+  readonly compacted?: ReplayCompactedView | null | undefined;
 }
 
 /** One of the caravan's fights within retention (GET /me/encounters). */
@@ -126,8 +155,8 @@ export interface RecentFightView {
   readonly outcome: EncounterOutcomeKind;
   readonly depth: number;
   readonly settledAt: string;
-  /** "log": playable; "no_log": resolved without a stored log; "pruned": past retention. */
-  readonly replay: "log" | "no_log" | "pruned";
+  /** "log": playable; "no_log": resolved without a stored log; "compacted": only its results summary is kept (PHASE-2 §36); "pruned": past retention, nothing kept. */
+  readonly replay: "log" | "no_log" | "compacted" | "pruned";
 }
 
 export interface RecentFightsView {

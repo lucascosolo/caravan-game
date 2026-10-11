@@ -45,7 +45,7 @@ describe("migrations", () => {
     expect(ran.length).toBe(all.length);
     expect(await appliedMigrationIds(pool)).toEqual(all.map((m) => m.id));
     expect(await tableNames()).toEqual([
-      "account", "account_admin", "account_analytics", "account_erasure_active", "account_erasure_audit", "account_onboarding", "analytics_client_event", "authored_party", "caravan", "cosmetic_equip", "cosmetic_ownership", "device", "encounter_candidates", "encounter_log", "encounter_log_retention", "home_town", "inbox_preference", "inbox_read", "ledger_event", "ledger_snapshot", "pack_purchase", "pool_progress", "refugee_menu", "region",
+      "account", "account_admin", "account_analytics", "account_erasure_active", "account_erasure_audit", "account_onboarding", "analytics_client_event", "authored_party", "caravan", "cosmetic_equip", "cosmetic_ownership", "device", "encounter_candidates", "encounter_log", "encounter_log_retention", "encounter_log_summary", "home_town", "inbox_preference", "inbox_read", "ledger_event", "ledger_snapshot", "pack_purchase", "pool_progress", "refugee_menu", "region",
       "resolution_job", "schema_migrations", "session", "standing_party", "trip", "trip_cap", "trip_cap_use", "trip_encounter", "unit_instance",
       "wagon_formation", "wagon_manifest",
     ]);

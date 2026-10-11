@@ -7,8 +7,9 @@
  * seal, every row's arity and ids, the keyframe schedule, and that interpolating the
  * rows reproduces every keyframe. A log it refuses never renders (the player says why).
  */
-import { ShapeError, array, boolean, integer, literal, nullable, object, string, type Guard } from "./shape.ts";
+import { ShapeError, array, boolean, integer, literal, nullable, object, optional, string, type Guard } from "./shape.ts";
 import type {
+  ReplayCompactedView,
   RecentFightView,
   RecentFightsView,
   ReplayFenceLabelView,
@@ -97,6 +98,30 @@ const settled: Guard<ReplaySettledView> = object({
   trip: nullable(object({ ended: boolean(), endReason: nullable(WORD), unbankedCoin: nullable(COIN) })),
 });
 
+const COUNT = integer({ min: 0, max: 10_000 });
+
+/** PHASE-2 §36: the results summary kept when the log was compacted. */
+const compacted: Guard<ReplayCompactedView> = object({
+  reason: literal("retention", "size_budget"),
+  compactedAt: string({ maxLength: 64 }),
+  logCreatedAt: string({ maxLength: 64 }),
+  tally: nullable(
+    object({
+      raiders: COUNT,
+      raidersFallen: COUNT,
+      defenders: COUNT,
+      defendersFallen: COUNT,
+      fences: COUNT,
+      fencesBroken: COUNT,
+      traps: COUNT,
+      trapsSprung: COUNT,
+      trapsNullified: optional(COUNT),
+      coreReached: boolean(),
+      deepest: nullable(object({ side: literal("attacker", "defender"), typeId: ID, displayName: NAME })),
+    }),
+  ),
+});
+
 export const replayShape: Guard<ReplayView> = object({
   jobId: ID,
   viewer: literal("caravan", "party_owner"),
@@ -111,6 +136,7 @@ export const replayShape: Guard<ReplayView> = object({
   labels: object({ units: array(unitLabel, UNITS), fences: array(fenceLabel, FENCES), traps: array(trapLabel, TRAPS), siege: array(siegeLabel, { maxLength: 16 }) }),
   settled,
   log: opaqueLog,
+  compacted: optional(nullable(compacted)),
 });
 
 const recentFight: Guard<RecentFightView> = object({
@@ -120,7 +146,7 @@ const recentFight: Guard<RecentFightView> = object({
   outcome: literal("caravan_held", "caravan_overrun", "stalemate"),
   depth: integer({ min: 0, max: 1024 }),
   settledAt: string({ maxLength: 64 }),
-  replay: literal("log", "no_log", "pruned"),
+  replay: literal("log", "no_log", "compacted", "pruned"),
 });
 
 export const recentFightsShape: Guard<RecentFightsView> = object({

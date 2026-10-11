@@ -23,10 +23,13 @@ import type { ReplayView, ReplayViewer } from "../api/replayTypes.ts";
 import replayJson from "./contract/replay.json";
 import replayOwnerJson from "./contract/replay-owner.json";
 import replayNoLogJson from "./contract/replay-no-log.json";
+import replayCompactedJson from "./contract/replay-compacted.json";
 
 export const replayCaravan = (): ReplayView => expectShape(replayShape, replayJson.body);
 export const replayOwner = (): ReplayView => expectShape(replayShape, replayOwnerJson.body);
 export const replayNoLog = (): ReplayView => expectShape(replayShape, replayNoLogJson.body);
+/** PHASE-2 §36: the real fight above after the retention job compacted its log to its results summary. */
+export const replayCompacted = (): ReplayView => expectShape(replayShape, replayCompactedJson.body);
 
 const GOLDEN_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../packages/resolver/golden");
 
