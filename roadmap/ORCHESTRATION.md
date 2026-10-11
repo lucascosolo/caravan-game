@@ -620,3 +620,21 @@ scenery, cover or an account id; the two tables have no account column.
 **Next:** hand to adversarial QA against the chunk's checklist — especially: can any path
 re-arm a trap or add to a manifest; is the budget genuinely below the ring; does anything
 treat a gap as an error; can a hand-crafted request place a locked type.
+
+### Orchestrator decision — who owns the battlefield geometry
+
+Chunk 07 placed the lattice→continuous conversion and the `Battlefield` input type in
+`packages/circle`, and chunk 21's boundary rules forbid the resolver from importing any
+package. Decision: **the resolver owns the battlefield input type, the lattice constants,
+and the one lattice→continuous conversion** (`packages/resolver/src/battlefield.ts`);
+`packages/circle` depends on `@caravan/resolver` for those and re-exports them, never
+the reverse. Chunk 10's Maker performs the move and updates `packages/circle` to import
+from the resolver. The resolver still receives all content (unit stats, tunables) as
+plain input data; it never imports `@caravan/content`.
+
+### Orchestrator process change — worktrees
+
+From chunk 10 onward every Maker and fixer runs in its own git worktree on a branch
+named `chunk/NN`, and the orchestrator merges into `roadmap/phase-2-spec`. The shared
+working tree caused three staging incidents in the first batch (45c04b3, 3137656,
+a9a49a9).
