@@ -63,7 +63,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const account = await findAccountByUsername(app.db, username);
     // Always run the hash, even for an unknown username, so timing doesn't reveal existence.
     const ok = await verifyPassword(password, account ? account.password_hash : DUMMY_PASSWORD_HASH);
-    if (!account || !ok) {
+    // Chunk 25 (chunk 14 QA B1): a system account — the non-player owner of an authored
+    // party — has no login, whatever its password hash says. Same 401 as a wrong password.
+    if (!account || !ok || account.is_system) {
       throw unauthorized("invalid credentials");
     }
     const session = await issueSession(app.db, account.id);

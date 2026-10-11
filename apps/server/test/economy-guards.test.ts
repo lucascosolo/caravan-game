@@ -239,7 +239,8 @@ describe("nothing in the economy can see what an account has paid for (GUARDRAIL
     expect(accountSelects.length).toBeGreaterThan(0);
     for (const sel of accountSelects) {
       const cols = sel.replace(/^SELECT /i, "").replace(/ FROM account\b.*$/i, "");
-      expect(cols).toMatch(/^(coin_balance, coin_storage_cap|coin_balance|1|\(floor\(extract\(epoch FROM created_at\) \* 1000\)\)::text AS created_ms)$/);
+      // `is_system` (chunk 25) is the non-player flag every credit path refuses on; it is not a purchase or entitlement.
+      expect(cols).toMatch(/^(coin_balance, coin_storage_cap(, is_system)?|coin_balance|1|\(floor\(extract\(epoch FROM created_at\) \* 1000\)\)::text AS created_ms)$/);
     }
   });
 });

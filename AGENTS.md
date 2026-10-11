@@ -126,7 +126,7 @@ pnpm db:rollback             # roll back the most recent migration
 pnpm db:reset                # roll back everything, re-apply, then db/roles.sql
 pnpm db:status               # show which migrations are applied
 pnpm --filter @caravan/server exec tsx src/db/migrate.ts roles   # caravan_app role + grants only
-pnpm db:seed                 # idempotent dev account: dev / devpassword, region desert
+pnpm db:seed                 # idempotent: the 96 authored cold-start parties (chunk 25; versioned, updates in place) + dev account dev / devpassword, region desert
 
 pnpm dev                     # Fastify on http://127.0.0.1:3000 (PORT/HOST override), tsx watch
 pnpm dev:web                 # Vite dev server on http://127.0.0.1:5173; /api/* proxied to the server on :3000 (CARAVAN_API_URL overrides)
@@ -151,8 +151,11 @@ the ledger, progression, circle, economy and unlock routes of chunks 02–07 and
 (`GET /unlocks/webs`, `GET /me/unlocks`, `POST /me/unlocks/spend`), the party routes of
 chunk 09 and the matchmaking routes of chunk 14 (`POST /me/caravans/:id/encounters/:n/search`,
 `GET …/candidates`, `POST …/choose`). `pnpm db:seed` also creates the authored cold-start
-parties (`src/matchmaking/authored.ts`), so a fresh database serves three scoutable
-candidates from the first search.
+parties (`src/matchmaking/authored.ts`, chunk 25: 12 per Reputation band, bands 0–7, owned
+by `sys_outfit_*` system accounts that cannot log in or hold Coin), so a fresh database
+serves three scoutable candidates at every band from the first search. Migration 009 refuses
+to roll back while system accounts exist: `DELETE FROM account WHERE is_system` first if a
+`db:reset` of a seeded database is really wanted (the test suite does this itself).
 
 **Web client** (`apps/web`, chunk 06 scaffold): Vite + React 18 + TypeScript strict. A
 typed `fetch` wrapper (`src/api/client.ts`) carries the bearer token from in-memory session

@@ -57,10 +57,12 @@ import {
   escalationFor,
   sandbagEarnMultiplier,
   selectCandidates,
+  type AuthoredServedShare,
   type BandInfo,
   type PoolEntry,
   type SelectionPass,
 } from "./band.js";
+import { authoredServedShare } from "./authoredShare.js";
 import { noLinkedAccounts, type LinkedAccountsResolver } from "./exclusions.js";
 import { findOpenTrip, type TripRow } from "./trips.js";
 
@@ -100,6 +102,8 @@ export interface EncounterCandidatesRow {
   skipped_party_ids: string[];
   candidates: Candidate[];
   searched_at_ms: number;
+  /** Chunk 25: the band's authored served share the draw saw (null on rows older than migration 010). */
+  authored_served: AuthoredServedShare | null;
   chosen_candidate_id: string | null;
   chosen_at: Date | null;
   created_at: Date;
@@ -142,6 +146,8 @@ export interface CandidateMenuView {
   bandWidthUsed: number;
   widened: boolean;
   usedAuthoredFallback: boolean;
+  /** Chunk 25: the band's authored served share at search time, and whether it weighted authored parties down. */
+  authoredServed: (AuthoredServedShare & { weightedDown: boolean }) | null;
   passes: SelectionPass[];
   excludedPartyIds: string[];
   skippedPartyIds: string[];
@@ -257,7 +263,7 @@ export function candidateFromSnapshot(
   };
 }
 
-function menuView(row: EncounterCandidatesRow, passes: SelectionPass[], usedAuthoredFallback: boolean): CandidateMenuView {
+function menuView(row: EncounterCandidatesRow, passes: SelectionPass[], usedAuthoredFallback: boolean, authoredWeightedDown: boolean): CandidateMenuView {
   const availableAtMs = row.searched_at_ms + REROLL_COOLDOWN_SECONDS * 1000;
   return {
     tripId: row.trip_id,
@@ -270,6 +276,7 @@ function menuView(row: EncounterCandidatesRow, passes: SelectionPass[], usedAuth
     bandWidthUsed: row.band_width_used,
     widened: row.band_width_used > REPUTATION_BAND_WIDTH,
     usedAuthoredFallback,
+    authoredServed: row.authored_served ? { ...row.authored_served, weightedDown: authoredWeightedDown } : null,
     passes,
     excludedPartyIds: row.excluded_party_ids,
     skippedPartyIds: row.skipped_party_ids,
@@ -282,14 +289,14 @@ function menuView(row: EncounterCandidatesRow, passes: SelectionPass[], usedAuth
 }
 
 /** Re-run the stored draw to get the passes/fallback flags (and, for QA, to prove the menu replays). */
-export function replaySearch(row: EncounterCandidatesRow): { partyIds: string[]; passes: SelectionPass[]; usedAuthoredFallback: boolean; bandWidthUsed: number } {
-  const r = selectCandidates({ centre: row.centre, seed: row.seed, pool: row.pool, skipped: new Set(row.skipped_party_ids) });
-  return { partyIds: r.picks.map((p) => p.partyId), passes: r.passes, usedAuthoredFallback: r.usedAuthoredFallback, bandWidthUsed: r.bandWidthUsed };
+export function replaySearch(row: EncounterCandidatesRow): { partyIds: string[]; passes: SelectionPass[]; usedAuthoredFallback: boolean; authoredWeightedDown: boolean; bandWidthUsed: number } {
+  const r = selectCandidates({ centre: row.centre, seed: row.seed, pool: row.pool, skipped: new Set(row.skipped_party_ids), authoredServed: row.authored_served });
+  return { partyIds: r.picks.map((p) => p.partyId), passes: r.passes, usedAuthoredFallback: r.usedAuthoredFallback, authoredWeightedDown: r.authoredWeightedDown, bandWidthUsed: r.bandWidthUsed };
 }
 
 function viewOf(row: EncounterCandidatesRow, nowMs: number): CandidateMenuView {
   const replay = replaySearch(row);
-  const v = menuView(row, replay.passes, replay.usedAuthoredFallback);
+  const v = menuView(row, replay.passes, replay.usedAuthoredFallback, replay.authoredWeightedDown);
   v.reroll.available = v.chosen === null && nowMs >= v.reroll.availableAtMs;
   return v;
 }
@@ -350,12 +357,14 @@ export async function searchCandidates(client: pg.PoolClient, caravan: CaravanRo
     else pool.push({ partyId: r.party_id, ownerAccountId: r.owner_account_id, rating: r.reputation, authored: r.is_system });
   }
   const names = new Map(rows.map((r) => [r.party_id, r.username]));
+  // Chunk 25: the band's authored served share (second stage of retire-by-ratio), stored with the menu.
+  const authoredServed = await authoredServedShare(client, bandOf(centre));
 
   // Draw, snapshotting each pick exactly once; a party that no longer resolves is skipped
   // (recorded) and the draw re-runs without it, so the stored inputs replay to the stored menu.
   const skipped = new Set<string>();
   const snapshots = new Map<string, StandingPartySnapshot>();
-  let result = selectCandidates({ centre, seed, pool, skipped });
+  let result = selectCandidates({ centre, seed, pool, skipped, authoredServed });
   for (;;) {
     let retry = false;
     for (const pick of result.picks) {
@@ -369,16 +378,16 @@ export async function searchCandidates(client: pg.PoolClient, caravan: CaravanRo
       }
     }
     if (!retry) break;
-    result = selectCandidates({ centre, seed, pool, skipped });
+    result = selectCandidates({ centre, seed, pool, skipped, authoredServed });
   }
   if (result.picks.length < CANDIDATES_PER_SEARCH) throw new PoolEmptyError(result.picks.length);
 
   const ids = { tripId: trip.id, encounterIndex, searchSeq };
   const candidates = result.picks.map((p) => candidateFromSnapshot(ids, p, names.get(p.partyId) ?? "", caravanRating, snapshots.get(p.partyId)!));
   const res = await client.query<EncounterCandidatesRow>(
-    `INSERT INTO encounter_candidates (trip_id, encounter_index, search_seq, seed, caravan_rating, centre, band_width_used, pool, excluded_party_ids, skipped_party_ids, candidates, searched_at_ms)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12) RETURNING *`,
-    [trip.id, encounterIndex, searchSeq, seed, caravanRating, centre, result.bandWidthUsed, JSON.stringify(pool), JSON.stringify(excludedPartyIds), JSON.stringify([...skipped]), canonicalJson(candidates as unknown as Json), opts.nowMs],
+    `INSERT INTO encounter_candidates (trip_id, encounter_index, search_seq, seed, caravan_rating, centre, band_width_used, pool, excluded_party_ids, skipped_party_ids, candidates, searched_at_ms, authored_served)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::jsonb) RETURNING *`,
+    [trip.id, encounterIndex, searchSeq, seed, caravanRating, centre, result.bandWidthUsed, JSON.stringify(pool), JSON.stringify(excludedPartyIds), JSON.stringify([...skipped]), canonicalJson(candidates as unknown as Json), opts.nowMs, JSON.stringify(authoredServed)],
   );
   return viewOf(res.rows[0]!, opts.nowMs);
 }

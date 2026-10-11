@@ -182,6 +182,26 @@ are indistinguishable in shape from a live one.
 
 **QA checks.** Guardrail 1: is the authored pool selection seeded from stored state? Can
 a player tell an authored party from a live one anywhere other than the owner name?
+(Chunk 14 QA D3 amends the second check to: indistinguishable to the resolver and to
+matchmaking's draw; visibly labelled to the player — `owner.authored` stays published,
+legibility beats disguise.)
+
+**Status: built** (2026-10-11). 96 authored parties — 12 per display band, bands 0–7
+(`REPUTATION_FLOOR` 100 to `AUTHORED_REPUTATION_CEILING` 2200, both tunables; the band
+list is derived, never written down) — owned by `sys_outfit_<slug>` system accounts, each
+an ordinary standing party whose types were reached through the unlock web the ordinary
+way (ledger rung grants + `spendUnlockPoints`; no bypass). Every region, stance pattern
+and 1/2/4-edge split per band; every siege piece and every living type across the set;
+merge level, size, tier and siege rising with the band. Named outfits with one-line
+flavour (`apps/server/src/matchmaking/authoredOutfits.ts`). Retire-by-ratio in two
+stages: chunk 14's draw-pool cap, plus the served-encounter share per band over a
+rolling window of chosen candidates (`AUTHORED_SERVED_SHARE_WINDOW` 40,
+`AUTHORED_OVER_SHARE_WEIGHT_BP` 2500), counted from `encounter_candidates`, stored on
+the menu row, replayable. System accounts: login refused, `is_system` permanent
+(migration 010 trigger), prefix reserved at registration, zero Coin, every credit path
+refuses (`SystemAccountCreditError` + ledger trigger). `seedAuthoredParties` is
+idempotent and versioned (`AUTHORED_SET_VERSION`, `authored_party` table) and updates a
+changed party in place. Closes chunk 14 QA B1, B2, S4, S5, N1, N2. See ORCHESTRATION.md.
 
 ## 26. Art and animation asset pipeline — **L**, parallel with 08, lands before 17
 

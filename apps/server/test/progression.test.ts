@@ -334,9 +334,11 @@ describe("Reputation has no spend path", () => {
     walk(src);
     const writers = files.filter((f) => /SET\s+reputation|reputation\s*-=|spendReputation|debitReputation/i.test(readFileSync(f, "utf8")));
     expect(writers).toEqual([]);
-    // the only module that produces reputation_changed drafts is progression/outcome.ts
+    // the only modules that produce reputation_changed drafts: progression/outcome.ts (fight outcomes) and
+    // matchmaking/authored.ts (chunk 25: the authored set places a SYSTEM account's siege rating through the
+    // ledger so rebuild == live; it is a content seed, never a spend or a player-facing path)
     const producers = files.filter((f) => /type:\s*"reputation_changed"/.test(readFileSync(f, "utf8"))).map((f) => f.slice(src.length));
-    expect(producers).toEqual(["/progression/outcome.ts"]);
+    expect(producers.sort()).toEqual(["/matchmaking/authored.ts", "/progression/outcome.ts"]);
   });
 
   it("every reputation_changed event in the ledger was caused by an encounter outcome", async () => {
