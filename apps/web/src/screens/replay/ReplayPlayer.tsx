@@ -321,12 +321,7 @@ function Playback({ view, model, settled, autoPlay }: { readonly view: ReplayVie
     <div className="replay" data-testid="replay-player" data-viewer={view.viewer}>
       <div className="replay__stage" data-testid="replay-stage">
         <div className="replay__field">
-          <IsoCanvas geometry={REPLAY_GEOMETRY} state={scene} label={T.canvasLabel} frame={model.frameRect} touchScroll />
-          {model.siegeNames.length > 0 && (
-            <p className="replay__siege" data-testid="replay-siege">
-              {T.siegeLegend(model.siegeNames.join(", "))}
-            </p>
-          )}
+          <IsoCanvas geometry={REPLAY_GEOMETRY} state={scene} label={T.canvasLabel} frame={model.frameRect} touchScroll sleepWhenIdle />
           {showEnd && (
             <section className="replay__end card" data-testid="replay-end-card" data-outcome={o?.kind ?? ""} aria-live="polite">
               <h3>{T.endTitle}</h3>
@@ -358,6 +353,12 @@ function Playback({ view, model, settled, autoPlay }: { readonly view: ReplayVie
             </section>
           )}
         </div>
+        {/* D1: the party's siege, under the field (an overlay hid the ring's top at phone width). */}
+        {model.siegeNames.length > 0 && (
+          <p className="hint replay__siege" data-testid="replay-siege">
+            {T.siegeLegend(model.siegeNames.join(", "))}
+          </p>
+        )}
         <ol className="plain replay__strip" data-testid="replay-strip" aria-label={T.stripLabel}>
           {strip.length === 0 ? (
             <li className="hint">{T.feedEmpty}</li>

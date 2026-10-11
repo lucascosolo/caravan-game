@@ -832,6 +832,13 @@ h2 {
   display: grid;
   gap: 0.75rem;
   min-width: 0;
+  --iso-h: clamp(11rem, 36vh, 26rem);
+}
+/* Anything scrolled or focused into view lands BELOW the pinned stage, never under it (as on the trail). */
+.replay__controls :is(button, input),
+.replay > details > summary,
+.replay__feed :is(button, h3) {
+  scroll-margin-top: calc(var(--iso-h) + 8.5rem);
 }
 /* QA S3: the stage (field + latest moments) is pinned at the top of the scrolling dialog, so the
    field and what is happening are always read together; controls, summary and feed scroll under it.
@@ -844,10 +851,19 @@ h2 {
   padding: 0 16px 0.5rem;
   background: var(--bg-raised);
   border-bottom: 1px solid var(--line);
-  --iso-h: clamp(11rem, 38vh, 26rem);
 }
 .replay__field {
   position: relative;
+  min-width: 0;
+}
+/* A grid item may shrink below the canvas's inline pixel width (PixiJS autoDensity writes one),
+   so narrowing the viewport (360 → 320) re-lays the stage instead of overflowing it. */
+.replay > *,
+.replay__stage .iso {
+  min-width: 0;
+}
+.replay__stage .iso__canvas {
+  max-width: 100%;
 }
 /* The stage itself is what pins; the canvas inside it does not stick on its own. */
 .replay__stage .iso {
@@ -858,18 +874,8 @@ h2 {
   touch-action: pan-y;
 }
 .replay__siege {
-  position: absolute;
-  top: 0.35rem;
-  left: 0.35rem;
-  right: 0.35rem;
-  z-index: 6;
-  margin: 0;
-  padding: 0.15rem 0.4rem;
-  font-size: 0.8rem;
-  border-radius: var(--radius);
-  background: rgba(18, 17, 16, 0.78);
-  color: #f1e9d6;
-  pointer-events: none;
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
 }
 .replay__strip {
   margin: 0.4rem 0 0;

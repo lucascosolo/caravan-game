@@ -60,6 +60,13 @@ export interface SceneOptions {
   /** `prefers-reduced-motion`: the lattice fade becomes an instant toggle. */
   readonly reducedMotion: boolean;
   readonly background: number;
+  /**
+   * QA-22 N9: stop the ticker when nothing has changed for a few frames (it wakes on any update,
+   * camera move or resize). Opt-in: the replay sets it. The trail's formation e2e fails with it on
+   * (a page scroll lands after `scrollTo(0, 0)` on the wheel step) and the cause is not yet
+   * understood, so the trail and the town keep the always-running ticker until it is.
+   */
+  readonly sleepWhenIdle?: boolean;
 }
 
 /** GRID_VISIBILITY tunable: lattice alpha while a drag is active, and the fade speed per second. */
@@ -227,7 +234,7 @@ export class IsoScene {
       () => {
         this.frames += 1;
         if (this.animating()) this.idleFrames = 0;
-        else if (++this.idleFrames >= IDLE_FRAMES_BEFORE_STOP) app.ticker.stop();
+        else if (this.opts.sleepWhenIdle && ++this.idleFrames >= IDLE_FRAMES_BEFORE_STOP) app.ticker.stop();
       },
       undefined,
       UPDATE_PRIORITY.UTILITY,

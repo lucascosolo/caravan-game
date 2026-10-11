@@ -94,6 +94,8 @@ export interface IsoCanvasProps {
    * and a pinch still move the camera. Off by default: the trail and the town own every gesture.
    */
   readonly touchScroll?: boolean;
+  /** QA-22 N9: let the renderer's ticker sleep while nothing changes (the replay sets it). */
+  readonly sleepWhenIdle?: boolean;
 }
 
 export interface FrameRect {
@@ -209,7 +211,7 @@ export const IsoCanvas = forwardRef<IsoCanvasHandle, IsoCanvasProps>(function Is
     const host = hostRef.current;
     const canvas = canvasRef.current;
     if (!host || !canvas) return;
-    const scene = new IsoScene({ geometry, reducedMotion: prefersReducedMotion(), background });
+    const scene = new IsoScene({ geometry, reducedMotion: prefersReducedMotion(), background, sleepWhenIdle: props.sleepWhenIdle ?? false });
     sceneRef.current = scene;
     let disposed = false;
     const measure = (): { w: number; h: number } => ({ w: Math.max(1, Math.floor(host.clientWidth)), h: Math.max(1, Math.floor(host.clientHeight)) });

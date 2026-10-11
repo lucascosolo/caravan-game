@@ -201,6 +201,8 @@ test("a full trip: outfit, ride out, three encounters (a rider dies at the secon
   const after = await field.screenshot(shotDir ? { path: `${shotDir}/replay-360-mid.png` } : {});
   expect(Buffer.compare(before, after), "the canvas changed between two ticks").not.toBe(0);
   expect(await frames()).toBeGreaterThan(framesBefore + 10);
+  // QA N9: paused, nothing changes, so the renderer's ticker goes to sleep (no rAF while idle).
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __isoDebug?: { ticking(): boolean } }).__isoDebug?.ticking() ?? true)).toBe(false);
   if (shotDir) await page.screenshot({ path: `${shotDir}/replay-360-dialog.png` });
   await real.getByTestId("replay-feed-all").click();
   await expect(real.getByTestId("replay-feed")).toContainText("hit");
@@ -215,6 +217,8 @@ test("a full trip: outfit, ride out, three encounters (a rider dies at the secon
   await expect(real.getByTestId("replay-end-card")).toHaveCount(0);
   await page.setViewportSize({ width: 320, height: 640 });
   await fitsPortrait(page);
+  // The dialog's own content fits too (no clipped stage or controls after narrowing 360 → 320).
+  await expect.poll(() => page.evaluate(() => { const d = document.querySelector(".dialog--full")!; return d.scrollWidth - d.clientWidth; })).toBeLessThanOrEqual(0);
   if (shotDir) await page.screenshot({ path: `${shotDir}/replay-320-dialog.png` });
   await page.setViewportSize({ width: 360, height: 640 });
   await real.getByTestId("replay-close").click();
