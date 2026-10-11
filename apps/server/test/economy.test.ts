@@ -1,7 +1,9 @@
 /**
  * Chunk 16 against the database: every credit path clamps to the cap, the trickle is
- * materialized exactly once per accrual window however often it's read, merges are atomic
- * and charged exactly once under a race, and the ledger alone reproduces the balance.
+ * computed on every read but materialized only once enough has accrued (and never at the
+ * cap), merges are atomic, charged exactly once under a race and replayed on retry, and
+ * the ledger alone reproduces the balance. The last block is the QA round 1 punch list
+ * (roadmap/qa/16-punchlist.md), one regression per item.
  */
 import { TUNABLES } from "@caravan/content";
 import type { FastifyInstance } from "fastify";
@@ -9,10 +11,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { issueSession } from "../src/auth/sessions.js";
 import { withTransaction } from "../src/db/pool.js";
-import { appendCoinCredits, coinForBankedTrip, creditBankedTrip, creditPartyWin, readCoinBalance } from "../src/economy/coin.js";
+import { appendCoinCredits, coinForBankedTrip, creditBankedTrip, creditPartyWin, readCoinBalance, spendCoin } from "../src/economy/coin.js";
 import { mergeCost, performMerge, previewMerge } from "../src/economy/merge.js";
-import { accrueTrickle, readTrickleAccrualPoint } from "../src/economy/trickle.js";
-import { coinDebitDraft } from "../src/ledger/coin.js";
+import { accrueTrickle, peekTrickle, readTrickleAccrualPoint } from "../src/economy/trickle.js";
 import { appendEvents, listEventsForAccount } from "../src/ledger/ledger.js";
 import { verifyProjection } from "../src/ledger/projection.js";
 import { createUnitInstance, listUnitInstancesForCaravan } from "../src/repo/unitInstances.js";
@@ -24,6 +25,7 @@ const pool = testPool();
 let app: FastifyInstance;
 const MS = TUNABLES.COIN_TRICKLE_MS_PER_COIN;
 const CAP = TUNABLES.COIN_STORAGE_CAP;
+const MIN_COINS = TUNABLES.TRICKLE_MATERIALIZE_MIN_COINS;
 const UNIT = "desert.dust_rider";
 
 async function fresh(prefix: string) {
@@ -31,13 +33,24 @@ async function fresh(prefix: string) {
   return { accountId: account.id, caravanId: caravan.id };
 }
 
-/** Set a balance by writing earn/spend events (the only way to move it). */
-async function setBalance(accountId: string, target: number) {
+/**
+ * An account created `hoursAgo` in the past, so a test can drive the injectable clock
+ * forward from creation and still have every injected instant lie BEFORE the database
+ * clock that stamps `occurred_at` on a spend (the trickle's accrual point reads both).
+ */
+async function freshBackdated(prefix: string, hoursAgo: number) {
+  const made = await fresh(prefix);
+  await pool.query("UPDATE account SET created_at = now() - make_interval(hours => $2) WHERE id = $1", [made.accountId, hoursAgo]);
+  return { ...made, t0: await readTrickleAccrualPoint(pool, made.accountId) };
+}
+
+/** Set a balance by writing earn/spend events (the only way to move it). Spends go through `spendCoin`. */
+async function setBalance(accountId: string, target: number, nowMs?: number) {
   const { balance } = await readCoinBalance(pool, accountId);
   const tag = unique("set");
   await withTransaction(pool, async (c) => {
     if (target > balance) await appendCoinCredits(c, { causationId: `test:${tag}`, accountId, credits: [{ amount: target - balance, reason: "test_setup" }] });
-    else if (target < balance) await appendEvents(c, `test:${tag}`, [coinDebitDraft({ accountId, amount: balance - target, reason: "test_setup" })]);
+    else if (target < balance) await spendCoin(c, accountId, balance - target, "test_setup", nowMs ?? (await readTrickleAccrualPoint(pool, accountId)), { causationId: `test:${tag}` });
   });
 }
 
@@ -45,6 +58,10 @@ async function units(caravanId: string, level: number, n: number): Promise<strin
   const ids: string[] = [];
   for (let i = 0; i < n; i++) ids.push((await createUnitInstance(pool, { caravanId, unitTypeId: UNIT, mergeLevel: level })).id);
   return ids;
+}
+
+async function trickleEvents(accountId: string) {
+  return (await listEventsForAccount(pool, accountId, { limit: 500 })).filter((e) => e.payload["reason"] === "trickle");
 }
 
 async function appErr(p: Promise<unknown>): Promise<AppError> {
@@ -122,14 +139,18 @@ describe("no credit path passes the cap", () => {
 });
 
 describe("the lazy trickle", () => {
-  it("starts at account creation, credits whole coins, and is written as a ledger event", async () => {
+  it("starts at account creation; below the threshold it is shown but not written, at the threshold it is written once", async () => {
     const { accountId } = await fresh("trk");
     const t0 = await readTrickleAccrualPoint(pool, accountId);
-    const r = await accrueTrickle(pool, accountId, t0 + 5 * MS + 123);
-    expect(r).toMatchObject({ coins: 5, credited: 5, discarded: 0, balance: 5, accruedThroughMs: t0 + 5 * MS, nextCoinInMs: MS - 123 });
-    const evs = await listEventsForAccount(pool, accountId);
+    const shown = await accrueTrickle(pool, accountId, t0 + 5 * MS + 123);
+    expect(shown).toMatchObject({ coins: 5, credited: 5, pending: 5, ledgerBalance: 0, balance: 5, materialized: false, nextCoinInMs: MS - 123 });
+    expect(await trickleEvents(accountId)).toEqual([]);
+    expect((await readCoinBalance(pool, accountId)).balance).toBe(0);
+    const written = await accrueTrickle(pool, accountId, t0 + MIN_COINS * MS + 7);
+    expect(written).toMatchObject({ coins: MIN_COINS, credited: MIN_COINS, pending: 0, ledgerBalance: MIN_COINS, balance: MIN_COINS, materialized: true, accruedThroughMs: t0 + MIN_COINS * MS });
+    const evs = await trickleEvents(accountId);
     expect(evs.length).toBe(1);
-    expect(evs[0]!.payload).toMatchObject({ reason: "trickle", amount: 5, coins: 5, accruedFromMs: t0, accruedThroughMs: t0 + 5 * MS });
+    expect(evs[0]!.payload).toMatchObject({ reason: "trickle", amount: MIN_COINS, coins: MIN_COINS, accruedFromMs: t0, accruedThroughMs: t0 + MIN_COINS * MS });
     expect(evs[0]!.causation_id).toBe(`trickle:${accountId}:${t0}`);
     expect((await verifyProjection(pool, accountId)).ok).toBe(true);
   });
@@ -140,14 +161,18 @@ describe("the lazy trickle", () => {
     const ta = await readTrickleAccrualPoint(pool, a.accountId);
     const tb = await readTrickleAccrualPoint(pool, b.accountId);
     for (let i = 1; i <= 60; i++) await accrueTrickle(pool, a.accountId, ta + i * 60_000 + (i % 7) * 1000);
-    await accrueTrickle(pool, a.accountId, ta + 3_600_000);
-    await accrueTrickle(pool, b.accountId, tb + 3_600_000);
-    expect((await readCoinBalance(pool, a.accountId)).balance).toBe(TUNABLES.COIN_TRICKLE_RATE_PER_HOUR);
-    expect((await readCoinBalance(pool, b.accountId)).balance).toBe(TUNABLES.COIN_TRICKLE_RATE_PER_HOUR);
-    // Reading the same instant twice writes nothing the second time.
+    const lastA = await accrueTrickle(pool, a.accountId, ta + 3_600_000);
+    const lastB = await accrueTrickle(pool, b.accountId, tb + 3_600_000);
+    expect(lastA.balance).toBe(TUNABLES.COIN_TRICKLE_RATE_PER_HOUR);
+    expect(lastB.balance).toBe(TUNABLES.COIN_TRICKLE_RATE_PER_HOUR);
+    // What is shown is always ledger + pending, and the ledger never over-credits.
+    expect(lastA.ledgerBalance + lastA.pending).toBe(TUNABLES.COIN_TRICKLE_RATE_PER_HOUR);
+    expect((await readCoinBalance(pool, a.accountId)).balance).toBe(lastA.ledgerBalance);
+    // Reading the same instant twice changes nothing.
     const before = (await listEventsForAccount(pool, a.accountId)).length;
     const again = await accrueTrickle(pool, a.accountId, ta + 3_600_000);
-    expect(again.coins).toBe(0);
+    expect(again.balance).toBe(lastA.balance);
+    expect(again.materialized).toBe(false);
     expect((await listEventsForAccount(pool, a.accountId)).length).toBe(before);
   });
 
@@ -155,35 +180,43 @@ describe("the lazy trickle", () => {
     const { accountId } = await fresh("ctrk");
     const t0 = await readTrickleAccrualPoint(pool, accountId);
     const results = await Promise.all(Array.from({ length: 8 }, () => accrueTrickle(pool, accountId, t0 + 10 * MS)));
-    expect(results.reduce((s, r) => s + r.credited, 0)).toBe(10);
+    expect(results.filter((r) => r.materialized).length).toBe(1);
+    for (const r of results) expect(r.balance).toBe(10);
     expect((await readCoinBalance(pool, accountId)).balance).toBe(10);
-    expect((await listEventsForAccount(pool, accountId)).filter((e) => e.payload["reason"] === "trickle").length).toBe(1);
+    expect((await trickleEvents(accountId)).length).toBe(1);
   });
 
-  it("ceases at the cap and never credits past it, then resumes from the last read after a spend", async () => {
-    const { accountId } = await fresh("cap");
+  it("ceases at the cap, writes nothing there, and a spend restarts it from the spend — no backlog", async () => {
+    const { accountId, t0 } = await freshBackdated("cap", 3);
     await setBalance(accountId, CAP - 3);
-    const t0 = await readTrickleAccrualPoint(pool, accountId);
     const r = await accrueTrickle(pool, accountId, t0 + 100 * MS);
-    expect(r).toMatchObject({ coins: 100, credited: 3, discarded: 97, balance: CAP, atCap: true, accruedThroughMs: t0 + 100 * MS });
+    expect(r).toMatchObject({ coins: 100, credited: 3, discarded: 97, balance: CAP, atCap: true, materialized: true, accruedThroughMs: t0 + 100 * MS });
     const r2 = await accrueTrickle(pool, accountId, t0 + 200 * MS);
-    expect(r2).toMatchObject({ coins: 100, credited: 0, discarded: 100, balance: CAP });
-    // A long idle at the cap banks no backlog.
-    await setBalance(accountId, 1000);
-    const r3 = await accrueTrickle(pool, accountId, t0 + 203 * MS);
-    expect(r3).toMatchObject({ coins: 3, credited: 3, balance: 1003 });
+    expect(r2).toMatchObject({ coins: 100, credited: 0, discarded: 100, pending: 0, balance: CAP, materialized: false });
+    expect((await trickleEvents(accountId)).length).toBe(1); // nothing written at the cap
+    // Spend (occurred_at = database now, hours after t0 + 200 × MS). The accrual point is now the spend.
+    await setBalance(accountId, 1000, t0 + 200 * MS);
+    const spentAt = await readTrickleAccrualPoint(pool, accountId);
+    expect(spentAt).toBeGreaterThan(t0 + 200 * MS);
+    const r3 = await accrueTrickle(pool, accountId, spentAt + 3 * MS);
+    expect(r3).toMatchObject({ coins: 3, credited: 3, balance: 1003, pending: 3 });
+    const r4 = await accrueTrickle(pool, accountId, spentAt + 25 * MS);
+    expect(r4).toMatchObject({ coins: 25, credited: 25, balance: 1025, materialized: true });
+    expect((await trickleEvents(accountId)).every((e) => (e.payload["amount"] as number) > 0)).toBe(true);
     expect((await verifyProjection(pool, accountId)).ok).toBe(true);
   });
 
-  it("GET /me/economy materializes the trickle and reports the overflow forecast", async () => {
+  it("GET /me/economy reports ledger + pending as the balance and the overflow forecast", async () => {
     const { accountId } = await fresh("route");
     const { token } = await issueSession(pool, accountId);
     const res = await app.inject({ method: "GET", url: "/me/economy?prospectiveEarn=60000", headers: { authorization: `Bearer ${token}` } });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.cap).toBe(CAP);
+    expect(body.balance).toBe(body.trickle.ledgerBalance + body.trickle.pending);
     expect(body.overflow).toMatchObject({ behavior: "discard_with_warning", prospectiveEarn: 60_000, warn: true });
     expect(body.overflow.wouldDiscard).toBe(60_000 - (CAP - body.balance));
+    expect(body.overflow.message).toContain("right now");
     expect(body.merge.costPerResultingUnitByLevel).toEqual({ "2": 250, "3": 900, "4": 3000, "5": 9500 });
     expect(body.earn.encounterSchedule.slice(0, 3)).toEqual([400, 500, 625]);
     expect(body.merge.levelCap).toBe(5);
@@ -206,6 +239,7 @@ describe("merging", () => {
     expect(preview.produced.combined.hp).toBeLessThan(preview.consumed.combined.hp);
     const t0 = await readTrickleAccrualPoint(pool, accountId);
     const result = await performMerge(pool, { accountId, caravanId, instanceIds: ids, nowMs: t0 });
+    expect(result.replayed).toBe(false);
     expect(result.produced.length).toBe(1);
     expect(result.produced[0]).toMatchObject({ unit_type_id: UNIT, merge_level: 2, caravan_id: caravanId });
     expect(result.balanceAfter).toBe(750);
@@ -219,6 +253,8 @@ describe("merging", () => {
     expect(merged.caravan_id).toBe(caravanId); // the roster is caravan-level
     expect(merged.payload).toMatchObject({ fromLevel: 1, toLevel: 2, recipe: { spend: 2, produce: 1 }, coinCost: 250, consumedInstanceIds: [...ids].sort() });
     expect(spent.causation_id).toBe(merged.causation_id);
+    expect(spent.causation_seq).toBe(0);
+    expect(merged.causation_seq).toBe(1);
     expect((await readCoinBalance(pool, accountId)).balance).toBe(750);
     expect((await verifyProjection(pool, accountId)).ok).toBe(true);
   });
@@ -236,7 +272,7 @@ describe("merging", () => {
     expect((await readCoinBalance(pool, accountId)).balance).toBe(300);
   });
 
-  it("the merge cost is charged exactly once when two merges of the same instances race", async () => {
+  it("the merge cost is charged exactly once when six merges of the same instances race; the losers replay the winner", async () => {
     const { accountId, caravanId } = await fresh("mrace");
     await setBalance(accountId, 10_000);
     const ids = await units(caravanId, 3, 2);
@@ -244,13 +280,16 @@ describe("merging", () => {
     const outcomes = await Promise.allSettled(
       Array.from({ length: 6 }, () => performMerge(pool, { accountId, caravanId, instanceIds: ids, nowMs: t0 })),
     );
-    const ok = outcomes.filter((o) => o.status === "fulfilled");
-    const failed = outcomes.filter((o): o is PromiseRejectedResult => o.status === "rejected");
-    expect(ok.length).toBe(1);
-    expect(failed.length).toBe(5);
-    for (const f of failed) {
-      expect(f.reason).toBeInstanceOf(AppError);
-      expect((f.reason as AppError).statusCode).toBe(404); // inputs gone
+    expect(outcomes.every((o) => o.status === "fulfilled")).toBe(true);
+    const results = outcomes.map((o) => (o as PromiseFulfilledResult<Awaited<ReturnType<typeof performMerge>>>).value);
+    const winners = results.filter((r) => !r.replayed);
+    const replays = results.filter((r) => r.replayed);
+    expect(winners.length).toBe(1);
+    expect(replays.length).toBe(5);
+    for (const r of replays) {
+      expect(r.merged).toEqual(winners[0]!.merged);
+      expect(r.preview).toBeNull();
+      expect(r.producedIds).toEqual(winners[0]!.producedIds);
     }
     expect((await readCoinBalance(pool, accountId)).balance).toBe(10_000 - mergeCost(4, 1));
     const roster = await listUnitInstancesForCaravan(pool, caravanId);
@@ -272,7 +311,7 @@ describe("merging", () => {
     expect(err.statusCode).toBe(409);
     expect((await listUnitInstancesForCaravan(pool, caravanId)).map((r) => r.id).sort()).toEqual([...ids].sort());
     expect((await listEventsForAccount(pool, accountId)).filter((e) => e.event_type !== "coin_earned").length).toBe(0);
-    const preview = await previewMerge(pool, { accountId, caravanId, instanceIds: ids });
+    const preview = await previewMerge(pool, { accountId, caravanId, instanceIds: ids, nowMs: t0 });
     expect(preview.affordable).toBe(false);
   });
 
@@ -283,6 +322,7 @@ describe("merging", () => {
     const t0 = await readTrickleAccrualPoint(pool, accountId);
     const result = await performMerge(pool, { accountId, caravanId, instanceIds: ids, nowMs: t0 + 10 * MS });
     expect(result.balanceAfter).toBe(0);
+    expect(result.preview!.balance).toBe(250);
   });
 
   it("rejects mixed types, mixed levels, wrong counts, duplicates, and the level cap", async () => {
@@ -303,7 +343,7 @@ describe("merging", () => {
     expect((await listUnitInstancesForCaravan(pool, caravanId)).length).toBe(6);
   });
 
-  it("refuses instances that belong to another caravan or account, and a caravan that is not yours", async () => {
+  it("refuses instances that belong to another caravan or account, and a caravan that is not yours (404, the convention)", async () => {
     const mine = await fresh("owner");
     const theirs = await fresh("thief");
     await setBalance(theirs.accountId, 40_000);
@@ -312,11 +352,16 @@ describe("merging", () => {
     expect(wrongCaravan.statusCode).toBe(404);
     const wrongUnits = await appErr(performMerge(pool, { accountId: theirs.accountId, caravanId: theirs.caravanId, instanceIds: mineIds }));
     expect(wrongUnits.statusCode).toBe(404);
+    // Four of mine plus one of theirs is refused whole; theirs is untouched.
+    const theirIds = await units(theirs.caravanId, 1, 4);
+    const mixed = await appErr(performMerge(pool, { accountId: theirs.accountId, caravanId: theirs.caravanId, instanceIds: [...theirIds, mineIds[0]!] }));
+    expect(mixed.statusCode).toBe(404);
     expect((await listUnitInstancesForCaravan(pool, mine.caravanId)).length).toBe(2);
+    expect((await listUnitInstancesForCaravan(pool, theirs.caravanId)).length).toBe(4);
     expect((await readCoinBalance(pool, theirs.accountId)).balance).toBe(40_000);
   });
 
-  it("the HTTP merge flow: preview shows cost and stats, commit charges it", async () => {
+  it("the HTTP merge flow: preview shows cost and stats, commit charges it, a retry replays it", async () => {
     const { accountId, caravanId } = await fresh("http");
     await setBalance(accountId, 1000);
     const ids = await units(caravanId, 1, 2);
@@ -329,12 +374,187 @@ describe("merging", () => {
     expect(roster.length).toBe(2);
     const commit = await app.inject({ method: "POST", url: `/me/caravans/${caravanId}/merge`, headers, payload: { instanceIds: ids } });
     expect(commit.statusCode).toBe(200);
+    expect(commit.json().replayed).toBe(false);
     expect(commit.json().produced[0].merge_level).toBe(2);
     expect(commit.json().events.map((e: { type: string }) => e.type)).toEqual(["coin_spent", "unit_merged"]);
     const again = await app.inject({ method: "POST", url: `/me/caravans/${caravanId}/merge`, headers, payload: { instanceIds: ids } });
-    expect(again.statusCode).toBe(404);
+    expect(again.statusCode).toBe(200);
+    expect(again.json().replayed).toBe(true);
+    expect(again.json().merged).toEqual(commit.json().merged);
+    expect(again.json().producedInstanceIds).toEqual(commit.json().producedInstanceIds);
+    expect((await readCoinBalance(pool, accountId)).balance).toBe(750);
     const noBody = await app.inject({ method: "POST", url: `/me/caravans/${caravanId}/merge`, headers, payload: {} });
     expect(noBody.statusCode).toBe(400);
     expect((await app.inject({ method: "POST", url: `/me/caravans/${caravanId}/merge`, payload: { instanceIds: ids } })).statusCode).toBe(401);
+  });
+});
+
+describe("QA round 1 punch list (roadmap/qa/16-punchlist.md)", () => {
+  it("S1: a caravan on a trip cannot merge — preview and commit both 409 caravan_on_trip, roster untouched", async () => {
+    const { accountId, caravanId } = await fresh("s1");
+    await setBalance(accountId, 5000);
+    const ids = await units(caravanId, 1, 2);
+    await pool.query("UPDATE caravan SET state = 'on_trip' WHERE id = $1", [caravanId]);
+    const pv = await appErr(previewMerge(pool, { accountId, caravanId, instanceIds: ids }));
+    expect(pv).toMatchObject({ statusCode: 409, code: "caravan_on_trip" });
+    const cm = await appErr(performMerge(pool, { accountId, caravanId, instanceIds: ids }));
+    expect(cm).toMatchObject({ statusCode: 409, code: "caravan_on_trip" });
+    const { token } = await issueSession(pool, accountId);
+    const http = await app.inject({ method: "POST", url: `/me/caravans/${caravanId}/merge`, headers: { authorization: `Bearer ${token}` }, payload: { instanceIds: ids } });
+    expect(http.statusCode).toBe(409);
+    expect((await listUnitInstancesForCaravan(pool, caravanId)).map((r) => r.id).sort()).toEqual([...ids].sort());
+    expect((await readCoinBalance(pool, accountId)).balance).toBe(5000);
+    await pool.query("UPDATE caravan SET state = 'in_town' WHERE id = $1", [caravanId]);
+    expect((await performMerge(pool, { accountId, caravanId, instanceIds: ids })).produced.length).toBe(1);
+  });
+
+  it("S2: the preview's balance includes the pending trickle, is read-only, and is what the commit checks", async () => {
+    const { accountId, caravanId } = await fresh("s2");
+    await setBalance(accountId, 240);
+    const ids = await units(caravanId, 1, 2);
+    const t0 = await readTrickleAccrualPoint(pool, accountId);
+    const pv = await previewMerge(pool, { accountId, caravanId, instanceIds: ids, nowMs: t0 + 10 * MS });
+    expect(pv).toMatchObject({ balance: 250, pendingTrickle: 10, affordable: true });
+    expect(await trickleEvents(accountId)).toEqual([]); // nothing written by a preview
+    expect((await readCoinBalance(pool, accountId)).balance).toBe(240);
+    const res = await performMerge(pool, { accountId, caravanId, instanceIds: ids, nowMs: t0 + 10 * MS });
+    expect(res.preview!.balance).toBe(pv.balance);
+    expect(res.balanceAfter).toBe(0);
+  });
+
+  it("S3: a non-uuid caravan id in the path is a 400, not a 500; non-object bodies are 400s", async () => {
+    const { accountId } = await fresh("s3");
+    const { token } = await issueSession(pool, accountId);
+    const headers = { authorization: `Bearer ${token}` };
+    const ids = ["11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"];
+    for (const url of ["/me/caravans/not-a-uuid/merge/preview", "/me/caravans/not-a-uuid/merge"]) {
+      const r = await app.inject({ method: "POST", url, headers, payload: { instanceIds: ids } });
+      expect(r.statusCode).toBe(400);
+      expect(r.json().error).toBe("invalid_caravan_id");
+    }
+    for (const payload of ["[1,2]", '"str"', "null"]) {
+      const r = await app.inject({ method: "POST", url: `/me/caravans/${accountId}/merge`, headers: { ...headers, "content-type": "application/json" }, payload });
+      expect(r.statusCode).toBe(400);
+      expect(r.json().error).toBe("invalid_instance_ids");
+    }
+  });
+
+  it("S4: polling writes one trickle row per threshold, not per read, and nothing at all at the cap", async () => {
+    const { accountId } = await fresh("s4");
+    const t0 = await readTrickleAccrualPoint(pool, accountId);
+    for (let i = 1; i <= 50; i++) await accrueTrickle(pool, accountId, t0 + i * MS);
+    const below = await trickleEvents(accountId);
+    expect(below.length).toBe(50 / MIN_COINS);
+    expect(below.map((e) => e.payload["amount"])).toEqual(Array(50 / MIN_COINS).fill(MIN_COINS));
+    expect((await accrueTrickle(pool, accountId, t0 + 50 * MS)).balance).toBe(50);
+    await setBalance(accountId, CAP);
+    for (let i = 51; i <= 100; i++) await accrueTrickle(pool, accountId, t0 + i * MS);
+    const all = await trickleEvents(accountId);
+    expect(all.length).toBe(below.length);
+    expect(all.filter((e) => e.payload["amount"] === 0).length).toBe(0);
+  });
+
+  it("S5: spendCoin flushes the trickle, then debits; insufficient Coin is a 409 with nothing written", async () => {
+    const { accountId } = await fresh("s5");
+    await setBalance(accountId, 240);
+    const t0 = await readTrickleAccrualPoint(pool, accountId);
+    const err = await appErr(withTransaction(pool, (c) => spendCoin(c, accountId, 250, "test_spend", t0 + 9 * MS, { causationId: "s5:too-poor" })));
+    expect(err).toMatchObject({ statusCode: 409, code: "insufficient_coin" });
+    expect((await listEventsForAccount(pool, accountId)).filter((e) => e.payload["reason"] !== "test_setup")).toEqual([]);
+    const ok = await withTransaction(pool, (c) =>
+      spendCoin(c, accountId, 250, "test_spend", t0 + 10 * MS, {
+        causationId: "s5:ok",
+        extra: { what: "x" },
+        alongside: [{ type: "standing_party_saved", accountId, payload: { marker: 1 } }],
+      }),
+    );
+    expect(ok.trickle.materialized).toBe(true);
+    expect(ok).toMatchObject({ balanceBefore: 250, balanceAfter: 0 });
+    expect(ok.events.map((e) => [e.event_type, e.causation_id, e.causation_seq])).toEqual([
+      ["coin_spent", "s5:ok", 0],
+      ["standing_party_saved", "s5:ok", 1],
+    ]);
+    expect(ok.events[0]!.payload).toMatchObject({ amount: 250, reason: "test_spend", what: "x" });
+    expect((await readCoinBalance(pool, accountId)).balance).toBe(0);
+    expect((await verifyProjection(pool, accountId)).ok).toBe(true);
+  });
+
+  it("S6: ids are normalized to lowercase, so a retry in any casing replays the stored unit_merged payload", async () => {
+    const { accountId, caravanId } = await fresh("s6");
+    await setBalance(accountId, 5000);
+    const ids = await units(caravanId, 1, 2);
+    const upper = ids.map((s) => s.toUpperCase());
+    const pv = await previewMerge(pool, { accountId, caravanId, instanceIds: upper });
+    expect(pv.consumed.instanceIds.sort()).toEqual([...ids].sort());
+    expect((await appErr(previewMerge(pool, { accountId, caravanId, instanceIds: [ids[0]!, ids[0]!.toUpperCase()] }))).code).toBe("duplicate_instances");
+    const first = await performMerge(pool, { accountId, caravanId, instanceIds: ids });
+    const retry = await performMerge(pool, { accountId, caravanId: caravanId.toUpperCase(), instanceIds: upper });
+    expect(retry.replayed).toBe(true);
+    expect(retry.merged).toEqual(first.merged);
+    expect(retry.consumedIds).toEqual(first.consumedIds);
+    expect(retry.events.map((e) => e.seq)).toEqual(first.events.map((e) => e.seq));
+    expect((await listEventsForAccount(pool, accountId)).filter((e) => e.event_type === "coin_spent").length).toBe(1);
+    expect(first.events[0]!.causation_id).toBe(`merge:${caravanId}:${[...ids].sort().join(",")}`);
+  });
+
+  it("N1: prospectiveEarn must be a safe integer no larger than ten storage caps", async () => {
+    const { accountId } = await fresh("n1");
+    const { token } = await issueSession(pool, accountId);
+    const headers = { authorization: `Bearer ${token}` };
+    for (const q of ["1e308", "9007199254740993", "0x10", "1e3", "", "1.5", String(10 * CAP + 1)]) {
+      const r = await app.inject({ method: "GET", url: `/me/economy?prospectiveEarn=${q}`, headers });
+      expect(r.statusCode, q).toBe(400);
+    }
+    const multi = await app.inject({ method: "GET", url: "/me/economy?prospectiveEarn=1&prospectiveEarn=2", headers });
+    expect(multi.statusCode).toBe(400);
+    const ok = await app.inject({ method: "GET", url: `/me/economy?prospectiveEarn=${10 * CAP}`, headers });
+    expect(ok.statusCode).toBe(200);
+  });
+
+  it("N2: a 20 000-id request is refused by the recipe check before any query", async () => {
+    const { accountId, caravanId } = await fresh("n2");
+    const { token } = await issueSession(pool, accountId);
+    const many = Array.from({ length: 20_000 }, (_, i) => `${(i + 1).toString(16).padStart(8, "0")}-0000-4000-8000-000000000000`);
+    const r = await app.inject({ method: "POST", url: `/me/caravans/${caravanId}/merge/preview`, headers: { authorization: `Bearer ${token}` }, payload: { instanceIds: many } });
+    expect(r.statusCode).toBe(400);
+    expect(r.json().error).toBe("no_such_recipe");
+  });
+
+  it("N3: a malformed trickle row falls back to the previous valid one, and the generic credit path cannot write one", async () => {
+    const { accountId } = await fresh("n3");
+    const t0 = await readTrickleAccrualPoint(pool, accountId);
+    await accrueTrickle(pool, accountId, t0 + 10 * MS);
+    expect(await readTrickleAccrualPoint(pool, accountId)).toBe(t0 + 10 * MS);
+    // A row written past the economy module (the ledger accepts any integer-JSON payload).
+    await withTransaction(pool, (c) =>
+      appendEvents(c, "n3:forged", [{ type: "coin_earned", accountId, payload: { amount: 0, reason: "trickle", accruedThroughMs: "garbage" } }]),
+    );
+    await withTransaction(pool, (c) => appendEvents(c, "n3:forged2", [{ type: "coin_earned", accountId, payload: { amount: 0, reason: "trickle" } }]));
+    expect(await readTrickleAccrualPoint(pool, accountId)).toBe(t0 + 10 * MS);
+    expect((await accrueTrickle(pool, accountId, t0 + 12 * MS)).coins).toBe(2);
+    await expect(
+      withTransaction(pool, (c) => appendCoinCredits(c, { causationId: "n3:generic", accountId, credits: [{ amount: 1, reason: "trickle" }] })),
+    ).rejects.toThrow(RangeError);
+  });
+
+  it("a clock that runs backwards, or an account created in the future, credits nothing", async () => {
+    const { accountId } = await fresh("clock");
+    const t0 = await readTrickleAccrualPoint(pool, accountId);
+    await accrueTrickle(pool, accountId, t0 + 100 * MS);
+    const back = await accrueTrickle(pool, accountId, t0 + 10 * MS);
+    expect(back).toMatchObject({ coins: 0, pending: 0, balance: 100 });
+    const future = await fresh("future");
+    await pool.query("UPDATE account SET created_at = now() + interval '10 days' WHERE id = $1", [future.accountId]);
+    expect((await accrueTrickle(pool, future.accountId, Date.now())).coins).toBe(0);
+  });
+
+  it("a merge moves Coin and the roster only: ladders and unlock points are untouched", async () => {
+    const { accountId, caravanId } = await fresh("ledgeronly");
+    await setBalance(accountId, 5000);
+    const before = await pool.query("SELECT * FROM pool_progress WHERE account_id = $1 ORDER BY pool", [accountId]);
+    const ids = await units(caravanId, 1, 2);
+    await performMerge(pool, { accountId, caravanId, instanceIds: ids, nowMs: await readTrickleAccrualPoint(pool, accountId) });
+    const after = await pool.query("SELECT * FROM pool_progress WHERE account_id = $1 ORDER BY pool", [accountId]);
+    expect(after.rows).toEqual(before.rows);
   });
 });

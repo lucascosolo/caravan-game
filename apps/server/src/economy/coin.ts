@@ -15,12 +15,22 @@
  *   chunk 19 (loss)       -> coinForEncountersSurvived to size what is at risk / transfers.
  *   chunk 09/13 (party)   -> creditPartyWin        when a standing party overruns a caravan.
  *   chunk 17 (home town)  -> readCoinBalance, overflowForecast, and trickle.ts.
+ *   anything that DEBITS  -> spendCoin. This is the ONLY debit path (QA S5): it flushes the
+ *                            pending trickle first, so the balance a debit is checked against
+ *                            is the balance the player was shown, and no pending coin is
+ *                            lost when the debit moves the trickle's accrual point. Nothing
+ *                            outside this module may build a `coin_spent` draft directly
+ *                            (ledger/coin.ts's `coinDebitDraft` is imported here and
+ *                            nowhere else — a test enforces it).
  */
 import { TUNABLES, scaleInt } from "@caravan/content";
 import type pg from "pg";
 import type { Queryable } from "../db/pool.js";
+import { coinDebitDraft } from "../ledger/coin.js";
 import type { CoinPayload, LedgerEventDraft, LedgerEventRow } from "../ledger/events.js";
 import { appendEvents, lockAccountForAppend } from "../ledger/ledger.js";
+import { conflict } from "../services/errors.js";
+import { TRICKLE_REASON, accrueTrickleTx, type TrickleAccrual } from "./trickle.js";
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // Pure earn math. Integers in, integers out, no clock.
@@ -31,14 +41,26 @@ function assertPosInt(name: string, v: number): void {
 }
 
 /**
+ * One escalation step of the schedule, clamped at the storage cap (QA N4): no single
+ * encounter can be worth more than the account could hold, and the geometric series can
+ * never leave the safe-integer range however long a trip runs.
+ */
+function nextEncounterCoin(amount: number): number {
+  const next = Math.min(scaleInt(amount, TUNABLES.COIN_ENCOUNTER_ESCALATION_MULT), TUNABLES.COIN_STORAGE_CAP);
+  if (!Number.isSafeInteger(next)) throw new RangeError("encounter Coin schedule left the safe-integer range");
+  return next;
+}
+
+/**
  * Coin for surviving the Nth encounter of a trip (1-based): BASE at encounter 1, then
  * ×COIN_ENCOUNTER_ESCALATION_MULT per subsequent encounter, floored at each step so the
  * sequence is an integer table, not a float curve. 400, 500, 625, 781, 976, 1220, ...
+ * Clamped at COIN_STORAGE_CAP (reached around encounter 23 with the defaults).
  */
 export function coinForEncounter(encounterIndex: number): number {
   assertPosInt("encounterIndex", encounterIndex);
   let amount: number = TUNABLES.COIN_PER_ENCOUNTER_BASE;
-  for (let i = 2; i <= encounterIndex; i++) amount = scaleInt(amount, TUNABLES.COIN_ENCOUNTER_ESCALATION_MULT);
+  for (let i = 2; i <= encounterIndex; i++) amount = nextEncounterCoin(amount);
   return amount;
 }
 
@@ -49,14 +71,16 @@ export function encounterCoinSchedule(count: number): number[] {
   let amount: number = TUNABLES.COIN_PER_ENCOUNTER_BASE;
   for (let i = 1; i <= count; i++) {
     out.push(amount);
-    amount = scaleInt(amount, TUNABLES.COIN_ENCOUNTER_ESCALATION_MULT);
+    amount = nextEncounterCoin(amount);
   }
   return out;
 }
 
 /** Total encounter Coin a trip has accrued (unbanked) after surviving `n` encounters. */
 export function coinForEncountersSurvived(n: number): number {
-  return encounterCoinSchedule(n).reduce((a, b) => a + b, 0);
+  const total = encounterCoinSchedule(n).reduce((a, b) => a + b, 0);
+  if (!Number.isSafeInteger(total)) throw new RangeError("encounter Coin total left the safe-integer range");
+  return total;
 }
 
 /** Everything a trip that banks after `n` survived encounters is worth: encounters + delivery bonus. */
@@ -68,6 +92,11 @@ export function coinForBankedTrip(encountersSurvived: number): number {
 // The cap. Credits never pass it; what the cap swallows is recorded, never silent.
 // ─────────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * The pre-trip overflow warning. It is "as of now": `room` is how much the account can hold
+ * RIGHT NOW, not how much it will hold when the trip banks (the trickle keeps filling the
+ * store meanwhile). Word any UI text that way — "room right now" — never as a promise.
+ */
 export interface OverflowForecast {
   balance: number;
   cap: number;
@@ -83,7 +112,7 @@ export interface OverflowForecast {
 
 /** Pure: what happens if `prospectiveEarn` Coin were credited against this balance and cap. */
 export function overflowForecast(balance: number, cap: number, prospectiveEarn: number): OverflowForecast {
-  if (!Number.isInteger(prospectiveEarn) || prospectiveEarn < 0) throw new RangeError("prospectiveEarn must be a non-negative integer");
+  if (!Number.isSafeInteger(prospectiveEarn) || prospectiveEarn < 0) throw new RangeError("prospectiveEarn must be a non-negative safe integer");
   const room = Math.max(0, cap - balance);
   const wouldCredit = Math.min(prospectiveEarn, room);
   return { balance, cap, room, prospectiveEarn, wouldCredit, wouldDiscard: prospectiveEarn - wouldCredit, atCap: room === 0 };
@@ -140,6 +169,9 @@ export async function appendCoinCredits(
 ): Promise<CoinCreditResult> {
   for (const c of input.credits) {
     if (!Number.isInteger(c.amount) || c.amount < 0) throw new RangeError(`credit amount must be a non-negative integer, got ${String(c.amount)}`);
+    // The trickle's accrual point is read back from its own events (QA N3): only
+    // trickle.ts may write a `trickle` row, or a caller could move the point by hand.
+    if (c.reason === TRICKLE_REASON) throw new RangeError(`reason '${TRICKLE_REASON}' is reserved for the trickle itself`);
   }
   await lockAccountForAppend(client, input.accountId);
   const res = await client.query<{ coin_balance: number; coin_storage_cap: number }>(
@@ -205,4 +237,64 @@ export async function creditPartyWin(
     accountId: input.accountId,
     credits: [{ amount: TUNABLES.COIN_PER_PARTY_WIN, reason: "party_win", extra: { tripId: input.tripId, encounterIndex: input.encounterIndex } }],
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// Debits. Exactly one path (QA S5): accrue, then debit.
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+export interface SpendCoinOptions {
+  /** The cause this debit (and any `alongside` events) commit under. Required. */
+  causationId: string;
+  /** Extra payload fields on the `coin_spent` event (what was bought). */
+  extra?: Record<string, string | number>;
+  /**
+   * Events to append in the SAME batch, after the debit, under the same causation id
+   * (e.g. the `unit_merged` the Coin was spent on). Appended only if the debit goes through.
+   */
+  alongside?: readonly LedgerEventDraft[];
+}
+
+export interface SpendCoinResult {
+  /** The trickle flush that ran before the debit. `trickle.balance` is what was checked. */
+  trickle: TrickleAccrual;
+  /** `coin_spent` first, then `alongside` in order. */
+  events: LedgerEventRow[];
+  balanceBefore: number;
+  balanceAfter: number;
+}
+
+/**
+ * The only way Coin leaves an account. Inside the caller's transaction and under the
+ * account append lock:
+ *   1. flush the pending trickle (forced — every whole coin earned so far is written, so
+ *      the debit's `occurred_at`, which becomes the new accrual point, drops nothing but a
+ *      sub-coin remainder);
+ *   2. refuse with 409 `insufficient_coin` if the flushed balance is below `amount`
+ *      (the account CHECK is the backstop, never the mechanism);
+ *   3. append `coin_spent` (+ `alongside`) under `causationId`.
+ * `nowMs` is the caller's clock (injectable); the server passes the wall clock.
+ */
+export async function spendCoin(
+  client: pg.PoolClient,
+  accountId: string,
+  amount: number,
+  reason: string,
+  nowMs: number,
+  opts: SpendCoinOptions,
+): Promise<SpendCoinResult> {
+  if (!Number.isSafeInteger(amount) || amount < 0) throw new RangeError(`debit amount must be a non-negative integer, got ${String(amount)}`);
+  if (!reason) throw new TypeError("reason is required");
+  if (!opts.causationId) throw new TypeError("causationId is required");
+  await lockAccountForAppend(client, accountId);
+  const trickle = await accrueTrickleTx(client, accountId, nowMs, { force: true });
+  // Forced: nothing is pending now, so the ledger balance IS the balance shown.
+  const balanceBefore = trickle.ledgerBalance;
+  if (balanceBefore < amount) {
+    throw conflict("insufficient_coin", `${reason} costs ${amount} Coin; balance is ${balanceBefore}`);
+  }
+  const debit = coinDebitDraft({ accountId, amount, reason, ...(opts.extra ? { extra: opts.extra } : {}) });
+  const drafts: LedgerEventDraft[] = [debit, ...(opts.alongside ?? [])];
+  const events = await appendEvents(client, opts.causationId, drafts);
+  return { trickle, events, balanceBefore, balanceAfter: balanceBefore - amount };
 }
