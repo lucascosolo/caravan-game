@@ -2669,3 +2669,38 @@ In scope, with these cuts:
 - **Chunk 37:** the matchup sweep and the standing probes as a tool, then a tuning pass recorded in BALANCE-LOG.md. The closed alpha is the play test itself and is not built here.
 
 Out of scope for the play test: 26 (art pipeline; the iso renderer's placeholder shapes stay), 27 (audio and haptics), 31, 33, 34, 35 and 38, and all of group C. Rejected: holding the play test for art and audio. The question a play test answers is whether the loop is fun, and that can be judged with legible placeholder art. The final review may challenge any of these cuts.
+
+## 2026-10-11 — stopping point (handoff)
+
+The user asked for a stopping point. Main (`roadmap/phase-2-spec`) is consistent and pushed. At the last full run it passed typecheck, lint, test:boundary, the server suite, the web suite, determinism, build and all 8 e2e specs. The in-flight agents were told to commit their work in progress. Their branches are pushed to origin as `wip/<chunk>-<topic>`, and none of them is merged to main. Each must be reviewed and merged with the usual gates, after merging main into it first.
+
+**State on main.**
+- **Group A:** chunks 01–20 are `done`.
+- **Phase 2:**
+  - `done`: 21, 23 and 25.
+  - Built and QA'd, with their fix rounds open: 22 (replay player), 24 (onboarding) and 29 (inbox).
+  - Not on main yet: 30 (accounts), 32 (telemetry) and 36 (performance).
+- **Fights:** resolve in-process with the real resolver (RESOLVER_VERSION 8, log format v2).
+
+**The blocking problem for a play test is balance.** With the real resolver, the guided first fight held 0 of 120 times (roadmap/qa/24-punchlist.md D1). Typical rosters also hold rarely at their own band (roadmap/qa/13-punchlist.md D2). Trips with merged units have negative expected Coin (roadmap/qa/19-punchlist.md D2c). The decisions and acceptance targets are recorded in roadmap/qa/24-punchlist.md, "Orchestrator decisions". In short:
+- every caravan gets a tunable `STARTING_ROSTER`;
+- the guided first layout must hold at least 70 % of first fights;
+- skilled layouts must hold a fair share and beat naive ones;
+- trip expected value must be positive with a best bank point k ≥ 2;
+- free weekly earn must stay within the 1.5× bound.
+
+**Next, in order.**
+1. Merge the WIP branches that are complete, or finish them. Recommended order:
+   1. the test-isolation fix, which removes the order-dependent server flakes in qa02-round2, stakes and qa15-fixes;
+   2. the chunk 24 fixer, which adds the STARTING_ROSTER mechanism;
+   3. the balance pass;
+   4. then 22, 29, 30, 32 and 36 in any order.
+   
+   Migration numbers were pre-assigned: 018 telemetry, 019 accounts, 020 inbox fixer, 021 performance, 022 onboarding fixer. Renumber to contiguous on merge, as before.
+2. QA rounds for 30, 32 and 36, and for the balance pass's numbers, followed by their fixers.
+3. The final whole-game adversarial review: the guardrail probes plus PROJECT.md §21's fun checks, looping fixes until it passes. Only then is the game ready for a play test.
+
+**Known gotchas.**
+- Union-resolving merges can drop a closing brace. Commit 8679d87 fixed one in theme.css.
+- E2E specs that register fresh accounts must skip the onboarding guide through its routes.
+- Before `db:reset` of a seeded database, run `DELETE FROM account WHERE is_system` as the owner role.
