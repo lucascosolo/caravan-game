@@ -95,6 +95,7 @@ import { COST_INFINITE, ceilDiv, isqrt } from "./fixed.js";
 import { abilityPhase, fenceHitDamage, postedUnitPhase, trapTriggerPhase } from "./hooks.js";
 import { logTarget, type LogEvent } from "./log.js";
 import { advance, effectiveSpeed, tickEffects } from "./move.js";
+import { sampleUnitDepth } from "./outcome.js";
 import { BREACH_COST_MAX, CELL_FREE, findPath, smoothPath, type Waypoint } from "./path.js";
 import { sameTarget, type SimState, type Target, type UnitState } from "./state.js";
 
@@ -338,6 +339,7 @@ export function movementPhase(state: SimState, log: LogEvent[]): void {
       u.reachedCoreTick = state.tick;
       log.push({ t: state.tick, k: "core_reached", u: id });
     }
+    sampleUnitDepth(u, u.x, u.y); // DEPTH_SAMPLE (outcome.ts): where it stood alive after moving
   }
 }
 

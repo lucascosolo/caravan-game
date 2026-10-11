@@ -14,8 +14,8 @@
  *
  * CONTENT PINNING (QA-15 S3). The job input names unit / trap / fence / siege TYPES; their
  * stats come from @caravan/content when the job runs. So the enqueuer stamps
- * RESOLUTION_CONTENT_HASH — sha256 of every content table the adapter reads plus the
- * resolver tunables — into the job input, and this adapter refuses a job whose stamp differs
+ * RESOLUTION_CONTENT_HASH — sha256 of the stats of every content table the adapter reads plus
+ * the resolver tunables (never the copy, QA-13 D3) — into the job input, and this adapter refuses a job whose stamp differs
  * from its own (ContentHashMismatchError): a deploy that changed a stat between commit and
  * resolution can never resolve a fight against numbers the defender did not scout. The
  * handler re-throws the refusal as RETRYABLE, so a worker on the matching content can still
@@ -29,10 +29,19 @@ import { encodeReplay, resolve, type ReplayLog } from "@caravan/resolver";
 import { canonicalJson, type Json } from "../ledger/events.js";
 import type { EncounterResolver, EncounterResolverInput, ResolvedFight } from "./outcome.js";
 
-/** sha256 (hex) of the content + tunables a resolution reads. Stamped at enqueue, checked at resolve. */
-export const RESOLUTION_CONTENT_HASH: string = createHash("sha256")
-  .update(canonicalJson(resolutionContent() as unknown as Json))
-  .digest("hex");
+/**
+ * sha256 (hex) of the content STATS + tunables a resolution reads (QA-13 D3: copy — display
+ * names, flavor, ability descriptions — is not hashed, so a copy-only deploy parks nothing).
+ * `content` defaults to the live tables; tests pass an edited copy.
+ */
+export function resolutionContentHash(content?: Parameters<typeof resolutionContent>[0]): string {
+  return createHash("sha256")
+    .update(canonicalJson(resolutionContent(content) as unknown as Json))
+    .digest("hex");
+}
+
+/** Stamped at enqueue, checked at resolve. */
+export const RESOLUTION_CONTENT_HASH: string = resolutionContentHash();
 
 export class ContentHashMismatchError extends Error {
   constructor(readonly expected: string | null, readonly actual: string) {

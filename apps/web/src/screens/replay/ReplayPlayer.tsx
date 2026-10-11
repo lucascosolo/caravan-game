@@ -126,7 +126,7 @@ function Summary({ view, model, settled, testId = "replay-summary", heading = T.
             {T.depth(pct, v)} {model?.deepestName ? T.deepest(model.deepestName) : null}
           </p>
           <p className="hint" data-testid="replay-depth-explained">
-            {view.depthExplained}
+            {T.depthExplained}
           </p>
           <p data-testid="replay-loot">{v === "caravan" ? T.lootCaravan(o.loot) : T.lootOwner(o.loot)}</p>
         </>

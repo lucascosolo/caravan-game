@@ -37,13 +37,21 @@ export function partyLootShare(kind: EncounterOutcomeKind, depth: number): numbe
   return partyLoot(kind, depth, FIXED_ONE);
 }
 
+/**
+ * QA-13 N6: the largest `full` the one-floor product full × d × ⌊√(d·1024)⌋ (≤ full × 1024²)
+ * keeps exact: 2^53 / 2^20 ≈ 8.59·10⁹, rounded down. Encounter Coin is orders of magnitude below;
+ * anything above is refused, never silently rounded.
+ */
+export const PARTY_LOOT_FULL_MAX = 8_000_000_000;
+
 export function partyLoot(kind: EncounterOutcomeKind, depth: number, full: number): number {
   if (!Number.isSafeInteger(full) || full < 0) throw new RangeError(`full loot must be a non-negative integer, got ${String(full)}`);
+  if (full > PARTY_LOOT_FULL_MAX) throw new RangeError(`full loot ${full} is above PARTY_LOOT_FULL_MAX (${PARTY_LOOT_FULL_MAX}): the depth^1.5 product would lose precision`);
   if (!Number.isInteger(depth) || depth < 0 || depth > FIXED_ONE) throw new RangeError(`depth must be an integer in 0..${FIXED_ONE}`);
   // Paid through chunk 19's transfer + party win, never as loot (see the rule above).
   if (kind === "caravan_overrun") return 0;
   if (kind === "stalemate") return Math.floor((full * TUNABLES.STALEMATE_LOOT_SHARE) / FIXED_ONE);
-  // depth^1.5 with one floor: full × d × ⌊√(d·1024)⌋ / 1024² (≤ 2^53 for full ≤ 8·10⁹).
+  // depth^1.5 with one floor: full × d × ⌊√(d·1024)⌋ / 1024² (< 2^53: full ≤ PARTY_LOOT_FULL_MAX).
   const root = isqrt(depth * FIXED_ONE);
   return Math.floor((full * depth * root) / (FIXED_ONE * FIXED_ONE));
 }

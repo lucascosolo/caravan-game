@@ -23,7 +23,7 @@
 import { CELL_ANCHOR, CELL_FREE, emptyGrid, type PathGrid, type Waypoint } from "./path.js";
 import { type Ability, type AffinityCategory, type Cell, type Fixed, type FixedPoint, type PostStance, type TrapCategory, type TrapEffect, type FenceCategory, cellCenter, cellKey } from "./battlefield.js";
 import { FIXED_ONE, fixedSq, fpMul, type Millis } from "./fixed.js";
-import { coreDistSq } from "./outcome.js";
+import { coreDistCheb } from "./outcome.js";
 import type { AffinityMatrix, ResolveInput, SiegeCounter, Stance } from "./input.js";
 
 export type Side = "attacker" | "defender";
@@ -151,11 +151,10 @@ export interface UnitState {
   /** Tick on which this unit first stood on a core cell, or −1. */
   reachedCoreTick: number;
   /**
-   * Chunk 13 DEPTH_METRIC (outcome.ts): attackers' squared distance to the core block at
-   * spawn, and the smallest one sampled at the end of any tick since. 0 / 0 for posted units.
+   * Chunk 13 DEPTH_METRIC (outcome.ts, v8): an attacker's smallest Chebyshev distance to the
+   * core block (fixed-point) over its DEPTH_SAMPLEs, starting at its spawn. 0 for posted units.
    */
-  readonly coreStartSq: number;
-  coreClosestSq: number;
+  coreClosest: number;
   /**
    * Chunk 12 — ABILITY_COOLDOWN: the first tick on which the ability may fire. Starts at
    * ABILITY_FIRST_USE_DELAY (floor(abilityCooldownTicks × firstUseDelayMult)); after a firing
@@ -358,8 +357,7 @@ export function initialState(input: ResolveInput): SimState {
       x: pos.x,
       y: pos.y,
       hp: u.hp,
-      coreStartSq: coreDistSq(pos.x, pos.y),
-      coreClosestSq: coreDistSq(pos.x, pos.y),
+      coreClosest: coreDistCheb(pos.x, pos.y),
       ...common(u.ability, u.attackRange, u.attackCooldown, u.mergeLevel, pos),
     });
   }
@@ -391,8 +389,7 @@ export function initialState(input: ResolveInput): SimState {
       x: p.pos.x,
       y: p.pos.y,
       hp: p.hp,
-      coreStartSq: 0,
-      coreClosestSq: 0,
+      coreClosest: 0,
       ...common(p.ability, p.attackRange, p.attackCooldown, p.mergeLevel, p.pos),
       // A posted unit starts standing on its post; `hold` is logged only when it first moves.
       holding: true,

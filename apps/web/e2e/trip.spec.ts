@@ -156,7 +156,7 @@ test("a full trip: outfit, ride out, three encounters (a rider dies at the secon
   await expect(noLog).toContainText("No replay was recorded for this fight");
   await expect(replay.getByTestId("replay-reason")).toHaveText("Reason: no replay log was recorded for this fight");
   await expect(replay.getByTestId("replay-outcome")).toHaveText("Your caravan held.");
-  await expect(replay.getByTestId("replay-depth-explained")).toContainText("How far the deepest raider got");
+  await expect(replay.getByTestId("replay-depth-explained")).toContainText("from the ring to the core");
   await expect(replay.getByTestId("replay-loot")).toContainText(/Loot reported for the raiding party's owner: \d+ Coin\./);
   await expect(replay.getByTestId("iso-canvas")).toHaveCount(0);
   await fitsPortrait(page);

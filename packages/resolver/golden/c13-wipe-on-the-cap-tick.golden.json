@@ -1,16 +1,16 @@
 {
 "scenario": "c13-wipe-on-the-cap-tick",
-"resolverVersion": 7,
-"outcome": {"kind":"caravan_held","end":"party_wiped","endTick":59,"depth":297,"deepestUnit":0},
+"resolverVersion": 8,
+"outcome": {"kind":"caravan_held","end":"party_wiped","endTick":59,"depth":0,"deepestUnit":-1},
 "ticks": 60,
 "units": [
-{"id":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","mergeLevel":1,"x":15872,"y":4532,"startHp":100,"hp":0,"maxHp":100,"alive":false,"reachedCoreTick":-1,"diedTick":59}
+{"id":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","mergeLevel":1,"ability":"dash","x":15872,"y":4532,"startHp":100,"hp":0,"maxHp":100,"alive":false,"reachedCoreTick":-1,"diedTick":59}
 ],
 "fences": [],
 "traps": [
 {"i":0,"ref":"t","typeId":"trap.spike_pit","x":15872,"y":5632,"spent":true,"spentTick":59}
 ],
-"replay": {"format":"caravan-replay","v":1,"resolverVersion":7,"tickRate":20,"tickCap":60,"keyframeInterval":100,"ticks":60,"outcome":{"kind":"caravan_held","end":"party_wiped","endTick":59,"depth":297,"deepestUnit":0},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":100,"hp":100}],"fences":[],"traps":[{"i":0,"ref":"t","typeId":"trap.spike_pit","x":15872,"y":5632}],"count":6,"check":1543977866,"events":[
+"replay": {"format":"caravan-replay","v":2,"resolverVersion":8,"tickRate":20,"tickCap":60,"keyframeInterval":100,"ticks":60,"outcome":{"kind":"caravan_held","end":"party_wiped","endTick":59,"depth":0,"deepestUnit":-1},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":100,"hp":100,"ab":4}],"fences":[],"traps":[{"i":0,"ref":"t","typeId":"trap.spike_pit","x":15872,"y":5632}],"count":6,"check":2906035948,"events":[
 [0,"s",0,15872,512],
 [0,"tg",0,0,-1],
 [0,"p",0,67,15872,15872,-1],

@@ -20,7 +20,7 @@
  * calendar, their SHAPE (which the client's guards check) does not.
  */
 import { entryBand, type PartyConfig } from "@caravan/circle";
-import { readReplay } from "@caravan/resolver";
+import { readReplay, replaySeal, type ReplayLog } from "@caravan/resolver";
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
@@ -147,7 +147,18 @@ function normalise(body: unknown): unknown {
     if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x, k)]));
     return v;
   };
-  return walk(orderArrays(body), "");
+  return resealReplay(walk(orderArrays(body), ""));
+}
+
+/**
+ * QA-13 S3: LOG_FORMAT v2's seal covers the labels (refs are uuids), so a renamed log is re-sealed —
+ * exactly what a forger would do; the web plays the fixture with readReplay, and the server's own
+ * sha256 check (not exercised by a fixture) is what tells a forged log from the stored one.
+ */
+function resealReplay(body: unknown): unknown {
+  const log = (body as { log?: unknown } | null)?.log as (ReplayLog & Record<string, unknown>) | null | undefined;
+  if (log && typeof log === "object" && log.format === "caravan-replay") return { ...(body as object), log: { ...log, check: replaySeal(log) } };
+  return body;
 }
 
 /**

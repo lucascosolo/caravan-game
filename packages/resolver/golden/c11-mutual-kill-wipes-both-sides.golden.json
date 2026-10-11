@@ -1,15 +1,15 @@
 {
 "scenario": "c11-mutual-kill-wipes-both-sides",
-"resolverVersion": 7,
-"outcome": {"kind":"caravan_held","end":"party_wiped","endTick":89,"depth":506,"deepestUnit":0},
+"resolverVersion": 8,
+"outcome": {"kind":"caravan_held","end":"party_wiped","endTick":89,"depth":0,"deepestUnit":-1},
 "ticks": 90,
 "units": [
-{"id":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","mergeLevel":1,"x":15872,"y":7352,"startHp":40,"hp":0,"maxHp":40,"alive":false,"reachedCoreTick":-1,"diedTick":89},
-{"id":1,"side":"defender","ref":"p","typeId":"desert.well_digger","mergeLevel":1,"x":15872,"y":8704,"startHp":57,"hp":0,"maxHp":1100,"alive":false,"reachedCoreTick":-1,"diedTick":89}
+{"id":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","mergeLevel":1,"ability":"dash","x":15872,"y":7352,"startHp":40,"hp":0,"maxHp":40,"alive":false,"reachedCoreTick":-1,"diedTick":89},
+{"id":1,"side":"defender","ref":"p","typeId":"desert.well_digger","mergeLevel":1,"ability":"heavy_strike","x":15872,"y":8704,"startHp":57,"hp":0,"maxHp":1100,"alive":false,"reachedCoreTick":-1,"diedTick":89}
 ],
 "fences": [],
 "traps": [],
-"replay": {"format":"caravan-replay","v":1,"resolverVersion":7,"tickRate":20,"tickCap":600,"keyframeInterval":100,"ticks":90,"outcome":{"kind":"caravan_held","end":"party_wiped","endTick":89,"depth":506,"deepestUnit":0},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":40,"hp":40},{"u":1,"side":"defender","ref":"p","typeId":"desert.well_digger","level":1,"maxHp":1100,"hp":57}],"fences":[],"traps":[],"count":9,"check":2020203224,"events":[
+"replay": {"format":"caravan-replay","v":2,"resolverVersion":8,"tickRate":20,"tickCap":600,"keyframeInterval":100,"ticks":90,"outcome":{"kind":"caravan_held","end":"party_wiped","endTick":89,"depth":0,"deepestUnit":-1},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":40,"hp":40,"ab":4},{"u":1,"side":"defender","ref":"p","typeId":"desert.well_digger","level":1,"maxHp":1100,"hp":57,"ab":1}],"fences":[],"traps":[],"count":9,"check":4084317202,"events":[
 [0,"s",0,15872,512],
 [0,"s",1,15872,8704],
 [0,"tg",0,1,1],

@@ -17,16 +17,25 @@
  * OUTCOME_KIND (the vocabulary the server, chunk 04 and chunk 15 share):
  *   core_overrun → caravan_overrun, party_wiped → caravan_held, tick_cap → stalemate.
  *
- * DEPTH_METRIC (chunk 13; tunable shape, documented for the UI in one sentence):
- *   "How far the deepest raider got: the share of its straight-line distance to the core
- *    that it closed."
- * For every attacker, start = its distance from where it spawned to the core, closest =
- * the smallest distance it was ever at, both measured from its centre to the nearest point
- * of the core block (0 on a core cell) and sampled at the end of every tick it was alive
- * for (including the tick it died on). Its depth is floor(1024 × (start − closest) / start);
- * the fight's depth is the largest over the attackers, an integer 0..1024 (DEPTH_SCALE,
- * fixed-point: 1024 = the core). An overrun is 1024 by construction (the arriving unit's
- * distance is 0). Distances are integers via isqrt (floor √); no float, no sqrt.
+ * DEPTH_METRIC (chunk 13, RESOLVER_VERSION 8 — QA-13 D1; tunable shape, one sentence for the UI):
+ *   "How far the deepest raider got inside the wagon circle: the share of the distance from
+ *    the ring's outer edge to the core that it closed."
+ * Distance is the Chebyshev distance from a raider's centre to the core block (0 on a core
+ * cell): max(|dx|, |dy|) to the block's nearest edge, integer fixed-point. The ring's outer
+ * edge is at exactly RING_SPAN = (PERIMETER_RING_RADIUS − ⌊CORE_SIZE / 2⌋) cells by that
+ * measure on all four sides, so "inside the ring line" is `distance < RING_SPAN`. A raider's
+ * depth is floor(1024 × (RING_SPAN − closest) / RING_SPAN) where `closest` is the smallest
+ * distance it was sampled at; a raider that never crossed the ring line contributes 0. The
+ * fight's depth is the largest over the attackers, an integer 0..1024 (DEPTH_SCALE,
+ * fixed-point: 1024 = the core). Before v8 depth was counted from the raider's spawn on the
+ * field edge, which saturated (reaching the fence was already ≈ 0.77).
+ * DEPTH_SAMPLE (QA-13 S2): a raider is sampled only where it STOOD ALIVE — right after its own
+ * movement in phase 3 (it is alive to move; an arrival there is logged as `core_reached`), right
+ * after a dash its traps left it alive from, at the end of every tick it ends alive, and on its
+ * arrival tick. A dash its own traps kill (chunk 12 QA B1: it never reaches the dash end) is
+ * sampled at the trap that stopped it, never at the dash end — and never at distance 0, because
+ * only an arrival is the core. So depth 1024 ⇔ an arrival ⇔ caravan_overrun; a held fight's
+ * depth is always below DEPTH_SCALE (fightDepth also clamps it, defensively).
  * Fence segments broken and posted units killed are NOT added in: a composite cannot be
  * previewed or explained in a sentence (chunk 13 asks for one), and both already show up
  * as distance — a raider gets deep by breaking through and by outliving the posts.
@@ -36,8 +45,8 @@
  * the trip's Coin transfer + the party win instead) is computed by the server from them and
  * the encounter's Coin value, and credited there or not at all. The resolver never sees Coin.
  */
-import { CORE_ORIGIN, CORE_SIZE } from "./battlefield.js";
-import { FIXED_POINT_SCALE, isqrt } from "./fixed.js";
+import { CORE_ORIGIN, CORE_SIZE, PERIMETER_RING_RADIUS } from "./battlefield.js";
+import { FIXED_POINT_SCALE } from "./fixed.js";
 import type { SimState, UnitState } from "./state.js";
 
 /** Why the loop stopped (internal vocabulary). */
@@ -80,28 +89,53 @@ export function coreDistSq(x: number, y: number): number {
   return dx * dx + dy * dy;
 }
 
-/** Record this tick's sample for the depth metric. Every attacker that was alive for this tick. */
+/**
+ * RING_SPAN: the Chebyshev distance from the core block to the ring's outer edge, fixed-point.
+ * With the v1 lattice (core 14..16, ring 11..19) it is 3 cells on every side.
+ */
+export const RING_SPAN = (PERIMETER_RING_RADIUS - Math.trunc(CORE_SIZE / 2)) * FIXED_POINT_SCALE;
+
+/** Chebyshev distance from a fixed-point position to the core block (0 on a core cell). */
+export function coreDistCheb(x: number, y: number): number {
+  const dx = x < CORE_LO_X ? CORE_LO_X - x : x > CORE_HI_X ? x - CORE_HI_X : 0;
+  const dy = y < CORE_LO_Y ? CORE_LO_Y - y : y > CORE_HI_Y ? y - CORE_HI_Y : 0;
+  return dx > dy ? dx : dy;
+}
+
+/** One DEPTH_SAMPLE for an attacker at (x, y), where it stood alive (see header). */
+export function sampleUnitDepth(u: UnitState, x: number, y: number): void {
+  const d = coreDistCheb(x, y);
+  if (d < u.coreClosest) u.coreClosest = d;
+}
+
+/**
+ * A dash its own traps killed (abilities.ts): sampled at the trap that stopped it, one fixed-point
+ * unit short of the core at the least — it did not arrive, so it is not the core.
+ */
+export function sampleStoppedDash(u: UnitState, trapX: number, trapY: number): void {
+  const d = coreDistCheb(trapX, trapY);
+  const stopped = d > 0 ? d : 1;
+  if (stopped < u.coreClosest) u.coreClosest = stopped;
+}
+
+/** The end-of-tick DEPTH_SAMPLE (see header): every attacker that ended the tick alive, or reached the core on it. */
 export function sampleDepth(state: SimState): void {
   for (let id = 0; id < state.attackerCount; id++) {
     const u = state.units[id]!;
-    if (!u.alive && u.diedTick !== state.tick) continue;
-    const d = coreDistSq(u.x, u.y);
-    if (d < u.coreClosestSq) u.coreClosestSq = d;
+    if (!u.alive && u.reachedCoreTick !== state.tick) continue;
+    sampleUnitDepth(u, u.x, u.y);
   }
 }
 
-/** One attacker's depth, 0..DEPTH_SCALE. */
+/** One attacker's depth, 0..DEPTH_SCALE: the share of RING_SPAN it closed (0 outside the ring line). */
 export function unitDepth(u: UnitState): number {
-  const start = isqrt(u.coreStartSq);
-  if (start <= 0) return DEPTH_SCALE;
-  const closest = isqrt(u.coreClosestSq);
-  const closed = start - closest;
-  if (closed <= 0) return 0;
-  const d = Math.floor((closed * DEPTH_SCALE) / start);
+  const closest = u.coreClosest;
+  if (closest >= RING_SPAN) return 0;
+  const d = Math.floor(((RING_SPAN - closest) * DEPTH_SCALE) / RING_SPAN);
   return d > DEPTH_SCALE ? DEPTH_SCALE : d;
 }
 
-/** The fight's depth and who set it. An overrun is always DEPTH_SCALE. */
+/** The fight's depth and who set it. An overrun is always DEPTH_SCALE; any other outcome is below it. */
 export function fightDepth(state: SimState, end: EndReason): { depth: number; deepestUnit: number } {
   let depth = 0;
   let deepest = -1;
@@ -118,7 +152,9 @@ export function fightDepth(state: SimState, end: EndReason): { depth: number; de
       if (state.units[id]!.reachedCoreTick >= 0) return { depth: DEPTH_SCALE, deepestUnit: id };
     }
   }
-  return { depth, deepestUnit: deepest };
+  // DEPTH_SAMPLE makes 1024 unreachable without an arrival (which would have ended the fight
+  // as an overrun); the clamp keeps "depth 1024 ⇔ overrun" true even if a later change broke that.
+  return { depth: depth >= DEPTH_SCALE ? DEPTH_SCALE - 1 : depth, deepestUnit: deepest };
 }
 
 /** END_CONDITIONS 1 and 2 for the tick just run (see header). */

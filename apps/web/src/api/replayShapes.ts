@@ -72,7 +72,6 @@ export const replayShape: Guard<ReplayView> = object({
   renderable: boolean(),
   reason: nullable(string({ maxLength: 2000 })),
   outcome: nullable(outcome),
-  depthExplained: string({ maxLength: 500 }),
   labels: object({ units: array(unitLabel, UNITS), fences: array(fenceLabel, FENCES), traps: array(trapLabel, TRAPS) }),
   log: opaqueLog,
 });

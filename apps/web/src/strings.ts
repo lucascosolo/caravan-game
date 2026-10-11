@@ -403,7 +403,7 @@ export const STRINGS = {
         stalemate: "Time ran out and the attackers withdrew: the caravan held.",
         caravan_overrun: "The caravan was overrun.",
       })[kind] ?? "Outcome recorded.",
-    depth: (pct: number): string => (pct >= 100 ? "The attackers reached the core." : `The attackers got ${pct}% of the way to the core.`),
+    depth: (pct: number): string => (pct >= 100 ? "The attackers reached the core." : pct <= 0 ? "No attacker got inside the wagon ring." : `The attackers got ${pct}% of the way from the wagon ring to the core.`),
     coinAccrued: (coin: number): string => `+${coin} Coin this encounter, carried unbanked.`,
     coinNone: "No Coin from this encounter.",
     killedHeading: "Killed",
@@ -979,7 +979,11 @@ export const STRINGS = {
           })[kind] ?? "Outcome recorded.",
     outcomeUnknown: "The outcome was not recorded with this fight.",
     depth: (pct: number, viewer: "caravan" | "party_owner"): string =>
-      pct >= 100 ? (viewer === "caravan" ? "The raiders reached your core." : "Your party reached the core.") : viewer === "caravan" ? `Depth: the raiders got ${pct}% of the way to your core.` : `Depth: your party got ${pct}% of the way to the core.`,
+      pct >= 100
+        ? viewer === "caravan" ? "The raiders reached your core." : "Your party reached the core."
+        : viewer === "caravan" ? `Depth: the raiders got ${pct}% of the way from your wagon ring to your core.` : `Depth: your party got ${pct}% of the way from the wagon ring to the core.`,
+    /** DEPTH_METRIC in one sentence (chunk 13 QA N5: the copy lives here; the route sends `depth.measuredFrom` and `depth.lootShare`). */
+    depthExplained: "Depth is how far the deepest raider got inside the wagon circle: the share of the distance from the ring to the core that it closed (0 if none got past the ring line). A raid on a caravan that held earns its owner that share to the power 1.5 of the encounter's loot.",
     deepest: (name: string): string => `Deepest: ${name}.`,
     lootCaravan: (coin: number): string => `Loot reported for the raiding party's owner: ${coin} Coin. Your own Coin from this encounter is in its results.`,
     lootOwner: (coin: number): string => `Your party's loot from this fight: ${coin} Coin, as reported. What was credited is in your results feed.`,

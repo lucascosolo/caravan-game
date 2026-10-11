@@ -105,3 +105,18 @@ GRANT EXECUTE ON FUNCTION
   resolution_job_park(text, integer, text, text),
   resolution_job_requeue(text, integer, text)
 TO caravan_app;
+
+-- ---------------------------------------------------------------------------------
+-- Replays are written once, by the resolution path only (QA-13 S4, migration 016)
+-- ---------------------------------------------------------------------------------
+-- encounter_log: no direct INSERT, UPDATE or DELETE for the app role. A replay is written by
+-- encounter_log_write() (fenced on the job's live lease, checked against the job by the insert
+-- guard) and leaves only through encounter_log_prune() (the retention rule, on the database
+-- clock and the constant encounter_log_retention row). Both run as the owner (SECURITY
+-- DEFINER). The retention row itself is read-only for the app.
+REVOKE INSERT, UPDATE, DELETE ON TABLE encounter_log FROM caravan_app;
+REVOKE INSERT, UPDATE, DELETE ON TABLE encounter_log_retention FROM caravan_app;
+GRANT EXECUTE ON FUNCTION
+  encounter_log_write(text, text, integer, uuid, uuid, uuid, integer, integer, text, bytea, integer, text, text, text, text, text),
+  encounter_log_prune(uuid)
+TO caravan_app;

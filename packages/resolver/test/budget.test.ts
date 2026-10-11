@@ -35,16 +35,22 @@ describe("budgets", () => {
     const time = (f: () => unknown, runs: number) => {
       f();
       const times: number[] = [];
+      // CPU time of this process (vitest runs each file in its own forked worker), not wall time:
+      // the bound is the resolver's cost, and a runner loaded by other test files (QA-13 S6) must
+      // not fail it. The bounds are unchanged.
       for (let i = 0; i < runs; i++) {
-        const start = performance.now();
+        const start = process.cpuUsage();
         f();
-        times.push(performance.now() - start);
+        const used = process.cpuUsage(start);
+        times.push((used.user + used.system) / 1000);
       }
       return times.sort((a, b) => a - b);
     };
     const full = time(() => resolve(clone(fullLoadFullLength())), 5);
-    const real = time(() => resolve(clone(fullLoadScenario())), 7);
-    const cap = time(() => runToCap(clone(fullLoadScenario())), 7);
+    // Best of 15 for the ~0.1 s fights (QA-13 S6: the suite runs this file beside the 100× harness on
+    // every core; the minimum of more short runs is the load-robust estimate, the bound is unchanged).
+    const real = time(() => resolve(clone(fullLoadScenario())), 15);
+    const cap = time(() => runToCap(clone(fullLoadScenario())), 15);
     process.stdout.write(`resolve time: full-length full load best ${full[0]!.toFixed(1)} ms; full load (ends at arrival) best ${real[0]!.toFixed(1)} ms; full load forced to 3600 ticks best ${cap[0]!.toFixed(1)} ms\n`);
     expect(full[0]!).toBeLessThan(300);
     expect(real[0]!).toBeLessThan(100);

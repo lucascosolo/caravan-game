@@ -3,8 +3,11 @@
  *   - Lossless, versioned, self-sufficient: decoding gives back the resolver's log exactly; the
  *     labels carry every entity; keyframes fall on the fixed schedule; seeking works.
  *   - Fails LOUDLY: a truncated, padded, reordered or edited log throws ReplayError — never a
- *     plausible-looking wrong fight. Even an edit that recomputes count and checksum is caught,
- *     because the reader plays the fight through and checks every keyframe.
+ *     plausible-looking wrong fight. v2's seal covers the WHOLE log (QA-13 S3: header, outcome,
+ *     labels, every row), and an edit that recomputes count and seal is still caught when the
+ *     rows contradict each other (HP arithmetic, an archetype that is not the caster's) or the
+ *     keyframes. What a re-sealed edit leaves consistent (a retarget, a hit credited to another
+ *     live raider, a relabelled type) only the server's sha256 can catch: trip-resolver.test.ts.
  *   - Interpolation has not become simulation: the reader imports nothing from the simulation
  *     and has no branch that decides a hit, a target, a death or a turn.
  */
@@ -12,15 +15,17 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { REPLAY_FORMAT_VERSION, ReplayError, encodeReplay, expectedKeyframeTicks, readReplay, replayChecksum, resolve, type ReplayLog, type ReplayRow } from "../src/index.js";
+import { ABILITY_ARCHETYPES, REPLAY_FORMAT_VERSION, ReplayError, encodeReplay, expectedKeyframeTicks, readReplay, replaySeal, resolve, type ReplayLog, type ReplayRow } from "../src/index.js";
 import { clone, fullLoadScenario, scenarios } from "./fixtures.js";
 
 const srcDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src");
 const stored = (log: ReplayLog): ReplayLog => JSON.parse(JSON.stringify(log)) as ReplayLog;
-/** Re-seal an edited log: count and checksum recomputed, so only the reader's play-through can catch it. */
-const reseal = (log: ReplayLog, events: ReplayRow[]): ReplayLog => ({ ...log, events, count: events.length, check: replayChecksum(events) });
+/** Re-seal an edited log (count and the whole-log seal recomputed), so only the reader's own checks can catch it. */
+/** replaySeal never reads `check`, so sealing the edited log as it stands is the forger's recomputation. */
+const resealed = (log: ReplayLog): ReplayLog => ({ ...log, check: replaySeal(log) });
+const reseal = (log: ReplayLog, events: ReplayRow[]): ReplayLog => resealed({ ...log, events, count: events.length });
 
-describe("LOG_FORMAT v1", () => {
+describe("LOG_FORMAT v2", () => {
   const out = resolve(fullLoadScenario());
   const log = stored(encodeReplay(out));
 
@@ -28,7 +33,7 @@ describe("LOG_FORMAT v1", () => {
     expect(log).toMatchObject({ format: "caravan-replay", v: REPLAY_FORMAT_VERSION, resolverVersion: out.resolverVersion, tickRate: 20, tickCap: 3600, keyframeInterval: 100, ticks: out.ticks });
     expect(log.outcome).toEqual({ kind: out.outcome.kind, end: out.end, endTick: out.ticks - 1, depth: out.outcome.depth, deepestUnit: out.outcome.deepestUnit });
     expect(log.units.map((u) => u.u)).toEqual(out.units.map((u) => u.id));
-    expect(log.units[0]).toEqual({ u: 0, side: "attacker", ref: out.units[0]!.ref, typeId: out.units[0]!.typeId, level: out.units[0]!.mergeLevel, maxHp: out.units[0]!.maxHp, hp: out.units[0]!.startHp });
+    expect(log.units[0]).toEqual({ u: 0, side: "attacker", ref: out.units[0]!.ref, typeId: out.units[0]!.typeId, level: out.units[0]!.mergeLevel, maxHp: out.units[0]!.maxHp, hp: out.units[0]!.startHp, ab: ABILITY_ARCHETYPES.indexOf(out.units[0]!.ability) });
     expect(log.fences).toHaveLength(28);
     expect(log.traps.every((t) => Number.isSafeInteger(t.x) && Number.isSafeInteger(t.y))).toBe(true);
     expect(log.count).toBe(log.events.length);
@@ -79,14 +84,15 @@ describe("a corrupted or truncated log fails loudly", () => {
     refuses(reseal(log, events.slice(0, -1)), /keyframes at ticks|truncated/);
     refuses(reseal(log, events.slice(0, Math.floor(events.length / 2))), /keyframes at ticks|truncated/);
     expect(() => JSON.parse(JSON.stringify(log).slice(0, 5000))).toThrow();
-    refuses({ ...log, ticks: log.ticks + 50 }, /endTick|keyframes|truncated/);
+    refuses({ ...log, ticks: log.ticks + 50 }, /seal|endTick/);
+    refuses(resealed({ ...log, ticks: log.ticks + 50 }), /endTick|keyframes|truncated/);
   });
 
-  it("altered: an edited number breaks the checksum; re-sealed, the play-through catches it at the next keyframe", () => {
+  it("altered: an edited number breaks the seal; re-sealed, the play-through catches it at the next keyframe", () => {
     const spawn = events.findIndex((r) => r[1] === "s" && r[2] === out.units.length - 1);
     const edited = events.map((r) => [...r]) as (number | string)[][];
     (edited[spawn]![3] as number) += 512; // move a post's spawn half a cell
-    refuses({ ...log, events: edited }, /checksum/);
+    refuses({ ...log, events: edited }, /seal/);
     refuses(reseal(log, edited), /diverges from the keyframe|disagrees/);
     // A hit removed (HP no longer adds up at the keyframe): the last hit on its victim before a keyframe.
     const hit = events.findIndex((r, i) => {
@@ -98,7 +104,7 @@ describe("a corrupted or truncated log fails loudly", () => {
       return false;
     });
     expect(hit).toBeGreaterThanOrEqual(0);
-    refuses(reseal(log, events.filter((_, i) => i !== hit)), /diverges|disagrees/);
+    refuses(reseal(log, events.filter((_, i) => i !== hit)), /diverges|disagrees|states hp/);
     // A death removed (a fight with deaths: the healers' full-length fight).
     const healers = stored(encodeReplay(resolve(scenarios().find((s) => s.name === "abilities-healers-full-length")!.input)));
     const hEvents = healers.events.map((r) => [...r]) as ReplayRow[];
@@ -114,16 +120,114 @@ describe("a corrupted or truncated log fails loudly", () => {
   });
 
   it("malformed or from an unknown format version: refused, never guessed at", () => {
-    refuses({ ...log, v: 2 }, /not readable by this reader/);
+    refuses({ ...log, v: 1 }, /not readable by this reader/);
+    refuses({ ...log, v: 3 }, /not readable by this reader/);
     refuses({ ...log, format: "other" }, /format/);
     // An outcome that does not match the events: claimed held (wiped) while raiders were alive and one reached the core.
-    refuses({ ...log, outcome: { ...log.outcome, kind: "caravan_held", end: "party_wiped" } }, /outcome .* the log shows/);
-    refuses({ ...log, ticks: log.tickCap, outcome: { ...log.outcome, kind: "stalemate", end: "tick_cap", endTick: log.tickCap - 1 } }, /keyframes|past the last|outcome/);
+    refuses(resealed({ ...log, outcome: { ...log.outcome, kind: "caravan_held", end: "party_wiped" } }), /outcome .* the log shows|depth 1024/);
+    refuses(resealed({ ...log, outcome: { ...log.outcome, kind: "caravan_held", end: "party_wiped", depth: 1000 } }), /outcome .* the log shows/);
+    refuses(resealed({ ...log, ticks: log.tickCap, outcome: { ...log.outcome, kind: "stalemate", end: "tick_cap", endTick: log.tickCap - 1, depth: 0 } }), /keyframes|past the last|outcome/);
     refuses(reseal(log, [...events.slice(0, 3), [0, "zz", 1], ...events.slice(3)]), /unknown code/);
     refuses(reseal(log, [...events.slice(0, 3), [0, "x", 0, 99, 1, 1], ...events.slice(3)]), /unit/);
     refuses(reseal(log, [...events.slice(0, 3), [0, "h", 0], ...events.slice(3)]), /must have 4 fields/);
     refuses(null, /object/);
-    refuses({ ...log, outcome: { ...log.outcome, kind: "caravan_overrun", end: "core_overrun", depth: 512 } }, /depth/);
+    refuses(resealed({ ...log, outcome: { ...log.outcome, kind: "caravan_overrun", end: "core_overrun", depth: 512 } }), /depth/);
+  });
+});
+
+/**
+ * QA-13 S3: the twelve edits the review made, by field class. v1 accepted every one of them (the
+ * first seven with no re-seal at all). Each must now throw, or — where a re-sealed edit leaves
+ * the rows consistent — be named here as the server's to catch (sha256 vs the job's result).
+ */
+describe("QA-13 S3: the seal covers the whole log; re-sealed edits that contradict the rows are refused", () => {
+  const out = resolve(scenarios().find((s) => s.name === "abilities-all-six-both-sides")!.input);
+  const log = stored(encodeReplay(out));
+  const refuses = (bad: unknown, why: RegExp) => {
+    expect(() => readReplay(bad)).toThrow(ReplayError);
+    expect(() => readReplay(bad)).toThrow(why);
+  };
+  const withUnit = (i: number, patch: Record<string, unknown>): ReplayLog => ({ ...log, units: log.units.map((u, k) => (k === i ? { ...u, ...patch } : u)) }) as ReplayLog;
+  const rowsWith = (edit: (rows: (number | string)[][]) => void): ReplayRow[] => {
+    const rows = log.events.map((r) => [...r]);
+    edit(rows);
+    return rows;
+  };
+  const other = log.units.find((u) => u.typeId !== log.units[0]!.typeId)!;
+
+  it("the log as encoded reads", () => {
+    expect(readReplay(log).events).toHaveLength(out.log.length);
+  });
+
+  it("unsealed: typeId, level + maxHp, side, trap position, outcome.deepestUnit, resolverVersion, tickRate — each breaks the seal", () => {
+    refuses(withUnit(0, { typeId: other.typeId }), /seal/);
+    refuses(withUnit(0, { level: 5, maxHp: log.units[0]!.maxHp * 10 }), /seal/);
+    const def = log.units.findIndex((u) => u.side === "defender");
+    refuses(withUnit(def, { side: "attacker" }), /seal/);
+    expect(log.traps.length).toBeGreaterThan(0);
+    refuses({ ...log, traps: log.traps.map((t, k) => (k === 0 ? { ...t, x: t.x + 3 * 1024 } : t)) }, /seal/);
+    refuses({ ...log, outcome: { ...log.outcome, deepestUnit: (log.outcome.deepestUnit + 1) % log.units.length } }, /seal/);
+    refuses({ ...log, resolverVersion: 1 }, /seal/);
+    refuses({ ...log, tickRate: 40 }, /seal/);
+    // And a key the seal does not cover is refused outright, wherever it is put.
+    refuses(resealed({ ...log, note: "x" } as unknown as ReplayLog), /unknown key/);
+    refuses(resealed(withUnit(0, { displayName: "x" })), /unknown key/);
+    refuses(resealed({ ...log, outcome: { ...log.outcome, loot: 5 } } as unknown as ReplayLog), /unknown key/);
+  });
+
+  it("re-sealed: hit damage ×100, fence-hit damage ×100, trap damage ×100 (hp unchanged) — the HP arithmetic refuses each", () => {
+    const at = (code: string) => log.events.findIndex((r) => r[1] === code && (r[code === "tf" ? 4 : 4] as number) > 0);
+    const x = at("x");
+    expect(x).toBeGreaterThanOrEqual(0);
+    refuses(reseal(log, rowsWith((r) => void ((r[x]![4] as number) *= 100))), /states hp/);
+    const fhLog = stored(encodeReplay(resolve(scenarios().find((s) => s.name === "combat-full-load-16v8v28")!.input)));
+    const fh = fhLog.events.findIndex((r) => r[1] === "fh");
+    expect(fh).toBeGreaterThanOrEqual(0);
+    const fhRows = fhLog.events.map((r) => [...r]);
+    (fhRows[fh]![4] as number) *= 100;
+    refuses(reseal(fhLog, fhRows), /states hp/);
+    const tfScenario = scenarios().map((s) => stored(encodeReplay(resolve(clone(s.input))))).find((l) => l.events.some((r) => r[1] === "tf" && (r[4] as number) > 0 && (r[5] as number) > 0))!;
+    const tf = tfScenario.events.findIndex((r) => r[1] === "tf" && (r[4] as number) > 0 && (r[5] as number) > 0);
+    const tfRows = tfScenario.events.map((r) => [...r]);
+    (tfRows[tf]![4] as number) *= 100;
+    refuses(reseal(tfScenario, tfRows), /states hp/);
+  });
+
+  it("re-sealed: an ability row with another archetype index is refused (not the caster's ability); a dead unit cannot act", () => {
+    const abLog = scenarios().map((s) => stored(encodeReplay(resolve(clone(s.input))))).find((l) => l.events.some((r) => r[1] === "ab"))!;
+    const ab = abLog.events.findIndex((r) => r[1] === "ab");
+    expect(ab).toBeGreaterThanOrEqual(0);
+    const abRows = abLog.events.map((r) => [...r]);
+    abRows[ab]![3] = ((abRows[ab]![3] as number) + 1) % ABILITY_ARCHETYPES.length;
+    refuses(reseal(abLog, abRows), /its ability is|fields|fours|targets|caster/);
+    // A hit dealt by a unit after its own death row.
+    const healers = stored(encodeReplay(resolve(scenarios().find((s) => s.name === "abilities-healers-full-length")!.input)));
+    const died = healers.events.find((r) => r[1] === "d")!;
+    const rows = healers.events.map((r) => [...r]);
+    const lastTick = rows[rows.length - 1]![0] as number;
+    const hitAfter = rows.findIndex((r) => r[1] === "x" && (r[0] as number) > (died[0] as number) && (r[0] as number) < lastTick);
+    if (hitAfter >= 0) {
+      rows[hitAfter]![2] = died[2]!;
+      refuses(reseal(healers, rows), /after its death|diverges|disagrees|states hp/);
+    }
+  });
+
+  it("re-sealed: a retarget (`tg`) or a hit credited to another LIVE raider leaves the rows consistent — the reader cannot tell; the server's sha256 does (trip-resolver.test.ts)", () => {
+    const tg = log.events.findIndex((r) => r[1] === "tg" && r[3] === 1);
+    expect(tg).toBeGreaterThanOrEqual(0);
+    const retarget = reseal(log, rowsWith((r) => void (r[tg]![4] = ((r[tg]![4] as number) + 1) % log.units.length)));
+    expect(() => readReplay(retarget)).not.toThrow();
+    expect(JSON.stringify(retarget)).not.toBe(JSON.stringify(log)); // a different text: a different sha256
+  });
+});
+
+describe("QA-13 S2: depth 1024 only with an arrival", () => {
+  it("a held fight never claims the core: the reader refuses held / stalemate at depth 1024, and no held fight in the corpus reaches it", () => {
+    for (const { name, input } of scenarios()) {
+      const o = resolve(clone(input));
+      if (o.outcome.kind !== "caravan_overrun") expect(o.outcome.depth, name).toBeLessThan(1024);
+      else expect(o.outcome.depth, name).toBe(1024);
+    }
   });
 });
 

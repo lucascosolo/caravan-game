@@ -1,17 +1,17 @@
 {
 "scenario": "abilities-same-tick-heal-vs-burst",
-"resolverVersion": 7,
+"resolverVersion": 8,
 "outcome": {"kind":"caravan_overrun","end":"core_overrun","endTick":181,"depth":1024,"deepestUnit":0},
 "ticks": 182,
 "units": [
-{"id":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","mergeLevel":1,"x":15872,"y":14344,"startHp":5000,"hp":5000,"maxHp":5000,"alive":true,"reachedCoreTick":181,"diedTick":-1},
-{"id":1,"side":"attacker","ref":"b","typeId":"desert.dust_rider","mergeLevel":1,"x":15872,"y":14344,"startHp":5000,"hp":5000,"maxHp":5000,"alive":true,"reachedCoreTick":181,"diedTick":-1},
-{"id":2,"side":"defender","ref":"h","typeId":"desert.well_digger","mergeLevel":1,"x":15872,"y":6656,"startHp":1100,"hp":0,"maxHp":1100,"alive":false,"reachedCoreTick":-1,"diedTick":61},
-{"id":3,"side":"defender","ref":"p","typeId":"desert.well_digger","mergeLevel":1,"x":15872,"y":5632,"startHp":300,"hp":0,"maxHp":1100,"alive":false,"reachedCoreTick":-1,"diedTick":39}
+{"id":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","mergeLevel":1,"ability":"burst_radius","x":15872,"y":14344,"startHp":5000,"hp":5000,"maxHp":5000,"alive":true,"reachedCoreTick":181,"diedTick":-1},
+{"id":1,"side":"attacker","ref":"b","typeId":"desert.dust_rider","mergeLevel":1,"ability":"heal_radius","x":15872,"y":14344,"startHp":5000,"hp":5000,"maxHp":5000,"alive":true,"reachedCoreTick":181,"diedTick":-1},
+{"id":2,"side":"defender","ref":"h","typeId":"desert.well_digger","mergeLevel":1,"ability":"heal_radius","x":15872,"y":6656,"startHp":1100,"hp":0,"maxHp":1100,"alive":false,"reachedCoreTick":-1,"diedTick":61},
+{"id":3,"side":"defender","ref":"p","typeId":"desert.well_digger","mergeLevel":1,"ability":"heavy_strike","x":15872,"y":5632,"startHp":300,"hp":0,"maxHp":1100,"alive":false,"reachedCoreTick":-1,"diedTick":39}
 ],
 "fences": [],
 "traps": [],
-"replay": {"format":"caravan-replay","v":1,"resolverVersion":7,"tickRate":20,"tickCap":600,"keyframeInterval":100,"ticks":182,"outcome":{"kind":"caravan_overrun","end":"core_overrun","endTick":181,"depth":1024,"deepestUnit":0},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":5000,"hp":5000},{"u":1,"side":"attacker","ref":"b","typeId":"desert.dust_rider","level":1,"maxHp":5000,"hp":5000},{"u":2,"side":"defender","ref":"h","typeId":"desert.well_digger","level":1,"maxHp":1100,"hp":1100},{"u":3,"side":"defender","ref":"p","typeId":"desert.well_digger","level":1,"maxHp":1100,"hp":300}],"fences":[],"traps":[],"count":41,"check":2592698843,"events":[
+"replay": {"format":"caravan-replay","v":2,"resolverVersion":8,"tickRate":20,"tickCap":600,"keyframeInterval":100,"ticks":182,"outcome":{"kind":"caravan_overrun","end":"core_overrun","endTick":181,"depth":1024,"deepestUnit":0},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":5000,"hp":5000,"ab":0},{"u":1,"side":"attacker","ref":"b","typeId":"desert.dust_rider","level":1,"maxHp":5000,"hp":5000,"ab":2},{"u":2,"side":"defender","ref":"h","typeId":"desert.well_digger","level":1,"maxHp":1100,"hp":1100,"ab":2},{"u":3,"side":"defender","ref":"p","typeId":"desert.well_digger","level":1,"maxHp":1100,"hp":300,"ab":1}],"fences":[],"traps":[],"count":41,"check":2498320137,"events":[
 [0,"s",0,15872,512],
 [0,"s",1,15872,512],
 [0,"s",2,15872,6656],

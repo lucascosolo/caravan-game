@@ -19,6 +19,9 @@
  * void firings skipped without spending their cooldown); 7 is chunk 13's outcomes (the three
  * end conditions stop the fight on the tick they are met — an arrival at the core, the last
  * raider dead, or the tick cap — with DEPTH_METRIC, and the versioned replay format with its
- * golden corpus).
+ * golden corpus); 8 is chunk 13's QA round 1 (DEPTH_METRIC measured from the wagon circle's
+ * ring line, not the spawn edge — D1; a raider is sampled for depth only while it ends a tick
+ * alive or on the tick it arrives, so depth 1024 ⇔ an overrun — S2; LOG_FORMAT v2 with the
+ * whole-log seal, the unit labels' ability archetype and the reader's number checks — S3).
  */
-export const RESOLVER_VERSION = 7;
+export const RESOLVER_VERSION = 8;

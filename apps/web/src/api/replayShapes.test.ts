@@ -48,7 +48,5 @@ describe("replayShape", () => {
     const labels = b["labels"] as { units: unknown[] };
     expect(refuse({ ...b, labels: { ...labels, units: Array.from({ length: 300 }, () => labels.units[0]) } })).toMatch(/^labels\.units/);
     expect(refuse({ ...b, renderable: "yes" })).toMatch(/^renderable/);
-    const { depthExplained: _d, ...noExplained } = b;
-    expect(refuse(noExplained)).toMatch(/^depthExplained/);
   });
 });
