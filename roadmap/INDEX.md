@@ -53,7 +53,7 @@ building the mirror image of this game is the easiest mistake available.
 | 09 | [Standing raid party](chunks/09-standing-raid-party.md) | The passive side: a party configured in town, never consumed, served into other players' trips, plus its results feed. | 03, 05, 07 | done |
 | 10 | [Resolver core: tick loop & movement](chunks/10-resolver-core.md) | Fixed-timestep engine, continuous fixed-point movement, lattice pathing, fence collision. **Highest-risk chunk — build and test in isolation.** | 03, 07 | done |
 | 11 | [Resolver combat: damage, traps, posted units](chunks/11-resolver-combat.md) | Cooldown-paced damage + affinity, swept-path trap triggers, posted-unit aggro/leash pursuit, siege counters. | 10 | done |
-| 12 | [Unit abilities](chunks/12-unit-abilities.md) | Six deterministic ability archetypes firing on automatic cooldowns, one per unit type. | 11 | not started |
+| 12 | [Unit abilities](chunks/12-unit-abilities.md) | Six deterministic ability archetypes firing on automatic cooldowns, one per unit type. | 11 | built |
 | 13 | [Resolver outcomes & replay](chunks/13-resolver-outcomes-and-replay.md) | End conditions, depth-scaled loot, the event/waypoint replay log, and the determinism harness. | 12 | not started |
 | 14 | [Matchmaking & scouting](chunks/14-matchmaking-and-scouting.md) | Reputation-banded selection of standing parties as encounters; 3 fully-scoutable candidates, free time-gated reroll, escalating difficulty. | 04, 09 | built |
 | 15 | [Trip loop](chunks/15-trip-loop.md) | Encounter chaining, bank/push, carry-forward attrition with no resupply, hourly trip cap. | 07, 13, 14 | not started |

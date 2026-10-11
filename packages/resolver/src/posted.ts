@@ -65,7 +65,7 @@ import { CORE_CENTER_CELL, PERIMETER_RING_RADIUS, cellOf, type FixedPoint } from
 import { unitDistSq } from "./combat.js";
 import { COST_INFINITE } from "./fixed.js";
 import type { LogEvent } from "./log.js";
-import { advance, effectiveSpeed, tickEffects } from "./move.js";
+import { advance, advanceMeasured, effectiveSpeed, tickEffects } from "./move.js";
 import { LOS_LEG_MARGIN, findPath, losClear, smoothPath, type Waypoint } from "./path.js";
 import type { SimState, UnitState } from "./state.js";
 
@@ -206,7 +206,7 @@ function routeTo(state: SimState, u: UnitState, goal: FixedPoint, pursuit: boole
  * starts within its leash (the pursuing checks ran first), so budget 0 is always feasible;
  * the search keeps the largest feasible budget it probes, which is deterministic.
  */
-function advanceWithinLeash(state: SimState, u: UnitState, budget: number): { moved: boolean; clamped: boolean } {
+export function advanceWithinLeash(state: SimState, u: UnitState, budget: number): { moved: boolean; clamped: boolean; used: number } {
   const x = u.x;
   const y = u.y;
   const waypoints = u.waypoints.slice();
@@ -227,8 +227,8 @@ function advanceWithinLeash(state: SimState, u: UnitState, budget: number): { mo
     u.pathDirty = pathDirty;
     u.sweep.length = sweepLen;
   };
-  const moved = advance(state, u, budget);
-  if (distSqToPost(u) <= u.leashSq) return { moved, clamped: false };
+  const full = advanceMeasured(state, u, budget);
+  if (distSqToPost(u) <= u.leashSq) return { moved: full.moved, clamped: false, used: full.used };
   let lo = 0;
   let hi = budget - 1;
   while (lo < hi) {
@@ -239,7 +239,9 @@ function advanceWithinLeash(state: SimState, u: UnitState, budget: number): { mo
     else hi = mid - 1;
   }
   restore();
-  return { moved: lo > 0 && advance(state, u, lo), clamped: true };
+  if (lo === 0) return { moved: false, clamped: true, used: 0 };
+  const step = advanceMeasured(state, u, lo);
+  return { moved: step.moved, clamped: true, used: step.used };
 }
 
 /** The guard behaviour for one tick. Returns whether the unit moved. */

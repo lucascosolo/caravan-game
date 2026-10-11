@@ -132,10 +132,12 @@ export function toBattlefield(manifest: Manifest, formation: Formation): Battlef
 }
 
 /**
- * The chunk 10 and 11 tunables, read from the registry and handed to the resolver as plain
+ * The chunk 10, 11 and 12 tunables, read from the registry and handed to the resolver as plain
  * input: the clock and cadences, the affinity multipliers and the matrix (content's
  * affinity.ts, copied as data), the merge multiplier table, the trap trigger radius, the
- * siege fence multiplier and the leash hysteresis.
+ * siege fence multiplier, the leash hysteresis, and (chunk 12) the ability first-use delay
+ * multiplier and the structure-breaker segment cap. Per-type ability values travel on each
+ * unit's `ability` (content data, unchanged).
  */
 export function resolverTunables(): ResolverTunables {
   return {
@@ -157,5 +159,7 @@ export function resolverTunables(): ResolverTunables {
     trapTriggerRadius: TUNABLES.TRAP_TRIGGER_RADIUS,
     siegeFenceDamageMult: TUNABLES.SIEGE_FENCE_DAMAGE_MULT,
     leashHysteresisMult: TUNABLES.LEASH_HYSTERESIS_MULT,
+    abilityFirstUseDelayMult: TUNABLES.ABILITY_FIRST_USE_DELAY_MULT,
+    structureBreakerSegmentCap: TUNABLES.STRUCTURE_BREAKER_SEGMENT_CAP,
   };
 }

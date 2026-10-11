@@ -6,11 +6,12 @@
  */
 import { describe, expect, it } from "vitest";
 import { cellCenter, initialState, normalizeInput, resolve, segmentDistSq, sweepCrosses, trapTriggerPhase, type Fixed, type FixedPoint, type LogEvent, type ResolveOutput } from "../src/index.js";
-import { DEFAULT_TUNABLES, ROOT, SHORT_TUNABLES, SLOW, battlefield, input, ms, party, post, trap, unit } from "./fixtures.js";
+import { DEFAULT_TUNABLES, ROOT, SHORT_TUNABLES, SLOW, battlefield, input, ms, party, post, quiet, trap, unit } from "./fixtures.js";
 
 const events = <K extends LogEvent["k"]>(out: ResolveOutput, k: K) => out.log.filter((e): e is Extract<LogEvent, { k: K }> => e.k === k);
 const keyframes = (out: ResolveOutput) => events(out, "keyframe");
-const PER_TICK_KEYFRAMES = { ...SHORT_TUNABLES, keyframeIntervalMs: ms(50) };
+// Chunk 12: abilities held past the cap (fixtures `quiet`) — these tests pin trap timing tick-exactly.
+const PER_TICK_KEYFRAMES = quiet({ ...SHORT_TUNABLES, keyframeIntervalMs: ms(50) });
 const p = (x: number, y: number): FixedPoint => ({ x: x as Fixed, y: y as Fixed });
 /** TRAP reach: trigger radius 768 + unit radius 358. */
 const TRAP_REACH = 768 + 358;
