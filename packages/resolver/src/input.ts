@@ -193,12 +193,19 @@ export interface ResolverTunables {
    */
   readonly abilityFirstUseDelayMult: Fixed;
   /**
-   * STRUCTURE_BREAKER_SEGMENT_CAP (×0.50 = 512): one structure-breaker hit takes at most this
-   * fraction of the segment's MAX HP (floored, then the minimum of 1), so no merge level and
-   * no siege counter lets the ability one-shot a segment of any tier (chunk 12 interaction
-   * stacking check; abilities.ts STRUCTURE_BREAKER_DAMAGE).
+   * STRUCTURE_BREAKER_FIRST_USE_MULT (×0.25 = 256, chunk 12 QA D2): the structure breaker's
+   * first firing waits floor(cooldownTicks × this) ticks instead of the general first-use
+   * delay — a breaker reaches its fence early in a fight, and FENCE_HIT_SEGMENT_CAP keeps an
+   * early swing safe. Never scaled by merge level.
    */
-  readonly structureBreakerSegmentCap: Fixed;
+  readonly structureBreakerFirstUseMult: Fixed;
+  /**
+   * FENCE_HIT_SEGMENT_CAP (×0.50 = 512, chunk 12 QA D1): one unit takes at most this fraction
+   * of a segment's MAX HP (floored, minimum 1) PER TICK, summed over all its fence hits that
+   * tick — normal, buffed, siege-multiplied and structure-breaker alike (combat.ts step 6).
+   * So a full segment of any tier needs at least two blows from one unit.
+   */
+  readonly fenceHitSegmentCap: Fixed;
 }
 
 export const AFFINITY_OUTCOMES = ["advantage", "neutral", "disadvantage"] as const;
@@ -245,7 +252,8 @@ const INPUT_KEYS = {
     "siegeFenceDamageMult",
     "leashHysteresisMult",
     "abilityFirstUseDelayMult",
-    "structureBreakerSegmentCap",
+    "structureBreakerFirstUseMult",
+    "fenceHitSegmentCap",
   ],
   abilityBase: ["archetype", "displayName", "description", "cooldown"],
 } as const;
@@ -376,7 +384,8 @@ export function assertTunables(v: unknown): asserts v is ResolverTunables {
   boundedInt(t.siegeFenceDamageMult, "tunables.siegeFenceDamageMult", 1, INPUT_BOUNDS.maxMult);
   boundedInt(t.leashHysteresisMult, "tunables.leashHysteresisMult", 0, FIXED_POINT_SCALE);
   boundedInt(t.abilityFirstUseDelayMult, "tunables.abilityFirstUseDelayMult", 0, INPUT_BOUNDS.maxMult);
-  boundedInt(t.structureBreakerSegmentCap, "tunables.structureBreakerSegmentCap", 1, FIXED_POINT_SCALE);
+  boundedInt(t.structureBreakerFirstUseMult, "tunables.structureBreakerFirstUseMult", 0, INPUT_BOUNDS.maxMult);
+  boundedInt(t.fenceHitSegmentCap, "tunables.fenceHitSegmentCap", 1, FIXED_POINT_SCALE);
 }
 
 /**
@@ -529,7 +538,8 @@ export function normalizeInput(input: ResolveInput): ResolveInput {
       siegeFenceDamageMult: input.tunables.siegeFenceDamageMult,
       leashHysteresisMult: input.tunables.leashHysteresisMult,
       abilityFirstUseDelayMult: input.tunables.abilityFirstUseDelayMult,
-      structureBreakerSegmentCap: input.tunables.structureBreakerSegmentCap,
+      structureBreakerFirstUseMult: input.tunables.structureBreakerFirstUseMult,
+      fenceHitSegmentCap: input.tunables.fenceHitSegmentCap,
     },
   };
 }

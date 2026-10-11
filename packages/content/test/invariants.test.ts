@@ -18,6 +18,8 @@ import {
   TRAP_CATEGORIES,
   TRAP_TYPES,
   TUNABLES,
+  abilityDisplay,
+  abilityFirstUseMs,
   affinityMult,
   isDeepFrozen,
   mergeStatMult,
@@ -197,6 +199,67 @@ describe("merge curve is a slot-efficiency gain, never a power gain (GUARDRAILS 
     const theoretical = (3 * (TUNABLES.MERGE_MULT_PER_LEVEL / FIXED_POINT_SCALE) ** 2) / 5;
     expect(theoretical).toBeLessThan(0.94);
     expect(worst).toBeLessThan(0.99);
+  });
+
+  it("chunk 12 QA S3: HP × effective DPS INCLUDING each type's ability stays under 5/3 per level and both recipes — every type, both roles, every opponent, every affinity", () => {
+    // The resolver's pipeline exactly: formula floor → affinity floor → merge (and, while the
+    // self buff is in force, merge × buff with ONE floor) → ability multiplier floor → min 1.
+    // Ability contribution: self buff by its duty cycle (duration / cooldown of the caster's
+    // hits carry the buffed hit); heavy strike and burst as one ability hit per interval,
+    // the interval taken both as the cooldown (steady state) and as the first-use delay
+    // (the opening of a fight). Heal, dash and breaker deal no unit damage.
+    const firstUseMult = (a: { archetype: string }): number => (a.archetype === "structure_breaker" ? TUNABLES.STRUCTURE_BREAKER_FIRST_USE_MULT : TUNABLES.ABILITY_FIRST_USE_DELAY_MULT);
+    const oneFloor = (v: number, a: number, b: number): number => Math.floor((v * a * b) / (FIXED_POINT_SCALE * FIXED_POINT_SCALE));
+    let worst = 0;
+    let worstAt = "";
+    let checks = 0;
+    for (const me of LIVING_UNIT_TYPES) {
+      const a = me.ability;
+      for (const them of LIVING_UNIT_TYPES) {
+        for (const [o, d] of [
+          [me.offense, them.defense],
+          [me.defense, them.offense],
+        ] as const) {
+          for (const aff of AFFINITY_MULTS) {
+            for (const interval of ["cooldown", "firstUse"] as const) {
+              const strength = (level: number): number => {
+                const base = scaleInt(formulaHit(o, d), aff);
+                const hit = Math.max(1, scaleInt(base, mergeStatMult(level)));
+                let dps = hit / me.attackCooldown;
+                if (a.archetype === "heavy_strike" || a.archetype === "burst_radius") {
+                  const every = interval === "cooldown" ? a.cooldown : Math.max(1, (a.cooldown * firstUseMult(a)) / FIXED_POINT_SCALE);
+                  dps += Math.max(1, scaleInt(scaleInt(base, mergeStatMult(level)), a.damageMult)) / every;
+                }
+                if (a.archetype === "self_buff") {
+                  const buffed = Math.max(1, oneFloor(base, mergeStatMult(level), FIXED_POINT_SCALE + a.damageBonus));
+                  const f = Math.min(a.duration, a.cooldown) / a.cooldown;
+                  dps = (hit * (1 - f) + buffed * f) / me.attackCooldown;
+                }
+                return hpAt(me.hp, level) * dps;
+              };
+              for (let level = TUNABLES.MERGE_LEVEL_MIN; level < TUNABLES.MERGE_LEVEL_MAX; level++) {
+                const here = strength(level);
+                const next = strength(level + 1);
+                for (const recipe of TUNABLES.MERGE_RECIPES) {
+                  const line = `${me.id} vs ${them.id} (o=${o}, d=${d}, aff ${aff}, ${interval}) L${level}→L${level + 1} ${recipe.spend}→${recipe.produce}`;
+                  expect(recipe.produce * next, line).toBeLessThan(recipe.spend * here);
+                  checks++;
+                }
+                expect(next / here).toBeLessThan(TUNABLES.MERGE_EFFECTIVE_CEILING / FIXED_POINT_SCALE);
+                if (next / here > worst) {
+                  worst = next / here;
+                  worstAt = `${me.id} (o=${o}, d=${d}, aff ${aff}, ${interval}) L${level}→L${level + 1}`;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    expect(checks).toBe(LIVING_UNIT_TYPES.length ** 2 * 2 * 3 * 2 * (TUNABLES.MERGE_LEVEL_MAX - 1) * TUNABLES.MERGE_RECIPES.length);
+    // Pinned so erosion is noticed: the one-floor buff brought the worst step from 1.6856
+    // (vulture flock, two floors) to 1.6402 (a posted gunslinger vs an offense-120 raider at disadvantage, L3→L4).
+    expect(worst, worstAt).toBeLessThan(1.65);
   });
 
   it("the raw table is ×1.25 per level and k² stays under the registry's 5/3 ceiling", () => {
@@ -589,6 +652,7 @@ describe("ability descriptions agree with the data (QA N3)", () => {
         else if (k === "healFraction" || k === "damageBonus") allowed.add(pctStr(v));
         else allowed.add(fixedStr(v)); // radius, distance, damageMult, fenceDamageMult
       }
+      allowed.add(secStr(abilityFirstUseMs(u.ability))); // QA-12 S5: the first-use line
       // Digits are stat claims and must match the data exactly. Spelled-out numbers are
       // prose ("One aimed round", "a two-handed swing") except the healer charge count,
       // which is checked below.
@@ -604,10 +668,75 @@ describe("ability descriptions agree with the data (QA N3)", () => {
     }
   });
 
-  it("chunk 12: every structure breaker states the per-segment cap, and the words match STRUCTURE_BREAKER_SEGMENT_CAP (×0.50 = 'half')", () => {
-    expect(TUNABLES.STRUCTURE_BREAKER_SEGMENT_CAP).toBe(512);
+  it("chunk 12 QA D1: every structure breaker states the per-tick fence-hit rule exactly, and 'half' matches FENCE_HIT_SEGMENT_CAP (×0.50); no description claims 'never one-shot' any more", () => {
+    expect(TUNABLES.FENCE_HIT_SEGMENT_CAP).toBe(512);
+    expect("STRUCTURE_BREAKER_SEGMENT_CAP" in TUNABLES).toBe(false);
     const breakers = LIVING_UNIT_TYPES.filter((u) => u.ability.archetype === "structure_breaker");
     expect(breakers.length).toBe(6);
-    for (const u of breakers) expect(u.ability.description, u.id).toMatch(/never more than half a segment in one blow/);
+    for (const u of breakers) expect(u.ability.description, u.id).toMatch(/; with its normal hit it takes at most half a segment's max HP per tick\./);
+    for (const u of LIVING_UNIT_TYPES) expect(u.ability.description, u.id).not.toMatch(/one blow|one-shot/);
+  });
+
+  it("chunk 12 QA S5: every description ends with its first-use line, on the resolver's tick grid (breakers ×0.25, everything else ×1.0)", () => {
+    expect(TUNABLES.STRUCTURE_BREAKER_FIRST_USE_MULT).toBe(256);
+    expect(TUNABLES.ABILITY_FIRST_USE_DELAY_MULT).toBe(1024);
+    for (const u of LIVING_UNIT_TYPES) {
+      const first = abilityFirstUseMs(u.ability);
+      const ticks = Math.max(1, Math.floor((u.ability.cooldown * TUNABLES.TICK_RATE) / 1000));
+      const mult = u.ability.archetype === "structure_breaker" ? TUNABLES.STRUCTURE_BREAKER_FIRST_USE_MULT : TUNABLES.ABILITY_FIRST_USE_DELAY_MULT;
+      expect(first, u.id).toBe((Math.floor((ticks * mult) / FIXED_POINT_SCALE) * 1000) / TUNABLES.TICK_RATE);
+      expect(u.ability.description.endsWith(` First use after ${secStr(first)} s.`), `${u.id}: '${u.ability.description}'`).toBe(true);
+      expect(abilityDisplay(u.ability, u.attackRange).firstUseSeconds).toBe(secStr(first));
+    }
+    // A 12 s breaker swings first at 3 s; a 9 s dash at 9 s.
+    expect(abilityFirstUseMs(LIVING_UNIT_TYPES.find((u) => u.id === "desert.well_digger")!.ability)).toBe(3000);
+    expect(abilityFirstUseMs(LIVING_UNIT_TYPES.find((u) => u.id === "desert.dust_rider")!.ability)).toBe(9000);
+  });
+
+  it("chunk 12 QA S5: every healer states the heal ceiling — never above the HP it started this fight with", () => {
+    const healers = LIVING_UNIT_TYPES.filter((u) => u.ability.archetype === "heal_radius");
+    expect(healers.length).toBe(4);
+    for (const u of healers) {
+      expect(u.ability.description, u.id).toMatch(/never above the HP it started this fight with/);
+      expect(abilityDisplay(u.ability, u.attackRange).healCeiling).toBe("start_of_fight_hp");
+    }
+  });
+});
+
+describe("chunk 12 QA S5: abilityDisplay gives display-ready numbers that render exactly", () => {
+  const exact = (v: number, d: number): number => v / d;
+
+  it("percentages are whole percents within 0.1 point of the stored value, and agree with the descriptions (10%, +35%)", () => {
+    for (const u of LIVING_UNIT_TYPES) {
+      const d = abilityDisplay(u.ability, u.attackRange);
+      const a = u.ability;
+      if (a.archetype === "heal_radius") {
+        expect(Math.abs(Number(d.healPercent) - exact(a.healFraction * 100, FIXED_POINT_SCALE)), u.id).toBeLessThan(0.1);
+        expect(a.description, u.id).toContain(`Restores ${d.healPercent}% max HP`);
+        expect(d.charges).toBe(a.charges);
+      } else expect(d.healPercent).toBeNull();
+      if (a.archetype === "self_buff") {
+        expect(Math.abs(Number(d.buffPercent) - exact(a.damageBonus * 100, FIXED_POINT_SCALE)), u.id).toBeLessThan(0.1);
+        expect(a.description, u.id).toContain(`+${d.buffPercent}% damage for ${d.buffSeconds} seconds`);
+      } else expect(d.buffPercent).toBeNull();
+      for (const v of Object.values(d)) if (typeof v === "string" && v !== d.archetype && v !== d.healCeiling) expect(v, u.id).toMatch(/^\d+(\.\d{1,2})?$/);
+    }
+    const carrier = abilityDisplay(LIVING_UNIT_TYPES.find((u) => u.id === "desert.canteen_carrier")!.ability, 0 as Fixed);
+    expect(carrier.healPercent).toBe("10"); // stored 102/1024 = 9.96 %
+  });
+
+  it("reachCells is radius + UNIT_RADIUS (burst, heal) or attack range + UNIT_RADIUS (strike, buff), centre to centre; null for dash and breaker", () => {
+    for (const u of LIVING_UNIT_TYPES) {
+      const a = u.ability;
+      const d = abilityDisplay(a, u.attackRange);
+      const r = a.archetype === "burst_radius" || a.archetype === "heal_radius" ? a.radius : a.archetype === "heavy_strike" || a.archetype === "self_buff" ? u.attackRange : null;
+      if (r === null) expect(d.reachCells, u.id).toBeNull();
+      else expect(Math.abs(Number(d.reachCells) - exact(r + TUNABLES.UNIT_RADIUS, FIXED_POINT_SCALE)), u.id).toBeLessThanOrEqual(0.005);
+    }
+    expect(abilityDisplay(LIVING_UNIT_TYPES.find((u) => u.id === "desert.canteen_carrier")!.ability, 0 as Fixed).reachCells).toBe("2.85");
+  });
+
+  it("the breaker's display carries the per-tick fence-hit cap as a percent", () => {
+    for (const u of LIVING_UNIT_TYPES.filter((x) => x.ability.archetype === "structure_breaker")) expect(abilityDisplay(u.ability, u.attackRange).fenceHitCapPercent).toBe("50");
   });
 });

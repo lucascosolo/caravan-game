@@ -288,7 +288,8 @@ describe("the resolver's mirrored content shapes agree with @caravan/content (ch
       siegeFenceDamageMult: 4096,
       leashHysteresisMult: 819,
       abilityFirstUseDelayMult: 1024,
-      structureBreakerSegmentCap: 512,
+      structureBreakerFirstUseMult: 256,
+      fenceHitSegmentCap: 512,
     });
     expect(t.affinityMatrix).toEqual(AFFINITY_MATRIX);
     expect(t.mergeStatMultByLevel).toEqual([...TUNABLES.MERGE_STAT_MULT_BY_LEVEL]);

@@ -2377,3 +2377,77 @@ Maker, worktree branch off `roadmap/phase-2-spec` @ 65ba73e. Chunk 20 stays `don
 E2E_WEB_PORT 4301, dev DB `caravan_dev_c20w`) 5 passed (smoke ×2, formation, town, store),
 twice; server `test/contract.test.ts` 2 passed, twice, fixtures byte-identical on the rerun;
 root `pnpm typecheck` clean. The full server suite was not re-run (no server source changed).
+### 2026-10-11 — Chunk 12 (unit abilities) QA round 1 closed: B1, D1+S1+S2, D2, S3–S5, N1–N4 — `[resolver-bump]` 5 → 6
+
+Maker in an isolated worktree off `roadmap/phase-2-spec` @ `8b360fb` (Record chunk 12 QA punch
+list). Every item `[closed]` in `roadmap/qa/12-punchlist.md` with its mechanism, test and probe
+before/after; chunk 12 Build notes updated and a "QA round 1" section added. **`RESOLVER_VERSION`
+is now 6.** What other chunks need to know:
+
+- **B1 — dash vs traps:** an attacker's dash path is tested against the traps INSIDE phase 7,
+  right after its dash (`traps.ts springTraps`, phase 4's rules), then `core_reached` only if HP
+  > 0. Log order on a dash tick: `ability`(dash) → `trap_fired`/`trap_nullified` → `core_reached`.
+- **D1 — one fence-hit rule `FENCE_HIT_SEGMENT_CAP` (×0.50):** a unit takes at most
+  max(1, floor(maxHp / 2)) from one segment per tick, normal + buffed + siege + breaker summed.
+  Siege stays ×4. Consequences: a 300-HP segment under ×4 siege now takes two blows (150 + 150)
+  instead of one; a lone segment next to a gap is walked around even with siege; the level-5
+  Buffalo Bull + stone siege takes Stacked Stone in 500 + 500 over two ticks (v5: one 1168 blow).
+- **D2 — `STRUCTURE_BREAKER_FIRST_USE_MULT` (×0.25):** breakers first fire at a quarter of their
+  cooldown; breaker firings over the QA corpus 3 → 12.
+- **Input contract:** `ResolverTunables.structureBreakerSegmentCap` is REPLACED by
+  `fenceHitSegmentCap` (512) and `structureBreakerFirstUseMult` (256) is new; the old key is
+  refused as unknown. `resolverTunables()` builds both. Any stored v5 input that carries the old
+  key will not re-resolve under v6 (the version bump already separates them).
+- **S3:** merge × buff is one product, one floor (`fixed.ts scaleInt2`); worst HP × effective DPS
+  step with abilities 1.6856 → 1.6402 (< 5/3), now a content invariant.
+- **S4 — replay (chunk 13):** a leash-clamped pursuit step is logged as
+  `{k: "disengage", why: "leash", amount}` — that tick the post moves exactly `amount` along its
+  route, not `speed`. `packages/resolver/test/replica.test.ts` reproduces every position of the
+  determinism corpus from the log alone (0 divergences, 0 keyframe mismatches).
+- **N1/N2 (ABILITY_SKIP_VOID):** cooldowns and heal charges are spent at APPLY time; a dash or self
+  buff whose caster is at 0 HP, and a heal whose every target is at 0 HP, are skipped (not logged,
+  still ready).
+
+**Scout view changes — relay to the chunk 08 / web fixer** (`PartyScoutView.units[]` =
+`ScoutUnit` from `@caravan/circle`, served by the chunk 14 scout routes). `SCOUT_VIEW_VERSION`
+unchanged (1); no field renamed or removed. One new field on every unit:
+`abilityDisplay: AbilityDisplay` (content type, built by `abilityDisplay(type.ability,
+type.attackRange)`). Always present from `scoutUnit`; typed `abilityDisplay?:` only so
+`apps/web/src/api/shapes.ts`'s `scoutUnit` guard (which strips unknown keys) still compiles —
+the web must add it to the guard to receive it. Exactly these keys, every value a display-ready
+decimal STRING (no unit, no sign, trailing zeros dropped) or `null` where the archetype has none:
+1. `archetype` — the ability archetype (same as `ability.archetype`).
+2. `cooldownSeconds` — e.g. `"9"`.
+3. `firstUseSeconds` — when it can first fire, on the tick grid: cooldown × 1.0, a breaker's
+   × 0.25 (`"3"` for a 12 s breaker).
+4. `reachCells` — centre-to-centre reach: radius + UNIT_RADIUS for burst / heal (`"2.85"` for a
+   2.5-cell heal), attack range + UNIT_RADIUS for heavy strike / self buff; `null` for dash and
+   structure breaker.
+5. `damageMultiplier` — × a normal hit for burst / heavy strike, the breaker's fence multiplier
+   before siege (`"4.5"`); else `null`.
+6. `healPercent` — whole percent of the TARGET's max HP per cast (`"10"`, `"12"`); else `null`.
+7. `healCeiling` — `"start_of_fight_hp"` for heals (never above the HP it started this fight
+   with); else `null`.
+8. `charges` — number (heal casts per fight) or `null`.
+9. `buffPercent` — whole percent damage bonus (`"35"`); else `null`.
+10. `buffSeconds` — buff length (`"4"`); else `null`.
+11. `dashCells` — dash distance (`"3.5"`); else `null`.
+12. `fenceHitCapPercent` — `"50"` on structure breakers (the per-tick fence-hit cap); else `null`.
+Content descriptions also changed (they are in `ability.description`): every one now ends
+"First use after X s.", healers read "…to each ally within R cells, never above the HP it started
+this fight with.", breakers "…; with its normal hit it takes at most half a segment's max HP per
+tick." The web should show `abilityDisplay` numbers rather than re-deriving them from the
+fixed-point `ability` (which rendered 9.96 % / 34.96 %).
+
+**Balance (PHASE-2.md §37 updated):** healing undoes 56–66 % of attrition in light encounters
+(healer circle 82.6–89.9 % vs 60.3–70.4 % with healing off) while still only 7.5–16 % in full
+fights — the N3 gate pins delta > 5 points and ≥ 30 % of the loss kept; worth a chunk 37 look.
+
+**Verification (real output):** resolver 190 passed (13 files; new `qa12.test.ts` 18,
+`replica.test.ts` 1; budget best 60.1 ms), circle 102, content 82, web 138; `pnpm typecheck`,
+`pnpm lint` (self-test 66 lines), `pnpm test:boundary` (16 src files), `pnpm determinism`
+(harness passed; no golden corpus yet) clean. Server suite not run (no DB change; no server file
+touched). The full-load budget test can exceed 100 ms under the parallel suite on a 4-core box
+(seen once at 111 ms; 60–78 ms alone).
+
+**Next:** QA re-audit of chunk 12 against the punch list; relay the scout-view fields above.

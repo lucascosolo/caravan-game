@@ -160,8 +160,14 @@ export interface UnitState {
   abilityCharges: number;
   /** self_buff: the last tick whose hits carry the buff, or −1 (never cast). */
   buffEndTick: number;
-  /** Attackers: the polyline a phase-7 dash swept, tested against traps in the NEXT tick's phase 4 (abilities.ts DASH_SPRINGS_TRAPS). */
-  pendingSweep: FixedPoint[];
+  /**
+   * Chunk 12 QA D1 — FENCE_HIT_SEGMENT_CAP bookkeeping (combat.ts step 6): the tick and fence
+   * index of this unit's last fence hit, and the damage it has dealt that segment on that
+   * tick (−1 / −1 / 0 before its first).
+   */
+  fenceHitTick: number;
+  fenceHitIndex: number;
+  fenceHitDealt: number;
 }
 
 export interface FenceState {
@@ -216,8 +222,8 @@ export interface SimState {
   /** (trapTriggerRadius + unitRadius)²: a trap fires when a swept path comes this close to its centre. */
   readonly trapReachSq: number;
   readonly siegeFenceDamageMult: Fixed;
-  /** Chunk 12 STRUCTURE_BREAKER_SEGMENT_CAP: one structure-breaker hit takes at most this fraction of a segment's max HP. */
-  readonly structureBreakerSegmentCap: Fixed;
+  /** Chunk 12 QA D1 FENCE_HIT_SEGMENT_CAP: one unit takes at most this fraction of a segment's max HP per tick, all its fence hits summed. */
+  readonly fenceHitSegmentCap: Fixed;
   tick: number;
   /** All units, index === id. */
   readonly units: UnitState[];
@@ -252,12 +258,16 @@ export function buildGrid(fences: readonly FenceState[], anchors: readonly Cell[
  * merge level — no ability field scales with merge (chunk 03 QA S1); a merged unit's ability
  * hits are larger only because its ordinary hit is (combat.ts).
  *   abilityCooldownTicks = msToTicks(cooldown)
- *   abilityReadyTick     = floor(abilityCooldownTicks × firstUseDelayMult / FIXED_ONE)   (ABILITY_FIRST_USE_DELAY)
+ *   abilityReadyTick     = floor(abilityCooldownTicks × firstUse / FIXED_ONE)   (ABILITY_FIRST_USE_DELAY)
+ *                          firstUse = breakerFirstUseMult for structure_breaker (QA-12 D2,
+ *                          STRUCTURE_BREAKER_FIRST_USE_MULT ×0.25), firstUseDelayMult (×1.0)
+ *                          for every other archetype — a per-ARCHETYPE value, like every
+ *                          other ability rule, never per type
  *   abilityCharges       = charges (heal_radius), −1 otherwise
  *   abilityRadiusSq      = (radius + unitRadius)² (burst_radius, heal_radius), 0 otherwise
  *   buffMult / buffTicks = FIXED_ONE + damageBonus / msToTicks(duration) (self_buff)
  */
-export function abilityFields(ability: Ability, tickRate: number, unitRadius: Fixed, firstUseDelayMult: Fixed) {
+export function abilityFields(ability: Ability, tickRate: number, unitRadius: Fixed, firstUseDelayMult: Fixed, breakerFirstUseMult: Fixed) {
   const cooldownTicks = msToTicks(ability.cooldown, tickRate);
   const radius = ability.archetype === "burst_radius" || ability.archetype === "heal_radius" ? ability.radius : null;
   return {
@@ -265,10 +275,12 @@ export function abilityFields(ability: Ability, tickRate: number, unitRadius: Fi
     abilityRadiusSq: radius === null ? 0 : fixedSq((radius + unitRadius) as Fixed),
     buffMult: (ability.archetype === "self_buff" ? FIXED_ONE + ability.damageBonus : FIXED_ONE) as Fixed,
     buffTicks: ability.archetype === "self_buff" ? msToTicks(ability.duration, tickRate) : 0,
-    abilityReadyTick: Math.floor((cooldownTicks * firstUseDelayMult) / FIXED_ONE),
+    abilityReadyTick: Math.floor((cooldownTicks * (ability.archetype === "structure_breaker" ? breakerFirstUseMult : firstUseDelayMult)) / FIXED_ONE),
     abilityCharges: ability.archetype === "heal_radius" ? ability.charges : -1,
     buffEndTick: -1,
-    pendingSweep: [] as FixedPoint[],
+    fenceHitTick: -1,
+    fenceHitIndex: -1,
+    fenceHitDealt: 0,
   };
 }
 
@@ -278,7 +290,7 @@ export function initialState(input: ResolveInput): SimState {
   const units: UnitState[] = [];
   const siegeCounters = (kind: "fence" | "trap", category: string): boolean => party.siege.some((s) => s.counters.kind === kind && s.counters.category === category);
   const common = (ability: Ability, attackRange: Fixed, attackCooldown: Millis, mergeLevel: number, pos: FixedPoint) => ({
-    ...abilityFields(ability, tunables.tickRate, tunables.unitRadius, tunables.abilityFirstUseDelayMult),
+    ...abilityFields(ability, tunables.tickRate, tunables.unitRadius, tunables.abilityFirstUseDelayMult, tunables.structureBreakerFirstUseMult),
     attackRange,
     attackRangeSq: fixedSq(attackRange),
     reachSq: fixedSq((attackRange + tunables.unitRadius) as Fixed),
@@ -411,7 +423,7 @@ export function initialState(input: ResolveInput): SimState {
     affinityMatrix: tunables.affinityMatrix,
     trapReachSq: fixedSq((tunables.trapTriggerRadius + tunables.unitRadius) as Fixed),
     siegeFenceDamageMult: tunables.siegeFenceDamageMult,
-    structureBreakerSegmentCap: tunables.structureBreakerSegmentCap,
+    fenceHitSegmentCap: tunables.fenceHitSegmentCap,
     tick: 0,
     units,
     attackerCount,

@@ -22,8 +22,8 @@ export { resolve, type EndReason, type FenceSummary, type ResolveOutput, type Tr
 export { type FenceState, type PostMode, type SimState, type Side, type Target, type TrapState, type UnitState, abilityFields, initialState, msToTicks, speedPerTick } from "./state.js";
 export { runTick, retargetPhase, pathPhase, movementPhase, attackPhase, deathPhase, breachCostFor, legOffset, planRoute, routeCost } from "./tick.js";
 export { fenceHitDamage, siegeFenceMult, trapTriggerPhase, postedUnitPhase, abilityPhase, endOfTick } from "./hooks.js";
-export { abilityHitDamage, affinityMult, breachableFence, buffActive, dealtOutput, engaged, formulaDamage, hitDamage, nearestEnemyInReach, threatInReach, unitDistSq } from "./combat.js";
+export { abilityHitDamage, affinityMult, breachableFence, buffActive, dealtOutput, engaged, fenceHitCap, fenceHitRoom, formulaDamage, hitDamage, landFenceHit, nearestEnemyInReach, threatInReach, unitDistSq } from "./combat.js";
 export { advance, advanceMeasured, effectiveSpeed, tickEffects } from "./move.js";
-export { segmentDistSq, sweepCrosses } from "./traps.js";
+export { segmentDistSq, springTraps, sweepCrosses } from "./traps.js";
 export { acquireTarget, advanceWithinLeash, attackerInsideRing, planPostedRoute, pursuitRouteInBounds } from "./posted.js";
 export { canDash, strikeTarget, structureBreakerDamage } from "./abilities.js";

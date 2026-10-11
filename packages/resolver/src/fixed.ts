@@ -54,6 +54,21 @@ export function scaleInt(value: number, mult: Fixed): number {
   return Math.floor((value * mult) / FIXED_POINT_SCALE);
 }
 
+/**
+ * Apply TWO fixed-point multipliers to a plain integer with ONE floor (chunk 12 QA S3: the
+ * self buff multiplies the pre-floor merged product): floor(value × a × b / SCALE²), exact
+ * for non-negative operands. value × a × b can exceed 2^53 at the input bounds (value ≤
+ * 6.4 × 10⁷, a, b ≤ ×65), so it is evaluated as floor((value × ⌊ab/S⌋ + ⌊value × (ab mod S)
+ * / S⌋) / S) — the nested-floor identity ⌊(S·A + B) / S²⌋ = ⌊(A + ⌊B / S⌋) / S⌋ — with every
+ * intermediate product below 2^53.
+ */
+export function scaleInt2(value: number, a: Fixed, b: Fixed): number {
+  const ab = a * b;
+  const q = Math.floor(ab / FIXED_POINT_SCALE);
+  const r = ab - q * FIXED_POINT_SCALE;
+  return Math.floor((value * q + Math.floor((value * r) / FIXED_POINT_SCALE)) / FIXED_POINT_SCALE);
+}
+
 /** Square a fixed-point length so it can be compared with a squared distance. */
 export function fixedSq(length: Fixed): number {
   return length * length;

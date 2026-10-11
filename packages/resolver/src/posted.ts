@@ -58,7 +58,10 @@
  * within it (a binary search re-running the same leg rule from a snapshot; pure), and the
  * unit disengages `leash` in the same phase — it has hit the leash limit — so it never
  * stands, or fires, from beyond its leash. A step that ends EXACTLY on the leash is not
- * clamped (inclusive leash). Oscillation at the leash boundary stays bounded: after a leash
+ * clamped (inclusive leash). LEASH_CLAMP_LOGGED (QA-12 S4): that disengage carries
+ * `amount` = the distance the shortened step covered (0 when it could not move at all), and
+ * the unit's movement on that tick is exactly `amount` along its route, not `speed` (log.ts
+ * INTERPOLATION CONTRACT). Oscillation at the leash boundary stays bounded: after a leash
  * disengage the unit walks at least (1 − hysteresis) × leash back before it can re-acquire.
  */
 import { CORE_CENTER_CELL, PERIMETER_RING_RADIUS, cellOf, type FixedPoint } from "./battlefield.js";
@@ -142,8 +145,11 @@ function setMode(u: UnitState, mode: UnitState["postMode"]): void {
   u.legLen = -1;
 }
 
-function disengage(state: SimState, u: UnitState, why: "leash" | "lost" | "dead", log: LogEvent[]): void {
-  log.push({ t: state.tick, k: "disengage", u: u.id, why });
+function disengage(state: SimState, u: UnitState, why: "leash" | "lost" | "dead", log: LogEvent[], clampedStep = -1): void {
+  // LEASH_CLAMP_LOGGED (QA-12 S4): a leash disengage caused by the clamp carries the distance
+  // the shortened step actually covered, so a replay needs no input data to reproduce it.
+  if (clampedStep >= 0) log.push({ t: state.tick, k: "disengage", u: u.id, why: "leash", amount: clampedStep });
+  else log.push({ t: state.tick, k: "disengage", u: u.id, why });
   if (why === "lost" && u.target !== null && u.target.kind === "unit") u.lostTarget = u.target.id;
   u.target = null;
   setMode(u, "returning");
@@ -266,7 +272,7 @@ function guard(state: SimState, u: UnitState, log: LogEvent[]): boolean {
     }
     routeTo(state, u, { x: v.x, y: v.y }, true, log);
     const step = advanceWithinLeash(state, u, effectiveSpeed(u));
-    if (step.clamped) disengage(state, u, "leash", log);
+    if (step.clamped) disengage(state, u, "leash", log, step.used);
     return step.moved;
   }
   if (u.postMode === "returning") {

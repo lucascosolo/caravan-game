@@ -96,14 +96,24 @@ function fireTrap(state: SimState, trap: TrapState, u: UnitState, log: LogEvent[
   log.push({ t: state.tick, k: "trap_fired", i: trap.index, u: u.id, damage, hp: u.hp, effect: applied });
 }
 
+/**
+ * Test one attacker's current sweep against every unspent trap, ascending trap index, with
+ * every rule above (TRAP_TRIGGER_TEST, TRAP_SKIPS_ZERO_HP, TRAP_FIRE, SIEGE_TRAP_NULLIFY).
+ * Phase 4 calls it for each attacker in ascending id; phase 7 calls it for an attacker's
+ * dash polyline right after the dash (abilities.ts DASH_SPRINGS_TRAPS).
+ */
+export function springTraps(state: SimState, u: UnitState, log: LogEvent[]): void {
+  for (const trap of state.traps) {
+    if (u.hp === 0) break; // TRAP_SKIPS_ZERO_HP
+    if (trap.spent) continue;
+    if (sweepCrosses(u.sweep, trap.pos, state.trapReachSq)) fireTrap(state, trap, u, log);
+  }
+}
+
 export function trapTriggerPhase(state: SimState, log: LogEvent[]): void {
   for (let id = 0; id < state.attackerCount; id++) {
     const u = state.units[id]!;
     if (!u.alive) continue;
-    for (const trap of state.traps) {
-      if (u.hp === 0) break; // TRAP_SKIPS_ZERO_HP
-      if (trap.spent) continue;
-      if (sweepCrosses(u.sweep, trap.pos, state.trapReachSq)) fireTrap(state, trap, u, log);
-    }
+    springTraps(state, u, log);
   }
 }

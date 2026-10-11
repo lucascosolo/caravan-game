@@ -34,6 +34,11 @@
  *     reflected by `hold`, which stays authoritative for "did not move".
  *   - Posted units (chunk 11) move too, with the same `path` / `hold` / `speed` events, from
  *     the tick they acquire a target; before that they stand at their spawn position.
+ *   - `disengage` with `why: "leash"` and an `amount` (chunk 12 QA S4, posted.ts
+ *     LEASH_CLAMP_LOGGED): on that tick the posted unit's own movement is exactly `amount`
+ *     along its route by the leg rule (not `speed`; 0 = it did not move) — the leash clamp
+ *     shortened its step. A `disengage` without `amount` changes nothing about that tick's
+ *     movement. Either way its route is replaced by the next `path` event (its walk home).
  *   - `ability` with `a: "dash"` (chunk 12) at tick t is a MOVEMENT LEG of its own: after the
  *     unit's tick-t movement (phase 3 for attackers, phase 5 for posted units) it advances
  *     `tg[0].amount` further along its CURRENT route by exactly the leg rule above — same
@@ -42,6 +47,10 @@
  *     on the same leg. It is applied whatever `hold` says (`hold` describes the unit's own
  *     movement phase only) and is never re-stated by a `path` event. A dash never enters an
  *     intact fence or anchor cell (the route never crosses one; a breach waypoint stops it).
+ *     The test `replica.test.ts` reproduces every tick's positions from the log alone over
+ *     the whole determinism corpus. An attacker's dash is tested against the traps at once (chunk 12 QA B1): any
+ *     `trap_fired` / `trap_nullified` for it follows the dash event in the same tick, and a
+ *     `core_reached` follows only those, only if the unit survived them.
  *   - Other `ability` events move nothing. HP changes they cause are in `tg[i].hp` (units) or
  *     the fence's `hp`; a structure-breaker kill is followed by `fence_broken` in phase 8.
  *   - `keyframe` carries authoritative positions for seeking and for detecting a truncated
@@ -81,22 +90,24 @@ export type LogEvent =
   | { readonly t: number; readonly k: "path"; readonly u: number; readonly speed: number; readonly wp: readonly (readonly [number, number, number])[] }
   /** Phase 3 (attackers) / phase 5 (posted units): the unit stopped (target in range, arrived, breaching, no route) / resumed. */
   | { readonly t: number; readonly k: "hold"; readonly u: number; readonly holding: boolean }
-  /** Phase 3: the unit first stood on a core cell. */
+  /** Phase 3, or phase 7 after a dash that its traps did not bring to 0 HP (chunk 12 QA B1): the unit first stood on a core cell. */
   | { readonly t: number; readonly k: "core_reached"; readonly u: number }
   /** Phase 6: a breach hit on a fence segment. `hp` is the segment's HP after the hit. */
   | { readonly t: number; readonly k: "fence_hit"; readonly u: number; readonly f: number; readonly damage: number; readonly hp: number }
-  /** Phase 8: the segment is destroyed and no longer blocks. */
+  /** Phase 6: `damage` is already clipped to FENCE_HIT_SEGMENT_CAP (combat.ts step 6). Phase 8: the segment is destroyed and no longer blocks. */
   | { readonly t: number; readonly k: "fence_broken"; readonly f: number }
   /** Phase 3/4 (chunk 11): the unit's per-tick speed changes from the next tick's movement on (slow / root applied or expired). */
   | { readonly t: number; readonly k: "speed"; readonly u: number; readonly speed: number }
-  /** Phase 4 (chunk 11): trap `i` fired on unit `u`. `hp` is the unit's HP after; `effect` the status applied, if any. */
+  /** Phase 4 (chunk 11), or phase 7 right after unit `u`'s dash (chunk 12 QA B1): trap `i` fired on unit `u`. `hp` is the unit's HP after; `effect` the status applied, if any. */
   | { readonly t: number; readonly k: "trap_fired"; readonly i: number; readonly u: number; readonly damage: number; readonly hp: number; readonly effect: "slow" | "root" | null }
-  /** Phase 4 (chunk 11): trap `i` was crossed by unit `u` but the party's siege counters its category: no effect, still spent. */
+  /** Phase 4 (chunk 11), or phase 7 after a dash: trap `i` was crossed by unit `u` but the party's siege counters its category: no effect, still spent. */
   | { readonly t: number; readonly k: "trap_nullified"; readonly i: number; readonly u: number }
   /** Phase 5 (chunk 11): posted unit `u` acquired attacker `v` and begins pursuing. */
   | { readonly t: number; readonly k: "aggro"; readonly u: number; readonly v: number }
   /** Phase 5 (chunk 11): posted unit `u` dropped its pursuit — leash limit hit, target out of aggro, or target dead — and returns to its post. A pursuit with no route never disengages (posted.ts PURSUIT_ROUTE_BOUND). */
   | { readonly t: number; readonly k: "disengage"; readonly u: number; readonly why: "leash" | "lost" | "dead" }
+  /** Phase 5 (chunk 12 QA S4): a leash disengage caused by LEASH_CLAMP — this tick the unit moved exactly `amount` (fixed units along its route; 0 = did not move), not its `speed`. */
+  | { readonly t: number; readonly k: "disengage"; readonly u: number; readonly why: "leash"; readonly amount: number }
   /** Phase 5 (chunk 11): posted unit `u` is back on its post and idle. */
   | { readonly t: number; readonly k: "returned"; readonly u: number }
   /** Phase 5 (chunk 11): a `reserve` post saw attacker `v` inside the ring and now behaves as `guard`. */
@@ -105,7 +116,7 @@ export type LogEvent =
   | { readonly t: number; readonly k: "hit"; readonly u: number; readonly v: number; readonly damage: number; readonly hp: number }
   /** Phase 8 (chunk 11): the unit is dead — out of targeting, out of the fight. */
   | { readonly t: number; readonly k: "unit_died"; readonly u: number }
-  /** Phase 7 (chunk 12): unit `u`'s damage ability fired. Targets in ascending id (one for heavy_strike / structure_breaker). */
+  /** Phase 7 (chunk 12): unit `u`'s damage ability fired. Targets in ascending id (one for heavy_strike / structure_breaker; a breaker's `amount` is clipped to FENCE_HIT_SEGMENT_CAP). */
   | { readonly t: number; readonly k: "ability"; readonly u: number; readonly a: Extract<AbilityArchetype, "burst_radius" | "heavy_strike" | "structure_breaker">; readonly tg: readonly AbilityEffectLog[] }
   /** Phase 7 (chunk 12): a heal fired; `charges` is what is left in the satchel after it. */
   | { readonly t: number; readonly k: "ability"; readonly u: number; readonly a: "heal_radius"; readonly tg: readonly AbilityEffectLog[]; readonly charges: number }

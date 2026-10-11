@@ -311,10 +311,10 @@ describe("SIMULTANEOUS_DAMAGE and death resolution", () => {
 describe("siege is a counter to fences, never a buff", () => {
   it("×4 on hits against the countered fence category only; a mismatched category and a trap-counter piece change nothing", () => {
     const run = (counters: { kind: "fence" | "trap"; category: string }[], category: "timber" | "wire" | "stone") =>
-      mk(input(battlefield({ fences: [fence({ segment: 3, category })] }), party([unit({ ref: "a" })], counters.map((c, i) => ({ ref: `s${i}`, typeId: "siege.x", counters: c as never })))));
+      mk(input(battlefield({ fences: [fence({ segment: 3, category, maxHp: 1000 })] }), party([unit({ ref: "a" })], counters.map((c, i) => ({ ref: `s${i}`, typeId: "siege.x", counters: c as never })))));
     const matched = run([{ kind: "fence", category: "timber" }], "timber");
     expect(matched.fences[0]!.siegeCountered).toBe(true);
-    expect(fenceHitDamage(matched, matched.units[0]!, matched.fences[0]!)).toBe(380);
+    expect(fenceHitDamage(matched, matched.units[0]!, matched.fences[0]!)).toBe(380); // 1000-HP segment: under the 500 per-tick cap
     const mismatched = run([{ kind: "fence", category: "timber" }], "stone");
     expect(fenceHitDamage(mismatched, mismatched.units[0]!, mismatched.fences[0]!)).toBe(95);
     const trapPiece = run([{ kind: "trap", category: "groundwork" }], "timber");
@@ -326,14 +326,23 @@ describe("siege is a counter to fences, never a buff", () => {
     expect(hitDamage(withPost, withPost.units[0]!, withPost.units[1]!)).toBe(57);
   });
 
-  it("end to end: a battering wagon breaks a 300-HP timber segment in one hit instead of four, and the breach is priced accordingly", () => {
-    const field = battlefield({ fences: [fence({ segment: 3, maxHp: 300 })] });
-    const plain = resolve(input(field, party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES));
-    const siege = resolve(input(field, party([unit({ ref: "a", cell: { x: 15, y: 0 } })], [{ ref: "s", typeId: "siege.battering_wagon", counters: { kind: "fence", category: "timber" } }]), SHORT_TUNABLES));
-    // Without siege the single segment is walked around; with it the one-hit breach is cheaper than the detour.
-    expect(events(plain, "fence_hit")).toHaveLength(0);
-    expect(events(siege, "fence_hit")).toEqual([{ t: events(siege, "fence_hit")[0]!.t, k: "fence_hit", u: 0, f: 0, damage: 380, hp: 0 }]);
-    expect(siege.units[0]!.reachedCoreTick).toBeLessThanOrEqual(plain.units[0]!.reachedCoreTick);
+  it("end to end: through a sealed 300-HP timber ring a battering wagon breaches in two capped hits (150 + 150) instead of four of 95 — siege still ×4, the per-tick cap (QA-12 D1) prices the breach", () => {
+    const field = battlefield({ fences: ringExcept([], 300) });
+    const plain = resolve(input(field, party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), QUIET_SHORT_TUNABLES));
+    const siege = resolve(input(field, party([unit({ ref: "a", cell: { x: 15, y: 0 } })], [{ ref: "s", typeId: "siege.battering_wagon", counters: { kind: "fence", category: "timber" } }]), QUIET_SHORT_TUNABLES));
+    expect(events(plain, "fence_hit").map((h) => h.damage)).toEqual([95, 95, 95, 95]); // the 4th takes the last 15
+    const hits = events(siege, "fence_hit");
+    expect(hits.map((h) => [h.damage, h.hp])).toEqual([
+      [150, 150],
+      [150, 0],
+    ]);
+    expect(hits[1]!.t - hits[0]!.t).toBe(20); // two blows, one cooldown apart: never one-shot
+    // Two cooldowns (40 ticks) saved by the siege piece.
+    expect(plain.units[0]!.reachedCoreTick - siege.units[0]!.reachedCoreTick).toBe(40);
+    // A lone segment with a gap beside it: two capped blows no longer beat the walk around.
+    const lone = battlefield({ fences: [fence({ segment: 3, maxHp: 300 })] });
+    const loneSiege = resolve(input(lone, party([unit({ ref: "a", cell: { x: 15, y: 0 } })], [{ ref: "s", typeId: "siege.battering_wagon", counters: { kind: "fence", category: "timber" } }]), QUIET_SHORT_TUNABLES));
+    expect(events(loneSiege, "fence_hit")).toHaveLength(0);
   });
 });
 

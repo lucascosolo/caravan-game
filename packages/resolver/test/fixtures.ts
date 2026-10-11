@@ -56,7 +56,8 @@ export const DEFAULT_TUNABLES: ResolverTunables = {
   siegeFenceDamageMult: fx(4096), // ×4
   leashHysteresisMult: fx(819), // ×0.80
   abilityFirstUseDelayMult: fx(1024), // ×1.0: the first use waits a full cooldown
-  structureBreakerSegmentCap: fx(512), // ×0.50 of a segment's max HP per breaker hit
+  structureBreakerFirstUseMult: fx(256), // ×0.25: a breaker's first use (QA-12 D2)
+  fenceHitSegmentCap: fx(512), // ×0.50 of a segment's max HP per unit per tick, every fence hit summed (QA-12 D1)
 };
 
 /** (radius + UNIT_RADIUS)²: the REACH rule's squared threshold for the default unit radius. */
@@ -67,13 +68,14 @@ export const SHORT_TUNABLES: ResolverTunables = { ...DEFAULT_TUNABLES, battleLen
 
 /**
  * Chunk 12: the same tunables with the first ability use pushed past the tick cap
- * (abilityFirstUseDelayMult ×64, the input bound — a 9 s dash first readies at tick 11 520).
+ * (abilityFirstUseDelayMult and structureBreakerFirstUseMult ×64, the input bound — a 9 s
+ * dash first readies at tick 11 520).
  * For the chunk 10/11 tests that pin a movement or combat rule tick-exactly in isolation;
  * every unit still HAS its ability, it just never comes off its first cooldown. The fights
  * that pin ability rules use the real delay.
  */
 export function quiet(t: ResolverTunables): ResolverTunables {
-  return { ...t, abilityFirstUseDelayMult: fx(64 * 1024) };
+  return { ...t, abilityFirstUseDelayMult: fx(64 * 1024), structureBreakerFirstUseMult: fx(64 * 1024) };
 }
 export const QUIET_SHORT_TUNABLES: ResolverTunables = quiet(SHORT_TUNABLES);
 
@@ -144,7 +146,22 @@ export function abilityScenarios(): { name: string; input: ResolveInput }[] {
         { ...SHORT_TUNABLES, abilityFirstUseDelayMult: fx(0) },
       ),
     },
+    // QA-12 B1 (the reviewer's p6b_dashcore.ts): a 150-HP dasher at 1 cell/s walks south through
+    // gap 3 and dashes 3.5 cells over a lethal spike pit (199 after affinity) onto the core. Its
+    // dash path springs the pit in phase 7 of the dash tick, before any core_reached.
+    { name: "qa12-dash-over-trap-onto-core", input: qa12DashCoreInput(1138, 30) },
+    // The same with the dash on the LAST tick of a 10 s cap (tick 199): still tested.
+    { name: "qa12-dash-over-trap-tick-cap", input: qa12DashCoreInput(1133, 10) },
   ];
+}
+
+/** QA-12 B1 fixture: see abilityScenarios. `firstUse` is abilityFirstUseDelayMult (×1/1024), `capSeconds` the battle length. */
+export function qa12DashCoreInput(firstUse: number, capSeconds: number): ResolveInput {
+  return input(
+    battlefield({ fences: ringExcept([3], 300), traps: [trap("t", { x: 15, y: 13 }, { damage: 250 })] }),
+    party([unit({ ref: "a", hp: 150, stance: "core", moveSpeed: 1024 })]),
+    { ...SHORT_TUNABLES, battleLengthCapSeconds: capSeconds, abilityFirstUseDelayMult: fx(firstUse) },
+  );
 }
 
 export interface FenceSpec {
