@@ -22,6 +22,11 @@ import { TUNABLES } from "./tunables.js";
 export const PACK_TIERS = [1, 2, 3] as const;
 export type PackTier = (typeof PACK_TIERS)[number];
 
+/**
+ * Integer equality ON PURPOSE (QA-20 N4): `2.0` parses from JSON as the number 2 and is
+ * tier 2; `"2"`, `2.5`, `NaN`, `true` and `null` are not a tier. There is no coercion here
+ * and none is wanted — a tier is one of three integers, nothing is rounded toward one.
+ */
 export function isPackTier(value: unknown): value is PackTier {
   return value === 1 || value === 2 || value === 3;
 }
@@ -99,6 +104,25 @@ export function packOfferForWeek(weekIndex: number, tier: PackTier): PackOffer {
     cosmetics,
     contents: [{ kind: "coin", amount: coin }, ...cosmetics.map((c): PackContent => ({ kind: "cosmetic", cosmeticId: c.id }))],
   };
+}
+
+/**
+ * The canonical text of a contents list (QA-20 S2): one fixed key order per entry, no
+ * whitespace, entries in offer order. The server's `contentsHash` is sha256 over this, so
+ * a client can send back a fingerprint of exactly what it was shown and the purchase can
+ * refuse (`offer_changed`) if what the server would grant is no longer that. Pure string
+ * work; the hashing lives server-side.
+ */
+export function canonicalPackContents(contents: readonly PackContent[]): string {
+  return `[${contents
+    .map((c) => {
+      if (c.kind === "coin") {
+        if (!Number.isSafeInteger(c.amount)) throw new RangeError("coin amount must be a safe integer");
+        return `{"kind":"coin","amount":${c.amount}}`;
+      }
+      return `{"kind":"cosmetic","cosmeticId":${JSON.stringify(c.cosmeticId)}}`;
+    })
+    .join(",")}]`;
 }
 
 /** All three tiers for a week, tier 1 first. */

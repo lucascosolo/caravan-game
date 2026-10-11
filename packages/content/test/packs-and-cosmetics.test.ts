@@ -13,18 +13,24 @@ import {
   COSMETIC_TYPES,
   LIVING_UNIT_TYPES,
   PACK_TIERS,
+  REVIEW_PENDING_MARKER,
   TUNABLES,
   assertCosmeticsValid,
   assertPacksValid,
+  canonicalPackContents,
   cosmeticEquipSlot,
   cosmeticOfferWeeks,
   cosmeticRotationForWeek,
+  cosmeticRotationOver,
   formatPriceCents,
   getCosmeticType,
   isDeepFrozen,
   isPackContentKind,
+  isPackTier,
   packOfferForWeek,
   packOffersForWeek,
+  reviewNoteIsWellFormed,
+  rotationRank,
   rotationSeed,
   weekBounds,
   weekIndexAt,
@@ -129,15 +135,60 @@ describe("the weekly rotation is deterministic and identical for everyone", () =
     }
   });
 
-  it("the rotation is pinned: week 0 and week 1 are these exact ids (changing the draw is a visible diff)", () => {
-    // Pinned so a refactor of the PRNG or the catalog order cannot silently re-deal every
-    // past week (a stored purchase names the week it was bought in).
+  it("the rotation is pinned: week 0 is these exact ids (changing the draw is a visible diff)", () => {
+    // Pinned so a refactor of the draw cannot silently re-deal a past week (a stored purchase
+    // names the week it was bought in). DELIBERATELY RE-PINNED for QA-20 S2 (2026-10-11): the
+    // draw moved from a seeded Fisher–Yates over the whole catalog to a per-cosmetic rank,
+    // hash(week, id), so that a catalog addition never reshuffles existing weeks. The
+    // previous pin was [whitewashed], [grizzly.cinnamon, tarred_black], [weathered_grey,
+    // circus_stripe, trapper.beaver_hat]. No purchase had been made under the old draw
+    // (sandbox only, pre-release), so nothing stored names a cosmetic it no longer matches.
     expect(cosmeticRotationForWeek(0)).toEqual([
-      ["fence_style.whitewashed"],
-      ["skin.mountain.grizzly.cinnamon", "fence_style.tarred_black"],
-      ["fence_style.weathered_grey", "wagon.circus_stripe", "skin.mountain.trapper.beaver_hat"],
+      ["fence_style.tarred_black"],
+      ["skin.desert.well_digger.copper", "banner.rattlesnake_coil"],
+      ["fence_style.whitewashed", "skin.badlands.bounty_hunter.tin_star", "banner.crossed_pickaxes"],
     ]);
     expect(cosmeticRotationForWeek(1).flat()).toHaveLength(6);
+  });
+
+  it("QA-20 S2: the draw is per cosmetic — adding or removing a catalog entry never changes the relative order of the others, in any week", () => {
+    const ids = COSMETIC_TYPES.map((c) => c.id);
+    const order = (deal: readonly (readonly string[])[]) => deal.flat();
+    for (let w = -2; w < 120; w++) {
+      const full = order(cosmeticRotationOver(ids, w));
+      // Remove each id in turn: the remaining ids keep their relative order (a new entry is the
+      // same experiment read backwards).
+      for (const gone of ids) {
+        const without = order(cosmeticRotationOver(ids.filter((x) => x !== gone), w));
+        // `full` is only the dealt six, so compare the prefix those six determine: the
+        // survivors, in the same order, followed (when `gone` was dealt) by one newcomer.
+        const expected = full.filter((x) => x !== gone);
+        expect(without.slice(0, expected.length), `week ${w} without ${gone}`).toEqual(expected);
+      }
+      // Add a hypothetical new entry: everyone else keeps their relative order.
+      const plus = order(cosmeticRotationOver([...ids, "zz.hypothetical.new_entry"], w));
+      expect(plus.filter((x) => x !== "zz.hypothetical.new_entry")).toEqual(full.slice(0, plus.filter((x) => x !== "zz.hypothetical.new_entry").length));
+      // And a rank is a pure function of (week, id): same inputs, same number, 32-bit unsigned.
+      for (const id of ids.slice(0, 3)) {
+        const r = rotationRank(w, id);
+        expect(r).toBe(rotationRank(w, id));
+        expect(Number.isInteger(r) && r >= 0 && r < 0x1_0000_0000).toBe(true);
+      }
+    }
+    // The ranks differ by week for the same id (it rotates) and by id for the same week.
+    expect(rotationRank(0, ids[0]!)).not.toBe(rotationRank(1, ids[0]!));
+    expect(rotationRank(0, ids[0]!)).not.toBe(rotationRank(0, ids[1]!));
+  });
+
+  it("QA-20 S2: canonicalPackContents is a fixed-key-order, whitespace-free text of the exact granted list", () => {
+    const o = packOfferForWeek(0, 2);
+    const text = canonicalPackContents(o.contents);
+    expect(text).toBe(`[{"kind":"coin","amount":14000},{"kind":"cosmetic","cosmeticId":"${o.cosmetics[0]!.id}"},{"kind":"cosmetic","cosmeticId":"${o.cosmetics[1]!.id}"}]`);
+    expect(JSON.parse(text)).toEqual(o.contents);
+    // Key order in the input does not matter; order of entries does.
+    expect(canonicalPackContents([{ cosmeticId: "a", kind: "cosmetic" } as never, { amount: 1, kind: "coin" } as never])).toBe('[{"kind":"cosmetic","cosmeticId":"a"},{"kind":"coin","amount":1}]');
+    expect(canonicalPackContents([...o.contents].reverse())).not.toBe(text);
+    expect(() => canonicalPackContents([{ kind: "coin", amount: 1.5 }])).toThrow(RangeError);
   });
 
   it("week arithmetic: epoch is week 0, the instant before it is week −1, and bounds are half-open", () => {
@@ -176,6 +227,23 @@ describe("cosmetics are purely visual (PHASE-2 §28)", () => {
     for (const c of COSMETIC_TYPES) walk(c, c.id);
     expect(isDeepFrozen(COSMETIC_TYPES)).toBe(true);
     expect(PACK_TIERS).toEqual([1, 2, 3]);
+  });
+
+  it("QA-20 N4: isPackTier is integer equality on purpose — 2.0 is 2, nothing else coerces", () => {
+    expect(isPackTier(2.0)).toBe(true);
+    for (const v of ["2", 2.5, 0, 4, -1, NaN, true, null, undefined, [2], { tier: 2 }]) expect(isPackTier(v), String(v)).toBe(false);
+  });
+
+  it("QA-20 N2: every review note names its reviewer and date, or says plainly that the art review is pending (chunk 26)", () => {
+    for (const c of COSMETIC_TYPES) {
+      expect(reviewNoteIsWellFormed(c.reviewNote), c.id).toBe(true);
+      // Nothing in this build has been reviewed against art yet: every note carries the marker.
+      expect(c.reviewNote, c.id).toContain(REVIEW_PENDING_MARKER);
+      expect(c.reviewNote, c.id).toMatch(/\d{4}-\d{2}-\d{2}/);
+    }
+    expect(reviewNoteIsWellFormed("Palette only. (reviewed by A. Reviewer, 2026-11-02)")).toBe(true);
+    expect(reviewNoteIsWellFormed("Palette only; identifiable at scouting zoom.")).toBe(false);
+    expect(reviewNoteIsWellFormed("reviewed by someone, sometime")).toBe(false);
   });
 
   it("ids are unique and sorted, and the equip slot is per unit type for skins and per kind otherwise", () => {

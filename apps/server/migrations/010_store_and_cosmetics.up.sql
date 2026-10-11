@@ -18,7 +18,9 @@
 --                       repairs, resupply or matchmaking rerolls, by schema. `backend` is
 --                       CHECKed to the sandbox stub: no real charge exists anywhere in this
 --                       codebase, and wiring a real one means a migration a reviewer sees.
---                       Rows are immutable and leave only with their account.
+--                       Rows are immutable and leave only with their account, except that a
+--                       row is born a RESERVATION (no receipt, nothing credited) and is
+--                       settled exactly once in place (QA-20 D2; store/purchase.ts).
 --   cosmetic_ownership  Account-level ownership of a cosmetic by id (the catalog lives in
 --                       @caravan/content). EVERY row names the purchase it came from (NOT
 --                       NULL): in v1 no cosmetic is earned from a fight outcome or anything
@@ -30,8 +32,11 @@
 --                       (packages/circle/test/no-cosmetic-field.test.ts).
 
 -- The only two things a pack may contain (TUNABLES.PACK_CONTENT_KINDS, fixed by design).
--- A 'coin' entry is {kind, amount: non-negative integer}; a 'cosmetic' entry is
--- {kind, cosmeticId: text}. Exactly those keys, nothing else, no other kind.
+-- A 'coin' entry is {kind, amount: positive integer}; a 'cosmetic' entry is
+-- {kind, cosmeticId: text}. Exactly those keys, nothing else, no other kind — and EXACTLY
+-- ONE coin entry per pack, with amount > 0 (QA-20 N1): every tier's Coin is a single fixed
+-- figure, so a contents list with no Coin, two Coin entries, or a 0-Coin entry is not a
+-- pack this game sells.
 CREATE FUNCTION pack_contents_ok(c jsonb) RETURNS boolean
 LANGUAGE sql IMMUTABLE STRICT AS $$
   SELECT jsonb_typeof(c) = 'array'
@@ -42,7 +47,7 @@ LANGUAGE sql IMMUTABLE STRICT AS $$
           OR NOT (
                (e->>'kind' = 'coin'
                   AND jsonb_is_integer(e->'amount')
-                  AND (e->>'amount')::bigint >= 0
+                  AND (e->>'amount')::bigint > 0
                   AND (SELECT count(*) FROM jsonb_object_keys(e)) = 2)
             OR (e->>'kind' = 'cosmetic'
                   AND jsonb_typeof(e->'cosmeticId') = 'string'
@@ -50,6 +55,7 @@ LANGUAGE sql IMMUTABLE STRICT AS $$
                   AND (SELECT count(*) FROM jsonb_object_keys(e)) = 2)
           )
      )
+     AND (SELECT count(*) FROM jsonb_array_elements(c) AS e WHERE e->>'kind' = 'coin') = 1
 $$;
 
 -- ---------------------------------------------------------------------------------
@@ -61,7 +67,10 @@ CREATE TABLE pack_purchase (
   tier            smallint    NOT NULL,
   -- LOUD: the only backend this schema admits is the MVP stub that charges nothing.
   backend         text        NOT NULL,
-  sandbox_receipt text        NOT NULL,
+  -- NULL while the row is a RESERVATION (QA-20 D2): the row is written first, the backend is
+  -- charged with the causation id as its idempotency key, then the Coin is credited and the
+  -- row is SETTLED (receipt, credited/discarded, settled_at filled in) — once, never again.
+  sandbox_receipt text,
   price_cents     integer     NOT NULL,
   -- The exact contents granted: what was previewed (GUARDRAILS §4), CHECKed to Coin + cosmetics only.
   contents        jsonb       NOT NULL,
@@ -72,21 +81,38 @@ CREATE TABLE pack_purchase (
   -- The ledger causation id of the `coin_purchased` event: `pack:<account>:w<week>:t<tier>`.
   causation_id    text        NOT NULL,
   purchased_at    timestamptz NOT NULL DEFAULT now(),
+  settled_at      timestamptz,
   CONSTRAINT pack_purchase_tier_range        CHECK (tier BETWEEN 1 AND 3),
   CONSTRAINT pack_purchase_backend_sandbox   CHECK (backend = 'sandbox_stub'),
   CONSTRAINT pack_purchase_price_positive    CHECK (price_cents > 0),
   CONSTRAINT pack_purchase_contents_kinds    CHECK (pack_contents_ok(contents)),
   CONSTRAINT pack_purchase_coin_nonneg       CHECK (coin_requested >= 0 AND coin_credited >= 0 AND coin_discarded >= 0),
-  CONSTRAINT pack_purchase_coin_accounted    CHECK (coin_credited + coin_discarded = coin_requested),
+  -- A reservation has no receipt and has credited nothing; a settled row has a receipt and
+  -- accounts for every requested coin (credited + discarded = requested, the cap clamp).
+  CONSTRAINT pack_purchase_settlement        CHECK (
+    (settled_at IS NULL AND sandbox_receipt IS NULL AND coin_credited = 0 AND coin_discarded = 0)
+    OR (settled_at IS NOT NULL AND sandbox_receipt IS NOT NULL AND coin_credited + coin_discarded = coin_requested)
+  ),
   CONSTRAINT pack_purchase_causation_unique  UNIQUE (causation_id),
   -- THE purchase limit: one of each tier per week per account (TUNABLES.PURCHASE_LIMIT_PER_TIER_PER_WEEK = 1).
   CONSTRAINT pack_purchase_once_per_tier_per_week UNIQUE (account_id, week_index, tier)
 );
 CREATE INDEX pack_purchase_account_idx ON pack_purchase (account_id, purchased_at);
 
+-- Immutable, with ONE exception (QA-20 D2): a reservation may be settled exactly once —
+-- sandbox_receipt, coin_credited, coin_discarded and settled_at go from their reservation
+-- values to their settled values and every other column stays as it was. A settled row is
+-- never updated again; the settlement CHECK above holds the settled values' shape.
 CREATE FUNCTION pack_purchase_guard_update() RETURNS trigger AS $$
 BEGIN
-  RAISE EXCEPTION 'pack_purchase % is a record and may not be updated', OLD.id USING ERRCODE = 'check_violation';
+  IF OLD.settled_at IS NULL AND NEW.settled_at IS NOT NULL
+     AND NEW.id = OLD.id AND NEW.account_id = OLD.account_id AND NEW.week_index = OLD.week_index
+     AND NEW.tier = OLD.tier AND NEW.backend = OLD.backend AND NEW.price_cents = OLD.price_cents
+     AND NEW.contents = OLD.contents AND NEW.coin_requested = OLD.coin_requested
+     AND NEW.causation_id = OLD.causation_id AND NEW.purchased_at = OLD.purchased_at THEN
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION 'pack_purchase % is a record and may not be updated (a reservation may only be settled, once)', OLD.id USING ERRCODE = 'check_violation';
 END
 $$ LANGUAGE plpgsql;
 CREATE TRIGGER pack_purchase_guard_update BEFORE UPDATE ON pack_purchase FOR EACH ROW EXECUTE FUNCTION pack_purchase_guard_update();

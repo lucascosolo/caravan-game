@@ -39,11 +39,25 @@ export interface CosmeticType {
   readonly reviewNote: string;
 }
 
-const SKIN_NOTE = "Palette and trim only; silhouette, footprint and the ability glyph are the base type's. Identifiable at scouting zoom.";
-const BANNER_NOTE = "Drawn in the banner slot beside the party card, never over a unit. Does not cover type, stance or ability.";
-const DECOR_NOTE = "Town-only scenery; never drawn on the trail or the battlefield.";
-const FENCE_NOTE = "Texture only; segment length, height and the gap rendering are the tier's. Tier remains readable by shape.";
-const WAGON_NOTE = "Paint and canopy only; the wagon core's footprint and HP bar are unchanged.";
+/**
+ * PHASE-2 §28 review notes (QA-20 N2). A note either records the review that happened —
+ * "(reviewed by <who>, YYYY-MM-DD)" — or says plainly that it has not: every entry in this
+ * build carries the PENDING marker, because the catalog is placeholder-named art for chunk
+ * 26 and no art review has run. `assertCosmeticsValid` refuses a note with neither form, so
+ * a cosmetic cannot ship with a review note that only sounds like one.
+ */
+export const REVIEW_PENDING_MARKER = "pending art review (chunk 26)";
+const REVIEW_DONE_RE = new RegExp("\\(reviewed by [^,()]+, \\d{4}-\\d{2}-\\d{2}\\)");
+export function reviewNoteIsWellFormed(note: string): boolean {
+  return note.includes(REVIEW_PENDING_MARKER) || REVIEW_DONE_RE.test(note);
+}
+
+const PENDING = ` — ${REVIEW_PENDING_MARKER}; constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.`;
+const SKIN_NOTE = `Palette and trim only; silhouette, footprint and the ability glyph are the base type's. Identifiable at scouting zoom.${PENDING}`;
+const BANNER_NOTE = `Drawn in the banner slot beside the party card, never over a unit. Does not cover type, stance or ability.${PENDING}`;
+const DECOR_NOTE = `Town-only scenery; never drawn on the trail or the battlefield.${PENDING}`;
+const FENCE_NOTE = `Texture only; segment length, height and the gap rendering are the tier's. Tier remains readable by shape.${PENDING}`;
+const WAGON_NOTE = `Paint and canopy only; the wagon core's footprint and HP bar are unchanged.${PENDING}`;
 
 /** The catalog. Sorted by id so the rotation's permutation runs over a fixed order. */
 export const COSMETIC_TYPES: readonly CosmeticType[] = deepFreeze(
@@ -113,28 +127,6 @@ function fnv1a32(s: string): number {
   return h >>> 0;
 }
 
-function xorshift32(state: number): number {
-  let x = state >>> 0;
-  if (x === 0) x = 0x9e3779b9;
-  x ^= (x << 13) >>> 0;
-  x >>>= 0;
-  x ^= x >>> 17;
-  x ^= (x << 5) >>> 0;
-  return x >>> 0;
-}
-
-const U32 = 0x1_0000_0000;
-
-/** Uniform integer in [0, k) by rejection sampling (no modulo bias), with the advanced state. */
-function uniformBelow(state: number, k: number): { value: number; state: number } {
-  const limit = U32 - (U32 % k);
-  let s = state;
-  for (;;) {
-    s = xorshift32(s);
-    if (s < limit) return { value: s % k, state: s };
-  }
-}
-
 /** The seed for a week's draw: FNV-1a over a fixed tag and the week index. */
 export function rotationSeed(weekIndex: number): number {
   if (!Number.isInteger(weekIndex)) throw new RangeError(`weekIndex must be an integer, got ${String(weekIndex)}`);
@@ -142,32 +134,53 @@ export function rotationSeed(weekIndex: number): number {
 }
 
 /**
- * Which cosmetics each tier carries in `weekIndex`, as ids, tier 1 first. A seeded
- * Fisher–Yates permutation of the sorted catalog, with the first PACK_COSMETICS_BY_TIER[0]
- * ids going to tier 1, the next to tier 2 and so on — so no cosmetic appears in two tiers
- * of the same week, and the catalog's sorted order (not its authoring order) is what the
- * draw runs over. The same week index gives the same answer in every process on every
- * machine; a server test runs it in two separate Node processes and compares.
+ * One cosmetic's rank in one week: FNV-1a over `cosmetic-rotation:<week>|<id>`. A pure
+ * function of (week, id) and NOTHING else — not the catalog's size, not its order, not any
+ * other cosmetic. Unsigned 32-bit; integer ops only.
  */
-export function cosmeticRotationForWeek(weekIndex: number): readonly (readonly string[])[] {
+export function rotationRank(weekIndex: number, cosmeticId: string): number {
+  if (!Number.isInteger(weekIndex)) throw new RangeError(`weekIndex must be an integer, got ${String(weekIndex)}`);
+  return fnv1a32(`cosmetic-rotation:${weekIndex}|${cosmeticId}`);
+}
+
+/**
+ * The week's draw over an explicit id list: ids sorted by `rotationRank(week, id)`, ties
+ * (a 32-bit collision) broken by id, then the first PACK_COSMETICS_BY_TIER[0] go to tier 1,
+ * the next to tier 2 and so on. Exposed so a test can prove that adding or removing an id
+ * never changes the relative order of the others.
+ */
+export function cosmeticRotationOver(ids: readonly string[], weekIndex: number): readonly (readonly string[])[] {
   const counts = TUNABLES.PACK_COSMETICS_BY_TIER;
-  const ids = COSMETIC_TYPES.map((c) => c.id);
-  let state = rotationSeed(weekIndex);
-  for (let i = ids.length - 1; i > 0; i--) {
-    const draw = uniformBelow(state, i + 1);
-    state = draw.state;
-    const j = draw.value;
-    const tmp = ids[i]!;
-    ids[i] = ids[j]!;
-    ids[j] = tmp;
-  }
+  const ranked = ids.map((id) => ({ id, rank: rotationRank(weekIndex, id) }));
+  ranked.sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const out: string[][] = [];
   let cursor = 0;
   for (const n of counts) {
-    out.push(ids.slice(cursor, cursor + n));
+    out.push(ranked.slice(cursor, cursor + n).map((r) => r.id));
     cursor += n;
   }
   return out;
+}
+
+/**
+ * Which cosmetics each tier carries in `weekIndex`, as ids, tier 1 first.
+ *
+ * PER-COSMETIC draw (QA-20 S2): every catalog entry gets its own rank for the week,
+ * `rotationRank(week, id)`, and the week's offer is the lowest-ranked ids in rank order.
+ * Because a rank depends on nothing but (week, id), adding a cosmetic to the catalog never
+ * reshuffles the ones already there: the relative order of existing ids in every week —
+ * past and future — is unchanged. A new id can enter a week's top six and push the last one
+ * out; it cannot re-deal the week. (The first build used a seeded Fisher–Yates over the
+ * whole catalog, where one new entry changed every week's permutation; that is why week 0's
+ * pinned ids changed when this landed.) No cosmetic appears in two tiers of one week. The
+ * same week index gives the same answer in every process on every machine; a server test
+ * runs it in two separate Node processes and compares.
+ */
+export function cosmeticRotationForWeek(weekIndex: number): readonly (readonly string[])[] {
+  return cosmeticRotationOver(
+    COSMETIC_TYPES.map((c) => c.id),
+    weekIndex,
+  );
 }
 
 /**
@@ -206,6 +219,7 @@ export function assertCosmeticsValid(): void {
     if (i > 0 && !(COSMETIC_TYPES[i - 1]!.id < c.id)) fail("catalog is not sorted by id");
     if (!isCosmeticKind(c.kind)) fail(`${c.id}: unknown kind ${String(c.kind)}`);
     if (!c.reviewNote) fail(`${c.id}: missing the scouting-readability review note`);
+    if (!reviewNoteIsWellFormed(c.reviewNote)) fail(`${c.id}: reviewNote must say "(reviewed by <who>, YYYY-MM-DD)" or carry "${REVIEW_PENDING_MARKER}"`);
     if (c.kind === "unit_skin") {
       if (c.appliesTo === null || !unitIds.has(c.appliesTo)) fail(`${c.id}: unit skin for unknown unit type ${String(c.appliesTo)}`);
     } else if (c.appliesTo !== null) fail(`${c.id}: only unit skins apply to a type`);

@@ -15,6 +15,7 @@
  */
 import {
   TUNABLES,
+  canonicalPackContents,
   cosmeticOfferWeeks,
   packOffersForWeek,
   weekBounds,
@@ -25,9 +26,20 @@ import {
   type PackOffer,
   type PackTier,
 } from "@caravan/content";
+import { createHash } from "node:crypto";
 import type { Queryable } from "../db/pool.js";
 import { overflowForecast, type OverflowForecast } from "../economy/coin.js";
 import { peekTrickle } from "../economy/trickle.js";
+
+/**
+ * The fingerprint of an offer's exact contents (QA-20 S2): sha256 (lowercase hex) over
+ * `canonicalPackContents` — fixed key order, no whitespace, entries in offer order. The
+ * storefront shows it on every offer; POST /me/store/purchase sends it back and is refused
+ * with 409 `offer_changed` if what the server would grant now hashes differently.
+ */
+export function offerContentsHash(contents: readonly PackContent[]): string {
+  return createHash("sha256").update(canonicalPackContents(contents)).digest("hex");
+}
 
 /** How many weeks ahead a cosmetic's "next on offer" is searched. Presentation, not balance. */
 export const COSMETIC_SCHEDULE_HORIZON_WEEKS = 52;
@@ -59,6 +71,8 @@ export interface OfferView {
   cosmetics: CosmeticView[];
   /** The exact list the purchase grants. */
   contents: PackContent[];
+  /** sha256 of the canonical `contents`; send it back with the purchase (QA-20 S2). */
+  contentsHash: string;
   /** This account already bought this tier this week (each tier once per week). */
   purchased: boolean;
   purchasedAt: string | null;
@@ -127,6 +141,7 @@ function offerBase(o: PackOffer): Omit<OfferView, "purchased" | "purchasedAt" | 
     coin: o.coin,
     cosmetics: o.cosmetics.map(cosmeticView),
     contents: [...o.contents],
+    contentsHash: offerContentsHash(o.contents),
   };
 }
 
@@ -136,7 +151,8 @@ export interface PurchaseRow {
   week_index: number;
   tier: number;
   backend: string;
-  sandbox_receipt: string;
+  /** NULL only while the row is an unsettled reservation (QA-20 D2). */
+  sandbox_receipt: string | null;
   price_cents: number;
   contents: PackContent[];
   coin_requested: number;
@@ -144,6 +160,7 @@ export interface PurchaseRow {
   coin_discarded: number;
   causation_id: string;
   purchased_at: Date;
+  settled_at: Date | null;
 }
 
 export async function listPurchasesForWeek(db: Queryable, accountId: string, weekIndex: number): Promise<PurchaseRow[]> {
@@ -173,6 +190,8 @@ export function purchaseView(r: PurchaseRow) {
     coin: { requested: r.coin_requested, credited: r.coin_credited, discarded: r.coin_discarded },
     causationId: r.causation_id,
     purchasedAt: r.purchased_at.toISOString(),
+    settled: r.settled_at !== null,
+    settledAt: r.settled_at ? r.settled_at.toISOString() : null,
   };
 }
 

@@ -199,26 +199,41 @@ describe("a purchase credits the normal balance as coin_purchased and grants acc
 });
 
 describe("each tier once per week, stackable across tiers (PURCHASE_LIMIT)", () => {
-  it("the same tier twice in one week is refused; next week it is open again; the ledger has one coin_purchased per (week, tier)", async () => {
+  it("the same tier twice in one week is a replay (QA-20 D1); next week it is open again; the ledger has one coin_purchased per (week, tier)", async () => {
     const accountId = await fresh("limit");
-    await purchasePack(pool, { accountId, tier: 1, weekIndex: WEEK, nowMs: NOW });
-    const again = await appErr(purchasePack(pool, { accountId, tier: 1, weekIndex: WEEK, nowMs: NOW + 1000 }));
-    expect(again.statusCode).toBe(409);
-    expect(again.code).toBe("tier_already_purchased_this_week");
+    const first = await purchasePack(pool, { accountId, tier: 1, weekIndex: WEEK, nowMs: NOW });
+    expect(first.replayed).toBe(false);
+    const again = await purchasePack(pool, { accountId, tier: 1, weekIndex: WEEK, nowMs: NOW + 1000 });
+    // The stored purchase and its stored event; nothing moved.
+    expect(again.replayed).toBe(true);
+    expect(again.trickle).toBeNull();
+    expect(again.purchase).toEqual(first.purchase);
+    expect(again.events.map((e) => e.seq)).toEqual(first.events.map((e) => e.seq));
+    expect(again.events[0]!.payload).toEqual(first.events[0]!.payload);
+    expect(again.cosmeticsGranted).toEqual(first.cosmeticsGranted);
+    expect(again.coin).toMatchObject({ requested: 6000, credited: 6000, discarded: 0, balanceAfter: 6000 });
     expect((await readCoinBalance(pool, accountId)).balance).toBe(6000);
+    expect(await purchasedEvents(accountId)).toHaveLength(1);
     // Other tiers are still open this week.
     await purchasePack(pool, { accountId, tier: 2, weekIndex: WEEK, nowMs: NOW });
     // Next week, tier 1 again.
     const nextWeekNow = NOW + PERIOD;
     const r = await purchasePack(pool, { accountId, tier: 1, weekIndex: WEEK + 1, nowMs: nextWeekNow });
     expect(r.purchase.weekIndex).toBe(WEEK + 1);
+    // A week of trickle was pending; it is flushed (S1) before the credit, under the cap.
+    expect(r.trickle!.materialized).toBe(true);
+    const weekOfTrickle = r.trickle!.credited;
+    expect(weekOfTrickle).toBeGreaterThan(0);
     const events = await purchasedEvents(accountId);
     expect(events.map((e) => [e.payload["weekIndex"], e.payload["tier"]])).toEqual([
       [WEEK, 1],
       [WEEK, 2],
       [WEEK + 1, 1],
     ]);
-    expect((await readCoinBalance(pool, accountId)).balance).toBe(26_000);
+    // 20,000 + a week of trickle (clamped to the cap), then tier 1's 6,000 clamped against that.
+    expect(r.trickle!.balanceBeforeCredit).toBe(20_000 + weekOfTrickle);
+    expect(r.coin.credited).toBe(Math.min(6000, CAP - 20_000 - weekOfTrickle));
+    expect((await readCoinBalance(pool, accountId)).balance).toBe(Math.min(CAP, 26_000 + weekOfTrickle));
   });
 
   it("a stale preview (a week that has rolled over) is refused and nothing is written", async () => {
@@ -235,26 +250,30 @@ describe("each tier once per week, stackable across tiers (PURCHASE_LIMIT)", () 
     expect(await ownedIds(accountId)).toEqual([]);
   });
 
-  it("eight concurrent purchases of one tier: exactly one succeeds, one coin_purchased, Coin credited once", async () => {
+  it("eight concurrent purchases of one tier: exactly one creates, seven replay it, one coin_purchased, Coin credited once", async () => {
     const accountId = await fresh("race");
-    const results = await Promise.allSettled(Array.from({ length: 8 }, () => purchasePack(pool, { accountId, tier: 2, weekIndex: WEEK, nowMs: NOW })));
-    const ok = results.filter((r) => r.status === "fulfilled");
-    const failed = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
-    expect(ok).toHaveLength(1);
-    expect(failed).toHaveLength(7);
-    for (const f of failed) expect((f.reason as AppError).code).toBe("tier_already_purchased_this_week");
+    const results = await Promise.all(Array.from({ length: 8 }, () => purchasePack(pool, { accountId, tier: 2, weekIndex: WEEK, nowMs: NOW })));
+    const created = results.filter((r) => !r.replayed);
+    const replays = results.filter((r) => r.replayed);
+    expect(created).toHaveLength(1);
+    expect(replays).toHaveLength(7);
+    for (const r of replays) {
+      expect(r.purchase.id).toBe(created[0]!.purchase.id);
+      expect(r.events.map((e) => e.seq)).toEqual(created[0]!.events.map((e) => e.seq));
+    }
     expect(await purchasedEvents(accountId)).toHaveLength(1);
     expect((await readCoinBalance(pool, accountId)).balance).toBe(14_000);
     expect((await pool.query("SELECT count(*)::int AS n FROM pack_purchase WHERE account_id = $1", [accountId])).rows[0]).toEqual({ n: 1 });
     expect((await verifyProjection(pool, accountId)).ok).toBe(true);
   });
 
-  it("twelve concurrent purchases across all tiers near the cap: exactly three succeed and the cap is never passed", async () => {
+  it("twelve concurrent purchases across all tiers near the cap: exactly three create (nine replay) and the cap is never passed", async () => {
     const accountId = await fresh("race3");
     await setBalance(accountId, CAP - 10_000);
     const tiers = [1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3] as const;
-    const results = await Promise.allSettled(tiers.map((tier) => purchasePack(pool, { accountId, tier, weekIndex: WEEK, nowMs: NOW })));
-    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(3);
+    const results = await Promise.all(tiers.map((tier) => purchasePack(pool, { accountId, tier, weekIndex: WEEK, nowMs: NOW })));
+    expect(results.filter((r) => !r.replayed)).toHaveLength(3);
+    expect(results.filter((r) => r.replayed)).toHaveLength(9);
     const events = await purchasedEvents(accountId);
     expect(events.map((e) => e.payload["tier"]).sort()).toEqual([1, 2, 3]);
     const credited = events.reduce((a, e) => a + (e.payload["amount"] as number), 0);
@@ -317,7 +336,7 @@ describe("cosmetics: account-level ownership and the equip preference", () => {
 });
 
 describe("HTTP: /me/store and /me/cosmetics", () => {
-  it("preview → purchase (201) → purchases list → cosmetics → equip/unequip; auth required; the repeat is 409", async () => {
+  it("preview → purchase (201) → purchases list → cosmetics → equip/unequip; auth required; the repeat is a 200 replay", async () => {
     const accountId = await fresh("http");
     const { token } = await issueSession(pool, accountId);
     const headers = { authorization: `Bearer ${token}` };
@@ -329,17 +348,28 @@ describe("HTTP: /me/store and /me/cosmetics", () => {
     expect(view.backend.sandbox).toBe(true);
     expect(view.offers).toHaveLength(3);
     const week = view.week.index as number;
-    const buy = await app.inject({ method: "POST", url: "/me/store/purchase", headers, payload: { tier: 1, weekIndex: week } });
+    const hash = view.offers[0].contentsHash as string;
+    expect(hash).toMatch(/^[0-9a-f]{64}$/);
+    // QA-20 S2: the fingerprint is required over HTTP, must be well-formed, and must match.
+    const noHash = await app.inject({ method: "POST", url: "/me/store/purchase", headers, payload: { tier: 1, weekIndex: week } });
+    expect([noHash.statusCode, noHash.json().error]).toEqual([400, "contents_hash_required"]);
+    const badHash = await app.inject({ method: "POST", url: "/me/store/purchase", headers, payload: { tier: 1, weekIndex: week, contentsHash: "abc" } });
+    expect([badHash.statusCode, badHash.json().error]).toEqual([400, "invalid_contents_hash"]);
+    const otherTier = await app.inject({ method: "POST", url: "/me/store/purchase", headers, payload: { tier: 1, weekIndex: week, contentsHash: view.offers[1].contentsHash } });
+    expect([otherTier.statusCode, otherTier.json().error]).toEqual([409, "offer_changed"]);
+    const buy = await app.inject({ method: "POST", url: "/me/store/purchase", headers, payload: { tier: 1, weekIndex: week, contentsHash: hash } });
     expect(buy.statusCode).toBe(201);
     const body = buy.json();
     expect(body.sandbox).toBe(true);
+    expect(body.replayed).toBe(false);
+    expect(body.trickle).toMatchObject({ balanceBeforeCredit: 0 });
     expect(body.coin).toMatchObject({ requested: 6000, credited: 6000, discarded: 0 });
     expect(body.events).toEqual([{ seq: expect.any(Number), type: "coin_purchased", payload: expect.objectContaining({ amount: 6000, tier: 1 }) }]);
     expect(body.cosmeticsGranted).toEqual(view.offers[0].cosmetics.map((c: { id: string }) => c.id));
-    const repeat = await app.inject({ method: "POST", url: "/me/store/purchase", headers, payload: { tier: 1, weekIndex: week } });
-    expect(repeat.statusCode).toBe(409);
-    expect(repeat.json().error).toBe("tier_already_purchased_this_week");
-    expect((await app.inject({ method: "POST", url: "/me/store/purchase", headers, payload: { tier: 1, weekIndex: week + 1 } })).json().error).toBe("offer_not_current");
+    const repeat = await app.inject({ method: "POST", url: "/me/store/purchase", headers, payload: { tier: 1, weekIndex: week, contentsHash: hash } });
+    expect(repeat.statusCode).toBe(200);
+    expect(repeat.json()).toMatchObject({ replayed: true, trickle: null, purchase: body.purchase, events: body.events, cosmeticsGranted: body.cosmeticsGranted });
+    expect((await app.inject({ method: "POST", url: "/me/store/purchase", headers, payload: { tier: 1, weekIndex: week + 1, contentsHash: hash } })).json().error).toBe("offer_not_current");
     expect((await app.inject({ method: "POST", url: "/me/store/purchase", headers, payload: [1] })).statusCode).toBe(400);
     const list = await app.inject({ method: "GET", url: "/me/store/purchases", headers });
     expect(list.json().purchases.map((p: { tier: number }) => p.tier)).toEqual([1]);
@@ -364,8 +394,8 @@ describe("the schema holds against the app role", () => {
     const insert = (contents: unknown, tier = 1, backend = "sandbox_stub") =>
       expectDbError(
         appRole,
-        `INSERT INTO pack_purchase (account_id, week_index, tier, backend, sandbox_receipt, price_cents, contents, coin_requested, coin_credited, coin_discarded, causation_id)
-         VALUES ($1, 999, $2, $3, 'sandbox:test', 500, $4::jsonb, 0, 0, 0, $5)`,
+        `INSERT INTO pack_purchase (account_id, week_index, tier, backend, sandbox_receipt, price_cents, contents, coin_requested, coin_credited, coin_discarded, causation_id, settled_at)
+         VALUES ($1, 999, $2, $3, 'sandbox:test', 500, $4::jsonb, 0, 0, 0, $5, now())`,
         [accountId, tier, backend, JSON.stringify(contents), `test:${unique("c")}`],
       );
     const forbidden = ["unlock_points", "unit", "unit_access", "trip_cap", "trip_cap_uses", "slot", "slot_count", "fence_material", "repair", "resupply", "reroll", "merge_level", "reputation", "ladder"];
@@ -382,6 +412,11 @@ describe("the schema holds against the app role", () => {
     expect((await insert([{ kind: "cosmetic", cosmeticId: "x", stat: 1 }]))?.code).toBe("23514");
     expect((await insert([]))?.code).toBe("23514");
     expect((await insert({ kind: "coin", amount: 1 }))?.code).toBe("23514");
+    // QA-20 N1: exactly one coin entry, and its amount > 0.
+    expect((await insert([{ kind: "coin", amount: 0 }]))?.code, "zero coin").toBe("23514");
+    expect((await insert([{ kind: "cosmetic", cosmeticId: "banner.lone_star" }]))?.code, "no coin").toBe("23514");
+    expect((await insert([{ kind: "coin", amount: 6000 }, { kind: "coin", amount: 1 }]))?.code, "two coin").toBe("23514");
+    expect((await insert([{ kind: "coin", amount: 6000 }, { kind: "cosmetic", cosmeticId: "x" }, { kind: "coin", amount: 6000 }]))?.code, "two coin around a cosmetic").toBe("23514");
     // Backend: only the sandbox stub exists.
     expect((await insert([{ kind: "coin", amount: 1 }], 1, "stripe"))?.code).toBe("23514");
     expect((await insert([{ kind: "coin", amount: 1 }], 4))?.code).toBe("23514");

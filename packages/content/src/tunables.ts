@@ -560,11 +560,23 @@ export const TUNABLES = {
    */
   WEEKLY_PAY_CEILING: 60_000,
   /**
-   * ASSUMPTION TO VALIDATE IN PLAYTESTING (chunk 20). A normal active week's free Coin earn,
-   * derived from chunk 16's defaults and its QA note (roadmap/qa/16-punchlist.md): ~6,275
-   * Coin/h of active play at the trip cap, for ~5 h/week ≈ 31,000, plus the 200/h trickle
-   * over ~45 idle hours ≈ 9,000 → ~40,000. Re-derive when COIN_PER_ENCOUNTER_BASE,
-   * COIN_PER_BANKED_TRIP, the trip cap or the trickle move.
+   * ASSUMPTION TO VALIDATE IN PLAYTESTING (chunk 20; rewritten as a range per QA-20 D3). A
+   * normal active week's free Coin earn is NOT one number — it depends on how the trip cap
+   * (chunk 16: 3 trips/h regen) is used. Three shapes, from chunk 16's defaults and its QA
+   * note (roadmap/qa/16-punchlist.md):
+   *   - FLOOR  — flat 3 trips/h for ~5 h, trickle (200/h) over the other ~45 h idle:
+   *              ~6,275/h × 5 h ≈ 31,000 + 200 × 45 ≈ 9,000 → ≈ 39,000 – 40,000.
+   *   - MID    — 5 × 1 h sessions each opening with the regen burst (banked trip charges
+   *              spent at the start), plus the full week's trickle between sessions:
+   *              ≈ 94,000.
+   *   - HIGH   — 7 × 1 h sessions, the same way: ≈ 118,000.
+   * This constant is the FLOOR, kept deliberately conservative so the ratio bound below is
+   * the strictest reading: at 40,000 the ceiling is 1.5×; against the mid and high shapes it
+   * is 0.64× and 0.51×. Two more things bound the effective paid add in practice: the
+   * storage cap (COIN_STORAGE_CAP 50,000) means one spend cycle can absorb at most
+   * cap − balance, however many tiers are bought, and the once-per-tier-per-week limit means
+   * the ceiling cannot be reached twice in a week. Re-derive when COIN_PER_ENCOUNTER_BASE,
+   * COIN_PER_BANKED_TRIP, the trip cap, the trickle, or chunk 15's tunables move.
    */
   FREE_WEEKLY_EARN_ESTIMATE: 40_000,
   /**
