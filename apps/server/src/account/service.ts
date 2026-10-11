@@ -22,6 +22,7 @@ import { createGuestAccount, findAccountById } from "../repo/accounts.js";
 import { AppError, badRequest, conflict } from "../services/errors.js";
 import { createAccountHub, normalizeCaravanName, validateCredentials } from "../services/onboarding.js";
 import { listDevices, type DeviceRow } from "./device.js";
+import { storeRecordsForExport } from "../store/export.js";
 import { DELETE_CONFIRM_PHRASE } from "./tunables.js";
 
 export async function createGuest(pool: pg.Pool, input: { regionId: string; caravanName?: string }): Promise<{ account: AccountRow; caravan: CaravanRow }> {
@@ -83,17 +84,18 @@ export async function checkDeletionRequest(account: AccountRow, body: { confirm?
 export type ErasureCounts = Record<string, number>;
 
 /** Erase: one transaction through account_erase, retried on a deadlock / serialization failure (a settle racing it). */
-export async function eraseAccount(pool: pg.Pool, accountId: string): Promise<ErasureCounts> {
+export async function eraseAccount(pool: pg.Pool, accountId: string, bearerToken: string): Promise<ErasureCounts> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await withTransaction(pool, async (client) => {
-        const res = await client.query<{ counts: ErasureCounts }>("SELECT account_erase($1) AS counts", [accountId]);
+        const res = await client.query<{ counts: ErasureCounts }>("SELECT account_erase($1, $2) AS counts", [accountId, bearerToken]);
         return res.rows[0]!.counts;
       });
     } catch (err) {
       const code = (err as { code?: string }).code;
       if ((code === "40P01" || code === "40001") && attempt < 3) continue;
       if (code === "P0002") throw new AppError(404, "no_account", "account not found");
+      if (code === "42501") throw new AppError(401, "unauthorized", "this session cannot delete the account");
       throw err;
     }
   }
@@ -159,10 +161,8 @@ export async function exportAccount(db: Queryable, accountId: string): Promise<R
     homeTown: (await rows(db, "SELECT * FROM home_town WHERE account_id = $1", [accountId]))[0] ?? null,
     standingParties: await rows(db, "SELECT * FROM standing_party WHERE account_id = $1 ORDER BY slot", [accountId]),
     onboarding: (await rows(db, "SELECT step, skipped_at, completed_at, updated_at FROM account_onboarding WHERE account_id = $1", [accountId]))[0] ?? null,
+    ...(await storeRecordsForExport(db, accountId)),
     inboxPreferences: await rows(db, "SELECT category, enabled FROM inbox_preference WHERE account_id = $1 ORDER BY category", [accountId]),
-    purchases: await rows(db, "SELECT * FROM pack_purchase WHERE account_id = $1 ORDER BY purchased_at, id", [accountId]),
-    cosmetics: await rows(db, "SELECT cosmetic_id, purchase_id FROM cosmetic_ownership WHERE account_id = $1 ORDER BY cosmetic_id", [accountId]),
-    cosmeticsEquipped: await rows(db, "SELECT slot, cosmetic_id FROM cosmetic_equip WHERE account_id = $1 ORDER BY slot", [accountId]),
     devices: (await listDevices(db, accountId)).map((d) => ({ id: d.id, label: d.label, createdAt: d.created_at, lastSeenAt: d.last_seen_at, expiresAt: d.expires_at })),
     caravans: perCaravan,
     encounters,

@@ -611,6 +611,111 @@ minute that their party overran a caravan, and one tap lands on the replay.
 **Definition of done.** Guest → linked → deleted round-trips cleanly and leaves the
 other participants' replays playable.
 
+**Status: built** (2026-10-11, chunk 30 Maker; play-test cut: username + password is the only
+link, no Sign in with Apple / Google until chunk 34). Migration **019** (`019_account_lifecycle`;
+018 is chunk 29's; renumber on merge if needed). Build notes:
+
+- **Guest-first.** `account.username` / `password_hash` are nullable *together* (CHECK); a guest is
+  an ordinary account row created by `POST /auth/guest {region, caravanName?}` with the same hub rows,
+  onboarding marker and first caravan registration makes (`services/onboarding.ts createAccountHub`),
+  so the whole chunk 24 tutorial plays as a guest. `POST /me/account/link {username, password}` sets
+  both on THAT row: the id never changes, nothing is migrated. `account_guard_identity` makes a linked
+  username permanent (no unlink, no rename) and stamps `linked_at` once; a system account can never be
+  linked. Registration still exists and is "linked from birth".
+- **Decision — the region is on the guest's first screen.** "Created silently" is read as *no sign-in
+  prompt*, not *no choices*: the start card asks for the region only (with the permanence hint) and one
+  tap makes the account. Rejected: a default region chosen for the player — region is a one-time,
+  never-swapped choice per caravan (GUARDRAILS §5), so choosing it silently would take that choice away.
+  There is still no account-level path to change a region.
+- **Decision — how a guest survives a reload: a server-set HttpOnly device cookie.** Every sign-in
+  (guest, register, login) creates a `device` row: 32 random bytes in the cookie `caravan_device`
+  (HttpOnly, SameSite=Strict, Path=/, Secure under https / production, Max-Age = `DEVICE_TTL_MS` 180 d,
+  sliding), only its sha256 stored. `POST /auth/resume` trades it for a fresh bearer session tied to
+  the device (≤ `DEVICE_SESSIONS_MAX` 3 per device, ≤ `DEVICES_PER_ACCOUNT_MAX` 10 per account). The
+  page never reads or writes it and nothing goes into localStorage / sessionStorage; the bearer token
+  stays in memory. Game routes authenticate by the bearer header only, so the cookie riding along on
+  them authorizes nothing (no CSRF surface); it is honoured only by `/auth/resume` and `/auth/logout`.
+  The cookie value is not rotated on resume (two tabs resuming at once must not lock a guest out).
+  Rejected: browser storage (forbidden for game state); a long-lived bearer in a JS-readable cookie
+  (XSS-exfiltrable). A guest's sign-out needs `{abandon: true}` (409 `guest_sign_out` otherwise) and
+  revoking a guest's own current device is refused — either would lose the account.
+- **Devices / sessions.** `GET /me/devices`, `DELETE /me/devices/:id`, `POST /me/devices/revoke-others`,
+  and `GET /me/account` (account, devices, deletion terms). Labels are "Browser on Platform" from the
+  User-Agent; no IP is stored. Pre-019 sessions are backfilled one device each; a session inserted
+  without a device gets one (`session_ensure_device`, token hash `bare:<id>` no cookie can match).
+- **Rate limits** (`src/account/tunables.ts`, TUNABLE, in-memory fixed windows per process): login
+  20 / 15 min per IP and 10 / 15 min per username tried; registration and guest creation 10 / h per
+  IP; resume 120 / 15 min per IP; link 10 / 15 min, export 5 / h, delete 10 / 15 min per account. 429
+  `rate_limited` with `retryAfterMs` + Retry-After. `CARAVAN_RATE_LIMITS=off` (vitest env, `pnpm e2e`)
+  is refused under NODE_ENV=production. Hand-off: a multi-instance deploy needs a shared store, and the
+  per-IP key needs Fastify `trustProxy` behind a reverse proxy.
+- **Export.** `GET /me/export` (attachment): the account, its caravans (progress, units, trips, trip
+  encounters), account pools, town, party, onboarding, inbox preferences, purchases, cosmetics, devices,
+  the encounters it took part in (job id, role, outcome kind) and its own ledger. Never a password or
+  token hash; any `*AccountId` / `*CaravanId` / `*_account_id` value that is not this player's own is
+  replaced by `"other_player"`.
+- **Deletion: `account_erase(account, bearer_token)`** (SECURITY DEFINER, the one audited path;
+  `POST /me/account/delete {confirm: "delete my account", password?}` — the password once linked, 403
+  `wrong_password` / `password_required` so a typo never signs anyone out). It deletes the account and
+  everything only it owns by the existing cascades — caravans, roster, party, purchases and cosmetics,
+  sessions and devices, trips, its unshared jobs and replays, inbox read marks and preferences (chunk 29,
+  015/018: `inbox_read`'s delete guard allows exactly the account cascade), the onboarding marker (017)
+  — and ANONYMIZES what it shares: a fight it defended against another player's party, and a fight its
+  party struck against another player's caravan (any status: a queued fight still resolves and settles,
+  against a system owner, so nothing is credited), other accounts' ledger payloads, other players'
+  `trip_encounter` rows and stored candidate menus. The rewrite rule (`account_erasure_walk`) maps exact
+  string values / keys equal to the account id or its caravan ids to the shared **tombstone** (system
+  account `…00d0`, caravan `…00d1`, created lazily with progress rows, no party, never served, no login,
+  no Coin) and a menu's `displayName` equal to the username to "Departed outfit". Feeds show such a
+  strike with no name. Every erasure writes `account_erasure_audit` (when, guest or not, row counts —
+  never the id or username; append-only, not account-scoped, listed in the per-file reset's exempt set).
+- **How the guards allow it.** The UPDATE guards of `ledger_event`, `resolution_job`, `encounter_log`,
+  `trip_encounter` and `encounter_candidates` gained one first test, `account_erasure_permits(OLD, NEW)`:
+  true only while `account_erasure_active` holds a row for `txid_current()` — written only by
+  `account_erase`, removed before it returns, not writable by `caravan_app` — AND the new row is exactly
+  the rewrite of the old one (whole-row jsonb compare). Otherwise the original body runs unchanged; even
+  the owner role cannot edit outside an erasure, and inside one only the exact rewrite passes. The app
+  role still has no UPDATE/DELETE on `encounter_log`.
+- **Proof of the caller (QA ask).** `account_erase` takes the caller's RAW bearer token and checks a live
+  session of that account with `token_hash = sha256(token)`. The database stores only hashes, so nothing
+  the app role can read builds the argument: a compromised server process can erase only an account whose
+  live token it is handed in a request, not an arbitrary id. Tested: the stored hash, another account's
+  token, NULL and an expired token are refused (42501).
+- **Decision — the account's own ledger rows are deleted**, by the cascade the append-only guard already
+  allows (the owner is gone). Exception: its *non-projecting* record of a shared fight (`encounter_resolved`
+  / `party_served_as_encounter` / `stop_resolved` under the kept job's causation) moves to the tombstone,
+  rewritten, so the job's events stay contiguous and `verifyJobReplay` still holds on the anonymized input.
+  Other accounts' projections fold only their own events, so their balances are untouched (tested:
+  `verifyProjection` for every other participant). Not rewritten: trip ids (inside job ids and ledger
+  causations) and standing-party ids (inside menus sorted by party id): random ids that name nothing once
+  the rows are gone.
+- **Decision — the tombstone retention floor.** Kept replays of deleted defenders all live on the one
+  tombstone caravan, so LOG_RETENTION's "newest 50 per caravan" floor is shared by every deleted player's
+  kept fights; the 30-day floor is unchanged. Accepted: the floor exists for the defender, who is gone.
+  **Chunk 36 coordination:** compaction is assumed to keep rows in `encounter_log` (or a sibling keyed by
+  `job_id` with the same two account columns); the rewrite is whole-row, so a compacted row is anonymized
+  the same way. A new table that copies account ids must be added to `account_erase`'s list; the test
+  "no row in any table still names the deleted account" scans every table and fails if one is missed.
+  Chunk 32: no analytics table existed on main when this was built; nothing to chase.
+- **Client.** `LoginScreen` leads with the guest start card (sign-in and register below, unchanged);
+  `SessionProvider` resumes on launch and once more after a 401 (≤ 3 per load; default on with the real
+  fetch, off for an injected test fetch unless asked); the header shows "Guest" and an Account button
+  (no one-tap sign-out for a guest); `#/account` = `AccountScreen` (link, devices, export download,
+  sign-out / leave-guest confirm, delete with typed phrase). Strings in `strings.ts` `auth` / `account`.
+  The `account` guard's `guest` is optional so pre-30 fixtures read; the server always sends it.
+- **Tests.** Server `test/account-lifecycle.test.ts` (28): guest creation and cookie flags, resume
+  (none / forged / expired), device session caps, link (same id, permanence, refusals, DB guards), devices
+  and sign-out, labels, rate limits, export, the DoD round trip with the real resolver (both replays render,
+  `verifyJobReplay`, `verifyProjection`, feeds, all-tables scan, audit, inbox / onboarding gone), a party
+  owner erased with a fight still queued, a never-linked guest, and the app-role guard proofs. Contract:
+  `auth-guest`, `auth-resume`, `account-guest`, `account-link`, `account`, `devices`,
+  `devices-revoke-others`, `export`, `account-delete`. Web `AccountScreen.test.tsx` (10). e2e
+  `e2e/account.spec.ts`: guest first launch → reload → link → reload → sign out → sign in, same id.
+  `formation.spec` and `onboarding.spec` signed in again after a reload (v1: a reload signed out); a
+  reload now stays signed in, so those two re-sign-ins were removed. The export's store rows are read
+  through `src/store/export.ts` (store-guards: only src/store reads the store's tables). The identity
+  guard keeps `account.id` immutable only (tests backdate `created_at`).
+
 ## 31. Integrity and anti-abuse — **M**, after 14, 19
 
 **Goal.** The economy transfers Coin between accounts on an overrun. That is the

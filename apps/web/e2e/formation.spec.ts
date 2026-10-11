@@ -217,10 +217,8 @@ test("search, scout three candidates, choose, drag a fence and a post, set a sta
   expect(stored.formation.formation.posts.map((p) => p.stance).sort()).toEqual(["guard", "hold"]);
 
   // Reloading the tab lands on the resolved encounter, not on an editable circle.
+  // Chunk 30: a reload stays signed in (the server's HttpOnly device cookie); no second sign-in.
   await page.reload();
-  await page.getByLabel("Username").fill(USERNAME);
-  await page.getByLabel("Password").fill(PASSWORD);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "Trail" }).click();
   await expect(page.getByTestId("encounter-results")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("commit-open")).toHaveCount(0);

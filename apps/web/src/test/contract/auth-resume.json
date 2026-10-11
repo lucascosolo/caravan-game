@@ -1,0 +1,16 @@
+{
+  "route": "POST /auth/resume",
+  "status": 200,
+  "body": {
+    "token": "<token>",
+    "expiresAt": "2026-10-11T12:00:00.000Z",
+    "account": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "username": null,
+      "guest": true,
+      "coinBalance": 0,
+      "coinStorageCap": 50000,
+      "createdAt": "2026-10-11T12:00:01.000Z"
+    }
+  }
+}

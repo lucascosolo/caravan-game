@@ -155,7 +155,13 @@ pnpm ci                      # the CI job, step for step: typecheck, lint, test:
 ```
 
 Migrations are plain SQL pairs in `apps/server/migrations/NNN_name.{up,down}.sql`, run by
-`apps/server/src/db/migrate.ts`. Server routes so far: `POST /auth/register`,
+`apps/server/src/db/migrate.ts`. Chunk 30 (account lifecycle, PHASE-2 §30 build notes): guest-first
+`POST /auth/guest`, `POST /auth/resume` (the server's HttpOnly `caravan_device` cookie — the client
+stores nothing), `GET /me/account`, `POST /me/account/link`, `GET|DELETE /me/devices[/:id]`,
+`POST /me/devices/revoke-others`, `GET /me/export`, `POST /me/account/delete` (through the
+`account_erase` SECURITY DEFINER function, which anonymizes shared records to a tombstone). Auth
+routes are rate-limited; `CARAVAN_RATE_LIMITS=off` (set by the server vitest env and `pnpm e2e`) is
+refused in production. Server routes so far: `POST /auth/register`,
 `POST /auth/login`, `POST /auth/logout`, `GET /me`, `GET /health` (bearer token auth), plus
 the ledger, progression, circle, economy and unlock routes of chunks 02–07 and 16
 (`GET /unlocks/webs`, `GET /me/unlocks`, `POST /me/unlocks/spend`), the party routes of

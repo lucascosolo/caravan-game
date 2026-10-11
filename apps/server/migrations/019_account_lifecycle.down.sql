@@ -10,7 +10,7 @@ BEGIN
 END
 $$;
 
-DROP FUNCTION IF EXISTS account_erase(uuid);
+DROP FUNCTION IF EXISTS account_erase(uuid, text);
 
 -- The guards as they were before 019.
 CREATE OR REPLACE FUNCTION ledger_event_guard_update() RETURNS trigger AS $$

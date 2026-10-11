@@ -132,7 +132,7 @@ export function progressionResponse(): ProgressionResponse {
 }
 
 export function meResponse(): MeResponse {
-  return { account: { id: ACCOUNT_ID, username: "tester" }, caravans: [{ id: CARAVAN_ID, name: "Dev Caravan", region_id: "desert" }] };
+  return { account: { id: ACCOUNT_ID, username: "tester", guest: false }, caravans: [{ id: CARAVAN_ID, name: "Dev Caravan", region_id: "desert" }] };
 }
 
 export interface Call {

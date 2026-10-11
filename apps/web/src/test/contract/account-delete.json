@@ -1,0 +1,20 @@
+{
+  "route": "POST /me/account/delete",
+  "status": 200,
+  "body": {
+    "deleted": true,
+    "counts": {
+      "caravansDeleted": 1,
+      "purchasesDeleted": 0,
+      "fightsDefendedKept": 0,
+      "ownLedgerRowsDeleted": 0,
+      "fightsStruckAnonymized": 0,
+      "replaysStruckAnonymized": 0,
+      "candidateMenusAnonymized": 0,
+      "tripEncountersAnonymized": 0,
+      "otherLedgerRowsAnonymized": 0,
+      "ownFightRecordsAnonymized": 0,
+      "replaysDefendedAnonymized": 0
+    }
+  }
+}

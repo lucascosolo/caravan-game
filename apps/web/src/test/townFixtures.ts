@@ -85,7 +85,7 @@ export interface FixtureUnit {
 
 export function meWith(units: readonly FixtureUnit[], state: "in_town" | "on_trip" = "in_town"): MeResponse {
   return {
-    account: { id: ACCOUNT_ID, username: "dev" },
+    account: { id: ACCOUNT_ID, username: "dev", guest: false },
     caravans: [
       {
         id: CARAVAN_ID,

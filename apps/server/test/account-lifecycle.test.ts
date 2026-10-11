@@ -399,6 +399,13 @@ describe("deletion (DoD): guest → linked → deleted, and the other participan
     // X buys a pack (a purchase record that must go).
     const store = (await call(x, "GET", "/me/store")).json();
     expect((await call(x, "POST", "/me/store/purchase", { tier: 1, weekIndex: store.week.index, contentsHash: store.offers[0].contentsHash })).statusCode).toBe(201);
+    // Chunk 29 / 24 state of X's own: inbox read marks and preferences, the onboarding marker.
+    expect((await call(x, "PUT", "/me/inbox/preferences", { preferences: { refugees_arrived: true } })).statusCode).toBe(200);
+    const xItems = (await call(x, "GET", "/me/inbox")).json().items as { key: string; version: number }[];
+    const mark = await call(x, "POST", "/me/inbox/read", { marks: xItems.slice(0, 1).map((i) => ({ key: i.key, version: i.version })) });
+    expect(mark.statusCode, mark.body).toBe(200);
+    await pool.query("INSERT INTO inbox_read (account_id, item_key, version) VALUES ($1, 'test:mark', 1) ON CONFLICT DO NOTHING", [x.accountId]);
+    expect((await call(x, "POST", "/me/onboarding/advance", { step: "roster" })).statusCode).toBe(200);
     xCaravanIds = (await pool.query("SELECT id FROM caravan WHERE account_id = $1", [x.accountId])).rows.map((r) => r.id as string);
     expect((await getJob(pool, jobXStruck))!.input).toMatchObject({ partyOwnerAccountId: x.accountId, defenderAccountId: z.accountId });
     expect((await getJob(pool, jobXDefended))!.input).toMatchObject({ partyOwnerAccountId: y.accountId, defenderAccountId: x.accountId });
@@ -428,7 +435,7 @@ describe("deletion (DoD): guest → linked → deleted, and the other participan
     expect((await call(x, "GET", "/me")).statusCode).toBe(401);
     expect((await app.inject({ method: "POST", url: "/auth/resume", headers: { cookie: x.cookie } })).statusCode).toBe(401);
     expect((await app.inject({ method: "POST", url: "/auth/login", payload: { username: x.username, password: "correct horse battery" } })).statusCode).toBe(401);
-    for (const [t, col] of [["account", "id"], ["caravan", "account_id"], ["standing_party", "account_id"], ["pack_purchase", "account_id"], ["cosmetic_ownership", "account_id"], ["session", "account_id"], ["device", "account_id"], ["ledger_event", "account_id"], ["home_town", "account_id"], ["pool_progress", "account_id"]] as const) {
+    for (const [t, col] of [["account", "id"], ["caravan", "account_id"], ["standing_party", "account_id"], ["pack_purchase", "account_id"], ["cosmetic_ownership", "account_id"], ["session", "account_id"], ["device", "account_id"], ["ledger_event", "account_id"], ["home_town", "account_id"], ["pool_progress", "account_id"], ["inbox_read", "account_id"], ["inbox_preference", "account_id"], ["account_onboarding", "account_id"]] as const) {
       expect((await pool.query(`SELECT 1 FROM ${t} WHERE ${col} = $1`, [x.accountId])).rowCount, t).toBe(0);
     }
     expect((await pool.query("SELECT 1 FROM unit_instance WHERE caravan_id = ANY($1::uuid[])", [xCaravanIds])).rowCount).toBe(0);
@@ -581,8 +588,25 @@ describe("the anonymization exception, as the app role", () => {
 
   it("account_erase refuses a system account (the tombstone included) and an unknown id", async () => {
     const tomb = (await pool.query("SELECT account_erasure_tombstone_account() AS t")).rows[0].t as string;
-    expect((await expectDbError(appRole, "SELECT account_erase($1)", [tomb]))?.code).toBe("23514");
-    expect((await expectDbError(appRole, "SELECT account_erase($1)", ["00000000-0000-4000-8000-00000000ffff"]))?.code).toBe("P0002");
+    expect((await expectDbError(appRole, "SELECT account_erase($1, 'x')", [tomb]))?.code).toBe("23514");
+    expect((await expectDbError(appRole, "SELECT account_erase($1, 'x')", ["00000000-0000-4000-8000-00000000ffff"]))?.code).toBe("P0002");
+  });
+
+  it("account_erase needs the caller's own live RAW bearer token: not a stored hash, not another account's token, not an expired one", async () => {
+    const victim = await register();
+    const attacker = await register();
+    const hash = (await pool.query("SELECT token_hash FROM session WHERE account_id = $1 LIMIT 1", [victim.accountId])).rows[0].token_hash as string;
+    // Everything the app role can read: the account id and the stored hash. Neither is enough.
+    expect((await expectDbError(appRole, "SELECT account_erase($1, $2)", [victim.accountId, hash]))?.code).toBe("42501");
+    expect((await expectDbError(appRole, "SELECT account_erase($1, $2)", [victim.accountId, attacker.token]))?.code).toBe("42501");
+    expect((await expectDbError(appRole, "SELECT account_erase($1, NULL)", [victim.accountId]))?.code).toBe("42501");
+    await pool.query("UPDATE session SET expires_at = now() - interval '1 second' WHERE account_id = $1", [victim.accountId]);
+    expect((await expectDbError(appRole, "SELECT account_erase($1, $2)", [victim.accountId, victim.token]))?.code).toBe("42501");
+    expect((await pool.query("SELECT 1 FROM account WHERE id = $1", [victim.accountId])).rowCount).toBe(1);
+    // With its own live token it goes.
+    const fresh = (await app.inject({ method: "POST", url: "/auth/login", payload: { username: victim.username, password: "correct horse battery" } })).json().token as string;
+    expect((await expectDbError(appRole, "SELECT account_erase($1, $2)", [victim.accountId, fresh]))).toBeNull();
+    expect((await pool.query("SELECT 1 FROM account WHERE id = $1", [victim.accountId])).rowCount).toBe(0);
     expect((await expectDbError(appRole, "SELECT 1 FROM account_erasure_active"))).toBeNull(); // readable (the guards read it)
   });
 });

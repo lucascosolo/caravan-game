@@ -74,7 +74,12 @@ export function clearViewerStorage(): void {
   }
 }
 
-export function SessionProvider({ children, fetchImpl, autoResume = true }: { children: ReactNode; fetchImpl?: typeof fetch; autoResume?: boolean }): JSX.Element {
+/**
+ * `autoResume` (chunk 30): ask the server for the device-cookie session on launch and after a 401.
+ * Default: on with the real fetch; off when a test injects `fetchImpl` (its fake server has no
+ * device cookie), unless the test asks for it.
+ */
+export function SessionProvider({ children, fetchImpl, autoResume = fetchImpl === undefined }: { children: ReactNode; fetchImpl?: typeof fetch; autoResume?: boolean }): JSX.Element {
   const [session, setSession] = useState<Session | null>(null);
   const [resuming, setResuming] = useState(autoResume);
   // Bumped by a 401: try the device cookie once more before showing the start screen.

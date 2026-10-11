@@ -100,9 +100,9 @@ function GuideScope({ children }: { children: JSX.Element }): JSX.Element {
   );
 }
 
-export function App({ fetchImpl }: { fetchImpl?: typeof fetch } = {}): JSX.Element {
+export function App({ fetchImpl, autoResume }: { fetchImpl?: typeof fetch; autoResume?: boolean } = {}): JSX.Element {
   return (
-    <SessionProvider {...(fetchImpl ? { fetchImpl } : {})}>
+    <SessionProvider {...(fetchImpl ? { fetchImpl } : {})} {...(autoResume !== undefined ? { autoResume } : {})}>
       <ErrorBoundary>
         <GuideScope>
           <Routed />

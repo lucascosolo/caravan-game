@@ -1,0 +1,16 @@
+{
+  "route": "GET /me/devices",
+  "status": 200,
+  "body": {
+    "devices": [
+      {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "label": "Unknown device",
+        "createdAt": "2026-10-11T12:00:00.000Z",
+        "lastSeenAt": "2026-10-11T12:00:01.000Z",
+        "expiresAt": "2026-10-11T12:00:02.000Z",
+        "current": true
+      }
+    ]
+  }
+}

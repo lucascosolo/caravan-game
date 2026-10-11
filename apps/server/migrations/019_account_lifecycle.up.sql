@@ -57,8 +57,8 @@ ALTER TABLE account
 
 CREATE FUNCTION account_guard_identity() RETURNS trigger AS $$
 BEGIN
-  IF NEW.id <> OLD.id OR NEW.created_at <> OLD.created_at THEN
-    RAISE EXCEPTION 'account %: id and created_at are immutable', OLD.id USING ERRCODE = 'check_violation';
+  IF NEW.id <> OLD.id THEN
+    RAISE EXCEPTION 'account %: the id is immutable (linking keeps it)', OLD.id USING ERRCODE = 'check_violation';
   END IF;
   IF OLD.username IS NOT NULL AND NEW.username IS DISTINCT FROM OLD.username THEN
     RAISE EXCEPTION 'account %: a linked username is permanent (no unlink, no rename)', OLD.id USING ERRCODE = 'check_violation';
@@ -317,7 +317,12 @@ $$ LANGUAGE plpgsql;
 -- ---------------------------------------------------------------------------------
 -- account_erase: the one audited path
 -- ---------------------------------------------------------------------------------
-CREATE FUNCTION account_erase(p_account uuid) RETURNS jsonb
+-- PROOF OF THE CALLER. p_bearer_token is the RAW bearer token of a live session of p_account.
+-- The database stores only sha256(token) (session.token_hash), so nothing the app role can
+-- read lets it build this argument: a compromised server process can erase only an account
+-- whose live token it is handed in a request, never an arbitrary id. A wrong or expired
+-- token, or another account's, is refused (42501) before anything is touched.
+CREATE FUNCTION account_erase(p_account uuid, p_bearer_token text) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
   a          account;
@@ -337,6 +342,12 @@ BEGIN
   END IF;
   IF a.is_system THEN
     RAISE EXCEPTION 'account_erase: account % is a system account and is never erased', p_account USING ERRCODE = 'check_violation';
+  END IF;
+  IF p_bearer_token IS NULL OR NOT EXISTS (
+       SELECT 1 FROM session s
+        WHERE s.account_id = p_account AND s.expires_at > now()
+          AND s.token_hash = encode(sha256(convert_to(p_bearer_token, 'UTF8')), 'hex')) THEN
+    RAISE EXCEPTION 'account_erase: no live session of account % for the token given', p_account USING ERRCODE = 'insufficient_privilege';
   END IF;
   IF EXISTS (SELECT 1 FROM account_erasure_active) THEN
     RAISE EXCEPTION 'account_erase: another erasure is active in this transaction' USING ERRCODE = 'check_violation';

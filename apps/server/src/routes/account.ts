@@ -117,7 +117,9 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     const account = req.auth!.account;
     app.rateLimiter.hit("deletePerAccount", account.id);
     await checkDeletionRequest(account, req.body ?? {});
-    const counts = await eraseAccount(app.db, account.id);
+    // The raw bearer token is account_erase's proof of the caller (migration 019); requireAuth has already matched it.
+    const token = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? "")?.[1] ?? "";
+    const counts = await eraseAccount(app.db, account.id, token);
     clearDeviceCookie(req, reply);
     return { deleted: true, counts };
   });

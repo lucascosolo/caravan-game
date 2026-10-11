@@ -130,4 +130,5 @@ TO caravan_app;
 -- it, so it can never open the exception for its own UPDATE. The audit log is the owner's.
 REVOKE INSERT, UPDATE, DELETE ON TABLE account_erasure_active FROM caravan_app;
 REVOKE INSERT, UPDATE, DELETE ON TABLE account_erasure_audit FROM caravan_app;
-GRANT EXECUTE ON FUNCTION account_erase(uuid) TO caravan_app;
+-- account_erase takes the caller's RAW bearer token as proof (only its hash is stored).
+GRANT EXECUTE ON FUNCTION account_erase(uuid, text) TO caravan_app;
