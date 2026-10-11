@@ -283,3 +283,12 @@ exactly once). Also `pnpm typecheck` in `apps/server`, and
 
 **Next:** hand to adversarial QA against GUARDRAILS §1/§5 and the chunk's checklist
 (race conditions, idempotency after partial commit, immutability, scope on every event).
+
+### Orchestrator note — commit 45c04b3 carries chunk 02
+
+Commit `45c04b3` ("Chunk 01 done") was made by the orchestrator while chunk 02's Maker
+had its files staged in the shared index, so it also contains the whole of chunk 02
+(ledger, projections, job queue, migration 002). The Maker amended the message locally,
+but the original had already been pushed and history is not rewritten on this branch, so
+the pushed message stands and this note is the correction. Lesson applied from here on:
+the orchestrator commits only via `git commit <explicit paths>` with `--only`.
