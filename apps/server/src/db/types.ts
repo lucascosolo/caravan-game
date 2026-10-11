@@ -69,3 +69,29 @@ export function toAccountPublic(row: AccountRow): AccountPublic {
     createdAt: row.created_at.toISOString(),
   };
 }
+
+// ---- chunk 02 -------------------------------------------------------------------------
+export type JobStatus = "queued" | "leased" | "completed" | "parked";
+
+export interface ResolutionJobRow {
+  id: string;
+  kind: string;
+  account_id: string;
+  caravan_id: string;
+  input: Record<string, unknown>;
+  status: JobStatus;
+  attempts: number;
+  max_attempts: number;
+  leased_by: string | null;
+  lease_expires_at: Date | null;
+  last_error: string | null;
+  result: Record<string, unknown> | null;
+  created_at: Date;
+  completed_at: Date | null;
+}
+
+export interface StandingPartyRow {
+  account_id: string;
+  created_at: Date;
+  updated_at: Date;
+}

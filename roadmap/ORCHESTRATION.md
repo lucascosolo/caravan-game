@@ -214,3 +214,72 @@ not name golden files `.log` (noted in `scripts/determinism.mjs`).
 **Next:** hand to adversarial QA (smuggle a float via a dependency; read an env var from
 inside the resolver).
 
+
+### 2026-10-11 — Chunk 02 (event ledger & job queue): `not started` → `built`
+
+**Built.** Migration `apps/server/migrations/002_ledger_and_jobs.{up,down}.sql`, modules
+`apps/server/src/ledger/*` and `apps/server/src/jobs/*`, route `GET /me/ledger`, and the
+`pnpm --filter @caravan/server ledger:rebuild` command.
+
+- **Ledger** (`ledger_event`): append-only at the storage layer — a BEFORE UPDATE trigger
+  refuses every update, a BEFORE DELETE trigger refuses deletes while the account exists
+  (rows leave only by account cascade). All 21 event types from the brief are a Postgres
+  enum. The account/caravan split is a CHECK: coin/standing-party events must have no
+  caravan id, roster/trip/encounter events must have one, and reputation/ladder/unlock
+  events take their scope from `payload.pool` exactly as `pool_progress` does (missing
+  pool = CHECK violation). Resolution events (`encounter_resolved`, `stop_resolved`,
+  `party_served_as_encounter`) must carry `resolver_version`. `(causation_id,
+  causation_seq)` is unique — the idempotency backstop. Appends for one account are
+  serialized by a transaction-scoped advisory lock, so per-account seq order == commit order.
+- **Projections**: `account.coin_balance` and the `pool_progress` numbers are maintained by
+  an AFTER INSERT trigger on the ledger — the only writer of those columns. The same fold
+  exists in TypeScript (`projection.ts`); `verifyProjection` / the `ledger:rebuild` CLI
+  replay from zero and compare. `ledger_snapshot` checkpoints (interval tunable) are exact
+  because they're written under the same per-account lock. Coin credits are clamped to the
+  storage cap inside the append transaction and the event records `overflowDiscarded`.
+- **Job queue** (`resolution_job`): deterministic ids (`encounter:<tripId>:<n>`), idempotent
+  enqueue (`ON CONFLICT DO NOTHING`), lease via `FOR UPDATE SKIP LOCKED` oldest-first,
+  completion = handler events + job completion in ONE transaction under a per-caravan
+  advisory lock (`TRIP_LOCK_MODE`). Handlers are pure `(input) → {events, result}`.
+  Failure → `queued` for retry, `parked` at `JOB_MAX_ATTEMPTS`; an expired lease is
+  re-leasable. Completion is "first valid completion wins" guarded by the job row lock +
+  status check; the attempt counter fences only failure bookkeeping. Nothing ticks:
+  `runOnce` / `drain` are explicit calls. Completed jobs and every job's `input` are
+  immutable (trigger). `verifyJobReplay` re-runs a completed job's handler on its stored
+  input and byte-compares with the committed stream.
+- **Snapshots**: `enqueueEncounterResolution` freezes the committed formation and the
+  standing party (owner id, `updated_at` as `savedAt`, composition placeholder) into the
+  job input and emits `formation_committed`. The encounter handler is a clearly marked
+  placeholder (`outcome.kind = "placeholder_unresolved"`) that emits `encounter_resolved`
+  (defender, caravan-scoped, with both snapshots) and `party_served_as_encounter` (owner,
+  account-scoped) stamped with `RESOLVER_VERSION`; chunk 13 replaces its body.
+
+**Test command:** `cd apps/server && TEST_DATABASE_URL=postgres://caravan:caravan@localhost:5432/caravan_test_c02 npx vitest run`
+— 9 files, 104 tests passing (run 4× for flakiness, all green). New: `test/ledger.test.ts`
+(15), `test/jobs.test.ts` (18), `test/concurrency.test.ts` (4: one party served into 12
+concurrent encounters by 4 workers with the party byte-identical afterward; 40 jobs for one
+account over two caravans by 6 workers with Coin == sum of log and events contiguous per
+job; 24 jobs with 5ms leases and 20–40ms handlers under 5 workers with every job committing
+exactly once). Also `pnpm typecheck` in `apps/server`, and
+`DATABASE_URL=...caravan_test_c02 pnpm --filter @caravan/server ledger:rebuild` → 15 accounts, 0 mismatches.
+
+**Assumptions made:**
+- Registration (chunk 01) does not write ledger events; "rebuild from zero" starts from
+  Coin 0 and `REPUTATION_START` per pool. Chunk 04 may switch to an initial event.
+- `coin_lost_on_wipe` is caravan-scoped and has no balance effect (unbanked trip Coin was
+  never in the account balance); `coin_transferred_to_defender` is written on the
+  *receiving* account as a credit. The brief's name reads oddly for an inverted game (the
+  receiver is the raiding party's owner per PROJECT.md §loss); kept the name as the
+  contract and documented it. Chunk 19 should confirm.
+- `ladder_progress_gained` carries `{pool, pointsDelta, levelsGained}` so chunk 04 can
+  reset points on a rung crossing with a negative delta; the DB still refuses any level decrease.
+- Chunk 02 tunables live in `apps/server/src/jobs/tunables.ts` with `TODO(chunk-03)`.
+- `apps/server` now depends on `@caravan/resolver` (workspace link) for `RESOLVER_VERSION`.
+- A lease shorter than a handler's runtime is a misconfiguration the queue tolerates
+  (still exactly-once) but does not optimize; `JOB_VISIBILITY_TIMEOUT_MS` should exceed
+  resolver runtime once chunk 13 lands.
+- Standing-party snapshot shape is `{ownerAccountId, savedAt, composition: {}}` until
+  chunk 09 adds composition; the formation snapshot is `{fences, traps, posts}` until chunk 07.
+
+**Next:** hand to adversarial QA against GUARDRAILS §1/§5 and the chunk's checklist
+(race conditions, idempotency after partial commit, immutability, scope on every event).

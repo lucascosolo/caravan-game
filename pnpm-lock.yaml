@@ -20,6 +20,9 @@ importers:
       '@caravan/content':
         specifier: workspace:*
         version: link:../../packages/content
+      '@caravan/resolver':
+        specifier: workspace:*
+        version: link:../../packages/resolver
       fastify:
         specifier: ^5.6.1
         version: 5.12.5

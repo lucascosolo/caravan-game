@@ -1,0 +1,17 @@
+DROP TRIGGER IF EXISTS resolution_job_guard_delete ON resolution_job;
+DROP TRIGGER IF EXISTS resolution_job_guard ON resolution_job;
+DROP TABLE IF EXISTS resolution_job;
+DROP FUNCTION IF EXISTS resolution_job_guard_delete();
+DROP FUNCTION IF EXISTS resolution_job_guard();
+DROP TYPE IF EXISTS job_status;
+DROP TABLE IF EXISTS ledger_snapshot;
+DROP TRIGGER IF EXISTS ledger_event_project ON ledger_event;
+DROP TRIGGER IF EXISTS ledger_event_guard_delete ON ledger_event;
+DROP TRIGGER IF EXISTS ledger_event_guard_update ON ledger_event;
+DROP TABLE IF EXISTS ledger_event;
+DROP FUNCTION IF EXISTS ledger_event_project();
+DROP FUNCTION IF EXISTS ledger_event_guard_delete();
+DROP FUNCTION IF EXISTS ledger_event_guard_update();
+DROP FUNCTION IF EXISTS ledger_event_is_resolution(ledger_event_type);
+DROP FUNCTION IF EXISTS ledger_event_scope(ledger_event_type);
+DROP TYPE IF EXISTS ledger_event_type;

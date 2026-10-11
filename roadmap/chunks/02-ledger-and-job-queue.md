@@ -1,6 +1,6 @@
 # Chunk 02 — Event ledger & job queue
 
-**Depends on:** 01. **Status:** not started.
+**Depends on:** 01. **Status:** built.
 Read `/roadmap/GUARDRAILS.md` in full first.
 
 ## Goal
