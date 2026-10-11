@@ -58,16 +58,27 @@ export async function listPartyFeed(db: Queryable, accountId: string, opts: { be
   const served = hasMore ? page.rows.slice(0, limit) : page.rows;
   if (served.length === 0) return { entries: [], nextBefore: 0, hasMore: false };
 
-  const causations = [...new Set(served.map((e) => e.causation_id))];
+  // A resolution's owner-side effects live under three causation ids: the job's own (what the
+  // worker committed), `progression:<jobId>` (chunk 15's settle runs chunk 04's writer under
+  // it) and `transfer:<jobId>` (chunk 19's overrun Coin transfer). All three map back to the
+  // served entry; nothing else is joined.
+  const causeOf = new Map<string, string>();
+  for (const e of served) {
+    causeOf.set(e.causation_id, e.causation_id);
+    causeOf.set(`progression:${e.causation_id}`, e.causation_id);
+    causeOf.set(`transfer:${e.causation_id}`, e.causation_id);
+  }
+  const causations = [...causeOf.keys()];
   const siblings = await db.query<LedgerEventRow>(
     `SELECT * FROM ledger_event WHERE account_id = $1 AND causation_id = ANY($2::text[]) ORDER BY seq`,
     [accountId, causations],
   );
   const byCause = new Map<string, LedgerEventRow[]>();
   for (const e of siblings.rows) {
-    const list = byCause.get(e.causation_id) ?? [];
+    const key = causeOf.get(e.causation_id)!;
+    const list = byCause.get(key) ?? [];
     list.push(e);
-    byCause.set(e.causation_id, list);
+    byCause.set(key, list);
   }
 
   const caravanIds = [...new Set(served.map((e) => str(e.payload["defenderCaravanId"])).filter((x): x is string => x !== null))];

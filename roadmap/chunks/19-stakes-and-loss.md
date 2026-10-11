@@ -1,6 +1,6 @@
 # Chunk 19 — Stakes & loss wiring
 
-**Depends on:** 13, 15, 16. **Status:** not started.
+**Depends on:** 13, 15, 16. **Status:** built (fight outcome via chunk 15's `EncounterOutcome` seam until chunk 13; see Build notes).
 Read `/roadmap/GUARDRAILS.md` in full first, including §0 on which way round the game runs.
 
 ## Goal
@@ -193,3 +193,141 @@ Chunk 14 computes and publishes; this chunk is the only place these take effect 
 - **`unit_retired` is not a trip loss; only `unit_lost_on_wipe` counts.** (Chunk 25 D3
   follow-up: an authored party's roster rebuilt by a content drop retires its old instances
   as `unit_retired {unitInstanceId, unitTypeId, mergeLevel, reason: "authored_set_update"}`.)
+
+## Build notes (chunk 19 Maker)
+
+**Status: `built` — the fight result still enters through chunk 15's `EncounterOutcome` seam
+(`apps/server/src/trip/outcome.ts`) until chunk 13 lands.** Every loss is applied from the
+settled outcome and the trip's own rows; nothing here depends on how the outcome was produced,
+so chunk 13 changes nothing in this chunk. Tests drive it with `test/trip-double.ts`.
+
+**Where it lives.** `apps/server/src/trip/stakes.ts` (new; the only writer of
+`unit_demerged_on_death`, `unit_lost_on_wipe`, `coin_lost_on_wipe` and
+`coin_transferred_to_party_owner` — a source scan enforces it), called from exactly the two
+chunk 15 seams in `trip/service.ts`: `settleLocked` on an overrun and `bankTrip` on a bank.
+Touched: `trip/service.ts` (accrual, overrun, bank, preview), `economy/coin.ts`
+(`creditBankedTrip({ encounterCoin })`, `coinForDelivery`), `routes/economy.ts`,
+`party/feed.ts` (joins `progression:<job>` and `transfer:<job>`), tunables. No migration.
+
+**What happens, exactly.**
+- *Per-death de-merge* (`applyDeMerges`): when a trip ends — bank **or** overrun — every unit
+  dead in the manifest (hp 0; the encounter that killed it from `trip_encounter.deaths`) drops
+  `DEMERGE_LEVELS_PER_DEATH` (1) level, floored at `MERGE_LEVEL_MIN` (1). One
+  `unit_demerged_on_death {unitInstanceId, unitTypeId, fromLevel, toLevel, floored,
+  diedAtEncounter, tripId, tripEnd}` per death, also when the floor holds it at 1 (the death is
+  a fact). Applied once at the trip's end, not per encounter: a dead unit stays dead for the
+  rest of the trip, so "every death" and "once per unit" are the same thing.
+- *Total loss* (overrun only): every unit **alive** in the manifest when the caravan falls —
+  posted or held back — is deleted from `unit_instance`, one `unit_lost_on_wipe
+  {unitInstanceId, unitTypeId, mergeLevel, hpAtCollapse, tripId, encounterIndex, reason:
+  "alive_at_overrun"}` each, plus chunk 09's `standing_party_invalidated` (reason `trip_loss`)
+  when the defender's OWN party named one.
+- *Dead-earlier units on an overrun trip* (the brief, read literally): "any unit that dies in
+  any encounter — whether the trip is ultimately banked or lost — loses one merge level" and
+  "total loss applies only to units still alive when the caravan falls", with a DoD test that
+  "a unit that died earlier is de-merged, not destroyed". So on an overrun a unit that died at
+  any encounter — **including the final one** — is de-merged and comes home; only the living
+  are destroyed. The inversion is tested both ways (died at 2 / alive at 3; died in the final
+  fight).
+- *Coin* (overrun): the trip's unbanked Coin (sum of `trip_encounter.coin_accrued`) is lost —
+  `coin_lost_on_wipe {amount, transferred, destroyed, destroyedReason, recipientAuthored, …}` on
+  the caravan (no balance moves; it was never banked). The same amount is credited to the
+  owner of the party at whose encounter the caravan fell (the overrun `trip_encounter` row's
+  owner = the final blow) as one `coin_transferred_to_party_owner` via `appendCoinCredits`,
+  which reads the recipient's room under their account lock: the excess over their headroom is
+  destroyed (`overflowDiscarded` on the credit, `destroyed` + `recipient_storage_cap` on the
+  loss). A **system** owner: no credit, no event of any kind on the system account (only chunk
+  09's `party_served_as_encounter`), the whole amount `destroyed` with `system_owner`.
+  `transferred + destroyed == lost` is asserted.
+- *Earn floor* (`applyEarnFloor`, the one apply site): at settle, a survived encounter accrues
+  `applyEarnFloor(coinForEncounter(n), m)` where `m` is the `sandbagEarnMultiplier` stored on
+  encounter n's CHOSEN candidate (`chosenEarnMultiplier`, the only reader outside matchmaking/).
+  **Decision for QA:** the floor shapes what the caravan EARNS; the transfer is then exactly the
+  Coin lost (already floored per encounter) and is not floored a second time with the
+  overrunning party's multiplier — the chunk 14 note says the floor "never touches what is lost,
+  transferred or de-merged". The orchestrator brief's "passed through applyEarnFloor with the
+  chosen candidate's multiplier" is read as that per-encounter accrual. If a second floor on the
+  transfer is wanted (it would blunt alt-feeding: a strong caravan losing to a weak alt), it is
+  a one-line change in `applyOverrunLosses`.
+- *Bank* (chunk 15 QA S1): credits the STORED per-encounter `coin_accrued` rows
+  (`creditBankedTrip({ encounterCoin })`), never the live schedule; the schedule assertion is gone.
+- *Delivery* (chunk 15 QA D1, applied here): `COIN_PER_BANKED_TRIP` (flat 500) →
+  `COIN_DELIVERY_PER_ENCOUNTER` = 125 × encounters survived; `COIN_ENCOUNTER_ESCALATION_MULT`
+  ×1.25 → ×1.35 (1382/1024). Schedule now 400, 539, 727, 981, 1323, 1785, …, capped from
+  encounter 18. `GET /me/economy` keeps `earn.bankedTripBonus` (= the 1-encounter delivery, 125)
+  for the web client and adds `earn.deliveryPerEncounter`. `FREE_WEEKLY_EARN_ESTIMATE` is left at
+  40 000 with a note that its shapes predate D1 (re-derive from play data, PHASE-2 §37 — the EV
+  table there is not written by this chunk).
+
+**Exactly once.** Every loss runs inside the transaction that ends the trip (overrun: the one
+that inserts the overrun `trip_encounter` row, under the caravan resolution lock and both
+accounts' append locks, sorted; bank: the one that records the decision). A retried / racing
+settle finds the row and returns; a retried bank replays the stored `trip_banked`. A failure
+anywhere (tested by injecting a trigger that refuses the transfer insert) rolls back the
+de-merge, the destruction and the trip's end together; the retry then applies each once. Two
+overruns into one recipient serialize on the recipient's append lock and each reads the room
+the other left (tested: 2 × 939 into 1 000 of room → 1 000 credited, 878 destroyed, both
+recorded). The `(causation_id, causation_seq)` uniqueness is the backstop.
+
+**Causation ids.** Caravan side in the `trip_overrun` batch (`trip:<id>:overrun`: trip_overrun,
+then de-merges, wipes, standing_party_invalidated, coin_lost_on_wipe) or the `trip_banked` batch
+(`trip:<id>:banked`). Owner side `transfer:<jobId>`: the job's own causation id belongs to the
+worker and is replay-checked by `verifyJobReplay`, so it cannot carry later events; the party
+feed now joins `job`, `progression:<job>` and `transfer:<job>` to the served entry, so the owner
+sees the Coin next to the replay key (`jobId`) — the asynchronous payoff.
+
+**The preview** (`GET …/trip/preview`), built by the same `planUnitLosses` the losses run:
+`bankNow.unitsDeMerged` (chunk 15 QA S7) equals the bank's `restored.deMerged` (which replaced
+`deMergePending`); `ifOverrun.unitsDeMergedNotDestroyed` / `unitsLostOutright` / `coinLost` equal
+what the overrun applies when no further unit dies, and `ifOverrun.unitDyingInTheFinalFight:
+"de_merged_not_destroyed"` names the one thing the lists cannot know in advance. Tested equal.
+`nextEncounter.reward` / `bankTotalIfSurvived` are at full earn; the next candidate shows its
+own multiplier before it is chosen.
+
+**Party owner risks nothing.** Tested: served into a hold and an overrun, the owner's
+`unit_instance` rows, `standing_party` row and `GET /me/party` are byte-identical; ladder
+levels/points, granted and spent unlock points and purchased nodes never decrease; Coin only
+rises (by the transfer). **Their siege Reputation does move** — chunk 04's volatile rating,
+both ways, by design; it is not progress and not a loss in the guardrail's sense, so
+"progression byte-identical" is asserted on the permanent fields only. A system owner's
+progression is byte-identical (no event at all).
+
+**Permanence.** A type reached on the web, packed as the only copy and wiped out, stays
+reached, its points stay granted and spent, `hasAccess` stays true and the mercenary route
+sells it again. No loss path writes a progression event (asserted on the batch).
+
+**Generous acquisition — the real rebuild cost after a worst-case collapse** (8 L5 units, the
+deployment cap, all destroyed; computed by a test from TUNABLES, so a retune fails it until this
+is updated): cheapest plan is 5→3 wherever it fits (same Coin per produced unit as 2→1, fewer
+inputs): 8 L5 ← 14 L4 ← 24 L3 ← 40 L2 ← **67 L1**. Merge Coin **149 600**; buying the 67 L1 as
+mercenaries adds 40 200 → **189 800** all-Coin. Taking them from the free refugee drip instead
+(one per 90 min) is **≈ 100.5 h** (≈ 4.2 days) of wall clock. Against `FREE_WEEKLY_EARN_ESTIMATE`
+(40 000, the conservative floor shape) the merge Coin is **≈ 3.7 weeks** of free play (≈ 4.7 with
+mercenaries); the mid/high shapes (≈ 94k–118k/week) make it ≈ 1.3–1.6 weeks. Nothing blocks it:
+67 L1 is far under `UNIT_INVENTORY_CAP` (200), every single merge costs less than the 50 000
+cap, and the types stay unlocked. Recovery is real but slow at the floor — a balance question
+for chunk 32, flagged rather than tuned. A partially lost circle is far cheaper: units that
+DIED are only one level down.
+
+**Tests.** `test/stakes.test.ts` (19): pure rules (floor math, de-merge floor, the inversion
+plan); the inversion through a real overrun with preview equality, banked Coin and the town
+roster untouched, permanence and re-acquirability; final-fight death de-merged; zero-Coin
+overrun; bank de-merges once under 3 concurrent banks and equals the preview; L1 never erased;
+recipient at 99% of cap; two racing transfers into one recipient; injected partial failure
+then retry; the party owner byte-identical + feed payoff; web permanence through a collapse;
+the defender's own party invalidated; widened-to party pays `FIXED_ONE`; source scans (single
+reader / apply site, single writers, no purchase / clock / randomness in the loss path);
+rebuild cost; system owner (floored earn, Coin destroyed, zero events, caravan side in full);
+S1 bank credits stored floored Coin. `test/trip.test.ts` updated where chunk 15 pinned "no
+losses" (bank refit level, overrun roster, `lossesApplied`). Economy tests repinned for D1.
+
+**For QA / found while building (chunk 15, not redesigned):**
+- `trip_overrun` (chunk 15) puts `partyOwnerAccountId` on the DEFENDER's ledger, readable via
+  their ledger route — chunk 14 QA N4 says account ids are not public. Left as is (it is the
+  typed hand-off); a read-model filter is the fix. The new loss events carry no account id.
+- Party feed `reputationDelta` / `ladderPointsGained` were always 0 for real trips: chunk 15's
+  settle writes progression under `progression:<job>`, the feed joined only the job id. Fixed in
+  `party/feed.ts` (a join only).
+- The owner's transfer (and Reputation) still waits for the defender's next read (lazy settle) —
+  chunk 15 QA S4, assigned to the chunk 15 fixer.
+- N6 (opponent rating exposure in progression events) is untouched: no new progression event.

@@ -15,8 +15,8 @@ N3. `survivors` becomes a top-level EncounterJobInput key, not smuggled inside `
 N8. The adapter normalizes DEPTH_METRIC to an integer 0..1024.
 
 ## Assigned to the chunk 19 Maker (same code)
-S1. Bank credits the stored per-encounter `coin_accrued` (after `applyEarnFloor`), never recomputes from the live schedule; drop the schedule assertion.
-S7. Preview `bankNow.unitsDeMerged` (ref, level → level after), from the same data as `deMergePending`.
+S1. [closed — chunk 19: `bankTrip` passes the stored `coin_accrued` rows to `creditBankedTrip({ encounterCoin })`; schedule assertion removed; test `stakes.test.ts` "chunk 15 QA S1"] Bank credits the stored per-encounter `coin_accrued` (after `applyEarnFloor`), never recomputes from the live schedule; drop the schedule assertion.
+S7. [closed — chunk 19: `bankNow.unitsDeMerged` = `planUnitLosses(…, "banked").deMerged` ({ref, typeId, fromLevel, toLevel, diedAtEncounter}), the same plan the bank applies and returns as `restored.deMerged` (which replaced `deMergePending`); tested equal] Preview `bankNow.unitsDeMerged` (ref, level → level after), from the same data as `deMergePending`.
 
 ## Assigned to a chunk 15 fixer after chunk 19 lands
 S4. Settle in the worker's completion transaction (or enqueue a settle job on completion); keep lazy settle as fallback. The absent party owner must get Reputation (and chunk 19's transfer) without the defender reopening the app.

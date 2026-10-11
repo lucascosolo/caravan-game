@@ -2451,3 +2451,56 @@ touched). The full-load budget test can exceed 100 ms under the parallel suite o
 (seen once at 111 ms; 60–78 ms alone).
 
 **Next:** QA re-audit of chunk 12 against the punch list; relay the scout-view fields above.
+
+### 2026-10-11 — Chunk 19 (stakes & loss wiring): `not started` → `built` (fight outcome via chunk 15's seam until 13)
+
+**Built** in worktree `agent-a0fb121dc23c39207`, rebased onto `roadmap/phase-2-spec` @ `e1355b7`
+(Record chunk 15 QA punch list). Full detail in the chunk file's Build notes.
+
+- **`apps/server/src/trip/stakes.ts`** (new) wired into chunk 15's two seams in
+  `trip/service.ts`: `settleLocked` (overrun) and `bankTrip` (bank). Same transaction as the
+  trip's end, so exactly once under retries, races and a failed partial commit (tested with an
+  injected trigger).
+- **Inversion:** every unit that died on the trip (any encounter, including the final fight)
+  loses one merge level, floored at 1 — on a bank AND on an overrun (`unit_demerged_on_death`);
+  units alive in the manifest when the caravan falls are deleted (`unit_lost_on_wipe`, +
+  `standing_party_invalidated` reason `trip_loss` for the defender's own party).
+- **Coin:** overrun loses all unbanked Coin (`coin_lost_on_wipe`, caravan-scoped, records
+  transferred / destroyed / reason); the same amount goes to the overrunning party's owner as one
+  `coin_transferred_to_party_owner` under `transfer:<jobId>`, capped by their room (excess
+  destroyed); a system owner gets nothing and no event. Two racing transfers into one recipient
+  respect the cap for both (tested).
+- **Earn floor:** `applyEarnFloor` applied once, at accrual, with the CHOSEN candidate's stored
+  multiplier; the transfer is the (already floored) lost Coin, not floored again — chunk 14's
+  note says the floor never touches what is transferred. **Orchestrator: confirm** (the brief
+  could be read as flooring the transfer too; one-line change).
+- **Chunk 15 QA items closed here:** S1 (bank credits stored `coin_accrued`, schedule
+  assertion gone; `creditBankedTrip({ encounterCoin })`), S7 (`bankNow.unitsDeMerged`, equal to
+  the bank's `restored.deMerged`, which replaced `deMergePending`). **D1 applied:**
+  `COIN_PER_BANKED_TRIP` 500 → `COIN_DELIVERY_PER_ENCOUNTER` 125 × encounters survived;
+  `COIN_ENCOUNTER_ESCALATION_MULT` ×1.25 → ×1.35 (1382/1024): 400, 539, 727, 981, 1323, …
+  Economy / trip tests repinned; `GET /me/economy` keeps `earn.bankedTripBonus` (= 125, the
+  1-encounter delivery, so the web is unchanged) and adds `earn.deliveryPerEncounter`.
+  `FREE_WEEKLY_EARN_ESTIMATE` value unchanged, note added; the PHASE-2 §37 EV table is NOT written.
+- **Party feed** joins `progression:<job>` and `transfer:<job>` siblings (fixes a chunk 15 gap:
+  Reputation / ladder deltas were always 0 in the feed).
+- **Rebuild cost after the worst collapse** (8 L5 destroyed): 67 L1 → 149 600 merge Coin
+  (+40 200 if the L1s are mercenaries); ≈ 100.5 h of refugee drip for the L1s; ≈ 3.7 weeks of
+  the 40 000/week free floor (≈ 1.3–1.6 weeks at the mid/high shapes). Pinned by a test.
+
+**Verification (real output, this worktree):**
+`cd apps/server && TEST_DATABASE_URL=postgres://caravan:caravan@localhost:5432/caravan_test_c19 npx vitest run`
+→ 32 files, 576 tests passed (new `test/stakes.test.ts`, 19). One earlier full run had 2
+failures in `qa02-round2.test.ts` ("nothing in this file left a job in flight" + the lease test
+before it: `leaseNextJob` picked up a job another file left queued) that pass alone and passed
+on the next full run — file-order dependent, not touched by this chunk; flagged for the chunk 02
+owner. Root `pnpm typecheck`, `pnpm lint`, `pnpm test:boundary` clean; `@caravan/content` 82
+and `@caravan/web` 217 passing.
+
+**Found in chunk 15 (noted, not redesigned):** `trip_overrun` carries `partyOwnerAccountId` on
+the defender's ledger (account ids are not public, chunk 14 QA N4); the owner's transfer waits
+for the defender's next read (chunk 15 QA S4, assigned to the chunk 15 fixer).
+
+**Next:** adversarial QA of chunk 19 against bounded stakes, §0 (the party never bleeds), §3
+permanence, §4 preview equality, the inversion, and the race / retry tests; then the chunk 15
+fixer's remaining items (S4, D3 void path, S6, N1, N2, N4).

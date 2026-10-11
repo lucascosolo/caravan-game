@@ -28,17 +28,18 @@
     "earn": {
       "encounterSchedule": [
         400,
-        500,
-        625,
-        781,
-        976,
-        1220,
-        1525,
-        1906,
-        2382,
-        2977
+        539,
+        727,
+        981,
+        1323,
+        1785,
+        2409,
+        3251,
+        4387,
+        5920
       ],
-      "bankedTripBonus": 500,
+      "bankedTripBonus": 125,
+      "deliveryPerEncounter": 125,
       "partyWin": 300
     },
     "merge": {

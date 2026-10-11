@@ -6,7 +6,7 @@
  */
 import { TUNABLES } from "@caravan/content";
 import type { FastifyInstance } from "fastify";
-import { encounterCoinSchedule, overflowForecast } from "../economy/coin.js";
+import { coinForDelivery, encounterCoinSchedule, overflowForecast } from "../economy/coin.js";
 import { UnitInPartyError, UnitPackedError, mergeCostTable, performMerge, previewMerge } from "../economy/merge.js";
 import { accrueTrickle } from "../economy/trickle.js";
 import { badRequest } from "../services/errors.js";
@@ -68,7 +68,9 @@ export async function economyRoutes(app: FastifyInstance): Promise<void> {
       },
       earn: {
         encounterSchedule: encounterCoinSchedule(SCHEDULE_PREVIEW_LENGTH),
-        bankedTripBonus: TUNABLES.COIN_PER_BANKED_TRIP,
+        // The delivery for the shortest (one-encounter) trip; it scales with encounters survived.
+        bankedTripBonus: coinForDelivery(1),
+        deliveryPerEncounter: TUNABLES.COIN_DELIVERY_PER_ENCOUNTER,
         partyWin: TUNABLES.COIN_PER_PARTY_WIN,
       },
       merge: {
