@@ -109,6 +109,10 @@ the owner role could simply disable, so the server never runs as the owner:
   re-applies `apps/server/db/roles.sql` on every run, then connects as `caravan_app` to
   prove the guards hold against the server's own role.
 
+**Server tests must not depend on file order:** `apps/server/test/per-file-reset.ts` starts every file
+with no accounts (so no jobs, parties, menus or ratings); create what a test needs itself and pin what a
+seeded matchmaking draw reads (ratings, authored set, owner headroom). Check: `vitest run --sequence.shuffle.files --sequence.seed=N`.
+
 `encounter_log` (chunk 13 replays) is write-once even for the app role: no INSERT / UPDATE / DELETE
 grant; rows go in only through `encounter_log_write()` (SECURITY DEFINER, fenced on the job's
 live lease, checked against the job) and leave only through `encounter_log_prune()` (the
