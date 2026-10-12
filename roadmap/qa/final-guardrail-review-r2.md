@@ -360,3 +360,13 @@ Clean-up:
   NOSUPERUSER role and database are dropped.
 - `caravan_app` carries no role setting.
 - `caravan_test_r2g` and `caravan_dev_r2g` are kept for the fix round.
+
+## Orchestrator decisions (2026-10-12)
+
+- **S1:** while the caravan is below the roster floor, it is owed one menu at a time. A new free menu comes only after the current one is claimed. A refresh under relief is the normal paid reroll, never a free re-draw. Rate-limit the refugee routes, with a tunable. Add a test that 500 refreshes below the floor yield one free menu.
+- **S2:** migration 027 adds `raider_cap` to the menu immutability guard and to the erasure rewrite. Add a test, as `caravan_app`, that every column of `encounter_candidates` except the documented mutable ones is refused. It must enumerate the columns from the catalogue, so a future column cannot slip past.
+- **D1: accept the recommendation.** The band-0 raider cap applies only while the caravan's whole roster, in town plus packed, is at most `COLD_START_ROSTER_MAX` (tunable, default the starting roster size). It no longer depends on the search band. Re-run `scripts/balance/cold-start.ts` and `first-trip.ts --reserve`, and record the results. The guided first fight must stay at or above 70 %.
+- **N1, N2, N4, N5:** in scope.
+  - N4: graceful shutdown on SIGTERM. Stop leasing, finish or release leased jobs, then close. The boot check fails with its own clear message.
+  - N5: an immutability guard on `refugee_menu` for the columns that must not change after creation.
+- **N3:** keep the per-username backstop as decided, and document it in the runbook. **N6:** no action.
