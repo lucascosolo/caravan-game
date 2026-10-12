@@ -567,7 +567,7 @@ describe("authored fallback (PHASE-2 §25 seam)", () => {
       expect(c.owner.displayName.startsWith(AUTHORED_USERNAME_PREFIX)).toBe(false);
       expect(c.owner.displayName.length).toBeGreaterThan(0);
       expect(c.owner.flavor?.length).toBeGreaterThan(0);
-      expect(c.scout.units.length).toBeGreaterThanOrEqual(3);
+      expect(c.scout.units.length).toBeGreaterThanOrEqual(Math.min(3, TUNABLES.AUTHORED_FLOOR_BAND_PARTY_SIZE || 3)); // the floor band fields 2 since the final play-test review
       expect(canonicalJson(scoutParty(partyFromJson(c.snapshot.composition)) as unknown as Json)).toBe(canonicalJson(c.scout as unknown as Json));
       // Same shape as a live snapshot: nothing marks it authored inside the snapshot.
       expect(Object.keys(c.snapshot).sort()).toEqual(["composition", "hash", "partyId", "savedAt", "slot"]);
@@ -678,5 +678,110 @@ describe("DB guards hold against the app role", () => {
       expect(cols.filter((c) => /account|coin|cost|price/.test(c)), t).toEqual([]);
     }
     expect(m.candidates.length).toBe(3);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+describe("final play-test review: the band-0 raider cap (S1), the centre's basis (N6) and guest owners' names (N8)", () => {
+  /** A defender who packed `units` living units, at a living rating whose encounter-1 centre is `centre`. */
+  async function packedDefender(units: number, centre: number): Promise<Player & { caravan: CaravanRow; tripId: string }> {
+    const p = await registerPlayer("desert");
+    await giveUnits(p, units, "desert.dust_rider");
+    await setLivingRep(p.caravanId, centre - TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET);
+    expect((await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: p.units, traps: [], fence: null })).statusCode).toBe(201);
+    const trip = await withTransaction(pool, (c) => createTrip(c, p.caravanId));
+    return { ...p, caravan: (await findCaravanById(pool, p.caravanId))!, tripId: trip.id };
+  }
+
+  it("S1: in band 0 no party with more raiders than the caravan packed units is offered; the cap is stored with the menu and the menu replays", async () => {
+    const centre = 250; // band 0
+    expect(bandOf(centre).index).toBe(0);
+    for (const n of [1, 1, 2, 2, 2, 5, 5, 6, 6]) await makeOwner("mountain", centre, n);
+    const d = await packedDefender(2, centre);
+    for (let t = 0; t < 4; t++) {
+      const m = await searchAt(d, 1, Date.now() + t * COOLDOWN_MS);
+      expect(m.raiderCap).toMatchObject({ packedUnits: 2, cap: 2, relaxed: false });
+      expect(m.raiderCap!.excluded).toBeGreaterThanOrEqual(4);
+      for (const c of m.candidates) expect(c.scout.units.length, c.owner.displayName).toBeLessThanOrEqual(2);
+      const row = await menuRow(d.tripId, 1, m.searchSeq);
+      expect(row.raider_cap).toMatchObject({ band: 0, packedUnits: 2, cap: 2, relaxed: false });
+      expect(row.pool.every((e) => !row.raider_cap!.excludedPartyIds.includes(e.partyId))).toBe(true);
+      expect(replaySearch(row).partyIds).toEqual(row.candidates.map((c) => c.partyId));
+    }
+  });
+
+  it("S1: outside band 0 the rule does not run (raiderCap null, nothing stored)", async () => {
+    const centre = 1600;
+    expect(bandOf(centre).index).toBeGreaterThan(0);
+    for (const n of [5, 6, 7]) await makeOwner("badlands", centre, n);
+    const d = await packedDefender(1, centre);
+    const m = await searchAt(d, 1, Date.now());
+    expect(m.raiderCap).toBeNull();
+    expect((await menuRow(d.tripId, 1, m.searchSeq)).raider_cap).toBeNull();
+  });
+
+  it("N6: the menu says where its centre is and why — encounter 1 is searched below the caravan, not 'within its band'", async () => {
+    const d = await packedDefender(2, 1600);
+    const m = await searchAt(d, 1, Date.now());
+    expect(m.centre).toBe(1600);
+    expect(m.centreBasis).toMatchObject({ offset: TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET, reason: "first_encounter_offset" });
+    expect(m.centreBasis.centreBand).toEqual(bandOf(1600));
+    expect(m.centreBasis.inCaravanBand).toBe(bandOf(1600).index === bandOf(m.caravan.rating).index);
+  });
+
+  it("N8: every caravan is named at creation; a guest's party is offered under its caravan's name, never 'Unnamed drifter'", async () => {
+    const centre = 11_000; // far above the authored set and every other party in this file: only these three are near
+    const g = await app.inject({ method: "POST", url: "/auth/guest", payload: { region: "desert" } });
+    expect(g.statusCode).toBe(201);
+    const gb = g.json();
+    expect(gb.caravan.name).not.toBe("Caravan");
+    expect(gb.caravan.name.length).toBeGreaterThan(0);
+    const guest: Player = { token: gb.token, accountId: gb.account.id, caravanId: gb.caravan.id, units: [] };
+    await giveUnits(guest, 3, "desert.dust_rider");
+    expect((await call(guest, "PUT", "/me/party", fullParty(guest.units))).statusCode).toBe(200);
+    await setSiegeRep(guest.accountId, centre);
+    for (let i = 0; i < 2; i++) await makeOwner("desert", centre + 1 + i, 3);
+    const d = await packedDefender(3, centre);
+    const m = await searchAt(d, 1, Date.now());
+    const names = m.candidates.map((c) => c.owner.displayName);
+    expect(names).toContain(gb.caravan.name);
+    expect(names).not.toContain("Unnamed drifter");
+  });
+});
+
+describe("final play-test review N10 / N5: empty states are 200, and the read carries the caravan's own fence and traps", () => {
+  it("N10: before any search the candidates read is 200 { menu: null, searched: false }; with nothing packed the manifest read is 200 { manifest: null }", async () => {
+    const town = await registerPlayer("desert");
+    const m = await call(town, "GET", `/caravans/${town.caravanId}/manifest`);
+    expect(m.statusCode).toBe(200);
+    expect(m.json()).toEqual({ manifest: null });
+    for (const n of [7_000, 7_010, 7_020]) await makeOwner("desert", n);
+    const d = await makeDefender("desert", 7_160);
+    const empty = await call(d, "GET", `/me/caravans/${d.caravanId}/encounters/1/candidates`);
+    expect(empty.statusCode).toBe(200);
+    expect(empty.json()).toEqual({ menu: null, searched: false, encounterIndex: 1 });
+    // After a search the same read answers the menu.
+    await search(d);
+    const full = (await call(d, "GET", `/me/caravans/${d.caravanId}/encounters/1/candidates`)).json();
+    expect(full.searched).toBe(true);
+    expect(full.menu.candidates).toHaveLength(CANDIDATES_PER_SEARCH);
+    // A caravan with no trip is still a 404 (there is no encounter to ask about).
+    expect((await call(town, "GET", `/me/caravans/${town.caravanId}/encounters/1/candidates`)).statusCode).toBe(404);
+  });
+
+  it("N5: search, candidates and choose carry the caravan's packed fence (standing / packed by tier) and traps (ready / packed by type), with their categories", async () => {
+    for (const n of [7_500, 7_510, 7_520]) await makeOwner("mountain", n);
+    const p = await registerPlayer("desert");
+    await giveUnits(p, 2, "desert.dust_rider");
+    await setLivingRep(p.caravanId, 7_660);
+    const packed = await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: p.units, traps: ["trap.spike_pit", "trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 12 } });
+    expect(packed.statusCode, packed.body).toBe(201);
+    await withTransaction(pool, (c) => createTrip(c, p.caravanId));
+    const menu = await search(p);
+    const loadout = { fences: [{ tierId: "fence.brush_pile", displayName: expect.any(String), category: expect.any(String), standing: 12, packed: 12 }], traps: [{ typeId: "trap.spike_pit", displayName: expect.any(String), category: expect.any(String), ready: 2, packed: 2 }] };
+    expect(menu.caravanLoadout).toEqual(loadout);
+    expect((await call(p, "GET", `/me/caravans/${p.caravanId}/encounters/1/candidates`)).json().menu.caravanLoadout).toEqual(loadout);
+    const chosen = await call(p, "POST", `/me/caravans/${p.caravanId}/encounters/1/choose`, { candidateId: menu.candidates[0]!.candidateId });
+    expect(chosen.json().menu.caravanLoadout).toEqual(loadout);
   });
 });

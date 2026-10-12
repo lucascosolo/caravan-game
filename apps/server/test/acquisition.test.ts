@@ -14,7 +14,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { drawForSequence, drawRefugeeMenu, fnv1a32, menuSeed, replayMenu, rerollCost, REFUGEE_REFRESH_INTERVAL_MS } from "../src/acquisition/refugeeMenu.js";
-import { claimRefugee, refreshRefugees, rerollRefugees, viewRefugees } from "../src/acquisition/refugees.js";
+import { claimRefugee, refreshRefugees, rerollRefugees, rosterReliefOf, viewRefugees } from "../src/acquisition/refugees.js";
 import { recruitMercenary, viewRecruit } from "../src/acquisition/recruit.js";
 import { startingRosterTypes } from "../src/acquisition/startingRoster.js";
 import { buildApp } from "../src/app.js";
@@ -1061,5 +1061,82 @@ describe("QA round 1 punch list (roadmap/qa/18-punchlist.md): the reviewer's pro
     const upper = await call(p, "GET", `/me/caravans/${p.caravanId.toUpperCase()}/recruit`);
     expect(upper.statusCode).toBe(200);
     expect((await call(p, "GET", `/me/caravans/00000000-0000-0000-0000-000000000000/refugees`)).statusCode).toBe(404);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+describe("S1 (final play-test review): roster relief — a caravan in town below REFUGEE_ROSTER_FLOOR has its free menu ready at once", () => {
+  const FLOOR = TUNABLES.REFUGEE_ROSTER_FLOOR;
+
+  it("the floor is a tunable (default 3) and the rule is pure: in town and below the floor, nothing else", () => {
+    expect(FLOOR).toBe(3);
+    expect(rosterReliefOf(true, FLOOR - 1).active).toBe(true);
+    expect(rosterReliefOf(true, FLOOR).active).toBe(false);
+    expect(rosterReliefOf(false, 0).active).toBe(false); // on a trip: the drip's grid as before
+    expect(rosterReliefOf(true, 0, 0).active).toBe(false); // 0 turns it off
+  });
+
+  it("an emptied roster: each claim brings the next free menu in the same request until the floor; offers stay inside the unlocked pool; Coin is never asked for; then the grid resumes from the last early menu", async () => {
+    const p = await registerPlayer();
+    // A wiped caravan: no living units left (as an overrun that destroyed everything packed would leave it).
+    await pool.query("DELETE FROM unit_instance WHERE caravan_id = $1", [p.caravanId]);
+    const t0 = Date.now();
+    const v1 = await viewRefugees(pool, { ...owner(p), nowMs: t0 });
+    expect(v1.relief).toEqual({ active: true, rosterFloor: FLOOR, rosterSize: 0, inTown: true });
+    expect(v1.timer.freeRefreshDue).toBe(true);
+    expect(v1.reroll.blockedByFreeRefresh).toBe(true);
+    const unlocked = [...(await reachedNodeIds(pool, "living", owner(p)))].sort();
+    let seq = v1.menu.sequence;
+    let offer = v1.menu.offers[0]!.unitTypeId;
+    for (let k = 1; k <= FLOOR; k++) {
+      // A reroll is refused (never charged) while relief owes the free menu.
+      if (k === 1) expect((await appErr(rerollRefugees(pool, { ...owner(p), fromSequence: seq, nowMs: t0 + k }))).code).toBe("free_refresh_due");
+      const c = await claimRefugee(pool, { ...owner(p), unitTypeId: offer, sequence: seq, nowMs: t0 + k });
+      expect(c.instance!.merge_level).toBe(1);
+      expect(c.acquired.coinCost).toBe(0);
+      expect(await listUnitInstancesForCaravan(pool, p.caravanId)).toHaveLength(k);
+      if (k < FLOOR) {
+        // Still below the floor: the next free menu arrived in this request, opened now (the grid re-anchors).
+        expect(c.view.timer.refreshedNow).toBe(true);
+        expect(c.view.menu.sequence).toBe(seq + 1);
+        expect(c.view.menu.origin).toBe("free");
+        expect(c.view.timer.windowOpenedAtMs).toBe(t0 + k);
+        for (const o of c.view.menu.offers) expect(unlocked).toContain(o.unitTypeId);
+        expect(c.view.menu.offers).toHaveLength(TUNABLES.REFUGEE_OFFER_COUNT);
+        seq = c.view.menu.sequence;
+        offer = c.view.menu.offers[0]!.unitTypeId;
+      } else {
+        // At the floor: relief is off and the grid resumes one interval after the last menu's window.
+        expect(c.view.relief.active).toBe(false);
+        expect(c.view.timer.refreshedNow).toBe(false);
+        expect(c.view.timer.freeRefreshDue).toBe(false);
+        expect(c.view.timer.nextFreeRefreshAtMs).toBe(t0 + (k - 1) + REFUGEE_REFRESH_INTERVAL_MS);
+      }
+    }
+    expect((await appErr(refreshRefugees(pool, { ...owner(p), fromSequence: seq, nowMs: t0 + FLOOR + 1 }))).code).toBe("free_refresh_not_due");
+    // Nothing was spent and no Coin moved.
+    expect((await listEventsForAccount(pool, p.accountId, { limit: 500 })).filter((e) => e.event_type === "coin_spent")).toEqual([]);
+  });
+
+  it("below the floor, a claimed menu can be refreshed for free at once; on a trip the grid alone decides", async () => {
+    const p = await registerPlayer();
+    const t0 = Date.now();
+    const first = await viewRefugees(pool, { ...owner(p), nowMs: t0 });
+    expect(first.relief.active).toBe(false); // the starting roster is above the floor
+    await claimRefugee(pool, { ...owner(p), unitTypeId: first.menu.offers[0]!.unitTypeId, sequence: 1, nowMs: t0 + 1 });
+    await pool.query("DELETE FROM unit_instance WHERE caravan_id = $1", [p.caravanId]);
+    const due = await viewRefugees(pool, { ...owner(p), nowMs: t0 + 2 });
+    expect(due.timer.freeRefreshDue).toBe(true);
+    // On a trip: relief does not apply.
+    await setCaravanState(pool, p.caravanId, "on_trip");
+    const out = await viewRefugees(pool, { ...owner(p), nowMs: t0 + 3 });
+    expect(out.relief).toMatchObject({ active: false, inTown: false });
+    expect(out.timer.freeRefreshDue).toBe(false);
+    expect((await appErr(refreshRefugees(pool, { ...owner(p), fromSequence: 1, nowMs: t0 + 3 }))).code).toBe("free_refresh_not_due");
+    await setCaravanState(pool, p.caravanId, "in_town");
+    const r = await refreshRefugees(pool, { ...owner(p), fromSequence: 1, nowMs: t0 + 4 });
+    expect(r.produced.sequence).toBe(2);
+    expect(r.produced.origin).toBe("free");
+    expect(r.view.timer.windowOpenedAtMs).toBe(t0 + 4);
   });
 });

@@ -19,7 +19,9 @@
  *                                       MATCHMAKING rating
  *     living/trap ladder                per pool fielded (LADDER_EARNING_POOLS.caravan)
  *   Party side (the owner who was not there)
- *     siege  Reputation  account-level  every encounter — the standing party is an
+ *     siege  Reputation  account-level  rises on an overrun; a held or withdrawn party moves it
+ *                                       NOT AT ALL (final play-test review D6, PROJECT.md §10:
+ *                                       the owner risks nothing) — the standing party is an
  *                                       account-level object, so its MATCHMAKING rating is
  *                                       the owner's account-level offense pool: siege
  *                                       ("offense Reputation, stored on the siege pool")

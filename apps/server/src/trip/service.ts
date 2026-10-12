@@ -98,6 +98,37 @@ export interface StartTripOptions {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
+// Unpack (final play-test review N9)
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * N9: unpack a caravan that is packed but has not ridden out — its open manifest closes with
+ * nothing resolved and nothing written to the ledger (packing wrote nothing either), and the
+ * units are back on the town roster (free to merge or repack). Refused once the manifest rode
+ * out (409 `manifest_used`) or while a trip is open (409 `trip_open`).
+ */
+export async function unpackManifest(client: pg.PoolClient, caravan: CaravanRow): Promise<{ manifestId: string }> {
+  await lockCaravanForResolution(client, caravan.id);
+  const live = await client.query<CaravanRow>("SELECT * FROM caravan WHERE id = $1 FOR UPDATE", [caravan.id]);
+  const row = live.rows[0];
+  if (!row) throw notFound("no_caravan", "caravan not found");
+  const open = await findOpenTrip(client, caravan.id);
+  if (open || row.state === "on_trip") throw conflict("trip_open", "this caravan is on a trip; a trip ends by banking or being overrun, never by unpacking");
+  const manifest = await findOpenManifest(client, caravan.id, true);
+  if (!manifest) throw notFound("no_open_manifest", "this caravan is in town with nothing packed");
+  const used = await client.query<{ id: string }>("SELECT id FROM trip WHERE manifest_id = $1", [manifest.id]);
+  if (used.rows[0] || manifest.encounters_resolved > 0) throw conflict("manifest_used", "this manifest already rode out on a trip");
+  await closeManifest(client, manifest.id);
+  return { manifestId: manifest.id };
+}
+
+/**
+ * Packing while no trip start is available stays allowed (the town's "packed now, rides out
+ * when the next trip returns" flow says so before the player confirms); `unpackManifest` is
+ * the way back if they change their mind, so a caravan is never stuck packed.
+ */
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
 // Start
 // ─────────────────────────────────────────────────────────────────────────────────────────
 

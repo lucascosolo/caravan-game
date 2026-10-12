@@ -2,14 +2,18 @@
  * The first-trip probe (chunk 24 QA D1's acceptance): a fresh account's first trip, as the
  * server serves it and as the onboarding guide walks it.
  *
- *   pnpm --filter @caravan/server exec tsx ../../scripts/balance/first-trip.ts [--seeds 25] [--traps 1] [--jobs 4]
+ *   pnpm --filter @caravan/server exec tsx ../../scripts/balance/first-trip.ts [--seeds 25] [--traps 1] [--jobs 4] [--reserve N]
  *
  * For every region and every possible first refugee claim (the guide takes one from the free
  * menu, which draws from the starting types), `--seeds` distinct caravans (each a different
  * matchmaking seed, as distinct caravan / trip ids give in production):
  *   - the caravan's roster is STARTING_ROSTER (one level-1 unit per starter type by default)
- *     plus that refugee; it packs every unit, `--traps` of its starting trap type and the full
- *     fence budget of its starting tier — what the guide's outfit step says;
+ *     plus that refugee; it packs every unit but `--reserve` (default TUNABLES.GUIDE_RESERVE: the
+ *     guide leaves that many in town since the final play-test review S1; `--reserve 0` packs
+ *     everything, as before), `--traps` of its starting trap type and the full fence budget of
+ *     its starting tier — what the guide's outfit step says. The guide keeps the highest merge
+ *     levels and breaks ties by instance id, which is random in production: here the units left
+ *     home are rotated by the seed, so every starter mix is sampled;
  *   - encounter 1 is searched at REPUTATION_START + FIRST_ENCOUNTER_CENTRE_OFFSET over the
  *     authored pool (a cold start: no live parties), through the server's own selectCandidates;
  *   - the guide's pick (fewest raiders, least HP) is fought with the guided arrangement;
@@ -29,6 +33,7 @@ export interface FirstTripTask {
   readonly refugee: string;
   readonly seed: number;
   readonly traps: number;
+  readonly reserve: number;
 }
 export interface FirstTripResult {
   readonly band1: number;
@@ -42,7 +47,11 @@ export interface FirstTripResult {
 }
 
 export function firstTrip(t: FirstTripTask): FirstTripResult {
-  const roster = freshRoster(t.region, t.refugee, t.traps);
+  const full = freshRoster(t.region, t.refugee, t.traps);
+  const keep = Math.max(1, Math.min(TUNABLES.DEPLOYMENT_SLOT_CAP, full.units.length - t.reserve));
+  const rot = t.seed % full.units.length;
+  const rotated = [...full.units.slice(rot), ...full.units.slice(0, rot)];
+  const roster = { ...full, label: `${full.label} packs ${keep}`, units: rotated.slice(0, keep) };
   const m = manifestOf(roster);
   const id = `${t.region}-${t.refugee}-${t.seed}`;
   const rating = TUNABLES.REPUTATION_START;
@@ -60,9 +69,9 @@ export function firstTrip(t: FirstTripTask): FirstTripResult {
   return { ...base, band2: bandOf(e2.centre).index, kind2Guided: g2?.kind ?? null, kind2Best: b2?.kind ?? null, party2: p2.spec.outfit.name };
 }
 
-export function firstTripTasks(seeds: number, traps: number): FirstTripTask[] {
+export function firstTripTasks(seeds: number, traps: number, reserve: number = TUNABLES.GUIDE_RESERVE): FirstTripTask[] {
   const tasks: FirstTripTask[] = [];
-  for (const region of REGION_IDS) for (const refugee of starterTypes(region)) for (let seed = 1; seed <= seeds; seed++) tasks.push({ region, refugee, seed, traps });
+  for (const region of REGION_IDS) for (const refugee of starterTypes(region)) for (let seed = 1; seed <= seeds; seed++) tasks.push({ region, refugee, seed, traps, reserve });
   return tasks;
 }
 
@@ -102,11 +111,12 @@ if (isMain && !serveIfChild(firstTrip)) {
   };
   const seeds = arg("seeds", 25);
   const traps = arg("traps", 1);
-  const tasks = firstTripTasks(seeds, traps);
+  const reserve = arg("reserve", TUNABLES.GUIDE_RESERVE);
+  const tasks = firstTripTasks(seeds, traps, reserve);
   const rs = await runParallel(process.argv[1]!, tasks, firstTrip, arg("jobs", 4));
   const s = summarize(rs);
   console.log(`First-trip probe — REPUTATION_START ${TUNABLES.REPUTATION_START}, FIRST_ENCOUNTER_CENTRE_OFFSET ${TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET} → encounter 1 centre ${escalatedCentre(TUNABLES.REPUTATION_START, 1)}; ${traps} trap(s) packed`);
-  console.log(`roster: STARTING_ROSTER model + one refugee; ${tasks.length} fresh caravans (4 regions × each refugee type × ${seeds} seeds)`);
+  console.log(`roster: STARTING_ROSTER model + one refugee, ${reserve} left in town (GUIDE_RESERVE ${TUNABLES.GUIDE_RESERVE}); ${tasks.length} fresh caravans (4 regions × each refugee type × ${seeds} seeds)`);
   console.log(`encounter 1 (guided):   bands searched ${JSON.stringify(s.bands1)}   held ${s.held1}/${s.fights1} = ${pct(share(s.held1, s.fights1))} (stalemates ${s.stalemate1})`);
   console.log(`encounter 2 (free):     bands searched ${JSON.stringify(s.bands2)}   guided shape held ${s.held2Guided}/${s.reached2} = ${pct(share(s.held2Guided, s.reached2))}   skilled best held ${s.held2Best}/${s.reached2} = ${pct(share(s.held2Best, s.reached2))}`);
   console.log(`first trip completed (two holds, then bank): ${s.completed}/${s.fights1} = ${pct(share(s.completed, s.fights1))}`);

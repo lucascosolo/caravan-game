@@ -79,7 +79,7 @@ function rosterOf(caravan: CaravanSummary): readonly RosterUnit[] {
 async function readManifest(api: Api, caravanId: string): Promise<ManifestView | null> {
   try {
     const m = (await api.manifest(caravanId)).manifest;
-    return m.closedAt ? null : m;
+    return !m || m.closedAt ? null : m;
   } catch (err) {
     if (err instanceof ApiError && err.status === 404 && err.code === "no_open_manifest") return null;
     throw err;
@@ -310,6 +310,7 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
             if (replayed) setStatus(STRINGS.trip.rideOutAlreadyWent);
             navigate("trail");
           }}
+          onUnpacked={() => void load({ quiet: true })}
         />
       )}
       {loaded.trip.kind === "error" && <ErrorBox error={loaded.trip.error} onRetry={() => void load()} />}

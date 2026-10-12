@@ -6,19 +6,23 @@
  */
 
 /** The categories PHASE-2 §29 names for group A (season / contract events arrive with group B). */
-export const INBOX_CATEGORIES = ["party_strike", "refugees_arrived", "trip_cap_refilled", "mine_near_cap", "packs_rotated"] as const;
+export const INBOX_CATEGORIES = ["party_strike", "refugees_arrived", "trip_cap_refilled", "mine_near_cap", "packs_rotated", "party_changed"] as const;
 export type InboxCategory = (typeof INBOX_CATEGORIES)[number];
 
 /**
  * PHASE-2 §29: "per-category opt-out, defaulting on for party strikes and off for everything
- * else." The spec's own rule, kept here beside the list (migration 015 mirrors the names).
+ * else" — amended by the final play-test review (D7): "refugees ready" and "trip cap refilled"
+ * are the play test's return hooks and default ON; the mine and the pack rotation stay off. The
+ * S2 notice "your standing party changed" (party_changed) defaults on, like party strikes.
+ * Migrations 015 / 026 mirror the names.
  */
 export const INBOX_CATEGORY_DEFAULTS: Readonly<Record<InboxCategory, boolean>> = {
   party_strike: true,
-  refugees_arrived: false,
-  trip_cap_refilled: false,
+  refugees_arrived: true,
+  trip_cap_refilled: true,
   mine_near_cap: false,
   packs_rotated: false,
+  party_changed: true,
 };
 
 /**
@@ -33,6 +37,9 @@ export const INBOX_HORIZON_MS = 14 * 86_400_000;
 
 /** TUNABLE. Most strike batches listed (newest first). */
 export const INBOX_MAX_STRIKE_ITEMS = 30;
+
+/** TUNABLE (final play-test review S2). Most "your standing party changed" notices listed (newest first, inside the horizon). */
+export const INBOX_MAX_PARTY_CHANGE_ITEMS = 10;
 
 /** TUNABLE. Strikes itemized inside one batch (each with its own replay link); the rest are counted, not listed. */
 export const INBOX_STRIKES_PER_ITEM = 10;

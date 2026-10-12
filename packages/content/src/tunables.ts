@@ -547,6 +547,14 @@ export const TUNABLES = {
    * three-raider starter outfits and difficulty rises monotonically from there.
    */
   AUTHORED_PARTY_SIZE_FLOOR: 3,
+  /**
+   * TUNABLE (final play-test review; BALANCE-LOG pass 2). Raiders in each FLOOR-band (ordinal 0)
+   * outfit that splits over fewer edges than this, in place of AUTHORED_PARTY_SIZE_FLOOR; 0 keeps
+   * the floor band on the curve. Since the guide leaves GUIDE_RESERVE units in town, a first trip
+   * posts 5 units, not 7, and three-raider floor outfits held only 66 % of guided first fights.
+   * The floor band keeps its 4-edge (4-raider) outfits, and every band above is unchanged.
+   */
+  AUTHORED_FLOOR_BAND_PARTY_SIZE: 2,
   /** TUNABLE (chunk 37): the band ordinals over which the outfits' living tier and merge level climb from the floor to the top (from ordinal 1). */
   AUTHORED_CLIMB_BANDS: 6,
   AUTHORED_PARTY_SIZE_RISE: 6,
@@ -576,6 +584,17 @@ export const TUNABLES = {
    * never alters a replay.
    */
   AUTHORED_FILL_NEAREST_N: 6,
+  /**
+   * TUNABLE (final play-test review S1, PROJECT.md §15/§17 amendment). Cold-start fairness, in the
+   * same family as AUTHORED_FILL_NEAREST_N: while a search's centre falls in a display band below
+   * this (1 = band 0 only; 0 turns the rule off), a party with MORE raiders than the caravan
+   * PACKED living units is not offered. If fewer than CANDIDATES_PER_SEARCH parties within
+   * ±REPUTATION_BAND_WIDTH_MAX would remain, the raider cap rises one at a time until enough do
+   * (never past PARTY_SLOT_CAP), so a search never fails for it. Applied to the pool before the
+   * seeded draw and stored with the menu (encounter_candidates.raider_cap), so menus replay.
+   * Reads the manifest's unit count only — never Coin, purchases or the owner (GUARDRAILS §2).
+   */
+  COLD_START_RAIDER_CAP_BANDS: 1,
 
   // ────────────────────────────────────────────────────────────────────────────────────
   // Chunk 16 — Coin economy and merge pricing. Coin buys PACE only (GUARDRAILS §2): nothing
@@ -789,6 +808,15 @@ export const TUNABLES = {
 
   /** TUNABLE (chunk 18). The free refugee timer: a fresh menu of offers every 90 minutes. */
   REFUGEE_REFRESH_INTERVAL_MINUTES: 90,
+  /**
+   * TUNABLE (final play-test review S1; PROJECT.md §15 amendment). While a caravan IN TOWN holds
+   * fewer living units than this, its free refugee menu is due at once instead of on the
+   * REFUGEE_REFRESH_INTERVAL_MINUTES grid: a tuning of the free timer, not a new source. The menu
+   * is the ordinary one — REFUGEE_OFFER_COUNT offers drawn from the caravan's UNLOCKED pool, the
+   * player still picks exactly one, nothing locked is ever offered (GUARDRAILS §3). A free menu
+   * taken early re-anchors the grid at that instant. 0 turns it off.
+   */
+  REFUGEE_ROSTER_FLOOR: 3,
   /** Fixed by design (chunk 18). A refugee menu offers exactly this many types; the player takes exactly one. */
   REFUGEE_OFFER_COUNT: 3,
   /**
@@ -912,8 +940,14 @@ export const TUNABLES = {
   UNLOCK_POINTS_BY_RUNG,
   /** TUNABLE (chunk 04). Reputation gained by the party's owner when their party overruns a caravan, before gap scaling. */
   REPUTATION_WIN_ATTACKER: 25,
-  /** TUNABLE (chunk 04). Reputation lost by the party's owner when their party is wiped or withdraws (stalemate), before gap scaling. */
-  REPUTATION_LOSS_ATTACKER: -15,
+  /**
+   * Fixed by design (PROJECT.md §10; final play-test review D6, was −15 since chunk 04). What the
+   * party's owner's Reputation moves when their party is held or withdraws (stalemate): NOTHING.
+   * The owner of a standing party risks nothing by leaving it up — only a success earns
+   * (REPUTATION_WIN_ATTACKER). The defender's side is unchanged. Must stay 0 (asserted at boot in
+   * apps/server/src/progression/reputation.ts).
+   */
+  REPUTATION_LOSS_ATTACKER: 0,
   /**
    * TUNABLE (chunk 04; chunk 37 balance pass 15 → 10, BALANCE-LOG.md). Reputation gained by the
    * caravan when it holds (party wiped) or the party withdraws (stalemate), before gap scaling.
@@ -965,13 +999,18 @@ export const TUNABLES = {
    * indexed by its tier, PER POOL. Tier 0 = a STARTING node: reached free at creation, cost 0
    * by construction (validated). The first paid tier costs 1 point in every pool so the
    * first unlock is immediate. Sized against UNLOCK_POINTS_BY_RUNG (30 per pool at cap):
-   * with the brief's node counts the paid totals are living 39, trap 39, siege 38, so a
-   * capped ladder reaches ~77–79% of each web — "most but not all", a choice, not a
+   * with the brief's node counts the paid totals are living 35, trap 39, siege 38, so a
+   * capped ladder reaches ~77–86% of each web — "most but not all", a choice, not a
    * checklist. Every root-to-node path stays ≤ 30, so every node is reachable at cap
    * (validated on load); which ones is the player's call.
+   *
+   * Final play-test review D8: living tier 2 costs 2 (was 4), so the first tier-2 living unit
+   * arrives in about 2–3 days of normal play (the week model's 30 trips a week, banked after two
+   * holds: 1.7 days saving for it, 3.0 days after buying a tier-1 node first; was 4.7 / 6.6) —
+   * `scripts/balance/unlock-pace.ts`, BALANCE-LOG.md pass 2.
    */
   UNLOCK_NODE_COST_BY_TIER: {
-    living: [0, 1, 4, 8, 14],
+    living: [0, 1, 2, 8, 14],
     trap: [0, 1, 3, 7, 10],
     siege: [0, 1, 8, 15, 21],
   },

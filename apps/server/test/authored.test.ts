@@ -142,7 +142,9 @@ async function fixedOwner(n: number, region: string, siegeRep: number): Promise<
 
 async function fixedDefender(n: number, region: string, livingRep: number): Promise<Player & { caravan: CaravanRow; tripId: string }> {
   const p = await fixedPlayer(n, region);
-  await giveUnits(p, 2, STARTING_TYPE[region]!);
+  // Four packed units: as many as the live owners field, so band 0's cold-start raider cap
+  // (final play-test review S1) leaves this file's pools whole; matchmaking.test.ts covers the cap.
+  await giveUnits(p, 4, STARTING_TYPE[region]!);
   await pool.query("UPDATE pool_progress SET reputation = $2 WHERE caravan_id = $1 AND pool = 'living'", [p.caravanId, livingRep]);
   expect((await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: p.units, traps: [], fence: null })).statusCode).toBe(201);
   const manifest = await pool.query<{ id: string }>("SELECT id FROM wagon_manifest WHERE caravan_id = $1 AND closed_at IS NULL", [p.caravanId]);
@@ -234,7 +236,7 @@ describe("the authored set on an empty database", () => {
       expect(party.units.map((u) => u.mergeLevel).sort()).toEqual(spec.units.map((u) => u.mergeLevel).sort());
       expect(new Set(party.units.map((u) => u.edge)).size).toBe(spec.edgeCount);
       const stances = new Set(party.units.map((u) => u.stance));
-      if (spec.stancePattern === "mixed") expect(stances.size).toBe(3);
+      if (spec.stancePattern === "mixed") expect(stances.size).toBe(Math.min(3, party.units.length));
       else expect([...stances]).toEqual([spec.stancePattern]);
       expect(authoredOutfitFor(spec.username)?.name).toBe(spec.outfit.name);
     }
@@ -266,7 +268,7 @@ describe("the authored set on an empty database", () => {
         // Chunk 25 QA N3: the outfit's name and flavour, never the system handle.
         const spec = authoredPartySpecs().find((s) => authoredPartyId(s.username) === c.partyId)!;
         expect(c.owner).toEqual({ displayName: spec.outfit.name, authored: true, flavor: spec.outfit.flavor });
-        expect(c.scout.units.length).toBeGreaterThanOrEqual(3);
+        expect(c.scout.units.length).toBeGreaterThanOrEqual(Math.min(3, TUNABLES.AUTHORED_FLOOR_BAND_PARTY_SIZE || 3)); // the floor band fields 2 since the final play-test review
         expect(canonicalJson(scoutParty(partyFromJson(c.snapshot.composition)) as unknown as Json)).toBe(canonicalJson(c.scout as unknown as Json));
         // Indistinguishable in shape from a live snapshot (a party may field no siege; the element shapes match), and nothing inside names the owner as authored.
         // The STORED snapshot (the job's party input) has exactly a live one's shape; the view is that minus the owner id (QA D4).
@@ -365,7 +367,7 @@ describe("system accounts are unmistakably system", () => {
     expect(rows.rows.length).toBe(authoredPartySpecs().length);
     for (const r of rows.rows) {
       const live = await liveRoster(pool, r.caravan_id);
-      expect(live.length).toBeGreaterThanOrEqual(3);
+      expect(live.length).toBeGreaterThanOrEqual(Math.min(3, TUNABLES.AUTHORED_FLOOR_BAND_PARTY_SIZE || 3));
       expect(await rebuildAuthoredRoster(pool, r.caravan_id)).toEqual(live);
       // Every acquired type was reached through the unlock web first (GUARDRAILS §3: no bypass, even for the set).
       for (const u of live) expect(await hasAccess(pool, { accountId: r.account_id, caravanId: r.caravan_id, regionId: r.region_id as never }, u.unitTypeId), u.unitTypeId).toBe(true);

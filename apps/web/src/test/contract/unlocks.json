@@ -52,7 +52,7 @@
           {
             "id": "desert.coyote_pack",
             "tier": 2,
-            "cost": 4,
+            "cost": 2,
             "requires": [
               "desert.dust_rider"
             ],
@@ -65,7 +65,7 @@
           {
             "id": "desert.powder_monkey",
             "tier": 2,
-            "cost": 4,
+            "cost": 2,
             "requires": [
               "desert.well_digger"
             ],

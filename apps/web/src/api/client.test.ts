@@ -66,7 +66,7 @@ describe("api client", () => {
     });
     const api = createApi({ getToken: () => "tok", fetchImpl: ff.fetch });
     const ok = await api.manifest("c1");
-    expect(ok.manifest.survivors).toEqual(survivors);
+    expect(ok.manifest!.survivors).toEqual(survivors);
     const fractional = (await api.manifest("c2").catch((e: unknown) => e)) as ApiError;
     expect(fractional.status).toBe(0);
     expect(fractional.code).toBe(BAD_PAYLOAD);

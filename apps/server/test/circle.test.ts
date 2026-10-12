@@ -12,6 +12,7 @@ import { buildApp } from "../src/app.js";
 import { isUnlocked, unlockedTypeIds } from "../src/circle/access.js";
 import { applyOutcome, battlefieldForEncounter, closeManifest, formationHash } from "../src/circle/service.js";
 import { withTransaction } from "../src/db/pool.js";
+import { createTrip } from "../src/matchmaking/trips.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
 import { appRolePool, expectDbError, testPool, truncateAll, unique, commitFormationInTown } from "./helpers.js";
 
@@ -159,7 +160,8 @@ describe("packing and locking the manifest", () => {
 
   it("has no route that edits a manifest, and the database refuses to change `packed`", async () => {
     const m = (await call(p, "GET", `/caravans/${p.caravanId}/manifest`)).json().manifest;
-    for (const method of ["PUT", "PATCH", "DELETE"] as const) {
+    // DELETE is the unpack of a manifest that never rode out (final play-test review N9), tested below.
+    for (const method of ["PUT", "PATCH"] as const) {
       const res = await app.inject({ method, url: `/caravans/${p.caravanId}/manifest`, headers: { authorization: `Bearer ${p.token}` }, payload: {} });
       expect(res.statusCode, method).toBe(404);
     }
@@ -170,6 +172,33 @@ describe("packing and locking the manifest", () => {
     expect(added?.message).toMatch(/cannot be added or removed/);
     const del = await expectDbError(appRole, `DELETE FROM wagon_manifest WHERE id = $1`, [m.id]);
     expect(del?.message).toMatch(/trip history/);
+  });
+
+  it("N9: a caravan packed but not ridden out can be unpacked — the manifest closes unused, nothing is written to the ledger, the units are back on the roster; once it rode out, it cannot", async () => {
+    const q = await registerPlayer();
+    await giveUnit(q, "rider", "desert.dust_rider");
+    await giveUnit(q, "digger", "desert.well_digger");
+    const packed = await call(q, "POST", `/caravans/${q.caravanId}/manifest`, STARTER_PACK(q));
+    expect(packed.statusCode).toBe(201);
+    const ledgerBefore = (await pool.query<{ n: string }>("SELECT count(*)::text AS n FROM ledger_event WHERE account_id = $1", [q.accountId])).rows[0]!.n;
+    const unpack = await app.inject({ method: "DELETE", url: `/caravans/${q.caravanId}/manifest`, headers: { authorization: `Bearer ${q.token}` } });
+    expect(unpack.statusCode).toBe(200);
+    expect(unpack.json().unpacked.manifestId).toBe(packed.json().manifest.id);
+    expect((await call(q, "GET", `/caravans/${q.caravanId}/manifest`)).json().manifest).toBeNull();
+    expect((await pool.query<{ n: string }>("SELECT count(*)::text AS n FROM ledger_event WHERE account_id = $1", [q.accountId])).rows[0]!.n).toBe(ledgerBefore);
+    const closed = await pool.query<{ closed_at: Date | null }>("SELECT closed_at FROM wagon_manifest WHERE id = $1", [packed.json().manifest.id]);
+    expect(closed.rows[0]!.closed_at).not.toBeNull();
+    // Nothing packed now: a second unpack is a 404; packing again works.
+    expect((await app.inject({ method: "DELETE", url: `/caravans/${q.caravanId}/manifest`, headers: { authorization: `Bearer ${q.token}` } })).statusCode).toBe(404);
+    const again = await call(q, "POST", `/caravans/${q.caravanId}/manifest`, STARTER_PACK(q));
+    expect(again.statusCode).toBe(201);
+    // Once it rode out (a trip row names the manifest), unpacking is refused.
+    await withTransaction(pool, (c) => createTrip(c, q.caravanId));
+    const refused = await app.inject({ method: "DELETE", url: `/caravans/${q.caravanId}/manifest`, headers: { authorization: `Bearer ${q.token}` } });
+    expect(refused.statusCode).toBe(409);
+    // Another account cannot unpack it.
+    const other = await registerPlayer();
+    expect((await app.inject({ method: "DELETE", url: `/caravans/${q.caravanId}/manifest`, headers: { authorization: `Bearer ${other.token}` } })).statusCode).toBe(404);
   });
 
   it("another account's caravan is a 404 for every route", async () => {
@@ -352,7 +381,7 @@ describe("arranging the formation per encounter, and carry-forward", () => {
 
   it("closing the manifest ends the trip: frozen thereafter, and the caravan can pack again", async () => {
     await withTransaction(appRole, (client) => closeManifest(client, manifestId));
-    expect((await call(p, "GET", `/caravans/${p.caravanId}/manifest`)).statusCode).toBe(404);
+    expect((await call(p, "GET", `/caravans/${p.caravanId}/manifest`)).json().manifest).toBeNull();
     const frozen = await expectDbError(appRole, `UPDATE wagon_manifest SET survivors = packed WHERE id = $1`, [manifestId]);
     expect(frozen?.message).toMatch(/closed and frozen/);
     const again = await call(p, "POST", `/caravans/${p.caravanId}/manifest`, STARTER_PACK(p));

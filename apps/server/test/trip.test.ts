@@ -390,13 +390,12 @@ describe("the encounter chain: attrition carries forward, nothing is repaired, b
     const rep = await eventsOf(d.accountId, "reputation_changed");
     expect(rep.length).toBe(1);
     expect(rep[0]!.payload).toMatchObject({ pool: "living", reason: "caravan_held", side: "caravan" });
-    // The (live) party owner's side moved too — account-level siege — and their party is untouched.
+    // The (live) party owner's side: a held party never lowers its owner's Reputation (final play-test
+    // review D6, PROJECT.md §10), so no reputation event — and their party is untouched.
     const job = await getJob(pool, `encounter:${tripId}:1`);
     const owner = (job!.input as { partyOwnerAccountId: string }).partyOwnerAccountId;
     const ownerRep = (await eventsOf(owner, "reputation_changed")).filter((e) => e.causation_id === `progression:${job!.id}`);
-    expect(ownerRep.length).toBe(1);
-    expect(ownerRep[0]!.caravan_id).toBeNull();
-    expect(ownerRep[0]!.payload).toMatchObject({ pool: "siege", side: "party" });
+    expect(ownerRep).toEqual([]);
     const served = (await eventsOf(owner, "party_served_as_encounter")).filter((e) => e.causation_id === job!.id);
     expect(served[0]!.payload).toMatchObject({ tripId, encounterIndex: 1, outcome: { kind: "caravan_held", depth: 512 } });
     expect(served[0]!.payload).toHaveProperty("partyHash");
@@ -538,7 +537,7 @@ describe("the encounter chain: attrition carries forward, nothing is repaired, b
     expect((await caravanRow(d)).state).toBe("in_town");
     const trip = await pool.query("SELECT ended_at, end_reason FROM trip WHERE id = $1", [tripId]);
     expect(trip.rows[0].end_reason).toBe("banked");
-    expect((await call(d, "GET", `/caravans/${d.caravanId}/manifest`)).statusCode).toBe(404); // closed
+    expect((await call(d, "GET", `/caravans/${d.caravanId}/manifest`)).json().manifest).toBeNull(); // closed
     expect((await status(d)).trip).toMatchObject({ id: tripId, phase: "ended", endReason: "banked", unbankedCoin: 0 });
     // After the bank nothing is decidable any more.
     expect((await push(d, tripId, 3)).json().error).toBe("trip_banked");
@@ -630,7 +629,7 @@ describe("overrun ends the trip (chunk 19 applies the losses in the same transac
     expect(roster1).toEqual(roster0.filter((r: { id: string }) => r.id !== d.rider && r.id !== d.third));
     expect((await bank(d, tripId, 2)).json().error).toBe("trip_overrun");
     expect((await bank(d, tripId, 1)).statusCode).toBe(409);
-    expect((await call(d, "GET", `/caravans/${d.caravanId}/manifest`)).statusCode).toBe(404);
+    expect((await call(d, "GET", `/caravans/${d.caravanId}/manifest`)).json().manifest).toBeNull();
   });
 
   it("an overrun on the very first encounter: nothing accrued, nothing at stake beyond the packed loadout", async () => {

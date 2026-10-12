@@ -118,14 +118,21 @@ export function reputationDelta(
  * its sign can see, must still be at least one whole point in magnitude. Otherwise a
  * tuning change could make an encounter silently move nothing. Checked once at module
  * load so a bad registry value fails the server at boot, not in the middle of a fight.
+ *
+ * The one deliberate zero (final play-test review D6, PROJECT.md §10): a held or withdrawn
+ * standing party never lowers its owner's Reputation, so REPUTATION_LOSS_ATTACKER is 0 by
+ * design and is asserted to stay 0 rather than listed here.
  */
 export const REPUTATION_BASE_DELTAS: readonly number[] = [
   TUNABLES.REPUTATION_WIN_ATTACKER,
-  TUNABLES.REPUTATION_LOSS_ATTACKER,
   TUNABLES.REPUTATION_CARAVAN_HELD,
   TUNABLES.REPUTATION_CARAVAN_OVERRUN,
 ];
 export function assertReputationTunablesCoherent(): void {
+  if ((TUNABLES.REPUTATION_LOSS_ATTACKER as number) !== 0) {
+    throw new RangeError(`REPUTATION_LOSS_ATTACKER is fixed at 0 by design (PROJECT.md §10: a standing party's owner risks nothing), got ${String(TUNABLES.REPUTATION_LOSS_ATTACKER)}`);
+  }
+  if (TUNABLES.REPUTATION_WIN_ATTACKER <= 0) throw new RangeError("REPUTATION_WIN_ATTACKER must be positive: a party's success is the only thing that moves its owner's Reputation");
   for (const base of REPUTATION_BASE_DELTAS) {
     if (!Number.isInteger(base) || base === 0) throw new RangeError(`Reputation base delta must be a non-zero integer, got ${String(base)}`);
     const floor = gapMultiplierFloor(base > 0 ? 1 : -1);

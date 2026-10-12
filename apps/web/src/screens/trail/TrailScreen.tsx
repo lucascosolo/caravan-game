@@ -63,7 +63,7 @@ function is404(err: unknown, code: string): boolean {
 async function openManifest(api: Api, caravanId: string): Promise<ManifestView | null> {
   try {
     const m = (await api.manifest(caravanId)).manifest;
-    return m.closedAt ? null : m;
+    return !m || m.closedAt ? null : m;
   } catch (err) {
     if (is404(err, "no_open_manifest")) return null;
     throw err;
@@ -157,7 +157,7 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
       }
       // arranging
       const encounterIndex = trip.currentEncounter ?? trip.encountersResolved + 1;
-      let menu: CandidateMenuView;
+      let menu: CandidateMenuView | null;
       try {
         menu = (await api.candidates(caravan.id, encounterIndex)).menu;
       } catch (err) {
@@ -166,6 +166,11 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
           return;
         }
         throw err;
+      }
+      // N10: nothing searched yet is a 200 with no menu (older servers answered 404 no_search, above).
+      if (!menu) {
+        setState({ kind: "unsearched", caravanId: caravan.id, encounterIndex });
+        return;
       }
       const chosen = menu.chosen ? menu.candidates.find((c) => c.candidateId === menu.chosen!.candidateId) : undefined;
       if (!chosen) {

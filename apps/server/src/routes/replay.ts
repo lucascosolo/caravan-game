@@ -170,6 +170,9 @@ export async function replayRoutes(app: FastifyInstance): Promise<void> {
     const shownOutcome = outcome && owner ? Object.fromEntries(Object.entries(outcome).filter(([k]) => OWNER_OUTCOME_KEYS.includes(k))) : outcome;
     const settled = await settledForEncounter(app.db, { jobId, tripId: input.tripId, encounterIndex: input.encounterIndex, viewer, accountId: me });
     const siege = siegeLabels(input);
+    // N7: whether the raiding party was an AUTHORED outfit (the scout already said so). Its owner
+    // keeps nothing, so "loot for the owner: 0 Coin" must not read as Coin that vanished.
+    const authoredParty = viewer === "caravan" ? (await app.db.query<{ is_system: boolean }>("SELECT is_system FROM account WHERE id = $1", [input.partyOwnerAccountId])).rows[0]?.is_system === true : null;
     const base = {
       jobId,
       viewer,
@@ -180,6 +183,8 @@ export async function replayRoutes(app: FastifyInstance): Promise<void> {
       depth: { ...DEPTH_MEASURE, value: depth, lootShare },
       // The party version that fought (chunk 09 QA N3), from the job's snapshot — never the live row.
       party: { partyId: input.party.partyId, partyHash: input.party.hash, partySavedAt: input.party.savedAt },
+      // N7: for the caravan's player only (null for the owner, who knows whose party it is).
+      opponent: authoredParty === null ? null : { authored: authoredParty },
       settled,
     };
     const noLabels = { ...NO_LABELS, siege };

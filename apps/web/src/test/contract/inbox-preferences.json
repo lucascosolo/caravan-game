@@ -11,7 +11,7 @@
         "occurredAt": "2026-10-11T12:00:00.000Z",
         "detail": {
           "caravanId": "00000000-0000-4000-8000-000000000001",
-          "caravanName": "Caravan",
+          "caravanName": "Copper Haulers",
           "regionId": "desert",
           "arrivedAtMs": 1790000120000,
           "currentMenuUnclaimed": true
@@ -58,12 +58,12 @@
       {
         "category": "refugees_arrived",
         "enabled": true,
-        "defaultEnabled": false
+        "defaultEnabled": true
       },
       {
         "category": "trip_cap_refilled",
         "enabled": true,
-        "defaultEnabled": false
+        "defaultEnabled": true
       },
       {
         "category": "mine_near_cap",
@@ -74,6 +74,11 @@
         "category": "packs_rotated",
         "enabled": true,
         "defaultEnabled": false
+      },
+      {
+        "category": "party_changed",
+        "enabled": true,
+        "defaultEnabled": true
       }
     ],
     "olderStrikes": null,

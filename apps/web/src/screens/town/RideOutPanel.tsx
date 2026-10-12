@@ -55,10 +55,12 @@ export interface RideOutPanelProps {
   readonly initialError?: ApiError | null;
   /** The trip is open; `replayed` when a retried start found it already open. */
   readonly onStarted: (status: TripStatusView | null, replayed: boolean) => void;
+  /** N9: when given, an "Unpack" button closes the unused manifest (the units go back to the roster) and this is called. */
+  readonly onUnpacked?: () => void;
   readonly now?: () => number;
 }
 
-export function RideOutPanel({ api, caravanId, status, initialError = null, onStarted, now = monotonic }: RideOutPanelProps): JSX.Element {
+export function RideOutPanel({ api, caravanId, status, initialError = null, onStarted, onUnpacked, now = monotonic }: RideOutPanelProps): JSX.Element {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ApiError | null>(initialError);
@@ -69,6 +71,19 @@ export function RideOutPanel({ api, caravanId, status, initialError = null, onSt
   const refusal = capRefusal(error);
   const refusedLeft = useAnchoredCountdown(refusal, (refusal?.retryAfterSeconds ?? 0) * 1000, now);
   const canRide = !busy && refusedLeft === 0 && (cap.available > 0 || left === 0 || refusal !== null);
+
+  const unpack = async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.unpackManifest(caravanId);
+      onUnpacked?.();
+    } catch (err) {
+      setError(asApiError(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const start = async (): Promise<void> => {
     setBusy(true);
@@ -135,6 +150,11 @@ export function RideOutPanel({ api, caravanId, status, initialError = null, onSt
       >
         {T.rideOut}
       </button>
+      {onUnpacked && (
+        <button type="button" className="btn btn--block" disabled={busy} onClick={() => void unpack()} data-testid="ride-out-unpack">
+          {T.unpack}
+        </button>
+      )}
       {confirming && (
         <Modal
           title={T.rideOutTitle}

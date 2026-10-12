@@ -66,6 +66,10 @@
       "archetype": "dash",
       "displayName": "Spur On"
     },
-    "requiresConfirmInParty": false
+    "requiresConfirmInParty": false,
+    "partyEffect": {
+      "carriedOver": 0,
+      "dropped": 0
+    }
   }
 }

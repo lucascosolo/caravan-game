@@ -44,6 +44,19 @@ describe("N5: the candidate summary", () => {
     expect(s.stances.length).toBeGreaterThan(0);
     expect(s.approach.length).toBeGreaterThan(0);
   });
+
+  it("sets each siege counter against the caravan's own packed fence and traps when the server sends them (caravanLoadout)", () => {
+    const base = fixtureScoutFor(1);
+    const siege = [{ ...(base.siege[0] ?? ({} as never)), displayName: "Battering Wagon", counters: { kind: "fence", category: "wood" } }] as unknown as typeof base.siege;
+    const scout = { ...base, siege };
+    const loadout = {
+      fences: [{ tierId: "fence.brush_pile", displayName: "Brush Pile", category: "wood", standing: 12, packed: 20 }],
+      traps: [{ typeId: "trap.spike_pit", displayName: "Spike Pit", category: "pit", ready: 2, packed: 2 }],
+    };
+    expect(scoutSummary(scout, loadout).siege).toContain("counters 12 of your packed fence segments");
+    expect(scoutSummary(scout, { ...loadout, fences: [] }).siege).toContain("none of your packed fence");
+    expect(scoutSummary(scout).siege).not.toContain("your packed");
+  });
 });
 
 describe("N11: quiet stretches", () => {

@@ -91,8 +91,11 @@ export const AUTHORED_USERNAME_PREFIX = SYSTEM_USERNAME_PREFIX;
  * v3 (chunk 25 QA N5): bands no longer pair up on (max living tier, base merge level).
  * v4 (chunk 37 balance pass): the difficulty curve re-authored to rise from unmerged three-raider
  * starter outfits at the floor (party size, merge level and leaders on their own curves).
+ * v5 (final play-test review, BALANCE-LOG pass 2): the floor band's 1- and 2-edge outfits field
+ * AUTHORED_FLOOR_BAND_PARTY_SIZE (2) raiders, so a first trip that leaves GUIDE_RESERVE units in
+ * town still holds ≥ 70 % of guided first fights.
  */
-export const AUTHORED_SET_VERSION = 4;
+export const AUTHORED_SET_VERSION = 5;
 export const AUTHORED_PARTIES_PER_BAND: number = TUNABLES.AUTHORED_PARTIES_PER_BAND;
 if (!Number.isInteger(AUTHORED_PARTIES_PER_BAND) || AUTHORED_PARTIES_PER_BAND < 12) throw new Error("TUNABLES.AUTHORED_PARTIES_PER_BAND must be an integer of at least 12 (PHASE-2 §25)");
 if (!Number.isInteger(TUNABLES.AUTHORED_REPUTATION_CEILING) || TUNABLES.AUTHORED_REPUTATION_CEILING < TUNABLES.REPUTATION_FLOOR) throw new Error("TUNABLES.AUTHORED_REPUTATION_CEILING must be an integer at or above REPUTATION_FLOOR");
@@ -231,6 +234,8 @@ export function baseMergeLevel(bandOrdinal: number): number {
  * parties of a band one ahead of the even ones on the half steps. Never fewer than the edges it splits over.
  */
 export function bandPartySize(bandOrdinal: number, i: number): number {
+  // Final play-test review (BALANCE-LOG pass 2): the floor band's own size, 0 = on the curve.
+  if (bandOrdinal === 0 && TUNABLES.AUTHORED_FLOOR_BAND_PARTY_SIZE > 0) return Math.min(TUNABLES.PARTY_SLOT_CAP, TUNABLES.AUTHORED_FLOOR_BAND_PARTY_SIZE);
   const rise = Math.floor(((2 * bandOrdinal + (i % 2)) * AUTHORED_SIZE_RISE) / (2 * LAST_ORDINAL));
   return Math.min(TUNABLES.PARTY_SLOT_CAP, AUTHORED_SIZE_FLOOR + rise);
 }
@@ -339,7 +344,8 @@ function validateSpecs(specs: readonly AuthoredPartySpec[], bands: readonly numb
     if (bandOf(s.rating).index !== s.band) fail(`${s.username}: rating ${s.rating} is outside band ${s.band}`);
     if (s.rating < TUNABLES.REPUTATION_FLOOR) fail(`${s.username}: rating ${s.rating} is below the floor`);
     if (s.livingPoints > budget || s.siegePoints > budget) fail(`${s.username}: needs more unlock points than a capped ladder grants`);
-    if (s.units.length < 3 || s.units.length > TUNABLES.PARTY_SLOT_CAP) fail(`${s.username}: ${s.units.length} units`);
+    const minUnits = s.band === bands[0] && TUNABLES.AUTHORED_FLOOR_BAND_PARTY_SIZE > 0 ? Math.min(3, TUNABLES.AUTHORED_FLOOR_BAND_PARTY_SIZE) : 3;
+    if (s.units.length < minUnits || s.units.length > TUNABLES.PARTY_SLOT_CAP) fail(`${s.username}: ${s.units.length} units`);
     if (s.siege.length > TUNABLES.SIEGE_SLOT_CAP) fail(`${s.username}: ${s.siege.length} siege pieces`);
     for (const u of s.units) if (!u.typeId.startsWith(`${s.regionId}.`)) fail(`${s.username}: '${u.typeId}' is not of region ${s.regionId}`);
   }

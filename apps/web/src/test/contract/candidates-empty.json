@@ -1,0 +1,9 @@
+{
+  "route": "GET /me/caravans/:id/encounters/:n/candidates (not searched yet)",
+  "status": 200,
+  "body": {
+    "menu": null,
+    "searched": false,
+    "encounterIndex": 1
+  }
+}

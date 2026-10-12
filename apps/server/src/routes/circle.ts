@@ -3,7 +3,12 @@
  * the caller's is a 404, never a hint that it exists.
  *
  *   POST /caravans/:caravanId/manifest                               pack & lock (town → trail)
- *   GET  /caravans/:caravanId/manifest                               the open manifest + survivors + stakes summary
+ *   DELETE /caravans/:caravanId/manifest                             unpack a caravan that has not ridden out
+ *                                                                     (final play-test review N9: packed with no
+ *                                                                     trip available is never a dead end)
+ *   GET  /caravans/:caravanId/manifest                               the open manifest + survivors + stakes summary;
+ *                                                                     200 `{ manifest: null }` in town with nothing
+ *                                                                     packed (final play-test review N10)
  *   PUT  /caravans/:caravanId/encounters/:n/formation                draft / re-draft the next encounter's arrangement
  *   GET  /caravans/:caravanId/encounters/:n/formation                read it (and its gaps)
  *   POST /caravans/:caravanId/encounters/:n/formation/commit         freeze it: only inside an open trip, against
@@ -11,22 +16,23 @@
  *                                                                     The trip loop's commit route also queues the
  *                                                                     resolution; this one only freezes.
  *
- * There is deliberately no route that edits a manifest, applies an outcome, or closes a
- * manifest: the first does not exist anywhere, the other two belong to the resolution path
- * and the trip loop (chunks 13/15), not to a client.
+ * There is deliberately no route that edits a manifest or applies an outcome, and the only
+ * client-facing close is the unpack of a manifest that never rode out: closing a trip's
+ * manifest belongs to the trip loop (chunk 15), outcomes to the resolution path (chunk 13).
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { withTransaction } from "../db/pool.js";
 import type { CaravanRow } from "../db/types.js";
 import { chosenCandidate } from "../matchmaking/service.js";
 import { findOpenTrip } from "../matchmaking/trips.js";
+import { findOpenManifest } from "../circle/repo.js";
 import { findCaravanById } from "../repo/caravans.js";
 import { badRequest, conflict } from "../services/errors.js";
+import { unpackManifest } from "../trip/service.js";
 import {
   CircleValidationError,
   commitFormation,
   getFormation,
-  getOpenManifest,
   lockManifest,
   manifestView,
   notFound,
@@ -86,10 +92,16 @@ export async function circleRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(201).send({ manifest: await manifestView(app.db, row) });
   });
 
+  app.delete<{ Params: CaravanParams }>("/caravans/:caravanId/manifest", { preHandler: requireAuth }, async (req) => {
+    const caravan = await ownCaravan(req);
+    return { unpacked: await withTransaction(app.db, (client) => unpackManifest(client, caravan)) };
+  });
+
   app.get<{ Params: CaravanParams }>("/caravans/:caravanId/manifest", { preHandler: requireAuth }, async (req) => {
     const caravan = await ownCaravan(req);
-    const row = await getOpenManifest(app.db, caravan.id);
-    return { manifest: await manifestView(app.db, row) };
+    // N10: nothing packed is an empty state, not an error.
+    const row = await findOpenManifest(app.db, caravan.id);
+    return { manifest: row ? await manifestView(app.db, row) : null };
   });
 
   app.put<{ Params: EncounterParams }>("/caravans/:caravanId/encounters/:n/formation", { preHandler: requireAuth }, async (req) => {

@@ -194,8 +194,13 @@ describe("guardrail 1, chunk 22: every replay ends as the ledger recorded it (10
           // An overrun's losses: the Coin lost and the units destroyed and de-merged, as the trip's overrun events recorded them.
           if (ledgerEnding.kind === "caravan_overrun") {
             const losses = (await pool.query<{ event_type: string }>("SELECT event_type::text AS event_type FROM ledger_event WHERE causation_id = $1 AND account_id = $2", [`trip:${tripId}:overrun`, def.accountId])).rows;
-            const b = body as unknown as { settled: { coinLost: unknown; destroyed: unknown[]; deMerged: unknown[]; trip: { ended: boolean } } };
+            const b = body as unknown as { opponent: { authored: boolean } | null; settled: { coinLost: { recipientAuthored: boolean; transferred: number } | null; destroyed: unknown[]; deMerged: unknown[]; trip: { ended: boolean } } };
             expect(b.settled.coinLost).not.toBeNull();
+            // Final play-test review N7: an authored outfit keeps nothing, and the body says so.
+            const authoredParty = !owners.some((o) => o.accountId === input.partyOwnerAccountId);
+            expect(b.opponent).toEqual({ authored: authoredParty });
+            expect(b.settled.coinLost!.recipientAuthored).toBe(authoredParty);
+            if (authoredParty) expect(b.settled.coinLost!.transferred).toBe(0);
             expect(b.settled.destroyed).toHaveLength(losses.filter((e) => e.event_type === "unit_lost_on_wipe").length);
             expect(b.settled.deMerged.length).toBeLessThanOrEqual(losses.filter((e) => e.event_type === "unit_demerged_on_death").length);
             expect(b.settled.trip.ended).toBe(true);
@@ -209,7 +214,7 @@ describe("guardrail 1, chunk 22: every replay ends as the ledger recorded it (10
             expect(r2.statusCode, r2.body).toBe(200);
             const b2 = r2.json() as { viewer: string; tripId: unknown; stored: unknown; outcome: Outcome & Record<string, unknown>; log: unknown; settled: { reputation: { pool: string }[]; deMerged: unknown[]; destroyed: unknown[] } };
             expect(b2.viewer).toBe("party_owner");
-            expect(b2).toMatchObject({ tripId: null, stored: null });
+            expect(b2).toMatchObject({ tripId: null, stored: null, opponent: null });
             expect("units" in b2.outcome).toBe(false);
             expect(ending(readReplay(b2.log).log.outcome)).toEqual(ledgerEnding);
             expect(b2.settled.reputation.every((r) => r.pool === "siege")).toBe(true);

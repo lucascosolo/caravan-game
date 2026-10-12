@@ -143,7 +143,8 @@ describe("the replay player, the caravan's side (the server's recorded fight)", 
     const settled = screen.getByTestId("replay-settled");
     expect(settled).toHaveAttribute("data-applied", "true");
     expect(settled).toHaveTextContent("600 Coin earned here, not banked yet: it is at risk until the trip banks.");
-    expect(settled).toHaveTextContent("Reputation (caravan): +9."); // REPUTATION_CARAVAN_HELD 15 → 10 (chunk 37), gap-scaled
+    // REPUTATION_CARAVAN_HELD 15 → 10 (chunk 37), gap-scaled: +10 since the final play-test review D6 (the party's rating no longer falls, so the gap is level).
+    expect(settled).toHaveTextContent("Reputation (caravan): +10.");
     expect(settled).toHaveTextContent("Ladder (caravan): +25 points.");
     expect(settled).toHaveTextContent("Ladder (trap): +25 points.");
     expect(settled).toHaveTextContent("Units that fell here are de-merged one level when the trip ends; that is not written yet.");
@@ -311,7 +312,8 @@ describe("the replay player, the party owner's side", () => {
     // The ledger's itemization wins over the feed's figures.
     const settled = screen.getByTestId("replay-settled");
     expect(settled).toHaveTextContent(`+${view.outcome!.loot} Coin loot credited.`);
-    expect(settled).toHaveTextContent("Reputation (siege): -14.");
+    // Final play-test review D6 (PROJECT.md §10): a held party never lowers its owner's Reputation.
+    expect(settled).not.toHaveTextContent("Reputation (siege)");
     expect(settled).toHaveTextContent("Ladder (siege): +10 points.");
     expect(settled).toHaveTextContent("Your party lost nothing: it is a template.");
     expect(settled).not.toHaveTextContent("Credited:");
@@ -528,7 +530,8 @@ describe("Watch the fight (the party owner's results feed)", () => {
     const dialog = await screen.findByRole("dialog", { name: "Encounter 1: the fight" });
     expect(replay).toHaveBeenCalledWith(view.jobId);
     expect(await within(dialog).findByTestId("replay-player")).toHaveAttribute("data-viewer", "party_owner");
-    expect(within(dialog).getByTestId("replay-settled")).toHaveTextContent("Reputation (siege): -14.");
+    expect(within(dialog).getByTestId("replay-settled")).toHaveTextContent("Ladder (siege): +10 points.");
+    expect(within(dialog).getByTestId("replay-settled")).not.toHaveTextContent("Reputation (siege)");
   });
 
   it("before the ledger has the fight, the owner sees the feed's figures", async () => {

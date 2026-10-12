@@ -18,7 +18,7 @@ const TIMESTAMP = string({ maxLength: 64 });
 const MS = integer({ min: 0 });
 const COUNT = integer({ min: 0, max: 1_000_000 });
 const COIN = integer({ min: 0, max: 1_000_000_000 });
-const CATEGORY = literal("party_strike", "refugees_arrived", "trip_cap_refilled", "mine_near_cap", "packs_rotated");
+const CATEGORY = literal("party_strike", "refugees_arrived", "trip_cap_refilled", "mine_near_cap", "packs_rotated", "party_changed");
 
 /** Refuse any key naming an account id, at any depth of a strike line. */
 function refuseAccountIds(v: unknown, path: string): void {
@@ -75,6 +75,7 @@ const details = {
   trip_cap_refilled: object({ available: integer({ min: 0, max: 100 }), cap: integer({ min: 0, max: 100 }), fullAtMs: MS }),
   mine_near_cap: object({ balance: COIN, cap: COIN, atCap: boolean(), thresholdPercent: integer({ min: 0, max: 100 }), ratePerHour: COIN, capReachedAtMs: nullable(MS) }),
   packs_rotated: object({ weekIndex: integer(), startsAtMs: MS, endsAtMs: MS }),
+  party_changed: object({ reason: literal("merge", "trip_loss"), carriedOver: COUNT, dropped: COUNT, unitsNow: integer({ min: 0, max: 64 }), empty: boolean() }),
 } as const;
 
 const base = object({ key: KEY, category: CATEGORY, version: integer({ min: 0 }), occurredAtMs: MS, occurredAt: TIMESTAMP, unread: boolean() });

@@ -90,7 +90,7 @@ export interface ReplaySettledView {
   /** False while the trip loop has not folded the outcome in yet: nothing below is written yet. */
   readonly applied: boolean;
   readonly coin: readonly { readonly reason: string; readonly amount: number; readonly discarded: number }[];
-  readonly coinLost: { readonly amount: number; readonly transferred: number; readonly destroyed: number } | null;
+  readonly coinLost: { readonly amount: number; readonly transferred: number; readonly destroyed: number; readonly recipientAuthored?: boolean | undefined } | null;
   readonly reputation: readonly { readonly pool: string; readonly delta: number }[];
   readonly ladder: readonly { readonly pool: string; readonly pointsDelta: number; readonly levelBefore: number; readonly levelAfter: number }[];
   readonly unlockPoints: readonly { readonly pool: string; readonly points: number }[];
@@ -145,6 +145,8 @@ export interface ReplayView {
   readonly log: unknown;
   /** PHASE-2 §36: set when the log was compacted to its results summary; absent otherwise. */
   readonly compacted?: ReplayCompactedView | null | undefined;
+  /** Final play-test review N7: for the caravan's player, whether the raiding party was an authored outfit (it keeps nothing). Null for the owner. */
+  readonly opponent?: { readonly authored: boolean } | null | undefined;
 }
 
 /** One of the caravan's fights within retention (GET /me/encounters). */

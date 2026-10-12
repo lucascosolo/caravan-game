@@ -1,0 +1,7 @@
+{
+  "route": "GET /caravans/:id/manifest (nothing packed)",
+  "status": 200,
+  "body": {
+    "manifest": null
+  }
+}

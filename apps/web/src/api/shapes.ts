@@ -23,6 +23,8 @@ import type {
   InventoryStatusView,
   IssueView,
   ManifestResponse,
+  ManifestReadResponse,
+  CandidatesReadResponse,
   ManifestView,
   MeResponse,
   MergePreview,
@@ -207,6 +209,8 @@ const manifestView: Guard<ManifestView> = object({
 });
 
 export const manifestShape: Guard<ManifestResponse> = object({ manifest: manifestView });
+/** N10: GET /caravans/:id/manifest — `{ manifest: null }` in town with nothing packed. */
+export const manifestReadShape: Guard<ManifestReadResponse> = object({ manifest: nullable(manifestView) });
 
 const formationView: Guard<FormationView> = object({
   manifestId: ID,
@@ -329,6 +333,9 @@ export const scoutViewShape: Guard<PartyScoutView> = object({
 
 const band: Guard<BandView> = object({ index: integer(), low: integer(), high: integer() });
 
+/** N9: `DELETE /caravans/:id/manifest` → the manifest that was closed unused. */
+export const unpackShape: Guard<{ readonly unpacked: { readonly manifestId: string } }> = object({ unpacked: object({ manifestId: ID }) });
+
 // The client view carries NO owner account id (chunk 14 QA N4): display name and authored only.
 const candidate: Guard<CandidateView> = object({
   candidateId: ID,
@@ -346,6 +353,17 @@ const menuFields = object({
   searchSeq: integer({ min: 0 }),
   caravan: object({ rating: integer(), ratingPool: literal("living"), band }),
   centre: integer(),
+  // Final play-test review N6 / S1 (optional: older servers omit them).
+  centreBasis: optional(object({ offset: integer(), reason: literal("first_encounter_offset", "escalation", "none"), inCaravanBand: boolean(), centreBand: band })),
+  raiderCap: optional(nullable(object({ packedUnits: integer({ min: 0, max: 64 }), cap: integer({ min: 0, max: 64 }), relaxed: boolean(), excluded: COUNT }))),
+  caravanLoadout: optional(
+    nullable(
+      object({
+        fences: array(object({ tierId: ID, displayName: NAME, category: ID, standing: COUNT, packed: COUNT }), { maxLength: 16 }),
+        traps: array(object({ typeId: ID, displayName: NAME, category: ID, ready: COUNT, packed: COUNT }), { maxLength: 16 }),
+      }),
+    ),
+  ),
   escalation: object({ applied: integer(), perEncounter: integer(), nextEncounter: integer() }),
   bandWidthUsed: integer({ min: 0 }),
   widened: boolean(),
@@ -368,6 +386,8 @@ const menu: Guard<CandidateMenuView> = (v, path) => {
 };
 
 export const menuShape: Guard<CandidateMenuResponse> = object({ menu });
+/** N10: GET …/candidates — `{ menu: null, searched: false }` before the first search. */
+export const candidatesReadShape: Guard<CandidatesReadResponse> = object({ menu: nullable(menu), searched: optional(boolean()), encounterIndex: optional(integer({ min: 1, max: 1_000_000 })) });
 
 export const choiceShape: Guard<ChoiceView> = object({ menu, chosen: candidate });
 
@@ -574,6 +594,8 @@ const partyView: Guard<PartyView> = object({
   }),
   roster: array(rosterEntry, { maxLength: 10_000 }),
   siegeCatalog: array(siegeCatalogEntry, { maxLength: 64 }),
+  // Final play-test review D5: the server's suggested party (units + the owner's unlocked siege); older servers omit it.
+  suggested: optional(nullable(partyConfig)),
 });
 
 export const partyShape: Guard<PartyResponse> = object({ party: partyView });

@@ -407,6 +407,57 @@ export function selectCandidates(input: SelectionInput): SelectionResult {
   return { picks: draw.picked, bandWidthUsed: widest, passes, usedAuthoredFallback: filler.picked.length > 0, authoredWeightedDown: weightBound, fillCandidates };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// Cold-start raider cap (final play-test review S1): a band-0 fairness rule, like the
+// nearest-N authored fill. Applied to the pool BEFORE the seeded draw; the menu row stores the
+// filtered pool and the cap, so the draw replays from the row exactly as before.
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+/** TUNABLES.COLD_START_RAIDER_CAP_BANDS: the rule applies while the search centre's display band index is below this. */
+export const COLD_START_RAIDER_CAP_BANDS: number = TUNABLES.COLD_START_RAIDER_CAP_BANDS;
+if (!Number.isInteger(COLD_START_RAIDER_CAP_BANDS) || COLD_START_RAIDER_CAP_BANDS < 0) throw new Error("TUNABLES.COLD_START_RAIDER_CAP_BANDS must be a non-negative integer");
+
+/** A pool entry with its raider count (living units in the party's stored composition). */
+export interface RaiderCountedEntry extends PoolEntry {
+  readonly raiders: number;
+}
+
+/** What the cold-start raider cap did to one search. Stored on the menu row (`raider_cap`). */
+export interface RaiderCap {
+  /** The display band of the search centre (the rule only runs below COLD_START_RAIDER_CAP_BANDS). */
+  readonly band: number;
+  /** Living units the caravan packed for this trip. */
+  readonly packedUnits: number;
+  /** The most raiders an offered party may field: packedUnits, raised only as far as needed to fill a menu. */
+  readonly cap: number;
+  /** True when the cap had to rise above packedUnits (too few small parties near the centre). */
+  readonly relaxed: boolean;
+  /** Parties left out of the draw for fielding more than `cap` raiders, by id. */
+  readonly excludedPartyIds: readonly string[];
+}
+
+/**
+ * PURE. The cold-start raider cap for a search at `centre` by a caravan that packed `packedUnits`
+ * living units, or null when the centre's band is outside the rule. The cap starts at
+ * packedUnits and rises one raider at a time (never past PARTY_SLOT_CAP) until at least `count`
+ * parties within ±REPUTATION_BAND_WIDTH_MAX of the centre fit under it, so the rule can thin a
+ * menu but never empty one. Deterministic: the entries' order does not matter.
+ */
+export function coldStartRaiderCap(entries: readonly RaiderCountedEntry[], centre: number, packedUnits: number, count: number = CANDIDATES_PER_SEARCH): RaiderCap | null {
+  if (!Number.isInteger(centre) || !Number.isInteger(packedUnits) || packedUnits < 0) throw new RangeError("centre and packedUnits must be integers, packedUnits ≥ 0");
+  const band = bandOf(centre).index;
+  if (band >= COLD_START_RAIDER_CAP_BANDS) return null;
+  const near = entries.filter((e) => Math.abs(e.rating - centre) <= REPUTATION_BAND_WIDTH_MAX);
+  const start = Math.max(1, packedUnits);
+  let cap = start;
+  while (cap < TUNABLES.PARTY_SLOT_CAP && near.filter((e) => e.raiders <= cap).length < count) cap++;
+  const excludedPartyIds = entries
+    .filter((e) => e.raiders > cap)
+    .map((e) => e.partyId)
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return { band, packedUnits, cap, relaxed: cap > start, excludedPartyIds };
+}
+
 /**
  * Chunk 25 QA S5: the part of a pool a menu row must store so `selectCandidates` replays to
  * the same menu — every entry within the half-width the draw ended at (the passes before it

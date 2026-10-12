@@ -43,7 +43,13 @@ export interface SettledEncounter {
   readonly applied: boolean;
   readonly coin: readonly SettledCoin[];
   /** The caravan's unbanked Coin lost when it was overrun here, and where it went. */
-  readonly coinLost: { readonly amount: number; readonly transferred: number; readonly destroyed: number } | null;
+  readonly coinLost: {
+    readonly amount: number;
+    readonly transferred: number;
+    readonly destroyed: number;
+    /** Final play-test review N7: the party was an authored outfit, which keeps nothing — the whole amount was lost to the trail, not taken by anyone. */
+    readonly recipientAuthored: boolean;
+  } | null;
   readonly reputation: readonly { readonly pool: string; readonly delta: number }[];
   readonly ladder: readonly { readonly pool: string; readonly pointsDelta: number; readonly levelBefore: number; readonly levelAfter: number }[];
   readonly unlockPoints: readonly { readonly pool: string; readonly points: number }[];
@@ -113,7 +119,7 @@ export async function settledForEncounter(
         break;
       }
       case "coin_lost_on_wipe":
-        if (str(p["jobId"]) === input.jobId || num(p["encounterIndex"]) === n) coinLost = { amount: num(p["amount"]), transferred: num(p["transferred"]), destroyed: num(p["destroyed"]) };
+        if (str(p["jobId"]) === input.jobId || num(p["encounterIndex"]) === n) coinLost = { amount: num(p["amount"]), transferred: num(p["transferred"]), destroyed: num(p["destroyed"]), recipientAuthored: p["recipientAuthored"] === true };
         break;
       case "unit_demerged_on_death":
         if (num(p["diedAtEncounter"]) === n) {

@@ -292,11 +292,15 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     // real level change (3 → 2 on the bank, 2 → 1 on the overrun), not just the level-1 floor.
     const [veteran] = await giveUnits(p, ["desert.dust_rider"], 3);
     const posted = [...riders.slice(0, 2), veteran!];
+    // N10 (final play-test review): nothing packed yet is an empty state, 200.
+    await record("manifest-empty", "GET /caravans/:id/manifest (nothing packed)", await call(p, "GET", `/caravans/${p.caravanId}/manifest`), 200);
     await record("manifest-pack", "POST /caravans/:id/manifest", await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: posted, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 20 } }), 201);
     await record("manifest", "GET /caravans/:id/manifest", await call(p, "GET", `/caravans/${p.caravanId}/manifest`), 200);
     const tripUrl = `/me/caravans/${p.caravanId}/trip`;
     await record("trip-status-packed", "GET /me/caravans/:id/trip", await call(p, "GET", tripUrl), 200);
     const started = (await record("trip-start", "POST /me/caravans/:id/trip/start", await call(p, "POST", `${tripUrl}/start`), 201)) as { tripId: string };
+    // N10: before the first search the candidates read is an empty state, 200.
+    await record("candidates-empty", "GET /me/caravans/:id/encounters/:n/candidates (not searched yet)", await call(p, "GET", `/me/caravans/${p.caravanId}/encounters/1/candidates`), 200);
     const search = (await record("search", "POST /me/caravans/:id/encounters/:n/search", await call(p, "POST", `/me/caravans/${p.caravanId}/encounters/1/search`), 201)) as { menu: { candidates: { candidateId: string; owner: { displayName: string } }[] } };
     await record("candidates", "GET /me/caravans/:id/encounters/:n/candidates", await call(p, "GET", `/me/caravans/${p.caravanId}/encounters/1/candidates`), 200);
     const first = [...search.menu.candidates].sort((a, b) => (a.owner.displayName < b.owner.displayName ? -1 : 1))[0]!;

@@ -15,6 +15,9 @@ what the server would resolve.
 | `probes.ts` | The two standing probes from chunk 12: the healer stalemate turtle, and structure-breaker stacking. |
 | `measured-ev.ts` | Feeds the sweep's trip curves into the trip EV model (`model.ts`): EV at each roster's equilibrium band, plus the weekly free earn. |
 | `trip-ev.ts` | The EV model with hand-entered rates (chunk 19). Unchanged apart from the weekly-earn band. |
+| `unlock-pace.ts` | The week model read for ladder points: the days of play until the first tier-2 living unlock, at 15 / 30 / 42 trips a week and bank points 1–3 (`--costs` evaluates another cost curve). Pass 2, D8. |
+| `party-rating.ts` | The Reputation equilibrium check on a sweep's `--json` matrix: each caravan roster's equilibrium band, and a standing party's siege-Reputation drift per strike by strength and band, under the current and the old party-loss rule. Pass 2, D6. |
+| `cold-start.ts` | The band-0 raider cap (S1) re-checked: rebuilt 1–4 unit caravans at REPUTATION_START, with the cap on and off, against the authored pool. Pass 2. |
 | `apps/server/test/balance-sweep.test.ts` | The CI slice, with a time budget of 150 s. It checks that encounter 1 is searched in band 0, that the guided layout holds ≥ 70 %, that encounter 2 is held more often than not, that skill beats naive, and that the sweep is deterministic. |
 
 **The corpus and its assumptions.** Each region gets a fresh caravan and eight "band-typical"
@@ -33,6 +36,140 @@ upper bound on what one reading of the scout gets. "Naive" layouts ignore the sc
 A roster's **equilibrium band** is the highest band whose skilled encounter-1 hold rate is at least
 the Reputation break-even. The break-even is 20 / (10 + 20) ≈ 67 % since change #16 (it was 20 / (15 + 20) = 57 %), because a hold earns +10 and an
 overrun costs −20.
+
+---
+
+## Pass 2 — 2026-10-12 (final play-test review: S1, D6, D8; D3/D4 recorded). RESOLVER_VERSION unchanged at 8.
+
+No resolver code, content stat or resolver tunable changed, so RESOLUTION_CONTENT_HASH and the golden
+corpus are unchanged. Before #17 and #22, the quick sweep reproduced pass 1's quick-corpus diagonal
+exactly (skilled / guided / naive: b0 92/67/67, b1 83/63/71, b2 96/75/79, b3 75/58/54, b4 83/54/54,
+b5 58/29/29, b6 54/38/42, b7 83/38/42 %). After them, the quick sweep (`--quick --no-trips`, 1,728
+matchups) moves in two columns only:
+
+- **Band 0, from #22.** Guided holds at b0 went from 67–92 % to 79–92 % across the rosters, and naive
+  holds rose too. Skilled holds are unchanged, at 92–100 %.
+- **Band 7, from #17.** The authored outfits pick their living types greedily within a capped
+  ladder's 30 points, and a cheaper tier 2 changes which types the top band can afford. Skilled
+  holds at b7 moved by −4 to +12 points depending on the roster; the b7 diagonal is now 88 / 42 /
+  38 % (was 83 / 38 / 42). No other band's outfits changed. `first-trip.ts` gained `--reserve` (default GUIDE_RESERVE). New tools:
+`unlock-pace.ts` (D8), `party-rating.ts` (D6) and `cold-start.ts` (S1's raider cap).
+
+### What changed
+
+| # | number | from → to | why |
+|---|---|---|---|
+| 17 | `UNLOCK_NODE_COST_BY_TIER.living` tier 2 | 4 → 2 (curve 0, 1, **2**, 8, 14) | D8: the first tier-2 living unit should arrive in about 2–3 days of normal play. Measured below. The living web's paid total falls from 39 to 35, so a capped ladder (30 points) reaches 86 % of it, not 77 %: still "most but not all", and every node is still reachable at cap. Trap and siege curves are unchanged. |
+| 18 | `REPUTATION_LOSS_ATTACKER` | −15 → **0**, now fixed by design | D6, PROJECT.md §10: a standing party that is held or withdraws never lowers its owner's Reputation; only a success (+25, gap-scaled) raises it. Asserted at boot. The defender's split (+10 / −20) is unchanged. |
+| 19 | `REFUGEE_ROSTER_FLOOR` (new) | 3 | S1: while a caravan in town has fewer than 3 living units, its free refugee menu is due at once. Each claim brings the next menu in the same request until the roster is at 3. A tuning of §15's free timer: still 3 offers from the unlocked pool, one pick, nothing locked. |
+| 20 | `COLD_START_RAIDER_CAP_BANDS` (new) | 1 (band 0 only) | S1: in band 0 no party with more raiders than the caravan packed units is offered. The cap rises one raider at a time when fewer than 3 parties near the centre would fit, so it never empties a menu. Stored on the menu row (`raider_cap`), so menus replay. |
+| 21 | `GUIDE_RESERVE` (new; the client fix round's definition) | 2 | S1: the client guide packs at most `roster − 2`. Presentation only: the server never reads it. |
+| 22 | `AUTHORED_FLOOR_BAND_PARTY_SIZE` (new); `AUTHORED_SET_VERSION` 4 → 5 | the floor band's 1- and 2-edge outfits: 3 → **2** raiders (its 4-edge outfits keep 4; every band above is unchanged) | With the reserve, the guided first fight posts 5 units, not 7, and held only **66 %** (132 / 200) against the three-raider floor outfits. The decision's bar is ≥ 70 %. The raider cap could not help, because every floor outfit fielded 3 and the guide already picks the fewest. Two levers were tried: dropping the floor band's siege changed nothing (66 %, identical fights), and 2-raider floor outfits gave **73 %** (146 / 200). The validator's 3-unit minimum is relaxed to this size for the floor band only. |
+
+### The first fight with the guide's reserve (`first-trip.ts`, 4 regions × each refugee × 25 seeds = 200 caravans; 1 trap)
+
+The guide now packs `roster − GUIDE_RESERVE` = 5 of 7. Which 2 stay home depends on instance ids, so
+the probe rotates them by the seed.
+
+| | packs 7 (`--reserve 0`) | packs 5, floor outfits of 3 | **packs 5, floor outfits of 2 (#22)** |
+|---|---|---|---|
+| guided encounter 1 held | 161 / 200 = 81 % | 132 / 200 = 66 % | **146 / 200 = 73 %** (target ≥ 70 %) |
+| encounter 2, guide's shape | 125 / 161 = 78 % | 105 / 132 = 80 % | 108 / 146 = 74 % |
+| encounter 2, best of the skilled set | 127 / 161 = 79 % | 112 / 132 = 85 % | 113 / 146 = 77 % |
+| first trip completed (two holds, then bank) | 63 % | 53 % | 54 % |
+
+The guide's picks at encounter 1 after #22 were Bounty Board Riders 60 / 81, Gunslinger's Dozen
+53 / 79, Prairie Wolf Pack 22 / 29 and Salt Flat Drifters 11 / 11. The two badlands ranged outfits are
+what is left of the gap. Encounter 2 (band 1) is unchanged by #22.
+
+### D8: time to the first tier-2 living unlock (`unlock-pace.ts`)
+
+The week model's trip counts (`weeklyFreeEarn`: 15 / 30 / 42 trips a week, 30 being the mid) and the
+first-trip probe's measured hold rates (encounter 1 81 %, encounter 2 78 %, pass 1). A hold earns
+25 living-ladder points and an overrun earns 10. Rungs are at 100 / 282 / 519 / 800 / 1,118 points,
+with one unlock point per rung. A tier-2 living node needs only a free tier-0 prerequisite. "Save" means
+every point goes to it. "Tier 1 first" means the first point buys a tier-1 node as it arrives.
+
+| 30 trips a week, banked after | before (tier 2 = 4): save / tier 1 first | **after (tier 2 = 2): save / tier 1 first** |
+|---|---|---|
+| 1 hold (cautious; 22 points a trip) | 8.4 / 11.8 days | 3.0 / 5.5 days |
+| 2 holds (the guide's first-trip plan; 40 points a trip) | 4.7 / 6.6 days | **1.7 / 3.0 days** |
+| 3 holds (the 8 × L1 best-EV point; 53 points a trip) | 3.5 / 4.9 days | 1.2 / 2.3 days |
+
+At 15 trips a week, banked after 2 holds, it takes 3.3 / 6.1 days (was 9.4 / 13.1). At 42 trips a
+week it takes 1.2 / 2.2 days (was 3.4 / 4.7). Target met at the mid: about 2–3 days. The play-test
+reviewer's h8 (six holds: 150 points, rung 1) is consistent with the model.
+
+### D6: the equilibrium check (`party-rating.ts` on the `--quick --no-trips` sweep after #17 and #22, 1,728 matchups)
+
+**Caravans, unchanged.** D6 does not touch the defender's side and no fight changed. Quick corpus,
+break-even 67 %. Equilibrium band by roster: fresh 3, b0-typical 3, b1-typical 3, b2-typical 3,
+b3-typical 3, b4-typical 4, b5-typical 4, b6-typical 7, b7-typical 7.
+
+**Standing parties: there is no equilibrium any more, by design.** The table gives the drift per
+strike when a party of band-p strength (the authored outfits of band p stand in for it) meets the
+band-k typical roster. Under the old rule (+25 / −15) a party settled where it won 37.5 % of the time.
+Under the new rule its rating never falls, and it climbs ever more slowly until it can no longer win:
+
+| party strength | old: settles at | new: climbs to | strikes to get there from its own band |
+|---|---|---|---|
+| b0 | below b0 (sinks to the floor) | b2 | ≈ 430 |
+| b1 | below b0 | b4 | ≈ 360 |
+| b2 | below b0 | b4 | ≈ 580 |
+| b3 | below b0 | b7 | ≈ 530 |
+| b4 | b3 | above b7 | ≈ 360 to b7 |
+| b5 | b5 | above b7 | ≈ 130 to b7 |
+| b6 | b7 | above b7 | ≈ 60 to b7 |
+| b7 | b5 | above b7 | ≈ 100 to b7 |
+
+What this means: a weak party (b0–b2 strength) used to sink to the floor and be served only to fresh
+caravans. Now it stays where it climbed to and drifts up only slowly (≈ 1–4 Reputation a strike). A
+strong party still climbs fast. Live parties' siege ratings will therefore sit at or above their
+strength, never below it. The caravans they meet at a given band will face slightly weaker parties
+than that band's authored outfits, and hold a little more often there. The authored set does not move
+and anchors every band. This is a population effect that the offline sweep cannot measure.
+
+### S1: the band-0 raider cap re-checked (`cold-start.ts`, 4 regions × 25 seeds)
+
+This is a rebuilt caravan of 1–4 unmerged starters with 1 Spike Pit and a full Brush Pile budget, at
+REPUTATION_START (encounter 1 in band 0), served from the authored pool with the guide's pick:
+
+| packed | before #22: raiders faced, guided / skilled held | **after #22**: raiders faced, guided / skilled held |
+|---|---|---|
+| 1 | 3 (the cap relaxes to 3): 0 % / 13 % | 2 (relaxes to 2): 42 % / 50 % |
+| 2 | 3 (relaxes to 3): 33 % / 54 % | 2: 46 % / 85 % |
+| 3 | 3: 45 % / 57 % | 2: 57 % / 89 % |
+| 4 | 3: 57 % / 63 % | 2: 66 % / 79 % |
+
+The cap on and off gives identical rows against the authored pool. The guide already picks the
+fewest raiders, and every 1–2-edge floor outfit fields the same count. So the cap only bites once
+live parties larger than a rebuilt caravan stand in band 0. The rebuild path the decision intends
+now works like this. A wiped caravan takes three free refugees at once (relief), packs 3, and holds
+57 % of guided / 89 % of skilled encounter-1 fights (it was 45 / 57 % before #22). If the play test
+shows wiped testers stalling, the next lever is REFUGEE_ROSTER_FLOOR (3 → 4). It is not moved here:
+the decision fixed it at 3.
+
+### Open — for the play test's telemetry (chunk 32), no mechanic change now
+
+5. **D3: traps cost nothing to pack.** Every tester packs all six, every trip. Watch traps packed per
+   trip, and trap lays per encounter against hold rate. If packing is always "all six", the trap
+   loadout is not a decision. The candidates for a fix are a restock cost or a stock, which would be
+   a mechanic change.
+6. **D4: bank-or-push in week 1.** Measure the push rate after encounter 1 by band 0–1 caravans and
+   their encounter-2 hold rate (the reviewer saw 5 of 9). Measure it again now that S1 bounds the
+   blast radius (GUIDE_RESERVE leaves 2 units home; relief rebuilds to 3). If pushing is still
+   clearly wrong at k = 1 for fresh rosters, the levers are the encounter-2 reward or the delivery
+   bonus at bands 0–1.
+7. **D6's inflation.** Watch the live parties' siege-rating distribution against their hold rate by
+   band, and the caravans' hold rate by band against the authored outfits. A drift of live parties
+   above their strength shows up as caravans holding more against live parties than against
+   authored ones at the same band.
+8. **S1's rebuild.** Watch the hold rate of caravans that packed ≤ 3 units, and the time from a wipe
+   back to a banked trip.
+9. **Ranged raiders against the guard leash** (final play-test review N11). A lone Bounty Hunter
+   with range 4 shot posts over the fence for 84 s while five guards stood inside their leash. Watch
+   fight length and the share of quiet time in fights with ranged raiders. The replay label for it
+   needs a log-format change and is left for after the play test.
 
 ---
 

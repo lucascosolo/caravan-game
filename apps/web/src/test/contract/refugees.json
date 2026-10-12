@@ -68,6 +68,12 @@
       "forfeitsUnclaimedOffer": true,
       "blockedByFreeRefresh": false
     },
+    "relief": {
+      "active": false,
+      "rosterFloor": 3,
+      "rosterSize": 9,
+      "inTown": true
+    },
     "balance": 1000,
     "pendingTrickle": 0,
     "inventory": {

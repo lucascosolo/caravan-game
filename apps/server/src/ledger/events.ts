@@ -34,9 +34,11 @@ export const LEDGER_EVENT_TYPES = [
   "encounter_resolved",
   "formation_committed",
   "standing_party_saved",
-  /** Chunk 09 QA S3: a roster change (merge; chunk 19 loss) removed an instance the party names. */
+  /** Chunk 09 QA S3 (historical): a roster change removed an instance the party names. No longer written since the final play-test review S2. */
   "standing_party_invalidated",
   "party_served_as_encounter",
+  /** Final play-test review S2 (migration 026): a merge or a trip loss removed an instance the party named; the party repaired itself (re-pointed / dropped). */
+  "standing_party_repaired",
 ] as const;
 
 export type LedgerEventType = (typeof LEDGER_EVENT_TYPES)[number];
@@ -68,6 +70,7 @@ export const LEDGER_EVENT_SCOPE: Readonly<Record<LedgerEventType, LedgerScope>> 
   standing_party_saved: "account",
   standing_party_invalidated: "account",
   party_served_as_encounter: "account",
+  standing_party_repaired: "account",
 };
 
 /** Events that record a resolution. They must carry the resolver version. */

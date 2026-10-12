@@ -102,7 +102,7 @@ describe("S4 — caravan ids that are not UUIDs are 404s, never 500s", () => {
     // A real UUID of a caravan that is not the caller's is also a 404, and the caller's own works.
     const other = await registerPlayer();
     expect((await call(p, "GET", `/caravans/${other.caravanId}/manifest`)).json().error).toBe("no_caravan");
-    expect((await call(p, "GET", `/caravans/${p.caravanId}/manifest`)).json().error).toBe("no_open_manifest");
+    expect((await call(p, "GET", `/caravans/${p.caravanId}/manifest`)).json().manifest).toBeNull(); // N10: an empty state, not a 404
   });
 });
 
@@ -148,7 +148,7 @@ describe("S3 — strict pack body and the non-empty manifest rule", () => {
     const notJson = await call(p, "POST", `${base}/manifest`, "not json", { "content-type": "application/json" });
     expect(notJson.statusCode).toBe(400);
     // Nothing above locked a manifest.
-    expect((await call(p, "GET", `${base}/manifest`)).statusCode).toBe(404);
+    expect((await call(p, "GET", `${base}/manifest`)).json().manifest).toBeNull();
   });
 
   it("refuses a manifest with no living unit: 400 manifest_empty, with the issue list", async () => {
@@ -158,7 +158,7 @@ describe("S3 — strict pack body and the non-empty manifest rule", () => {
       expect(res.json().error).toBe("manifest_empty");
       expect(res.json().issues.map((i: { code: string }) => i.code)).toContain("manifest_empty");
     }
-    expect((await call(p, "GET", `${base}/manifest`)).statusCode).toBe(404);
+    expect((await call(p, "GET", `${base}/manifest`)).json().manifest).toBeNull();
     // An unknown or non-roster unit id is a 400 too (never a database error).
     for (const id of ["not-a-uuid", p.units["rider"]!.toUpperCase(), "00000000-0000-0000-0000-000000000000"]) {
       const res = await call(p, "POST", `${base}/manifest`, { ...PACK(p), units: [id] });

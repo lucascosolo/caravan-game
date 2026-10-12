@@ -10,7 +10,8 @@
  *   - the item never carries the defender's account id (nor their caravan id);
  *   - read state lives on the server, moves only forward, and a strike landing after a read
  *     makes its batch unread again; a stale mark cannot hide it;
- *   - per-category opt-out with the §29 defaults (strikes on, the rest off);
+ *   - per-category opt-out with the §29 defaults as amended by the final play-test review D7
+ *     (strikes, party changes, refugees and the trip cap on; the mine and the packs off);
  *   - refugees arrived, trip cap refilled, mine near cap, packs rotated — derived from the
  *     timers that already exist, read-only;
  *   - nothing here writes to the ledger; the schema guards hold against caravan_app.
@@ -309,7 +310,9 @@ describe("party strikes in the owner's inbox", () => {
     expect(body.items).toEqual([]);
     expect(body.unreadCount).toBe(0);
     expect(body.delivery).toBe("in_app");
-    expect(body.preferences.map((x) => [x.category, x.enabled, x.defaultEnabled])).toEqual(INBOX_CATEGORIES.map((c) => [c, c === "party_strike", c === "party_strike"]));
+    // Final play-test review D7: refugees and the trip cap are on by default (return hooks); S2's party changes too.
+    const on = new Set(["party_strike", "refugees_arrived", "trip_cap_refilled", "party_changed"]);
+    expect(body.preferences.map((x) => [x.category, x.enabled, x.defaultEnabled])).toEqual(INBOX_CATEGORIES.map((c) => [c, on.has(c), on.has(c)]));
     expect((await call(p, "GET", "/me/inbox/unread")).json()).toEqual({ unreadCount: 0 });
     expect((await app.inject({ method: "GET", url: "/me/inbox" })).statusCode).toBe(401);
   });
@@ -572,11 +575,12 @@ describe("QA D2 / N1 / S4: the horizon, the 30-batch limit, and a bounded read",
     const strikes = body.items.map((i) => i.detail as { linesIncluded: boolean; strikes: unknown[]; count: number });
     expect(strikes.slice(0, INBOX_ITEMIZED_BATCHES).every((d) => d.linesIncluded && d.strikes.length === 2)).toBe(true);
     expect(strikes.slice(INBOX_ITEMIZED_BATCHES).every((d) => !d.linesIncluded && d.strikes.length === 0 && d.count === 2)).toBe(true);
-    // Preferences, the windows, the lines (rows + siblings + caravans), the marks: never one query per batch.
-    expect(readQueries).toBeLessThanOrEqual(7);
+    // Preferences, the windows, the lines (rows + siblings + caravans), the marks — plus one each for the
+    // categories on by default since the final play-test review (refugees, trip cap, party changes): never one query per batch.
+    expect(readQueries).toBeLessThanOrEqual(10);
     q.reset();
     await readUnread(q.db, o.accountId, Date.now());
-    expect(q.count()).toBeLessThanOrEqual(3);
+    expect(q.count()).toBeLessThanOrEqual(6);
     // A batch without its lines: the client fetches them on demand.
     const last = body.items.at(-1)!;
     const lines = await call(o, "GET", `/me/inbox/strikes/${last.key.slice("strike:".length)}`);
@@ -590,13 +594,15 @@ describe("QA D2 / N1 / S4: the horizon, the 30-batch limit, and a bounded read",
   });
 });
 
-describe("timers in the inbox (off by default, read-only)", () => {
-  it("refugees arrived: a free menu owed at the drip's grid point, only when opted in, without touching the menu", async () => {
+describe("timers in the inbox (read-only)", () => {
+  it("refugees arrived: a free menu owed at the drip's grid point, on by default (D7), off when opted out, without touching the menu", async () => {
     const p = await register("ref");
     expect((await call(p, "GET", `/me/caravans/${p.caravanId}/refugees`)).statusCode).toBe(200); // bootstraps menu 1
     const menu = (await pool.query<{ window_opened_at_ms: number }>("SELECT window_opened_at_ms FROM refugee_menu WHERE caravan_id = $1", [p.caravanId])).rows[0]!;
     const due = Number(menu.window_opened_at_ms) + REFUGEE_REFRESH_INTERVAL_MS;
-    expect((await readInbox(appRole, p.accountId, due + 1)).items).toEqual([]); // off by default
+    expect((await readInbox(appRole, p.accountId, due + 1)).items).toHaveLength(1); // on by default (final play-test review D7)
+    await call(p, "PUT", "/me/inbox/preferences", { preferences: { refugees_arrived: false } });
+    expect((await readInbox(appRole, p.accountId, due + 1)).items).toEqual([]); // opted out
     await call(p, "PUT", "/me/inbox/preferences", { preferences: { refugees_arrived: true } });
     expect((await readInbox(appRole, p.accountId, due - 1)).items).toEqual([]);
     const body = await readInbox(appRole, p.accountId, due + 1);

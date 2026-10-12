@@ -12,13 +12,13 @@
         "outcomeKind": "caravan_held",
         "defender": {
           "username": "contract_voider",
-          "caravanName": "Caravan",
+          "caravanName": "Mesquite Teamsters",
           "regionId": "desert"
         },
         "coinEarned": 212,
         "coinTransferred": 0,
         "coinDiscardedAtCap": 0,
-        "reputationDelta": -13,
+        "reputationDelta": 0,
         "ladderPointsGained": 10
       },
       {
@@ -29,13 +29,13 @@
         "outcomeKind": "caravan_held",
         "defender": {
           "username": "contract_viewer",
-          "caravanName": "Caravan",
+          "caravanName": "Cottonwood Caravan",
           "regionId": "desert"
         },
         "coinEarned": 172,
         "coinTransferred": 0,
         "coinDiscardedAtCap": 0,
-        "reputationDelta": -14,
+        "reputationDelta": 0,
         "ladderPointsGained": 10
       },
       {
@@ -46,13 +46,13 @@
         "outcomeKind": "caravan_held",
         "defender": {
           "username": "contract_player",
-          "caravanName": "Caravan",
+          "caravanName": "Copper Haulers",
           "regionId": "desert"
         },
         "coinEarned": 212,
         "coinTransferred": 0,
         "coinDiscardedAtCap": 0,
-        "reputationDelta": -15,
+        "reputationDelta": 0,
         "ladderPointsGained": 10
       }
     ]

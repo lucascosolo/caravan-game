@@ -17,6 +17,42 @@
         }
       },
       "centre": 250,
+      "centreBasis": {
+        "offset": -150,
+        "reason": "first_encounter_offset",
+        "inCaravanBand": false,
+        "centreBand": {
+          "index": 0,
+          "low": 100,
+          "high": 399
+        }
+      },
+      "raiderCap": {
+        "packedUnits": 3,
+        "cap": 3,
+        "relaxed": false,
+        "excluded": 0
+      },
+      "caravanLoadout": {
+        "fences": [
+          {
+            "tierId": "fence.brush_pile",
+            "displayName": "Brush Pile",
+            "category": "timber",
+            "standing": 20,
+            "packed": 20
+          }
+        ],
+        "traps": [
+          {
+            "typeId": "trap.spike_pit",
+            "displayName": "Spike Pit",
+            "category": "groundwork",
+            "ready": 1,
+            "packed": 1
+          }
+        ]
+      },
       "escalation": {
         "applied": -150,
         "perEncounter": 15,
@@ -645,6 +681,8 @@
         "emptyPool": "widen_then_authored",
         "seed": "fnv1a32(caravanId:tripId:encounterIndex:searchSeq)"
       }
-    }
+    },
+    "searched": true,
+    "encounterIndex": 1
   }
 }
