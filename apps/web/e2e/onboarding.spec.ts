@@ -21,6 +21,16 @@
  *   what is left (a de-merged survivor, or nothing) → finish.
  */
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { TUNABLES, unlockWebFor } from "@caravan/content";
+
+/** The starting roster every new caravan is granted (chunk 24 QA D1), read from content: its region's tier-0 living types × STARTING_ROSTER copies. */
+function startingRosterSize(region: "desert" | "high_plains" | "mountain" | "badlands" = "desert"): number {
+  return unlockWebFor("living", region).nodes.filter((n) => n.tier === 0).length * TUNABLES.STARTING_ROSTER.copiesPerStarterType;
+}
+/** The whole roster the guide packs: the starting roster and the one refugee it claims. */
+const PACKED = startingRosterSize() + 1;
+/** What "raise my party" fills: every roster unit up to the party cap. */
+const RAISED = Math.min(PACKED, TUNABLES.PARTY_SLOT_CAP);
 
 /** Every control at least a touch target tall, and no sideways scroll (chunk 17's check). */
 async function fitsPortrait(page: Page): Promise<void> {
@@ -189,13 +199,13 @@ test("a fresh account: register, the first screen, a refugee, the first trip gui
   await expect(page.getByTestId("guide-roster")).toContainText("starting roster");
   await guideStyled(page);
   await expect(page.getByTestId("town-screen")).toBeVisible();
-  await expect(page.getByTestId("board-count")).toContainText("2 of 36 board slots used");
+  await expect(page.getByTestId("board-count")).toContainText(`${startingRosterSize()} of ${TUNABLES.BOARD_SLOTS} board slots used`);
   await copyIsTheRightWayRound(page);
   await atWidths(page);
   await takeRefugee(page);
 
   // ── outfit and ride out: the whole roster ──
-  await packAndRide(page, 3, true);
+  await packAndRide(page, PACKED, true);
 
   // ── encounter 1: search, scout, choose the smallest party ──
   await searchAndChoose(page);
@@ -286,7 +296,7 @@ test("a fresh account: register, the first screen, a refugee, the first trip gui
   await atWidths(page);
   await party.getByTestId("guide-raise-party").click();
   await expect(page).toHaveURL(/#\/party$/);
-  await expect(page.getByTestId("guide-party-raised")).toContainText("Your standing party is up: 3 units from your roster");
+  await expect(page.getByTestId("guide-party-raised")).toContainText(`Your standing party is up: ${RAISED} units from your roster`);
   await expect(page.getByTestId("guide-party")).toContainText("This is your passive side.");
   // QA N8: the Party screen opens at its top, the guide's status and Finish in view.
   await expect(page.getByTestId("guide-finish")).toBeInViewport();
@@ -299,19 +309,19 @@ test("a fresh account: register, the first screen, a refugee, the first trip gui
   const ob = (await (await request.get("/api/me/onboarding", { headers: auth })).json()) as { onboarding: { step: string; skipped: boolean } };
   expect(ob.onboarding).toMatchObject({ step: "done", skipped: false });
   const me = (await (await request.get("/api/me", { headers: auth })).json()) as { account: { coinBalance: number }; caravans: { id: string; units: unknown[] }[] };
-  expect(me.caravans[0]!.units).toHaveLength(3);
+  expect(me.caravans[0]!.units).toHaveLength(PACKED);
   // The account's own ledger: the starting roster, the trip's events and the refugee claim, and no purchase of any kind.
   const ledger = (await (await request.get("/api/me/ledger?limit=200", { headers: auth })).json()) as { events: { type: string; causationId: string; payload: { source?: string } }[] };
   const types = ledger.events.map((e) => e.type);
   console.log(`onboarding e2e: ledger event types: ${[...new Set(types)].join(", ")}`);
   expect(types).not.toContain("coin_purchased");
   const acquired = ledger.events.filter((e) => e.type === "unit_acquired").map((e) => e.payload.source);
-  expect(acquired.sort()).toEqual(["refugee", "starting_roster", "starting_roster"]);
+  expect(acquired.sort()).toEqual(["refugee", ...Array<string>(startingRosterSize()).fill("starting_roster")]);
   const status = (await (await request.get(`/api/me/caravans/${me.caravans[0]!.id}/trip`, { headers: auth })).json()) as { trip: { endReason: string; encounters: { decision: string | null }[] } };
   expect(status.trip.endReason).toBe("banked");
   expect(status.trip.encounters.map((e) => e.decision)).toEqual(["pushed", "banked"]);
   const saved = (await (await request.get("/api/me/party", { headers: auth })).json()) as { party: { valid: boolean; config: { units: unknown[] } } };
-  expect(saved.party.config.units).toHaveLength(3);
+  expect(saved.party.config.units).toHaveLength(RAISED);
   expect(saved.party.valid).toBe(true);
   // A reload reads the same server row: the guide stays finished (no browser storage involved).
   // Chunk 30: a reload stays signed in (the server's HttpOnly device cookie); no second sign-in.
@@ -330,7 +340,7 @@ for (const branch of [
     const username = fresh(branch.trap ? "ovr_s" : "ovr_n");
     await registerAndBegin(page, username);
     await takeRefugee(page);
-    await packAndRide(page, 3, branch.trap);
+    await packAndRide(page, PACKED, branch.trap);
     await searchAndChoose(page);
 
     // Post every unit (and lay the trap) through the guide, but leave the circle unfenced: the

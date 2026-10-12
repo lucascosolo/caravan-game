@@ -16,6 +16,12 @@
  */
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import pg from "pg";
+import { TUNABLES, unlockWebFor } from "@caravan/content";
+
+/** The starting roster every new caravan is granted (chunk 24 QA D1), read from content: its region's tier-0 living types × STARTING_ROSTER copies. */
+function startingRosterSize(region: "desert" | "high_plains" | "mountain" | "badlands" = "desert"): number {
+  return unlockWebFor("living", region).nodes.filter((n) => n.tier === 0).length * TUNABLES.STARTING_ROSTER.copiesPerStarterType;
+}
 
 const DATABASE_URL = process.env["E2E_DATABASE_URL"] ?? process.env["TEST_DATABASE_URL"] ?? process.env["DATABASE_URL"];
 const GRANT = 5_000;
@@ -108,8 +114,10 @@ test("claim a refugee, merge by drag with confirm, set up the party, outfit and 
   const town = page.getByTestId("town-screen");
   await expect(town).toBeVisible();
   await expect(page.getByTestId("caravan-state")).toHaveAttribute("data-state", "in_town");
-  // Every caravan starts with its starting roster (chunk 24 QA D1): the desert's two starters.
-  await expect(page.getByTestId("board-count")).toContainText("2 of 36 board slots used");
+  // Every caravan starts with its starting roster (chunk 24 QA D1): the desert's starters × STARTING_ROSTER copies.
+  const base = startingRosterSize();
+  const slots = (n: number) => `${n} of ${TUNABLES.BOARD_SLOTS} board slots used`;
+  await expect(page.getByTestId("board-count")).toContainText(slots(base));
   await expect(page.getByTestId("mine-balance")).toContainText(/\d+ of 50000 Coin stored/);
   // At rest the lattice is invisible: the town reads as a place, not a board.
   expect(await latticeAlpha(page)).toBe(0);
@@ -136,7 +144,7 @@ test("claim a refugee, merge by drag with confirm, set up the party, outfit and 
   const typeName = takeLabel.replace(/^Take /, "");
   await firstOffer.click();
   await expect(page.getByTestId("refugee-panel").getByRole("status")).toHaveText(`Taken: ${typeName} joined the roster at level 1.`);
-  await expect(page.getByTestId("board-count")).toContainText("3 of 36 board slots used");
+  await expect(page.getByTestId("board-count")).toContainText(slots(base + 1));
 
   // ── recruit a second copy of that type: cost shown, then confirmed ──
   await page.getByTestId("recruit-list").getByRole("button", { name: `Recruit ${typeName} for 600 Coin` }).click();
@@ -144,7 +152,7 @@ test("claim a refugee, merge by drag with confirm, set up the party, outfit and 
   await expect(recruitDialog).toContainText(`Spend 600 of`);
   await recruitDialog.getByRole("button", { name: "Spend Coin" }).click();
   await expect(page.getByTestId("recruit-panel").getByRole("status")).toContainText(`Recruited ${typeName} at level 1.`);
-  await expect(page.getByTestId("board-count")).toContainText("4 of 36 board slots used");
+  await expect(page.getByTestId("board-count")).toContainText(slots(base + 2));
 
   // ── merge: drag one onto the other on the real canvas → preview → confirm ──
   // Two level-1 copies of the taken type (a starting-roster copy of it, if any, is just as good).
@@ -171,12 +179,12 @@ test("claim a refugee, merge by drag with confirm, set up the party, outfit and 
   await expect(merge).toContainText("not stronger than the consumed ones combined");
   await merge.getByTestId("merge-confirm").click();
   await expect(page.getByTestId("town-status")).toContainText(`Merged: 1 × ${typeName} level 2.`);
-  await expect(page.getByTestId("board-count")).toContainText("3 of 36 board slots used");
+  await expect(page.getByTestId("board-count")).toContainText(slots(base + 1));
   await expect(page.getByTestId("board-units")).toContainText(`${typeName} · L2`);
   // The lattice fades out after the drop.
   await expect.poll(() => latticeAlpha(page)).toBe(0);
   const me = (await (await request.get("/api/me", { headers: auth })).json()) as { caravans: { units: { merge_level: number }[] }[] };
-  expect(me.caravans[0]!.units.map((u) => u.merge_level).sort()).toEqual([1, 1, 2]);
+  expect(me.caravans[0]!.units.map((u) => u.merge_level).sort()).toEqual([...Array<number>(base).fill(1), 2]);
 
   // ── the standing party: add the merged unit, a stance, drag it onto the east band, save ──
   await page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "Party" }).click();
