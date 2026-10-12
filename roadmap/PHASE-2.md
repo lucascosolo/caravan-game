@@ -1165,6 +1165,41 @@ Weekly free earn (QA D3): full-week trickle + trips × gross Coin per trip, bank
   FREE_WEEKLY_EARN_ESTIMATE 55000 (mid, rounded down to 1000s: 55000); WEEKLY_PAY_CEILING 60000 = 1.09× (bound 1.5×)
 ```
 
+**Status: offline harness and first tuning pass built** (2026-10-12, chunk 37 balance pass; the
+full record, every change from → to with its reason, and the before/after numbers are in
+`BALANCE-LOG.md` at the repo root). Tools: `scripts/balance/matchup-sweep.ts` (every authored party
+× 68 defending rosters × the best of 76 skilled layouts, the guided arrangement and 3 naive ones;
+outcome matrix, stalemates, fight length, depth, owner income, presence flags within band and
+within band × stance, pushed-trip curves, equilibrium bands), `first-trip.ts` (24-QA D1),
+`probes.ts` (healer stalemate, breaker stacking), `measured-ev.ts` (trip EV at measured rates);
+the CI slice is `apps/server/test/balance-sweep.test.ts` (150 s budget). No resolver change
+(RESOLVER_VERSION 8, goldens unchanged); content and tunables only: defense ×1.5, move speed
+×0.7, trap damage ×1.5, trap trigger radius 0.75 → 1.25, REPUTATION_START 1000 → 400,
+STARTING_ROSTER 1 → 3 copies per starter type, the authored difficulty curve re-authored
+(AUTHORED_SET_VERSION 4), two raider offense bumps.
+
+Results after (full sweep, 6528 matchups):
+
+| target | before | after |
+|---|---|---|
+| fresh account's encounter 1 band | 2 | 0 |
+| guided first fight held (≥ 70 %) | 0 / 64 | 162 / 200 = 81 % |
+| encounter 2 held by a sensible free layout (> 50 %) | — | 82 % (guided shape), 84 % (skilled) |
+| band-typical roster at its own band, skilled (b0…b7) | 58 38 63 54 54 8 50 54 % | 95 81 97 80 82 61 57 83 % |
+| same, naive | 38 29 46 29 25 0 25 29 % | 73 71 81 58 57 28 30 40 % |
+| stalemates in the corpus / healer turtle | 1 / 1728 | 0 / 6528; turtle 2 / 96 (bar < 25 %) |
+| fight length median, share in 20–90 s | 17.6 s, 42 % | 22.3 s, 59 % |
+| features flagged within band × stance (\|Δ\| > 25 pts) | 16 | 3 (Claim Jumper, Drover, posts with heavy strike) |
+| equilibrium band, fresh / L1 / L2 / L3 / L4 / L5 | 0 / 0 / 2 / 3 / 2 / 6 | 3 / 3 / 4 / 5 / 7 / 7 |
+| trip EV best bank point (skilled, at equilibrium) L1 / L2 / L3 / L4 | +1,189 k=2 / neg / neg / neg | +4,984 k=5 / +5,709 k=4 / −2,452 / −4,799 |
+| owner loot per held fight vs per overrun | 536 vs 1,559 | 505 vs 1,777 (28 %) |
+| breaker: worst share of a segment per unit per tick | — | 50.0 % (= cap) |
+
+Not met, for a decision: positive trip EV for L3 and L4 circles at equilibrium (structural — the
+destroyed-at-wipe rule × the Reputation break-even outweigh any Coin number; BALANCE-LOG.md target
+4), and the `core` targeting stance dominates offense (held 1–40 % in bands 3–7 against 35–100 % for
+the other stances). The weekly free earn derivation is unchanged at 55,000 (1.09× ceiling, bound 1.5×).
+
 **Definition of done.** No single type predicts outcomes above threshold in the sweep,
 the alpha's bank-versus-push curve shows real decisions at encounters two through five,
 and the grind-wall dashboard shows the paid path as optional across deciles.
