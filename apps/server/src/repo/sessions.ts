@@ -39,29 +39,35 @@ export async function purgeExpiredSessions(db: Queryable, accountId: string): Pr
 }
 
 /** Keep only the `cap` newest sessions for an account (oldest evicted). Returns how many went. */
-export async function evictSessionsBeyondCap(db: Queryable, accountId: string, cap: number): Promise<number> {
+export async function evictSessionsBeyondCap(db: Queryable, accountId: string, cap: number, keepId?: string): Promise<number> {
   if (!Number.isInteger(cap) || cap < 1) throw new RangeError(`session cap must be a positive integer, got ${cap}`);
   const res = await db.query(
     `DELETE FROM session WHERE id IN (
-       SELECT id FROM session WHERE account_id = $1
+       SELECT id FROM session WHERE account_id = $1 AND ($3::uuid IS NULL OR id <> $3::uuid)
        -- QA-30 S4: keep sessions in use (authenticated in the last 5 minutes) first, then the most recently used / issued.
+       -- Final play-test review r2 S1: the session being issued (keepId) is never a candidate — it is
+       -- kept and counts toward the cap, so the others are cut to cap − 1. (Before, a brand-new
+       -- session sorted after every session in use and could be deleted the moment it was issued.)
        ORDER BY (last_used_at > created_at AND last_used_at > now() - interval '5 minutes') DESC, last_used_at DESC, created_at DESC, id DESC OFFSET $2
      )`,
-    [accountId, cap],
+    [accountId, keepId === undefined ? cap : cap - 1, keepId ?? null],
   );
   return res.rowCount ?? 0;
 }
 
 /** Chunk 30: keep only a device's `cap` newest sessions (several tabs of one browser). */
-export async function evictDeviceSessionsBeyondCap(db: Queryable, deviceId: string, cap: number): Promise<number> {
+export async function evictDeviceSessionsBeyondCap(db: Queryable, deviceId: string, cap: number, keepId?: string): Promise<number> {
   if (!Number.isInteger(cap) || cap < 1) throw new RangeError(`session cap must be a positive integer, got ${cap}`);
   const res = await db.query(
     `DELETE FROM session WHERE id IN (
-       SELECT id FROM session WHERE device_id = $1
+       SELECT id FROM session WHERE device_id = $1 AND ($3::uuid IS NULL OR id <> $3::uuid)
        -- QA-30 S4: keep sessions in use (authenticated in the last 5 minutes) first, then the most recently used / issued.
+       -- Final play-test review r2 S1: the session being issued (keepId) is never a candidate — it is
+       -- kept and counts toward the cap, so the others are cut to cap − 1. (Before, a brand-new
+       -- session sorted after every session in use and could be deleted the moment it was issued.)
        ORDER BY (last_used_at > created_at AND last_used_at > now() - interval '5 minutes') DESC, last_used_at DESC, created_at DESC, id DESC OFFSET $2
      )`,
-    [deviceId, cap],
+    [deviceId, keepId === undefined ? cap : cap - 1, keepId ?? null],
   );
   return res.rowCount ?? 0;
 }

@@ -6,7 +6,7 @@
       "tripId": "00000000-0000-4000-8000-000000000001",
       "encounterIndex": 1,
       "searchSeq": 1,
-      "seed": 512626699,
+      "seed": 1920163157,
       "caravan": {
         "rating": 400,
         "ratingPool": "living",
@@ -28,6 +28,7 @@
         }
       },
       "raiderCap": null,
+      "authoredOnlyTrip": false,
       "caravanLoadout": {
         "fences": [
           {
@@ -222,7 +223,7 @@
           },
           "candidateId": "a0000000000000000000000000000001",
           "owner": {
-            "displayName": "contract_owner_a",
+            "displayName": "Big Sky Express",
             "authored": false,
             "flavor": null
           },
@@ -408,7 +409,7 @@
           },
           "candidateId": "a0000000000000000000000000000003",
           "owner": {
-            "displayName": "contract_owner_b",
+            "displayName": "Prairie Supply",
             "authored": false,
             "flavor": null
           },
@@ -594,7 +595,7 @@
           },
           "candidateId": "a0000000000000000000000000000005",
           "owner": {
-            "displayName": "contract_owner_c",
+            "displayName": "Red Mesa Cartage",
             "authored": false,
             "flavor": null
           },
@@ -823,7 +824,7 @@
       },
       "candidateId": "a0000000000000000000000000000001",
       "owner": {
-        "displayName": "contract_owner_a",
+        "displayName": "Big Sky Express",
         "authored": false,
         "flavor": null
       },

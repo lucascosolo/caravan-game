@@ -27,7 +27,7 @@ import { deviceLabel } from "../src/account/device.js";
 import { EXPORT_OTHER_ID, exportAccount, redactToOwnIds } from "../src/account/service.js";
 import { trustProxyFromEnv } from "../src/config.js";
 import { gunzipSync } from "node:zlib";
-import { appRolePool, expectDbError, testPool, truncateAll, unique } from "./helpers.js";
+import { appRolePool, expectDbError, testPool, truncateAll, unique, seasonCaravan, servedNameOf } from "./helpers.js";
 
 const pool = testPool();
 let appRole: pg.Pool;
@@ -59,6 +59,7 @@ async function guest(region = "desert", via: FastifyInstance = app, ua = "Mozill
   const res = await via.inject({ method: "POST", url: "/auth/guest", payload: { region }, headers: { "user-agent": ua } });
   expect(res.statusCode, res.body).toBe(201);
   const b = res.json();
+  await seasonCaravan(pool, b.caravan.id); // r2 S2: the trips a test starts are not the caravan's first
   return { token: b.token, accountId: b.account.id, caravanId: b.caravan.id, cookie: cookieOf(res), username: null, units: [] };
 }
 
@@ -67,6 +68,7 @@ async function register(): Promise<Player> {
   const res = await app.inject({ method: "POST", url: "/auth/register", payload: { username, password: "correct horse battery", region: "desert" } });
   expect(res.statusCode, res.body).toBe(201);
   const b = res.json();
+  await seasonCaravan(pool, b.caravan.id); // r2 S2: the trips a test starts are not the caravan's first
   return { token: b.token, accountId: b.account.id, caravanId: b.caravan.id, cookie: cookieOf(res), username, units: [] };
 }
 
@@ -117,7 +119,8 @@ function arrangement(m: { units: { ref: string; hp: number }[]; traps: { ref: st
 async function fightAgainst(d: Player, ownerName: string): Promise<string> {
   const s = await call(d, "POST", `/me/caravans/${d.caravanId}/encounters/1/search`);
   expect(s.statusCode, s.body).toBe(201);
-  const pick = (s.json().menu.candidates as { candidateId: string; owner: { displayName: string } }[]).find((c) => c.owner.displayName === ownerName);
+  const served = await servedNameOf(pool, ownerName); // r2 N16: parties ride under the caravan's name
+  const pick = (s.json().menu.candidates as { candidateId: string; owner: { displayName: string } }[]).find((c) => c.owner.displayName === served);
   expect(pick, `a candidate owned by ${ownerName}`).toBeDefined();
   expect((await call(d, "POST", `/me/caravans/${d.caravanId}/encounters/1/choose`, { candidateId: pick!.candidateId })).statusCode).toBe(200);
   const survivors = (await call(d, "GET", `/caravans/${d.caravanId}/manifest`)).json().manifest.survivors;
@@ -193,6 +196,46 @@ describe("guest-first", () => {
     expect(String(forged.headers["set-cookie"])).toMatch(/Max-Age=0/);
     await pool.query("UPDATE device SET expires_at = now() - interval '1 second' WHERE account_id = $1", [g.accountId]);
     expect((await app.inject({ method: "POST", url: "/auth/resume", payload: {}, headers: { cookie: g.cookie } })).statusCode).toBe(401);
+  });
+
+  it("final play-test review r2 S1: 50 reloads in a minute stay signed in — the session a resume issues is never evicted, and a resume replaces the session it names", async () => {
+    const g = await guest();
+    // A reload that still holds its token (the client reuses its live session): the old one is revoked, not piled up.
+    let token = g.token;
+    for (let i = 0; i < 50; i++) {
+      const r = await app.inject({ method: "POST", url: "/auth/resume", payload: { previousToken: token }, headers: { cookie: g.cookie } });
+      expect(r.statusCode, `reload ${i}`).toBe(200);
+      expect(r.json().replacedPrevious).toBe(true);
+      const fresh = r.json().token as string;
+      for (const url of ["/me", "/me/onboarding", "/me/inbox/unread", "/me/analytics"]) expect((await call({ token: fresh }, "GET", url)).statusCode, `reload ${i} ${url}`).toBe(200);
+      expect((await call({ token }, "GET", "/me")).statusCode, `reload ${i}: the replaced session`).toBe(401);
+      token = fresh;
+    }
+    expect((await pool.query("SELECT count(*)::int AS n FROM session WHERE account_id = $1", [g.accountId])).rows[0].n).toBe(1);
+    // A reload that lost its in-memory token (every tab used within the last minutes): the round-2
+    // repro. Each new session is used at once, so all of them sort "in use"; the newest must survive.
+    for (let i = 0; i < 50; i++) {
+      const r = await app.inject({ method: "POST", url: "/auth/resume", payload: {}, headers: { cookie: g.cookie } });
+      expect(r.statusCode, `cold reload ${i}`).toBe(200);
+      expect(r.json().replacedPrevious).toBe(false);
+      for (const url of ["/me", "/me/onboarding", "/me/inbox/unread", "/me/analytics"]) expect((await call({ token: r.json().token }, "GET", url)).statusCode, `cold reload ${i} ${url}`).toBe(200);
+    }
+    expect((await pool.query("SELECT count(*)::int AS n FROM session WHERE account_id = $1", [g.accountId])).rows[0].n).toBe(10);
+  });
+
+  it("final play-test review r2 S1: a resume ignores (never fails on) a previous token that is another account's, another device's, expired or junk", async () => {
+    const a = await guest();
+    const b = await guest();
+    for (const previousToken of [b.token, "x".repeat(43), "", 5, "y".repeat(5000)]) {
+      const r = await app.inject({ method: "POST", url: "/auth/resume", payload: { previousToken }, headers: { cookie: a.cookie } });
+      expect(r.statusCode, String(previousToken).slice(0, 10)).toBe(200);
+      expect(r.json().replacedPrevious).toBe(false);
+    }
+    expect((await call(b, "GET", "/me")).statusCode).toBe(200); // b's session was not touched
+    // The bearer header works as the previous token too.
+    const r = await app.inject({ method: "POST", url: "/auth/resume", payload: {}, headers: { cookie: a.cookie, authorization: `Bearer ${a.token}` } });
+    expect(r.json().replacedPrevious).toBe(true);
+    expect((await call(a, "GET", "/me")).statusCode).toBe(401);
   });
 
   it("QA-30 S4: a device keeps DEVICE_SESSIONS_MAX (10) sessions, evicting the least recently USED — a tab in use survives eleven more resumes", async () => {
@@ -487,11 +530,14 @@ describe("deletion (DoD): guest → linked → deleted, and the other participan
   let jobXDefended: string;
   let jobXStruck: string;
   let xCaravanIds: string[];
+  let xCaravanName: string; // r2 N16: what X's party was served under
 
   beforeAll(async () => {
     // X starts as a guest, plays, links.
     x = await guest();
     await link(x);
+    xCaravanName = await servedNameOf(pool, x.username!);
+    expect(xCaravanName).not.toBe(x.username);
     await raiseParty(x);
     fillers = [];
     for (let i = 0; i < 2; i++) {
@@ -612,7 +658,7 @@ describe("deletion (DoD): guest → linked → deleted, and the other participan
     const feed = (await call(y, "GET", "/me/party/feed")).json().entries as { jobId: string; defender: Record<string, unknown> }[];
     const entry = feed.find((e) => e.jobId === jobXDefended);
     expect(entry).toBeDefined();
-    expect(entry!.defender).toMatchObject({ username: null, caravanName: null, regionId: null });
+    expect(entry!.defender).toMatchObject({ username: null, caravanName: null, regionId: null, departed: true }); // r2 N15
     const inbox = await call(y, "GET", "/me/inbox");
     expect(inbox.statusCode).toBe(200);
     expect(inbox.body).not.toContain(x.username!);
@@ -620,12 +666,14 @@ describe("deletion (DoD): guest → linked → deleted, and the other participan
     const menu = (await pool.query("SELECT candidates FROM encounter_candidates ec JOIN trip t ON t.id = ec.trip_id WHERE t.caravan_id = $1", [z.caravanId])).rows;
     expect(JSON.stringify(menu)).toContain("Departed outfit");
     expect(JSON.stringify(menu)).not.toContain(x.username!);
+    // r2 N16 / migration 028: the party rode under X's caravan name; erasure replaced that too.
+    expect(JSON.stringify(menu)).not.toContain(xCaravanName);
     expect((await call(z, "GET", `/me/caravans/${z.caravanId}/trip`)).statusCode).toBe(200);
   });
 
   it("no row in any table still names the deleted account, its caravans or its username", async () => {
     const tables = (await pool.query<{ table_name: string }>("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name")).rows.map((r) => r.table_name);
-    const needles = [x.accountId, ...xCaravanIds, `"${x.username}"`];
+    const needles = [x.accountId, ...xCaravanIds, `"${x.username}"`, `"${xCaravanName}"`]; // r2 N16: and the caravan name its party rode under
     for (const t of tables) {
       const hits = await pool.query(`SELECT count(*)::int AS n FROM ${t} r WHERE ${needles.map((_, i) => `position($${i + 1} in to_jsonb(r)::text) > 0`).join(" OR ")}`, needles);
       expect(hits.rows[0].n, `${t} still names the deleted account`).toBe(0);
@@ -635,7 +683,7 @@ describe("deletion (DoD): guest → linked → deleted, and the other participan
     expect(logs.length).toBeGreaterThanOrEqual(2);
     for (const l of logs) {
       const plain = gunzipSync(l.log).toString("utf8");
-      for (const n of [x.accountId, ...xCaravanIds, x.username!]) expect(plain.includes(n), `${l.job_id} log names ${n}`).toBe(false);
+      for (const n of [x.accountId, ...xCaravanIds, x.username!, `"${xCaravanName}"`]) expect(plain.includes(n), `${l.job_id} log names ${n}`).toBe(false);
     }
   });
 
@@ -655,7 +703,8 @@ describe("deletion (DoD): guest → linked → deleted, and the other participan
     await packStrong(w);
     const s = await call(w, "POST", `/me/caravans/${w.caravanId}/encounters/1/search`);
     expect(s.statusCode, s.body).toBe(201);
-    const pick = (s.json().menu.candidates as { candidateId: string; owner: { displayName: string } }[]).find((c) => c.owner.displayName === v.username)!;
+    const vName = await servedNameOf(pool, v.username!);
+    const pick = (s.json().menu.candidates as { candidateId: string; owner: { displayName: string } }[]).find((c) => c.owner.displayName === vName)!;
     expect(pick).toBeDefined();
     expect((await call(w, "POST", `/me/caravans/${w.caravanId}/encounters/1/choose`, { candidateId: pick.candidateId })).statusCode).toBe(200);
     const survivors = (await call(w, "GET", `/caravans/${w.caravanId}/manifest`)).json().manifest.survivors;

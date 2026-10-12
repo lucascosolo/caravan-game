@@ -15,7 +15,7 @@ import { DOUBLE_UNIT_DAMAGE, TestResolverRefusedError, inlineWorkerFromEnv } fro
 import { createUnitInstance } from "../src/repo/unitInstances.js";
 import type { TripStatusView } from "../src/trip/service.js";
 import { endingOfOverrun, encounterResultOf } from "../src/trip/views.js";
-import { appRolePool, testPool, truncateAll, unique } from "./helpers.js";
+import { appRolePool, seasonCaravan, testPool, truncateAll, unique } from "./helpers.js";
 
 const pool = testPool();
 let appRole: pg.Pool;
@@ -37,6 +37,7 @@ async function register(): Promise<Player> {
   const res = await app.inject({ method: "POST", url: "/auth/register", payload: { username: unique("c23"), password: "correct horse battery", region: "desert" } });
   expect(res.statusCode, res.body).toBe(201);
   const b = res.json();
+  await seasonCaravan(pool, b.caravan.id); // r2 S2: the trips a test starts are not the caravan's first (this file serves live parties only)
   return { token: b.token, accountId: b.account.id, caravanId: b.caravan.id };
 }
 
@@ -127,7 +128,8 @@ describe("the trip status the client renders (chunk 23), over a whole trip resol
     expect((await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: riders, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 20 } })).statusCode).toBe(201);
     const before = Date.now();
     const packed = await status(p);
-    expect(packed.trip).toBeNull();
+    // In town: no open trip (the fixture's earlier, finished trip may be shown as the last one).
+    expect(packed.trip === null || packed.trip.endedAt !== null).toBe(true);
     expect(packed.nowMs).toBeGreaterThanOrEqual(before);
     expect(packed.nowMs).toBeLessThanOrEqual(Date.now());
     const start = await call(p, "POST", `/me/caravans/${p.caravanId}/trip/start`);

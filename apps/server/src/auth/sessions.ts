@@ -56,7 +56,7 @@ export interface IssuedSession {
 export async function issueSession(
   db: pg.Pool | pg.PoolClient,
   accountId: string,
-  opts: { deviceId?: string; label?: string } = {},
+  opts: { deviceId?: string; label?: string; replacesSessionId?: string } = {},
 ): Promise<IssuedSession> {
   const account = await findAccountById(db, accountId);
   if (!account) throw new Error(`account ${accountId} not found; cannot issue a session`);
@@ -73,9 +73,14 @@ export async function issueSession(
     deviceId = (await insertDevice(db, { accountId, tokenHash: hashDeviceToken(deviceToken), label: opts.label ?? "Unknown device" })).id;
   }
   const session = await insertSession(db, { accountId, token, expiresAt, deviceId });
-  if (opts.deviceId !== undefined) await evictDeviceSessionsBeyondCap(db, deviceId, DEVICE_SESSIONS_MAX);
+  // Final play-test review r2 S1: a resume REPLACES the session it names (same account, same
+  // device) instead of piling up another, and the session just issued is never evicted.
+  if (opts.replacesSessionId !== undefined) {
+    await db.query("DELETE FROM session WHERE id = $1 AND account_id = $2 AND device_id = $3 AND id <> $4", [opts.replacesSessionId, accountId, deviceId, session.id]);
+  }
+  if (opts.deviceId !== undefined) await evictDeviceSessionsBeyondCap(db, deviceId, DEVICE_SESSIONS_MAX, session.id);
   await pruneDevices(db, accountId);
-  await evictSessionsBeyondCap(db, accountId, SESSIONS_PER_ACCOUNT_MAX);
+  await evictSessionsBeyondCap(db, accountId, SESSIONS_PER_ACCOUNT_MAX, session.id);
   return { token, expiresAt, sessionId: session.id, deviceId, deviceToken };
 }
 

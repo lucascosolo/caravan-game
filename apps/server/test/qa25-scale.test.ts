@@ -18,7 +18,7 @@ import { POOL_SQL, replaySearch, searchCandidates, type EncounterCandidatesRow }
 import { createTrip } from "../src/matchmaking/trips.js";
 import { findCaravanById } from "../src/repo/caravans.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
-import { appRolePool, testPool, truncateAll, unique } from "./helpers.js";
+import { appRolePool, testPool, truncateAll, unique, seasonCaravan } from "./helpers.js";
 
 const pool = testPool();
 let appRole: pg.Pool;
@@ -35,6 +35,7 @@ async function registerPlayer(): Promise<Player> {
   const res = await app.inject({ method: "POST", url: "/auth/register", payload: { username: unique("s"), password: "correct horse battery", region: "desert" } });
   expect(res.statusCode).toBe(201);
   const body = res.json();
+  await seasonCaravan(pool, body.caravan.id); // r2 S2: the trips a test starts are not the caravan's first
   return { token: body.token, accountId: body.account.id, caravanId: body.caravan.id };
 }
 function call(p: Player, method: "POST" | "PUT", url: string, payload: unknown): Promise<LightMyRequestResponse> {
@@ -125,7 +126,7 @@ describe("QA S5: the pool scan is two indexed branches, and a search stores only
     const menu = await withTransaction(appRole, (c) => searchCandidates(c, caravan, 1, { nowMs: Date.now() }));
     expect(menu.centre).toBe(1000);
     expect(menu.bandWidthUsed).toBe(150);
-    const row = (await pool.query<EncounterCandidatesRow>("SELECT * FROM encounter_candidates WHERE trip_id = (SELECT id FROM trip WHERE caravan_id = $1)", [d.caravanId])).rows[0]!;
+    const row = (await pool.query<EncounterCandidatesRow>("SELECT * FROM encounter_candidates WHERE trip_id = (SELECT id FROM trip WHERE caravan_id = $1 AND ended_at IS NULL)", [d.caravanId])).rows[0]!;
     expect(scanned).toBeGreaterThan(300); // synthetic parties inside ±600 plus the authored set
     expect(row.pool.length).toBeLessThan(scanned / 5);
     for (const p of row.pool) expect(Math.abs(p.rating - row.centre)).toBeLessThanOrEqual(row.band_width_used);

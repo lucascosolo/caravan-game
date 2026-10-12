@@ -12,10 +12,10 @@
  * Time budget: SWEEP_BUDGET_MS of wall clock for the whole file.
  */
 import { describe, expect, it } from "vitest";
-import { firstTrip, firstTripTasks, summarize } from "../../../scripts/balance/first-trip.js";
+import { firstTrip, firstTripTasks, raisedGate, raisedGateTasks, summarize, summarizeRaised } from "../../../scripts/balance/first-trip.js";
 import { corpus } from "../../../scripts/balance/matchup-sweep.js";
 import { turtleRoster } from "../../../scripts/balance/probes.js";
-import { NAIVE, SKILLED, authoredParties, bandTypicalRoster, bestFight, manifestOf } from "../../../scripts/balance/sweep.js";
+import { NAIVE, SKILLED, authoredParties, bandTypicalRoster, bestFight, manifestOf, starterTypes } from "../../../scripts/balance/sweep.js";
 
 /** Tunable (chunk 37): the CI slice's wall-clock budget. */
 const SWEEP_BUDGET_MS = 150_000;
@@ -49,6 +49,21 @@ describe("balance sweep — the CI slice (PHASE-2 §37)", () => {
     expect(Object.keys(s.bands1)).toEqual(["0"]);
     expect(s.held1 / s.fights1, JSON.stringify(s)).toBeGreaterThanOrEqual(0.7);
     expect(s.held2Guided / Math.max(1, s.reached2), JSON.stringify(s)).toBeGreaterThan(0.5);
+  }, SWEEP_BUDGET_MS);
+
+  it("final play-test review r2 S2, the second trip's gate: raised starter parties of every region (ranged pairs included) — guided ≥ 60 %, best skilled ≥ 70 %", async () => {
+    // The full gate is `first-trip.ts --raised` (128 fights, all 76 skilled layouts; BALANCE-LOG pass 4).
+    // The slice: one fresh roster per region (refugee = its first starter type) and the first 24 skilled layouts.
+    const defenders = (["desert", "high_plains", "mountain", "badlands"] as const).map((region) => ({ region, refugee: starterTypes(region)[0]! }));
+    const rs: ReturnType<typeof raisedGate>[] = [];
+    for (const t of raisedGateTasks(undefined, 24, defenders)) {
+      rs.push(raisedGate(t));
+      await yieldLoop();
+    }
+    const s = summarizeRaised(rs);
+    expect(s.fights).toBe(64);
+    expect(s.guidedHeld / s.fights, JSON.stringify(s.byParty)).toBeGreaterThanOrEqual(0.6);
+    expect(s.bestHeld / s.fights, JSON.stringify(s.byParty)).toBeGreaterThanOrEqual(0.7);
   }, SWEEP_BUDGET_MS);
 
   it("skill matters, and the sweep is deterministic: band-typical desert roster at its own band, bands 0 / 4 / 7", async () => {

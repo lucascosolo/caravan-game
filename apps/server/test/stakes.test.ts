@@ -41,7 +41,7 @@ import { bankTrip, settleEncounter, stakesPreview, type StakesPreview } from "..
 import { redactForeignAccountIds, redactForeignIds } from "../src/routes/ledger.js";
 import { applyEarnFloor, chosenEncounterTerms, mergeLevelAfterDeath, planUnitLosses, transferCausationId } from "../src/trip/stakes.js";
 import { partyLoot } from "../src/trip/loot.js";
-import { appRolePool, testPool, truncateAll, unique } from "./helpers.js";
+import { appRolePool, testPool, truncateAll, unique, seasonCaravan } from "./helpers.js";
 import { besidesStartingRoster } from "./starting-roster-helpers.js";
 import { rebuildMixed, rebuildPlan, weeklyFreeEarn } from "../../../scripts/balance/model.js";
 import { doubleHandlers, type EncounterPlan } from "../src/dev/tripDouble.js";
@@ -67,6 +67,7 @@ async function registerPlayer(region = "desert"): Promise<Player> {
   const res = await app.inject({ method: "POST", url: "/auth/register", payload: { username: unique("s"), password: "correct horse battery", region } });
   expect(res.statusCode).toBe(201);
   const body = res.json();
+  await seasonCaravan(pool, body.caravan.id); // r2 S2: the trips a test starts are not the caravan's first
   return { token: body.token, accountId: body.account.id, caravanId: body.caravan.id, units: [] };
 }
 
@@ -957,7 +958,7 @@ describe("QA D1 + S1 + S2: a recipient at the cap — the party win is paid (and
     const entry = feed.json().entries.find((e: { jobId: string }) => e.jobId === `encounter:${tripId}:2`);
     expect(entry).toMatchObject({ coinEarned: 0, coinTransferred: 0, partyWinCoin: 0, coinDiscardedAtCap: lost + TUNABLES.COIN_PER_PARTY_WIN });
     // S1: the feed names the defender by username only.
-    expect(Object.keys(entry.defender).sort()).toEqual(["caravanName", "regionId", "username"]);
+    expect(Object.keys(entry.defender).sort()).toEqual(["caravanName", "departed", "regionId", "username"]);
     expect(feed.body).not.toContain(d.caravanId); // final review N4
     expect(feed.body).not.toContain(d.accountId);
 

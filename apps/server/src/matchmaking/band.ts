@@ -144,6 +144,12 @@ export interface AuthoredDrawRules {
   readonly overShareWeightBp: number;
   /** AUTHORED_FILL_NEAREST_N: authored parties that FILL a menu come seeded from the N nearest the centre. */
   readonly fillNearestN: number;
+  /**
+   * Final play-test review r2 S2: true when this search was for one of the caravan's first
+   * AUTHORED_ONLY_FIRST_TRIPS trips, so its pool held authored outfits only. A record of the rule
+   * (the stored pool already replays it); absent on every other menu.
+   */
+  readonly authoredOnlyTrip?: true;
 }
 
 export const AUTHORED_FILL_NEAREST_N: number = TUNABLES.AUTHORED_FILL_NEAREST_N;

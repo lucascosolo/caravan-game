@@ -8,7 +8,8 @@ import type { CaravanRow } from "../db/types.js";
 import { countCaravansForAccount, insertCaravan } from "../repo/caravans.js";
 import { createCaravanPoolProgress } from "../repo/poolProgress.js";
 import { grantStartingRoster } from "../acquisition/startingRoster.js";
-import { generatedCaravanName } from "./caravanNames.js";
+import { CARAVAN_NAME_MAX } from "../config.js";
+import { generatedCaravanName, uniqueCaravanName } from "./caravanNames.js";
 import { badRequest, conflict } from "./errors.js";
 
 export async function createCaravanForAccount(
@@ -30,8 +31,9 @@ export async function createCaravanForAccount(
   const caravan = await insertCaravan(client, {
     accountId: input.accountId,
     regionId: input.regionId,
-    // Final play-test review N8: a caravan created without a name gets a generated one.
-    name: input.name ?? generatedCaravanName(input.accountId),
+    // Final play-test review N8: a caravan created without a name gets a generated one; r2 N4: no
+    // two caravans share a name (a generated one re-rolls, a requested one takes an ordinal).
+    name: acct.rows[0]?.is_system ? (input.name ?? generatedCaravanName(input.accountId)) : await uniqueCaravanName(client, input.accountId, input.name, CARAVAN_NAME_MAX),
   });
   // Caravan-level progress: the living-unit pool lives with the caravan, never the account.
   await createCaravanPoolProgress(client, caravan.id);

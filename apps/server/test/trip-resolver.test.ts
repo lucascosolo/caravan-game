@@ -28,7 +28,7 @@ import { chosenEncounterTerms } from "../src/trip/stakes.js";
 import { productionEncounterResolver, resolverInputFromJob } from "../src/trip/outcome.js";
 import { ContentHashMismatchError, RESOLUTION_CONTENT_HASH, resolutionContentHash, resolveWithResolver } from "../src/trip/resolverAdapter.js";
 import { CONTENT } from "@caravan/content";
-import { appRolePool, expectDbError, testPool, truncateAll, unique } from "./helpers.js";
+import { appRolePool, expectDbError, testPool, truncateAll, unique, seasonCaravan } from "./helpers.js";
 
 const pool = testPool();
 let appRole: pg.Pool;
@@ -45,6 +45,7 @@ async function registerPlayer(): Promise<Player> {
   const res = await app.inject({ method: "POST", url: "/auth/register", payload: { username: unique("r"), password: "correct horse battery", region: "desert" } });
   expect(res.statusCode).toBe(201);
   const body = res.json();
+  await seasonCaravan(pool, body.caravan.id); // r2 S2: the trips a test starts are not the caravan's first
   return { token: body.token, accountId: body.account.id, caravanId: body.caravan.id, units: [] };
 }
 

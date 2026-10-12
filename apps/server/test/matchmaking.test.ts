@@ -22,11 +22,12 @@ import { snapshotStandingParty } from "../src/jobs/snapshots.js";
 import { canonicalJson, type Json } from "../src/ledger/events.js";
 import { AUTHORED_BANDS, AUTHORED_PARTIES_PER_BAND, AUTHORED_USERNAME_PREFIX, seedAuthoredParties } from "../src/matchmaking/authored.js";
 import { CANDIDATES_PER_SEARCH, ESCALATION_PER_ENCOUNTER, RECENT_OPPONENT_EXCLUSION, REPUTATION_BAND_WIDTH_MAX, REROLL_COOLDOWN_SECONDS, bandCentre, bandOf, sandbagEarnMultiplier } from "../src/matchmaking/band.js";
-import { chooseCandidate, enqueueChosenEncounter, readCandidates, replaySearch, searchCandidates, type Candidate, type CandidateMenuView, type CandidateView, type EncounterCandidatesRow } from "../src/matchmaking/service.js";
+import { chooseCandidate, enqueueChosenEncounter, isAuthoredOnlyTrip, readCandidates, replaySearch, searchCandidates, type Candidate, type CandidateMenuView, type CandidateView, type EncounterCandidatesRow } from "../src/matchmaking/service.js";
 import { createTrip, endTrip } from "../src/matchmaking/trips.js";
+import { closeManifest } from "../src/circle/service.js";
 import { findCaravanById } from "../src/repo/caravans.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
-import { appRolePool, expectDbError, testPool, truncateAll, unique } from "./helpers.js";
+import { appRolePool, expectDbError, testPool, truncateAll, unique, seasonCaravan } from "./helpers.js";
 
 const pool = testPool();
 let appRole: pg.Pool;
@@ -45,6 +46,7 @@ async function registerPlayer(region = "desert"): Promise<Player> {
   const res = await app.inject({ method: "POST", url: "/auth/register", payload: { username: unique("p"), password: "correct horse battery", region } });
   expect(res.statusCode).toBe(201);
   const body = res.json();
+  await seasonCaravan(pool, body.caravan.id); // r2 S2: the trips a test starts are not the caravan's first
   return { token: body.token, accountId: body.account.id, caravanId: body.caravan.id, units: [] };
 }
 
@@ -157,7 +159,9 @@ describe("search returns exactly three fully scoutable candidates", () => {
       const owner = owners.find((o) => o.partyId === c.partyId)!;
       expect(owner).toBeDefined();
       // QA N4: the client view names the owner but carries no account id; the stored row does.
-      expect(c.owner).toEqual({ displayName: expect.stringMatching(/^p_/), authored: false, flavor: null });
+      // r2 N16: a player's party rides under its caravan's name, never the username.
+      expect(c.owner).toEqual({ displayName: expect.any(String), authored: false, flavor: null });
+      expect(c.owner.displayName).not.toMatch(/^p_/);
       // Chunk 25 QA D4: nor inside the snapshot.
       expect(c.snapshot).not.toHaveProperty("ownerAccountId");
       expect(JSON.stringify(c)).not.toContain(owner.accountId);
@@ -811,6 +815,12 @@ describe("final play-test review N10 / N5: empty states are 200, and the read ca
     expect(full.menu.candidates).toHaveLength(CANDIDATES_PER_SEARCH);
     // A caravan with no trip is still a 404 (there is no encounter to ask about).
     expect((await call(town, "GET", `/me/caravans/${town.caravanId}/encounters/1/candidates`)).statusCode).toBe(404);
+    // r2 N10: no formation draft yet — 200 { formation: null } for a client that asks (?ifNone=null), the 404 otherwise.
+    const noDraft = await call(d, "GET", `/caravans/${d.caravanId}/encounters/1/formation?ifNone=null`);
+    expect(noDraft.statusCode).toBe(200);
+    expect(noDraft.json()).toEqual({ formation: null, encounterIndex: 1 });
+    const legacy = await call(d, "GET", `/caravans/${d.caravanId}/encounters/1/formation`);
+    expect([legacy.statusCode, legacy.json().error]).toEqual([404, "no_formation"]);
   });
 
   it("N5: search, candidates and choose carry the caravan's packed fence (standing / packed by tier) and traps (ready / packed by type), with their categories", async () => {
@@ -829,3 +839,52 @@ describe("final play-test review N10 / N5: empty states are 200, and the read ca
     expect(chosen.json().menu.caravanLoadout).toEqual(loadout);
   });
 });
+
+describe("final play-test review r2 S2: a caravan's first trip meets authored outfits only, at every encounter", () => {
+  it("trip 1: every candidate is authored (live parties right at the centre are left out), the menu says so and replays; trip 2: live parties are served again", async () => {
+    expect(TUNABLES.AUTHORED_ONLY_FIRST_TRIPS).toBe(1);
+    await seedAuthoredParties(appRole);
+    const centre = 250;
+    // Live parties exactly at the centre: in any other trip they would fill the menu.
+    for (let i = 0; i < 6; i++) await makeOwner("mountain", centre + i, 2);
+    // A fresh caravan, NOT seasoned: this is its first trip.
+    const res = await app.inject({ method: "POST", url: "/auth/register", payload: { username: unique("ft"), password: "correct horse battery", region: "desert" } });
+    const body = res.json();
+    const p: Player = { token: body.token, accountId: body.account.id, caravanId: body.caravan.id, units: [] };
+    await setLivingRep(p.caravanId, centre - TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET);
+    await giveUnits(p, 1, "desert.dust_rider"); // 7 units: the cold-start raider cap does not run
+    const all = (await pool.query<{ id: string }>("SELECT id FROM unit_instance WHERE caravan_id = $1", [p.caravanId])).rows.map((r) => r.id);
+    expect((await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: all.slice(0, 5), traps: [], fence: null })).statusCode).toBe(201);
+    const t1 = await withTransaction(pool, (c) => createTrip(c, p.caravanId));
+    const caravan = (await findCaravanById(pool, p.caravanId))!;
+    for (let k = 0; k < 3; k++) {
+      const m = await withTransaction(appRole, (c) => searchCandidates(c, caravan, 1, { nowMs: Date.now() + k * COOLDOWN_MS }));
+      expect(m.authoredOnlyTrip).toBe(true);
+      expect(m.candidates.every((c) => c.owner.authored), m.candidates.map((c) => c.owner.displayName).join()).toBe(true);
+      const row = await menuRow(t1.id, 1, m.searchSeq);
+      expect(row.draw_rules).toMatchObject({ authoredOnlyTrip: true });
+      expect(row.pool.every((e) => e.authored)).toBe(true);
+      expect(replaySearch(row).partyIds).toEqual(row.candidates.map((c) => c.partyId));
+    }
+    // Encounter 2 of the same trip is still the first trip (checked at the rule, not by playing it out here).
+    expect(await isAuthoredOnlyTrip(pool, p.caravanId, t1.id)).toBe(true);
+    // The trip ends; the caravan packs again. Trip 2 is served from the whole pool.
+    const m1 = (await pool.query<{ id: string }>("SELECT id FROM wagon_manifest WHERE caravan_id = $1 AND closed_at IS NULL", [p.caravanId])).rows[0]!.id;
+    await withTransaction(pool, async (c) => {
+      await endTrip(c, t1.id);
+      await closeManifest(c, m1);
+    });
+    expect((await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: all.slice(0, 5), traps: [], fence: null })).statusCode).toBe(201);
+    const t2 = await withTransaction(pool, (c) => createTrip(c, p.caravanId));
+    expect(await isAuthoredOnlyTrip(pool, p.caravanId, t2.id)).toBe(false);
+    let live = 0;
+    for (let k = 0; k < 4; k++) {
+      const m = await withTransaction(appRole, (c) => searchCandidates(c, caravan, 1, { nowMs: Date.now() + (10 + k) * COOLDOWN_MS }));
+      expect(m.authoredOnlyTrip).toBe(false);
+      live += m.candidates.filter((c) => !c.owner.authored).length;
+      expect((await menuRow(t2.id, 1, m.searchSeq)).draw_rules).not.toHaveProperty("authoredOnlyTrip");
+    }
+    expect(live).toBeGreaterThan(0);
+  });
+});
+

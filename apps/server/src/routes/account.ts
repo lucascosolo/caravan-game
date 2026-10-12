@@ -16,7 +16,8 @@
  *   POST   /me/account/delete          { confirm, password? } → 200 { deleted: true, counts }, cookie cleared.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { issueSession } from "../auth/sessions.js";
+import { hashToken, issueSession } from "../auth/sessions.js";
+import { findLiveSessionByTokenHash } from "../repo/sessions.js";
 import { toAccountPublic, type AccountRow } from "../db/types.js";
 import { clearDeviceCookie, deleteDevice, deleteOtherDevices, deviceIdOfSession, deviceLabel, findLiveDevice, hashDeviceToken, readDeviceCookie, setDeviceCookie, touchLiveDevice } from "../account/device.js";
 import { checkDeletionRequest, createGuest, deletionTerms, deviceViews, eraseAccount, exportAccount, linkAccount } from "../account/service.js";
@@ -66,10 +67,32 @@ export async function eraseReplacedGuest(req: FastifyRequest, guest: { accountId
 }
 
 /** The session response every sign-in route sends; a newly created device's credential goes into the HttpOnly cookie, never the body. */
-export async function sendSignedIn(req: FastifyRequest, reply: FastifyReply, account: AccountRow, opts: { deviceId?: string; code?: number; extra?: Record<string, unknown> } = {}): Promise<FastifyReply> {
-  const s = await issueSession(req.server.db, account.id, opts.deviceId !== undefined ? { deviceId: opts.deviceId } : { label: deviceLabel(req.headers["user-agent"]) });
+export async function sendSignedIn(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  account: AccountRow,
+  opts: { deviceId?: string; replacesSessionId?: string; code?: number; extra?: Record<string, unknown> } = {},
+): Promise<FastifyReply> {
+  const s = await issueSession(
+    req.server.db,
+    account.id,
+    opts.deviceId !== undefined
+      ? { deviceId: opts.deviceId, ...(opts.replacesSessionId !== undefined ? { replacesSessionId: opts.replacesSessionId } : {}) }
+      : { label: deviceLabel(req.headers["user-agent"]) },
+  );
   if (s.deviceToken !== null) setDeviceCookie(req, reply, s.deviceToken);
   return reply.code(opts.code ?? 200).send({ token: s.token, expiresAt: s.expiresAt.toISOString(), account: toAccountPublic(account), ...(opts.extra ?? {}) });
+}
+
+/** r2 S1: the live session (of this account, on this device) a resume names, by its raw token; else null. */
+async function replacedSessionOf(req: FastifyRequest, accountId: string, deviceId: string): Promise<string | null> {
+  const body = (req.body ?? {}) as { previousToken?: unknown };
+  const fromBody = typeof body.previousToken === "string" && body.previousToken.length > 0 && body.previousToken.length <= 256 ? body.previousToken : null;
+  const header = /^Bearer\s+(\S{1,256})$/i.exec(String(req.headers["authorization"] ?? ""));
+  const token = fromBody ?? header?.[1] ?? null;
+  if (token === null) return null;
+  const session = await findLiveSessionByTokenHash(req.server.db, hashToken(token));
+  return session && session.account_id === accountId && session.device_id === deviceId ? session.id : null;
 }
 
 async function currentDeviceId(req: FastifyRequest): Promise<string | null> {
@@ -103,7 +126,11 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     }
     // Slide the cookie's own lifetime with the device's.
     setDeviceCookie(req, reply, raw!);
-    return sendSignedIn(req, reply, account, { deviceId: device.id });
+    // Final play-test review r2 S1: a resume replaces the session it was given (the client's
+    // current token, as `Authorization: Bearer …` or `{ previousToken }`), when that is a live
+    // session of this same account on this same device; otherwise it is ignored (never an error).
+    const replaced = await replacedSessionOf(req, account.id, device.id);
+    return sendSignedIn(req, reply, account, { deviceId: device.id, ...(replaced ? { replacesSessionId: replaced } : {}), extra: { replacedPrevious: replaced !== null } });
   });
 
   app.get("/me/account", { preHandler: requireAuth }, async (req) => {

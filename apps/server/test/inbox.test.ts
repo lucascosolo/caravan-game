@@ -45,7 +45,7 @@ import { TRIP_SETTLE_HOOKS } from "../src/trip/service.js";
 
 /** The web badge's poll interval (apps/web/src/shell/inboxSignal.ts INBOX_POLL_MS): "within one poll" is the DoD's "within a minute". */
 const INBOX_POLL_MS = 60_000;
-import { appRolePool, expectDbError, testPool, truncateAll, unique } from "./helpers.js";
+import { appRolePool, expectDbError, testPool, truncateAll, unique, seasonCaravan } from "./helpers.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const pool = testPool();
@@ -65,6 +65,7 @@ async function register(prefix = "ib"): Promise<Player> {
   const res = await app.inject({ method: "POST", url: "/auth/register", payload: { username, password: "correct horse battery", region: "desert" } });
   expect(res.statusCode, res.body).toBe(201);
   const b = res.json();
+  await seasonCaravan(pool, b.caravan.id); // r2 S2: the trips a test starts are not the caravan's first
   return { token: b.token, username, accountId: b.account.id, caravanId: b.caravan.id, caravanName: b.caravan.name };
 }
 
@@ -104,8 +105,8 @@ async function commitAgainst(owner: Player, via: FastifyInstance = app): Promise
   expect((await call(d, "POST", `${trip}/start`)).statusCode).toBe(201);
   const s = await call(d, "POST", `/me/caravans/${d.caravanId}/encounters/1/search`);
   expect(s.statusCode, s.body).toBe(201);
-  const cand = (s.json().menu.candidates as { candidateId: string; owner: { displayName: string } }[]).find((c) => c.owner.displayName === owner.username);
-  expect(cand, `${owner.username} is in the menu`).toBeDefined();
+  const cand = (s.json().menu.candidates as { candidateId: string; owner: { displayName: string } }[]).find((c) => c.owner.displayName === owner.caravanName);
+  expect(cand, `${owner.caravanName} (${owner.username}) is in the menu`).toBeDefined();
   expect((await call(d, "POST", `/me/caravans/${d.caravanId}/encounters/1/choose`, { candidateId: cand!.candidateId })).statusCode).toBe(200);
   const formation = { v: 2, fences: [{ ref: "f0", segment: 0 }], traps: [], posts: [...units].sort().map((ref, i) => ({ ref, cell: { x: 13 + i * 5, y: 13 }, stance: "guard" })) };
   expect((await call(d, "PUT", `/caravans/${d.caravanId}/encounters/1/formation`, formation)).statusCode).toBe(200);
@@ -206,7 +207,7 @@ describe("inbox derivation (pure)", () => {
     jobId: `job${seq}`,
     encounterIndex: 1,
     outcomeKind: "caravan_overrun",
-    defender: { username: "u", caravanName: "c", regionId: "desert" },
+    defender: { username: "u", caravanName: "c", regionId: "desert", departed: false },
     coinEarned: 1,
     coinTransferred: 0,
     coinDiscardedAtCap: 0,

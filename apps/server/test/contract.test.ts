@@ -38,7 +38,7 @@ import { pruneEncounterLogs } from "../src/replay/store.js";
 import { TUNABLES } from "@caravan/content";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
 import { TRIP_CAP_REGEN_MS, TRIPS_PER_HOUR_CAP } from "../src/trip/cap.js";
-import { appRolePool, testPool, truncateAll } from "./helpers.js";
+import { appRolePool, testPool, truncateAll, seasonCaravan, servedNameOf } from "./helpers.js";
 import { doubleHandlers } from "../src/dev/tripDouble.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -298,6 +298,7 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     await record("manifest", "GET /caravans/:id/manifest", await call(p, "GET", `/caravans/${p.caravanId}/manifest`), 200);
     const tripUrl = `/me/caravans/${p.caravanId}/trip`;
     await record("trip-status-packed", "GET /me/caravans/:id/trip", await call(p, "GET", tripUrl), 200);
+    await seasonCaravan(pool, p.caravanId); // r2 S2: after recording the in-town status, so the trip started next is the caravan's second and serves the contract owners (live parties)
     const started = (await record("trip-start", "POST /me/caravans/:id/trip/start", await call(p, "POST", `${tripUrl}/start`), 201)) as { tripId: string };
     // N10: before the first search the candidates read is an empty state, 200.
     await record("candidates-empty", "GET /me/caravans/:id/encounters/:n/candidates (not searched yet)", await call(p, "GET", `/me/caravans/${p.caravanId}/encounters/1/candidates`), 200);
@@ -389,8 +390,11 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     expect(noLog).toMatchObject({ viewer: "caravan", renderable: false, reason: NO_LOG_REASON, log: null, stored: null });
     // A fight the REAL resolver fought (a fresh caravan, its first encounter): what the replay
     // player plays, for the caravan's player and for the party's owner.
-    const byName = new Map<string, Player>([...owners.map((o, i) => [`contract_owner_${"abc"[i]}`, o] as const), ["contract_owner_d", d], ["contract_owner_e", e]]);
+    // r2 N16: parties ride under their caravans' names.
+    const byName = new Map<string, Player>();
+    for (const [u, pl] of [...owners.map((o, i) => [`contract_owner_${"abc"[i]}`, o] as const), ["contract_owner_d", d] as const, ["contract_owner_e", e] as const]) byName.set(await servedNameOf(pool, u), pl);
     const v = await register("contract_viewer");
+    await seasonCaravan(pool, v.caravanId); // r2 S2: not its first trip, so the contract owners are served
     const diggers = await giveUnits(v, ["desert.well_digger", "desert.well_digger"]);
     expect((await call(v, "POST", `/caravans/${v.caravanId}/manifest`, { units: diggers, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 20 } })).statusCode).toBe(201);
     const vTrip = `/me/caravans/${v.caravanId}/trip`;
@@ -438,6 +442,7 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     // death de-merged 2 → 1), nothing of encounter 2 applied, the trip-cap use kept spent. Its
     // preview before the first survival omits `bankNow` and `harderThanThisEncounter` (N2).
     const w = await register("contract_voider");
+    await seasonCaravan(pool, w.caravanId); // r2 S2: not its first trip
     const [wVet] = await giveUnits(w, ["desert.dust_rider"], 2);
     const wRiders = await giveUnits(w, ["desert.dust_rider", "desert.dust_rider"]);
     const wUnits = [wVet!, ...wRiders];
