@@ -812,13 +812,21 @@ export interface PackFunnel {
   /** Every settled buyer, opted-out accounts included: NOT part of the funnel. */
   allBuyers: number;
   tiers: { tier: number; reserved: number; settled: number; buyers: number; cents: number }[];
+  /**
+   * Final review D1: the server's STORE_MODE. With the store off (the play test) nothing can be bought,
+   * so the funnel is NOT counted: `counted` is false, every number is 0 and `tiers` is empty — a
+   * store-screen view then is a preview, not a step towards a purchase.
+   */
+  storeMode: "sandbox" | "off";
+  counted: boolean;
 }
 
-export async function packFunnel(db: Queryable, win: Window): Promise<PackFunnel> {
+export async function packFunnel(db: Queryable, win: Window, storeMode: "sandbox" | "off" = "sandbox"): Promise<PackFunnel> {
+  if (storeMode === "off") return { viewers: 0, storeViewers: 0, buyers: 0, allBuyers: 0, tiers: [], storeMode, counted: false };
   const f = (await db.query<{ viewers: number; store_viewers: number; buyers: number }>(PACK_FUNNEL_SQL, w(win))).rows[0]!;
   const all = (await db.query<{ buyers: number }>(PACK_BUYERS_SQL, w(win))).rows[0]!;
   const tiers = (await db.query<{ tier: number; reserved: number; settled: number; buyers: number; cents: number }>(PACK_TIERS_SQL, w(win))).rows;
-  return { viewers: f.viewers, storeViewers: f.store_viewers, buyers: f.buyers, allBuyers: all.buyers, tiers };
+  return { viewers: f.viewers, storeViewers: f.store_viewers, buyers: f.buyers, allBuyers: all.buyers, tiers, storeMode, counted: true };
 }
 
 export async function screens(db: Queryable, win: Window): Promise<{ screen: string; views: number; viewers: number }[]> {

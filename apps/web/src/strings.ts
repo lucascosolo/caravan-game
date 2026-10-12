@@ -949,6 +949,10 @@ export const STRINGS = {
     reloadFailed: "Could not re-read the packs. What is shown may be out of date.",
     sandboxHeading: "SANDBOX: no real money moves",
     sandboxBody: "This build has no payment processing. A purchase records the grant and charges nothing ($0). Prices are shown as they would be.",
+    // Final review D1: STORE_MODE=off (the play test). The contents stay previewable; nothing can be bought.
+    notAvailable: "Not available during the play test",
+    offHeading: "Packs are not on sale during the play test",
+    offBody: "You can look at what each pack would hold, but nothing can be bought. Everything in the game is earned by playing.",
     intro: "Three packs a week at fixed prices. Each holds a fixed amount of Coin (the same every week) and this week's cosmetics. Everything a pack grants is listed below before you buy: there is nothing random and nothing hidden.",
     powerNote: "Coin buys pace (sooner merges), never power: nothing in a pack changes a stat, a fight, matchmaking or what you can unlock. Cosmetics are purely visual.",
     weekLine: (weekIndex: number, ends: string): string => `Week ${weekIndex} · these packs are on offer until ${ends}.`,

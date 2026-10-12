@@ -6,12 +6,13 @@
  */
 import type { FastifyInstance } from "fastify";
 import { listPurchases, purchasePack, purchaseView, storeView } from "../store/index.js";
-import { badRequest } from "../services/errors.js";
+import { badRequest, conflict } from "../services/errors.js";
 import { requireAuth } from "./require-auth.js";
 
 export async function storeRoutes(app: FastifyInstance): Promise<void> {
   /** This week's three tiers with purchase state and forecasts, plus next week's rotation. */
-  app.get("/me/store", { preHandler: requireAuth }, async (req) => storeView(app.db, req.auth!.account.id, Date.now()));
+  // Final review D1: `mode` says whether packs can be bought now ("off" during the play test: previewed, not sold).
+  app.get("/me/store", { preHandler: requireAuth }, async (req) => ({ ...(await storeView(app.db, req.auth!.account.id, Date.now())), mode: app.storeMode }));
 
   /**
    * Buy one tier of the current week. Body `{ tier, weekIndex, contentsHash }` — `contentsHash`
@@ -21,6 +22,8 @@ export async function storeRoutes(app: FastifyInstance): Promise<void> {
    * tier was already bought this week (QA-20 D1); 409 `offer_not_current` if the week rolled over.
    */
   app.post<{ Body: { tier?: unknown; weekIndex?: unknown; contentsHash?: unknown } }>("/me/store/purchase", { preHandler: requireAuth }, async (req, reply) => {
+    // Final review D1: with the store off nothing is bought, whatever the body says (checked before it is read).
+    if (app.storeMode === "off") throw conflict("store_unavailable", "packs are not on sale during the play test (STORE_MODE=off); the contents stay previewable");
     const body = req.body !== null && typeof req.body === "object" && !Array.isArray(req.body) ? req.body : {};
     if (body.contentsHash === undefined) {
       throw badRequest("contents_hash_required", "send the offer's contentsHash from GET /me/store with the purchase");

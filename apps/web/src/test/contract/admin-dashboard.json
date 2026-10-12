@@ -1032,7 +1032,9 @@
             "buyers": 1,
             "cents": 500
           }
-        ]
+        ],
+        "storeMode": "sandbox",
+        "counted": true
       },
       "sessionLength": {
         "sessions": 3,

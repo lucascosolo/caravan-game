@@ -205,11 +205,18 @@ export function PacksScreen(props: PacksScreenProps = {}): JSX.Element {
       <h1 ref={headingRef} tabIndex={-1}>
         {T.title}
       </h1>
-      <div className="sandbox-banner" role="note" data-testid="sandbox-banner">
-        <strong>{T.sandboxHeading}</strong>
-        <div>{T.sandboxBody}</div>
-        {store && <div className="hint">{store.backend.message}</div>}
-      </div>
+      {store?.mode === "off" ? (
+        <div className="sandbox-banner" role="note" data-testid="store-off-banner">
+          <strong>{T.offHeading}</strong>
+          <div>{T.offBody}</div>
+        </div>
+      ) : (
+        <div className="sandbox-banner" role="note" data-testid="sandbox-banner">
+          <strong>{T.sandboxHeading}</strong>
+          <div>{T.sandboxBody}</div>
+          {store && <div className="hint">{store.backend.message}</div>}
+        </div>
+      )}
     </>
   );
 
@@ -291,6 +298,11 @@ export function PacksScreen(props: PacksScreenProps = {}): JSX.Element {
               <>
                 <div className="h3">{T.overflowHeading}</div>
                 <OverflowLine overflow={o.overflow} testId={`offer-${o.tier}-overflow`} />
+                {store.mode === "off" ? (
+                  <p className="hint" role="note" data-testid={`buy-${o.tier}-unavailable`}>
+                    {T.notAvailable}
+                  </p>
+                ) : (
                 <button
                   type="button"
                   className="btn btn--primary btn--block"
@@ -300,6 +312,7 @@ export function PacksScreen(props: PacksScreenProps = {}): JSX.Element {
                 >
                   {quoting === o.tier ? T.quoting : T.buyButton(o.tier, o.priceDisplay)}
                 </button>
+                )}
               </>
             )}
           </li>

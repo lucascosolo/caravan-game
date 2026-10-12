@@ -48,10 +48,65 @@ export class RateLimiter {
     if (w.count > rule.limit) throw new RateLimitedError(Math.max(1, w.start + rule.windowMs - t));
   }
 
+  /**
+   * Final review D2: refuse (RateLimitedError) when `key` has ALREADY used up `name`'s window, without
+   * counting this request. Pair with `record` to count only failures.
+   */
+  check(name: RateLimitName, key: string): void {
+    if (!this.rules) return;
+    const rule = this.rules[name];
+    const t = this.now();
+    const w = this.windows.get(`${name}\u0000${key}`);
+    if (w && t - w.start < rule.windowMs && w.count >= rule.limit) throw new RateLimitedError(Math.max(1, w.start + rule.windowMs - t));
+  }
+
+  /** Count one event (a failure) against `name` for `key`, never throwing. */
+  record(name: RateLimitName, key: string): void {
+    if (!this.rules) return;
+    const rule = this.rules[name];
+    const t = this.now();
+    const id = `${name}\u0000${key}`;
+    let w = this.windows.get(id);
+    if (!w || t - w.start >= rule.windowMs) {
+      if (this.windows.size >= SWEEP_AT) this.sweep(t);
+      w = { start: t, count: 0 };
+      this.windows.set(id, w);
+    }
+    w.count += 1;
+  }
+
+  /** Forget `key`'s window for `name` (a success clears its failures). */
+  reset(name: RateLimitName, key: string): void {
+    this.windows.delete(`${name}\u0000${key}`);
+  }
+
   private sweep(t: number): void {
     const longest = this.rules ? Math.max(...Object.values(this.rules).map((r) => r.windowMs)) : 0;
     for (const [k, w] of this.windows) if (t - w.start >= longest) this.windows.delete(k);
   }
+}
+
+/**
+ * Final review D2: the password-failure limits for one (username, address). `check` refuses when
+ * either window is used up; `fail` counts one wrong password; `succeed` clears the pair's count.
+ * Usernames are matched case-insensitively and capped like the login form.
+ */
+export function passwordFailureLimits(limiter: RateLimiter, rawUsername: string, address: string) {
+  const user = rawUsername.trim().toLowerCase().slice(0, 64);
+  const pair = `${user}\u0000${address}`;
+  return {
+    check(): void {
+      limiter.check("loginFailuresPerUsernameAddress", pair);
+      limiter.check("loginFailuresPerUsername", user);
+    },
+    fail(): void {
+      limiter.record("loginFailuresPerUsernameAddress", pair);
+      limiter.record("loginFailuresPerUsername", user);
+    },
+    succeed(): void {
+      limiter.reset("loginFailuresPerUsernameAddress", pair);
+    },
+  };
 }
 
 /** Fastify error-handler helper: the Retry-After header and the body's retryAfterMs. */

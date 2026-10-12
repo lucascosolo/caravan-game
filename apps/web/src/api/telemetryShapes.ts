@@ -59,7 +59,7 @@ export const dashboardShape: Guard<DashboardView> = object({
       note: string({ maxLength: 500 }),
       deciles: array(object({ decile: integer({ min: 1, max: 10 }), players: n, minFree: n, maxFree: n, avgFree: n, avgPaid: n, payers: n, ceilingToFreeBp: rate }), { maxLength: 10 }),
     }),
-    packFunnel: object({ viewers: n, storeViewers: n, buyers: n, allBuyers: n, tiers: array(object({ tier: integer({ min: 1, max: 3 }), reserved: n, settled: n, buyers: n, cents: n }), { maxLength: 3 }) }),
+    packFunnel: object({ viewers: n, storeViewers: n, buyers: n, allBuyers: n, tiers: array(object({ tier: integer({ min: 1, max: 3 }), reserved: n, settled: n, buyers: n, cents: n }), { maxLength: 3 }), storeMode: literal("sandbox", "off"), counted: boolean() }),
     sessionLength: object({ sessions: n, players: n, medianMs: n, maxMs: n, screens: n, gapMs: n, buckets: array(object({ label: string({ maxLength: 16 }), sessions: n }), { maxLength: 12 }) }),
     retention: object({ cohortFrom: string(), cohortTo: string(), days: array(object({ day: n, eligible: n, returned: n, rateBp: rate }), { maxLength: 3 }) }),
     screens: array(object({ screen: string({ maxLength: 24 }), views: n, viewers: n }), ROWS),

@@ -38,7 +38,7 @@ import { findCaravanById } from "../src/repo/caravans.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
 import { hasAccess } from "../src/unlocks/access.js";
 import { bankTrip, settleEncounter, stakesPreview, type StakesPreview } from "../src/trip/service.js";
-import { redactForeignAccountIds } from "../src/routes/ledger.js";
+import { redactForeignAccountIds, redactForeignIds } from "../src/routes/ledger.js";
 import { applyEarnFloor, chosenEncounterTerms, mergeLevelAfterDeath, planUnitLosses, transferCausationId } from "../src/trip/stakes.js";
 import { partyLoot } from "../src/trip/loot.js";
 import { appRolePool, testPool, truncateAll, unique } from "./helpers.js";
@@ -957,7 +957,8 @@ describe("QA D1 + S1 + S2: a recipient at the cap — the party win is paid (and
     const entry = feed.json().entries.find((e: { jobId: string }) => e.jobId === `encounter:${tripId}:2`);
     expect(entry).toMatchObject({ coinEarned: 0, coinTransferred: 0, partyWinCoin: 0, coinDiscardedAtCap: lost + TUNABLES.COIN_PER_PARTY_WIN });
     // S1: the feed names the defender by username only.
-    expect(Object.keys(entry.defender).sort()).toEqual(["caravanId", "caravanName", "regionId", "username"]);
+    expect(Object.keys(entry.defender).sort()).toEqual(["caravanName", "regionId", "username"]);
+    expect(feed.body).not.toContain(d.caravanId); // final review N4
     expect(feed.body).not.toContain(d.accountId);
 
     // S1: the defender's ledger read model drops the party owner's account id everywhere.
@@ -976,6 +977,8 @@ describe("QA D1 + S1 + S2: a recipient at the cap — the party win is paid (and
     const served = (oled.json().events as { type: string; payload: Record<string, unknown> }[]).filter((e) => e.type === "party_served_as_encounter");
     expect(served.length).toBeGreaterThan(0);
     for (const e of served) expect(e.payload).not.toHaveProperty("defenderAccountId");
+    for (const e of served) expect(e.payload).not.toHaveProperty("defenderCaravanId"); // final review N4
+    expect(oled.body).not.toContain(d.caravanId);
     expect(oled.body).not.toContain(d.accountId);
   });
 
@@ -987,6 +990,16 @@ describe("QA D1 + S1 + S2: a recipient at the cap — the party win is paid (and
       accountId: own,
       party: { units: [{ x: 2 }] },
     });
+  });
+
+  it("final review N4: redactForeignIds also drops foreign caravan ids at any depth and keeps the reader's own", () => {
+    const own = "11111111-1111-1111-1111-111111111111";
+    const ownCaravan = "33333333-3333-3333-3333-333333333333";
+    const other = "22222222-2222-2222-2222-222222222222";
+    const otherCaravan = "44444444-4444-4444-4444-444444444444";
+    expect(
+      redactForeignIds({ caravanId: ownCaravan, defenderCaravanId: otherCaravan, defenderAccountId: other, nested: [{ caravanId: otherCaravan, keep: 1 }, { caravanId: null }] }, own, new Set([ownCaravan])),
+    ).toEqual({ caravanId: ownCaravan, nested: [{ keep: 1 }, {}] });
   });
 });
 

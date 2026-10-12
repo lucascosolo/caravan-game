@@ -1,6 +1,9 @@
 /**
  * Process configuration. Not balance — balance constants live in @caravan/content TUNABLES.
  */
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+
 /**
  * Two Postgres roles, two URLs (see apps/server/db/roles.sql):
  *   DATABASE_URL          the RUNNING SERVER: `caravan_app`, a plain DML-only login role that
@@ -61,3 +64,117 @@ export const CARAVAN_NAME_MIN = 1;
 export const CARAVAN_NAME_MAX = 40;
 /** Live sessions kept per account; issuing one beyond this evicts the oldest. */
 export const SESSIONS_PER_ACCOUNT_MAX = 10;
+
+// ---------------------------------------------------------------------------------
+// `.env` loading (final review N2)
+// ---------------------------------------------------------------------------------
+/**
+ * Load `KEY=VALUE` lines from the repo's `.env` (or the file ENV_FILE names) into process.env,
+ * NEVER overriding a variable that is already set: the real environment wins, so CI and a process
+ * manager are unaffected. The file is found by walking up from the working directory to the
+ * workspace root (the directory holding pnpm-workspace.yaml), so `pnpm --filter @caravan/server …`
+ * (cwd apps/server) and the built `node apps/server/dist/…` (cwd the repo) both find it. A missing
+ * file is not an error. Blank lines and `#` comments are skipped; `export KEY=…` is accepted; a value
+ * may be wrapped in single or double quotes. Returns the path read, or null.
+ */
+export function loadDotEnv(env: NodeJS.ProcessEnv = process.env, cwd: string = process.cwd()): string | null {
+  const file = env["ENV_FILE"] ? path.resolve(cwd, env["ENV_FILE"]) : findWorkspaceDotEnv(cwd);
+  if (!file || !existsSync(file)) return null;
+  for (const raw of readFileSync(file, "utf8").split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line === "" || line.startsWith("#")) continue;
+    const m = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
+    if (!m) continue;
+    const key = m[1]!;
+    let value = m[2]!;
+    if (value.length >= 2 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))) value = value.slice(1, -1);
+    if (env[key] === undefined) env[key] = value;
+  }
+  return file;
+}
+
+function findWorkspaceDotEnv(cwd: string): string | null {
+  let dir = path.resolve(cwd);
+  for (;;) {
+    if (existsSync(path.join(dir, "pnpm-workspace.yaml"))) return path.join(dir, ".env");
+    const up = path.dirname(dir);
+    if (up === dir) return null;
+    dir = up;
+  }
+}
+
+// ---------------------------------------------------------------------------------
+// Production configuration checks (final review S2)
+// ---------------------------------------------------------------------------------
+/** Passwords that ship in this repo (db/roles.sql, .env.example). Refused for any connection in production. */
+export const DEFAULT_DB_PASSWORDS: readonly string[] = ["caravan", "caravan_app"];
+
+export class ProductionConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProductionConfigError";
+  }
+}
+
+/**
+ * Under NODE_ENV=production a connection string must be given explicitly (no repo default) and its
+ * password must not be empty or one of the repo's defaults. `what` names the variable in the
+ * message. Outside production this is a no-op.
+ */
+export function assertProductionDatabaseUrl(env: NodeJS.ProcessEnv, url: string | undefined, what: string): void {
+  if (env["NODE_ENV"] !== "production") return;
+  if (!url) throw new ProductionConfigError(`${what} must be set when NODE_ENV=production (the repo's default is for local development only)`);
+  let password: string;
+  try {
+    password = decodeURIComponent(new URL(url).password);
+  } catch {
+    throw new ProductionConfigError(`${what} is not a valid postgres:// URL`);
+  }
+  if (password === "" || DEFAULT_DB_PASSWORDS.includes(password)) {
+    throw new ProductionConfigError(
+      `${what} uses ${password === "" ? "no password" : "a default password from this repo"}; set a strong one (docs/PLAYTEST-HOSTING.md, step 2). Refused when NODE_ENV=production`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------------
+// The store mode (final review D1)
+// ---------------------------------------------------------------------------------
+/**
+ * STORE_MODE:
+ *   sandbox  packs can be bought through the sandbox backend ($0, chunk 20). The default outside production.
+ *   off      packs are previewed but cannot be bought (POST /me/store/purchase → 409 store_unavailable),
+ *            and the dashboard reports no store funnel. The default whenever NODE_ENV=production (the play test).
+ * Nothing else in the economy reads it.
+ */
+export type StoreMode = "sandbox" | "off";
+
+export function storeModeFromEnv(env: NodeJS.ProcessEnv): StoreMode {
+  const v = (env["STORE_MODE"] ?? "").trim();
+  if (v === "") return env["NODE_ENV"] === "production" ? "off" : "sandbox";
+  if (v === "sandbox" || v === "off") return v;
+  throw new Error(`STORE_MODE must be "sandbox" or "off"; got '${v}'`);
+}
+
+// ---------------------------------------------------------------------------------
+// Single-process hosting (final review S2)
+// ---------------------------------------------------------------------------------
+/**
+ * SERVE_WEB=1: the server also serves the built client (WEB_DIST, default apps/web/dist) and mounts
+ * every API route under /api: one process, one origin, behind a TLS reverse proxy
+ * (docs/PLAYTEST-HOSTING.md). Unset: the API is mounted at the root, as in dev and the tests.
+ */
+export interface ServeWebConfig {
+  dir: string;
+  /** NODE_ENV=production: source maps are never served. */
+  production: boolean;
+}
+
+export function serveWebFromEnv(env: NodeJS.ProcessEnv, defaultDir: string): ServeWebConfig | null {
+  const v = (env["SERVE_WEB"] ?? "").trim();
+  if (v === "" || v === "0" || v === "off" || v === "false") return null;
+  if (v !== "1" && v !== "on" && v !== "true") throw new Error(`SERVE_WEB must be 1 or unset; got '${v}'`);
+  const dir = path.resolve(env["WEB_DIST"] ?? defaultDir);
+  if (!existsSync(path.join(dir, "index.html"))) throw new Error(`SERVE_WEB=1 but ${path.join(dir, "index.html")} does not exist (run pnpm build, or set WEB_DIST)`);
+  return { dir, production: env["NODE_ENV"] === "production" };
+}

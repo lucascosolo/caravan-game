@@ -96,6 +96,27 @@ Requirements: Node 22, pnpm 10, Postgres 16 with two databases the `caravan` rol
 (`caravan` for dev, `caravan_test` for the test suite). The defaults in `.env.example`
 match the local setup.
 
+**First time on a fresh clone** (local development; for hosting the play test see
+[`docs/PLAYTEST-HOSTING.md`](docs/PLAYTEST-HOSTING.md) instead):
+
+```
+corepack enable                                   # pnpm 10 from package.json's packageManager
+pnpm install
+sudo -u postgres psql -c "CREATE ROLE caravan LOGIN SUPERUSER PASSWORD 'caravan'"   # the local owner role (dev only)
+sudo -u postgres createdb -O caravan caravan        # dev database
+sudo -u postgres createdb -O caravan caravan_test   # test database (its name must contain "test")
+cp .env.example .env                              # optional: every script and entry point loads .env (the real environment wins); edit names/ports here
+pnpm db:migrate                                   # creates the caravan_app role (password caravan_app) and its grants via db/roles.sql
+pnpm db:seed:dev                                  # the authored parties + the dev account dev / devpassword
+pnpm --filter @caravan/web exec playwright install chromium   # once, for the e2e steps of pnpm check
+pnpm check                                        # every gate CI runs (see below)
+```
+
+Nothing reads `.env` unless it exists. Without it, export `DATABASE_URL`,
+`MIGRATE_DATABASE_URL` and `TEST_DATABASE_URL` yourself to use other database names. The
+`caravan` / `caravan_app` passwords are local defaults only: every entry point refuses them under
+`NODE_ENV=production`.
+
 **Two DB roles, two URLs.** The schema's permanence guards are triggers and CHECKs that
 the owner role could simply disable, so the server never runs as the owner:
 
@@ -120,9 +141,7 @@ grant; rows go in only through `encounter_log_write()` (SECURITY DEFINER, fenced
 live lease, checked against the job) and leave only through `encounter_log_prune()` (the
 retention rule, migration 016). `caravan_app` is created and granted by `apps/server/db/roles.sql` (idempotent; a role is
 cluster-level, so it is a script, not a migration). `pnpm db:migrate` and `pnpm db:reset`
-apply it after migrating; `pnpm --filter @caravan/server exec tsx src/db/migrate.ts roles`
-applies it alone (no `db:roles` script yet: `apps/server/package.json` belongs to chunk 02's
-in-flight change). Default privileges on the
+apply it after migrating; `pnpm db:roles` applies it alone. Default privileges on the
 owner role mean tables added by later migrations are covered without extra GRANTs.
 
 ```
@@ -135,27 +154,29 @@ pnpm db:migrate              # apply pending SQL migrations to MIGRATE_DATABASE_
 pnpm db:rollback             # roll back the most recent migration
 pnpm db:reset                # roll back everything, re-apply, then db/roles.sql
 pnpm db:status               # show which migrations are applied
-pnpm --filter @caravan/server exec tsx src/db/migrate.ts roles   # caravan_app role + grants only
-pnpm db:seed                 # idempotent: the 96 authored cold-start parties (chunk 25; versioned, updates in place) + dev account dev / devpassword, region desert
+pnpm db:roles                # caravan_app role + grants only (db/roles.sql)
+pnpm db:seed                 # idempotent: the 96 authored cold-start parties only (chunk 25; versioned, updates in place, through the ledger). Creates NO login account — safe on the play-test database
+pnpm db:seed:dev             # = db:seed -- --dev: also the dev / e2e fixture account dev / devpassword, region desert (SEED_USERNAME / SEED_PASSWORD override), an ordinary registration with only the starting roster; REFUSED under NODE_ENV=production
 
 pnpm dev                     # Fastify on http://127.0.0.1:3000 (PORT/HOST override), tsx watch; resolves committed encounters in-process with the real resolver
 pnpm dev:web                 # Vite dev server on http://127.0.0.1:5173; /api/* proxied to the server on :3000 (CARAVAN_API_URL overrides)
 
 pnpm --filter @caravan/web typecheck | test | build   # tsc; vitest + testing-library (jsdom); vite build → apps/web/dist
 pnpm --filter @caravan/web e2e                        # Playwright smoke vs a running server (needs CARAVAN_API_URL + a seeded DB)
-pnpm e2e                     # the same, self-contained: seeds E2E_DATABASE_URL (dev, a run-unique formation account packed and ridden out, a run-unique trip account in town), starts the BUILT server on :3917 with CARAVAN_TEST_RESOLVER=double, runs the e2e, stops it (run `pnpm build` first)
+pnpm e2e                     # the same, self-contained: seeds E2E_DATABASE_URL with `seed.js --dev` (dev, a run-unique formation account packed and ridden out, a run-unique trip account in town), refuses if E2E_PORT (default 3917) already answers, starts the BUILT server there with CARAVAN_TEST_RESOLVER=double, runs Playwright through vite preview (E2E_WEB_PORT, default 4173), stops it (run `pnpm build` first; pass the caravan_app URL, as pnpm check does)
+pnpm e2e:hosting             # the same suite against the built server in single-process hosting mode (SERVE_WEB=1: it serves the client and the API under /api; E2E_PORT default 3918), plus e2e/hosting.spec.ts (headers, /api, the cookie, the CSP)
 
 pnpm --filter @caravan/server exec tsx ../../scripts/balance/matchup-sweep.ts [--quick] [--jobs 2] [--json out.json]   # chunk 37 matchup sweep (authored parties × defending corpus × layouts; full ≈ 75 min at 2 jobs, --quick ≈ 17 min); first-trip.ts, probes.ts, measured-ev.ts, trip-ev.ts beside it; numbers in BALANCE-LOG.md; the CI slice is apps/server/test/balance-sweep.test.ts
 pnpm determinism             # resolver determinism harness (chunk 13): the golden-gate self-test (scripts/golden-gate.test.mjs), then the 72-fight corpus 100× byte-identical in-process (one test per scenario per 25-run batch) and equal to the golden logs in packages/resolver/golden (UPDATE_GOLDEN=1 regenerates), then 3 separate Node processes (different corpus orders) compared by sha256 with each other and the goldens; with a base ref (DETERMINISM_BASE_REF locally) it refuses a changed/deleted golden unless RESOLVER_VERSION increased as an integer and every changed golden carries it (`[resolver-bump]` covers only new fixtures)
 pnpm perf:resolver           # PHASE-2 §36 resolver budget, run alone: blocking on the integer work counters pinned per corpus fight (packages/resolver/golden/work-counters.json, regenerated with the goldens by UPDATE_GOLDEN=1, a RESOLVER_VERSION bump to change) and on the heaviest fight / integer-reference CPU ratio (≤ 12); the absolute 100 ms per fight is REPORTED (RESOLVER_BUDGET_STRICT=1 asserts it, for a dedicated perf host). A CI step of its own, after determinism
 pnpm load:queue -- --db <owner URL of a *load* database>     # PHASE-2 §36 job-queue load test (resets that DB; not in CI): real trips + a 10 000-encounter one-party burst; --burst-parties N spreads it, --profile times each SQL statement
 pnpm load:explain -- --db <owner URL of a *load* database> --write   # PHASE-2 §36: seeds ~50k accounts / 156k menus and rewrites the matchmaking EXPLAIN plans in apps/server/db/explain/
-pnpm --filter @caravan/resolver test   # the resolver alone: 576 tests in 15 files (288 of them the 100× harness in 25-run batches), no DB, no network, ~70 s on 4 cores
+pnpm --filter @caravan/resolver test   # the resolver alone: 587 tests in 15 files at the final review (288 of them the 100× harness in 25-run batches), no DB, no network, ~70 s on 4 cores
 pnpm test:boundary           # resolver dependency-boundary check (zero deps, imports stay inside packages/resolver/src)
-pnpm build                   # esbuild → apps/server/dist (index.js, db/migrate.js, seed.js); workspace packages inlined, npm deps external; then vite build → apps/web/dist
-pnpm start                   # run the built server: node apps/server/dist/index.js
-pnpm smoke                   # start the built server against SMOKE_DATABASE_URL, assert GET /health, stop
-pnpm ci                      # the CI job, step for step: typecheck, lint, test:boundary, test, determinism, build
+pnpm build                   # esbuild → apps/server/dist (index.js, db/migrate.js, seed.js, admin.js); workspace packages inlined, npm deps external; then vite build → apps/web/dist (+ the bundle check)
+pnpm start                   # run the built server: node apps/server/dist/index.js (SERVE_WEB=1 also serves apps/web/dist and moves the API under /api)
+pnpm smoke                   # the built server against SMOKE_DATABASE_URL: NODE_ENV=production must refuse a repo-default password; SERVE_WEB=1 must answer /health, /api/health and /
+pnpm check                   # EVERY gate, exactly what CI runs: typecheck, lint, test:boundary, test, determinism, perf:resolver, build, migrate (the test DB), smoke, e2e, e2e:hosting — smoke and both e2e as caravan_app. `pnpm check -- --from <step>` resumes. (Not `pnpm ci`: that is pnpm's own unimplemented command.)
 ```
 
 Migrations are plain SQL pairs in `apps/server/migrations/NNN_name.{up,down}.sql`, run by
@@ -165,10 +186,21 @@ stores nothing), `GET /me/account`, `POST /me/account/link`, `GET|DELETE /me/dev
 `POST /me/devices/revoke-others`, `GET /me/export`, `POST /me/account/delete` (through the
 `account_erase` SECURITY DEFINER function, which anonymizes shared records to a tombstone). Auth
 routes are rate-limited (`TUNABLES.ACCOUNT_RATE_LIMITS`; counted IN MEMORY PER PROCESS, so N server
-processes give N× the limits); `CARAVAN_RATE_LIMITS=off` (set by the server vitest env and `pnpm e2e`) is
+processes give N× the limits; password FAILURES are counted per (username, address) with a generous
+per-username backstop, and a login carrying a live device cookie of that account is exempt — final
+review D2); `CARAVAN_RATE_LIMITS=off` (set by the server vitest env and `pnpm e2e`) is
 refused in production. Behind a reverse proxy set `TRUST_PROXY` to the hop count or the proxy addresses /
 CIDRs (off by default; `true` is refused), or every client shares the proxy's per-address limit. Every
-function in schema public must pin `search_path = pg_catalog, public, pg_temp` (a test enumerates pg_proc). Server routes so far: `POST /auth/register`,
+function in schema public must pin `search_path = pg_catalog, public, pg_temp` (a test enumerates pg_proc), and
+the server's pool pins `search_path=public` per connection and refuses to start in production when its role
+carries a role-level setting (final review N7). **Single-process hosting (final review S2):** with
+`SERVE_WEB=1` the built server serves `apps/web/dist` (`WEB_DIST` overrides) at `/` with a CSP and the other
+security headers, never serves `*.map` under `NODE_ENV=production`, and mounts every route below under
+`/api` (`/health` answers at both); without it the routes are at the root, as listed here and in the tests.
+**Store mode (final review D1):** `STORE_MODE=off` (the default under `NODE_ENV=production`) previews packs
+but answers `POST /me/store/purchase` with 409 `store_unavailable`, and the dashboard's pack funnel is not
+counted; `sandbox` (the default elsewhere) is chunk 20's $0 backend. `GET /me/store` carries `mode`. Party-owner
+views never carry the defender's caravan id (final review N4). Server routes so far: `POST /auth/register`,
 `POST /auth/login`, `POST /auth/logout`, `GET /me`, `GET /health` (bearer token auth), plus
 the ledger, progression, circle, economy and unlock routes of chunks 02–07 and 16
 (`GET /unlocks/webs`, `GET /me/unlocks`, `POST /me/unlocks/spend`), the party routes of
@@ -181,14 +213,14 @@ and `…/trip/bank` with `{tripId, encounterIndex}`) and chunk 13's replay
 otherwise 200 with `renderable` — false, with a reason, for a log that fails its sha256 / reader
 check or for a fight resolved without a tick log) and chunk 24's
 first-session guide (`GET /me/onboarding`, `POST /me/onboarding/advance {step}`, `POST /me/onboarding/skip`;
-account-level, forward-only, grants nothing; `pnpm db:seed` marks its pre-equipped accounts' guide done) and chunk 32's telemetry (`GET/PUT /me/analytics {optedOut}`, `POST /me/telemetry` screen flow + crash reports, and the admin-only `GET /admin/dashboard` — 404 for non-admins; grant with `pnpm --filter @caravan/server admin grant <username>`, which uses MIGRATE_DATABASE_URL). `pnpm db:seed` also creates the authored cold-start
+account-level, forward-only, grants nothing; `pnpm db:seed:dev` marks its fixture accounts' guide done) and chunk 32's telemetry (`GET/PUT /me/analytics {optedOut}`, `POST /me/telemetry` screen flow + crash reports, and the admin-only `GET /admin/dashboard` — 404 for non-admins; grant with `pnpm --filter @caravan/server admin grant <username>`, which uses MIGRATE_DATABASE_URL). `pnpm db:seed` creates the authored cold-start
 parties (`src/matchmaking/authored.ts`, chunk 25: 12 per Reputation band, bands 0–7, owned
 by `sys_outfit_*` system accounts that cannot log in or hold Coin), so a fresh database
 serves three scoutable candidates at every band from the first search. Migrations 011 and 009
 refuse to roll back while system accounts exist, and a multi-step `db:rollback N` or
 `db:reset` runs every down step in ONE transaction, so a refusal rolls back nothing. Before
 a `db:reset` (or a rollback past 011) of a seeded database, run
-`DELETE FROM account WHERE is_system OR username IS NULL` as the owner role (migration 020 down refuses while guests or the erasure tombstone exist; migration 022 down refuses while compacted replay summaries exist — if the database has any, `DELETE FROM account` instead), then `pnpm db:reset && pnpm db:seed`
+`DELETE FROM account WHERE is_system OR username IS NULL` as the owner role (migration 020 down refuses while guests or the erasure tombstone exist; migration 022 down refuses while compacted replay summaries exist — if the database has any, `DELETE FROM account` instead), then `pnpm db:reset && pnpm db:seed:dev`
 (the test suite empties `account` itself before its reset).
 
 **Encounters resolve in the server process (chunk 13 QA S1).** `apps/server/src/index.ts` builds
@@ -204,7 +236,7 @@ resolver in that in-process worker, for predictable e2e outcomes: every encounte
 posted unit loses 150 HP, at encounter 1 the first laid trap fires and every placed fence segment
 breaks. The double writes no tick log, so its fights' replays answer `renderable: false` with the
 reason. The server REFUSES TO START with the flag set and `NODE_ENV=production`, and any value
-other than `double` is refused. `pnpm e2e` sets it (with `NODE_ENV=test`); `pnpm smoke` and CI's
+other than `double` is refused. `pnpm e2e` and `pnpm e2e:hosting` set it (with `NODE_ENV=test`); `pnpm smoke` and CI's
 smoke run do not. Example: `CARAVAN_TEST_RESOLVER=double pnpm dev`.
 
 **Web client** (`apps/web`, chunk 06 scaffold): Vite + React 18 + TypeScript strict. A
@@ -218,15 +250,17 @@ state; it never runs the simulation and never decides affordability or eligibili
 
 ### CI (chunk 21)
 
-`.github/workflows/ci.yml` runs on every push and pull request: install with a frozen
-lockfile, `typecheck`, `lint` (resolver isolation rules plus their self-test),
-`test:boundary`, `test` against a Postgres 16 service container, `determinism`, `build`,
-then migrates the test database and smoke-runs the built server. Since chunk 06 the
-recursive `typecheck` / `test` / `build` steps include the web client, and a final step
-installs Playwright's Chromium and runs `pnpm e2e` (built client against the built server
-on the seeded test database). `pnpm ci` is the same
-sequence locally. The resolver lint rules live in `packages/resolver/eslint.config.js`;
+`.github/workflows/ci.yml` runs on every push and pull request. It is exactly `pnpm check`
+(`scripts/check.mjs`) plus the setup a fresh runner needs: a Postgres 16 service container, pnpm
+and Node, `pnpm install --frozen-lockfile` and Playwright's Chromium. `pnpm check` runs, in order:
+`typecheck`, `lint` (resolver isolation rules plus their self-test), `test:boundary`, `test`
+(every package, the server against `TEST_DATABASE_URL`), `determinism`, `perf:resolver`, `build`,
+migrates the test database, then `smoke`, `e2e` and `e2e:hosting` against the built server
+connected as `caravan_app` (final review N8). The recursive `typecheck` / `test` / `build` steps
+include the web client. Locally it is the same command with the same order; `pnpm check -- --from
+<step>` resumes after a fix. The resolver lint rules live in `packages/resolver/eslint.config.js`;
 `packages/resolver/lint-fixtures/` must stay in sync with them (every line of
 `violations.ts` from line 3 on must error; `allowed.ts` must be clean), which
-`scripts/lint-selftest.mjs` enforces. There is no deploy step yet: no hosting target is
-chosen. When one is, add a job that `needs: ci` and runs on pushes to `main` only.
+`scripts/lint-selftest.mjs` enforces. There is no deploy step: the play test is hosted by hand from
+[`docs/PLAYTEST-HOSTING.md`](docs/PLAYTEST-HOSTING.md). When a hosting target is
+chosen, add a job that `needs: ci` and runs on pushes to `main` only.
