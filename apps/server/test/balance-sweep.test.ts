@@ -21,6 +21,13 @@ import { NAIVE, SKILLED, authoredParties, bandTypicalRoster, bestFight, manifest
 const SWEEP_BUDGET_MS = 150_000;
 const started = Date.now();
 
+/**
+ * Each fight is synchronous CPU work; vitest's worker answers its "onTaskUpdate" RPC only when the
+ * event loop turns, so a long test on a loaded runner fails the run with every assertion green.
+ * Yielding one macrotask between fights lets the RPC through. It changes no result.
+ */
+const yieldLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+
 describe("balance sweep — the CI slice (PHASE-2 §37)", () => {
   it("the full sweep's corpus and the standing probes' turtle pack legally (the scripts typecheck through this import)", () => {
     expect(corpus(true).rosters).toHaveLength(18);
@@ -29,18 +36,22 @@ describe("balance sweep — the CI slice (PHASE-2 §37)", () => {
     for (const region of ["desert", "high_plains", "mountain", "badlands"] as const) expect(manifestOf(turtleRoster(region)).units).toHaveLength(8);
   });
 
-  it("a fresh account's first trip: encounter 1 in band 0, the guided layout holds ≥ 70 %, encounter 2 held more often than not", () => {
+  it("a fresh account's first trip: encounter 1 in band 0, the guided layout holds ≥ 70 %, encounter 2 held more often than not", async () => {
     // Final play-test review: the guide leaves GUIDE_RESERVE units home (firstTripTasks' default), so
     // the first fight posts 5. Eight seeds (64 caravans): two seeds' 16 fights are too few to read a
     // 70 % bar from (the full probe, 200 caravans, holds 73 %; BALANCE-LOG pass 2).
-    const rs = firstTripTasks(8, 1).map(firstTrip);
+    const rs: ReturnType<typeof firstTrip>[] = [];
+    for (const t of firstTripTasks(8, 1)) {
+      rs.push(firstTrip(t));
+      await yieldLoop();
+    }
     const s = summarize(rs);
     expect(Object.keys(s.bands1)).toEqual(["0"]);
     expect(s.held1 / s.fights1, JSON.stringify(s)).toBeGreaterThanOrEqual(0.7);
     expect(s.held2Guided / Math.max(1, s.reached2), JSON.stringify(s)).toBeGreaterThan(0.5);
   }, SWEEP_BUDGET_MS);
 
-  it("skill matters, and the sweep is deterministic: band-typical desert roster at its own band, bands 0 / 4 / 7", () => {
+  it("skill matters, and the sweep is deterministic: band-typical desert roster at its own band, bands 0 / 4 / 7", async () => {
     const parties = authoredParties();
     let skilled = 0;
     let naive = 0;
@@ -49,7 +60,9 @@ describe("balance sweep — the CI slice (PHASE-2 §37)", () => {
       const m = manifestOf(bandTypicalRoster("desert", band));
       for (const sp of parties.filter((p) => p.spec.band === band).slice(0, 4)) {
         const s = bestFight(m, sp, SKILLED)!;
+        await yieldLoop();
         const v = bestFight(m, sp, NAIVE)!;
+        await yieldLoop();
         n++;
         if (s.kind !== "caravan_overrun") skilled++;
         if (v.kind !== "caravan_overrun") naive++;
