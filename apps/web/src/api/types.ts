@@ -264,6 +264,12 @@ export interface FormationResponse {
   readonly formation: FormationView;
 }
 
+/** r2 N10: `GET …/formation?ifNone=null`. */
+export interface FormationReadResponse {
+  readonly formation: FormationView | null;
+  readonly encounterIndex?: number | undefined;
+}
+
 /** `POST .../search` (201) and `GET .../candidates` → `{ menu }`. */
 export interface CandidateMenuResponse {
   readonly menu: CandidateMenuView;
@@ -535,7 +541,8 @@ export interface PartyFeedEntryView {
   readonly occurredAt: string;
   readonly jobId: string | null;
   readonly encounterIndex: number | null;
-  readonly defender: { readonly username: string | null; readonly caravanName: string | null; readonly regionId: string | null };
+  /** r2 N15: `departed` — the defender's owner has since deleted the account (no name is sent then). */
+  readonly defender: { readonly username: string | null; readonly caravanName: string | null; readonly regionId: string | null; readonly departed?: boolean | undefined };
   readonly outcomeKind: string | null;
   readonly coinEarned: number;
   readonly reputationDelta: number;

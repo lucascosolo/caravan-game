@@ -13,7 +13,8 @@ export interface InboxStrikeView {
   readonly encounterIndex: number | null;
   readonly outcomeKind: string | null;
   /** What the results feed shows of the defender, no more: never an account id. */
-  readonly defender: { readonly username: string | null; readonly caravanName: string | null; readonly regionId: string | null };
+  /** r2 N15: `departed` — the defender's owner has since deleted the account (no name is sent then). */
+  readonly defender: { readonly username: string | null; readonly caravanName: string | null; readonly regionId: string | null; readonly departed?: boolean | undefined };
   readonly coinEarned: number;
   readonly coinTransferred: number;
   /** What the owner's storage cap discarded from this strike's credits (the results feed's number). */

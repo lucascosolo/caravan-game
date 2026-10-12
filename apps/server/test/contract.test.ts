@@ -306,6 +306,8 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     await record("candidates", "GET /me/caravans/:id/encounters/:n/candidates", await call(p, "GET", `/me/caravans/${p.caravanId}/encounters/1/candidates`), 200);
     const first = [...search.menu.candidates].sort((a, b) => (a.owner.displayName < b.owner.displayName ? -1 : 1))[0]!;
     await record("choose", "POST /me/caravans/:id/encounters/:n/choose", await call(p, "POST", `/me/caravans/${p.caravanId}/encounters/1/choose`, { candidateId: first.candidateId }), 200);
+    // r2 N10: no draft yet, asked for as an empty state (`?ifNone=null`), 200.
+    await record("formation-empty", "GET /caravans/:id/encounters/:n/formation?ifNone=null (no draft yet)", await call(p, "GET", `/caravans/${p.caravanId}/encounters/1/formation?ifNone=null`), 200);
     const ordered = [...posted].sort();
     const formation = {
       v: 2,

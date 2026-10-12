@@ -8,7 +8,7 @@
  * line (chunk 29 QA N8). `object()` ignores extra fields, so without this a server regression
  * that re-added one would pass silently.
  */
-import { ShapeError, array, boolean, integer, literal, nullable, object, string, type Guard } from "./shape.ts";
+import { ShapeError, array, boolean, integer, literal, nullable, object, optional, string, type Guard } from "./shape.ts";
 import type { InboxItemView, InboxMarkResult, InboxStrikeLinesView, InboxStrikeView, InboxUnreadView, InboxView } from "./inboxTypes.ts";
 
 const KEY = string({ maxLength: 200 });
@@ -31,7 +31,7 @@ function refuseAccountIds(v: unknown, path: string): void {
 
 const defender: Guard<InboxStrikeView["defender"]> = (v, path) => {
   if (v && typeof v === "object" && !Array.isArray(v) && "caravanId" in v) throw new ShapeError(`${path}.caravanId`, "no caravan id of the struck player (PHASE-2 §29)", (v as Record<string, unknown>)["caravanId"]);
-  return object({ username: nullable(NAME), caravanName: nullable(NAME), regionId: nullable(ID) })(v, path);
+  return object({ username: nullable(NAME), caravanName: nullable(NAME), regionId: nullable(ID), departed: optional(boolean()) })(v, path);
 };
 
 const strikeFields: Guard<InboxStrikeView> = object({

@@ -57,11 +57,15 @@ export function showsAt(step: OnboardingStep | null, moment: TrailMoment): boole
 }
 
 /**
- * A raider is ranged when its attack range exceeds the melee default: range is the only thing
- * that makes a unit ranged (content tunables). Read off the scout, never the resolver.
+ * Presentation (the guide's pick only): a raider "shoots from range" when it can hit from at
+ * least this many cells — far enough to stand outside the fence ring and reach a post inside it.
+ * A Grizzly's 1.2-cell swipe or a Homesteader's 1.5-cell reach is a long arm, not a gun.
  */
+export const GUIDE_RANGED_MIN_CELLS = 3;
+
+/** A raider shoots from range (range is the only thing that makes a unit ranged); read off the scout, never the resolver. */
 export function isRangedRaider(u: { readonly attackRange: number }): boolean {
-  return u.attackRange > TUNABLES.ATTACK_RANGE_MELEE_DEFAULT;
+  return u.attackRange >= GUIDE_RANGED_MIN_CELLS * TUNABLES.ATTACK_RANGE_MELEE_DEFAULT;
 }
 
 /** Every raider in the party is ranged (an empty party is not). */

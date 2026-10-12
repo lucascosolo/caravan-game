@@ -108,7 +108,8 @@ describe("TrailScreen — search, scout three candidates, reroll gate, choose, a
         menu = menuOf(id, menu!.reroll.availableAtMs);
         return { status: 200, body: { menu, chosen: menu.candidates.find((c) => c.candidateId === id) } };
       },
-      [`GET /caravans/${CARAVAN}/encounters/1/formation`]: () => ({ status: 404, body: { error: "no_formation", message: "no formation for encounter 1" } }),
+      // r2 N10: no draft yet is asked for as an empty state, 200 { formation: null }.
+      [`GET /caravans/${CARAVAN}/encounters/1/formation?ifNone=null`]: () => ({ status: 200, body: { formation: null, encounterIndex: 1 } }),
     });
     mount(fetchImpl);
     await user.click(await screen.findByTestId("search"));

@@ -8,6 +8,7 @@ import { ApiError, BAD_PAYLOAD, type Api } from "../../api/client.ts";
 import type { ManifestView } from "../../api/types.ts";
 import type { IsoCanvasProps } from "../../iso/index.ts";
 import { survivorsManifest } from "../../test/circleFixtures.ts";
+import { formationIfAnyVia } from "../../test/townFixtures.ts";
 import { STRINGS } from "../../strings.ts";
 import { FormationScreen, clearLocalDrafts } from "./FormationScreen.tsx";
 import { fixtureCandidate, fixtureEncounter } from "./scoutFixture.ts";
@@ -81,7 +82,7 @@ vi.mock("../../iso/index.ts", async () => {
 
 function fakeApi(over: Partial<Api> = {}): Api {
   const notCalled = () => Promise.reject(new Error("not expected"));
-  return {
+  const api: Omit<Api, "formationIfAny"> = {
     register: notCalled,
     login: notCalled,
     logout: notCalled,
@@ -147,6 +148,7 @@ function fakeApi(over: Partial<Api> = {}): Api {
     adminDashboard: notCalled,
     ...over,
   };
+  return { ...api, formationIfAny: over.formationIfAny ?? formationIfAnyVia(api) };
 }
 
 function trip(): ManifestView {

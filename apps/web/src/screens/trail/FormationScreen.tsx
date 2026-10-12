@@ -586,9 +586,11 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
       // closes the manifest), so the re-read can 404. The commit stood; the Trail re-reads its
       // own state from the server and moves on to the result or the summary.
       try {
-        const res = (await api.formation(caravanId, encounterIndex)).formation;
-        setSaved(res);
-        setFormation(res.formation);
+        const res = await api.formationIfAny(caravanId, encounterIndex);
+        if (res) {
+          setSaved(res);
+          setFormation(res.formation);
+        }
       } catch (err) {
         if (!(err instanceof ApiError) || err.status !== 404) throw err;
       }
@@ -645,7 +647,11 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
     setLastBusy(true);
     setError(null);
     try {
-      const prev = (await api.formation(caravanId, encounterIndex - 1)).formation;
+      const prev = await api.formationIfAny(caravanId, encounterIndex - 1);
+      if (!prev) {
+        setStatus(T.lastNone);
+        return;
+      }
       const next = carryForward(manifest, prev.formation);
       const message = isEmptyFormation(next) ? T.lastNothing : T.lastApplied(next.fences.length, next.traps.length, next.posts.length);
       applyQuick(next, lastOtherSides && !isEmptyFormation(next) ? `${message} ${T.lastAppliedOtherSides(lastOtherSides.was, lastOtherSides.now)}` : message);
