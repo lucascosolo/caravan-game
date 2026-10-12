@@ -59,8 +59,10 @@ test("search, scout three candidates, choose, drag a fence and a post, set a sta
     const card = page.getByTestId(`candidate-${i}`);
     await expect(card).toBeVisible();
     await expect(card.getByRole("button", { name: /^Face / })).toBeVisible();
-    // The scouting report is open by default, above the "Face …" button (QA N1): units with
-    // stance, edge and start cell, both ratings; siege with counters.
+    // Final play-test review N5: a one-glance summary leads; the full report (units with stance,
+    // edge and start cell, both ratings; siege with counters) is one tap away, above "Face …".
+    await expect(card.getByTestId(`scout-summary-${i}`)).toContainText("Total HP");
+    await card.locator("details > summary").click();
     await expect(card.locator("details")).toHaveAttribute("open", "");
     const scout = card.getByTestId(`scout-panel-${i}`);
     await expect(scout).toContainText(/\d+ units?/);

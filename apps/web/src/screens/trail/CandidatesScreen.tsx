@@ -22,8 +22,46 @@ import { monotonic, useAnchoredCountdown } from "../../shell/countdown.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { STRINGS } from "../../strings.ts";
 import { ScoutPanel } from "./ScoutPanel.tsx";
+import type { ScoutedParty } from "./scoutTypes.ts";
 
 const T = STRINGS.trail;
+
+/**
+ * Final play-test review N5: the one-glance line a candidate card leads with — raiders by
+ * targeting stance, total HP, the siege and what it counters, and the approach by side. Every
+ * number is the scout's own; the full report stays one tap away below it.
+ */
+export function scoutSummary(scout: ScoutedParty): { readonly stances: string; readonly hp: number; readonly siege: string; readonly approach: string } {
+  const by = (s: string) => scout.units.filter((u) => u.stance === s).length;
+  const stances = (["core", "nearest", "traps"] as const)
+    .filter((s) => by(s) > 0)
+    .map((s) => T.summaryStance(s, by(s)))
+    .join(" · ");
+  const hp = scout.units.reduce((n, u) => n + u.hp, 0);
+  const siege = scout.siege.length === 0 ? T.summaryNoSiege : scout.siege.map((s) => T.summarySiege(s.displayName, s.counters.kind, s.counters.category)).join("; ");
+  const approach = (["north", "east", "south", "west"] as const)
+    .map((e) => ({ e, n: scout.units.filter((u) => u.edge === e).length }))
+    .filter((x) => x.n > 0)
+    .map((x) => `${T.edgeName(x.e)} ${x.n}`)
+    .join(", ");
+  return { stances, hp, siege, approach };
+}
+
+function ScoutSummary({ scout, index }: { scout: ScoutedParty; index: number }): JSX.Element {
+  const s = scoutSummary(scout);
+  return (
+    <dl className="scout-summary" data-testid={`scout-summary-${index}`}>
+      <dt>{T.summaryRaiders(scout.units.length)}</dt>
+      <dd>{s.stances}</dd>
+      <dt>{T.summaryHpLabel}</dt>
+      <dd>{s.hp}</dd>
+      <dt>{T.summarySiegeLabel}</dt>
+      <dd>{s.siege}</dd>
+      <dt>{T.summaryApproachLabel}</dt>
+      <dd>{s.approach}</dd>
+    </dl>
+  );
+}
 
 export interface CandidatesScreenProps {
   readonly encounterIndex: number;
@@ -56,8 +94,10 @@ export function CandidateCard({ candidate, busy, onChoose, index }: { candidate:
       <p className="card__line">
         {T.candidateRating(rep.rating, rep.band.low, rep.band.high)} · {T.candidateGap(rep.gapFromCaravan)} · {T.candidateBeyondBand(rep.gapBeyondBand)} · {T.candidateSandbag(pct)}
       </p>
-      <details className="scout-details" open>
-        <summary className="btn btn--block">{T.scoutHeading}</summary>
+      <ScoutSummary scout={candidate.scout} index={index} />
+      {/* N5: the full report is collapsed under the summary: one tap away, nothing hidden. */}
+      <details className="scout-details">
+        <summary className="btn btn--block">{T.scoutFullReport}</summary>
         <ScoutPanel scout={candidate.scout} idSuffix={`-${index}`} />
       </details>
       <button type="button" className="btn btn--primary btn--block" disabled={busy} onClick={() => onChoose(candidate)} data-testid={`choose-${index}`}>
@@ -82,6 +122,10 @@ export function CandidatesScreen({ encounterIndex, menu, busy, error, onSearchAg
       <p className="hint">{T.candidatesIntro}</p>
       <p className="hint" data-testid="caravan-band">
         {T.caravanBand(menu.caravan.rating, menu.caravan.band.low, menu.caravan.band.high)}
+      </p>
+      {/* N6: say where this search looked, relative to the caravan, not "within your band". */}
+      <p className="hint" data-testid="search-centre">
+        {T.searchCentre(menu.centre, menu.caravan.rating, encounterIndex)}
       </p>
       <p className="hint">{T.menuMeta(menu.searchSeq, menu.centre, menu.bandWidthUsed)}</p>
       {menu.widened && <p className="hint">{T.widened}</p>}

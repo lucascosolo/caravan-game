@@ -7,7 +7,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { forwardRef, useImperativeHandle } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { ApiError, type Api } from "../../api/client.ts";
 import type { RecentFightsView, ReplayView } from "../../api/replayTypes.ts";
 import type { IsoCanvasProps } from "../../iso/index.ts";
@@ -19,7 +19,7 @@ import { PartyScreen } from "../party/PartyScreen.tsx";
 import { statusDecide } from "../../test/tripFixtures.ts";
 import { EncounterResult } from "../trail/EncounterResult.tsx";
 import { RecentFights } from "./RecentFights.tsx";
-import { ReplayPlayer, resetReplaySpeed } from "./ReplayPlayer.tsx";
+import { ReplayPlayer, resetReplaySpeed, setQuietFastForwardForTests } from "./ReplayPlayer.tsx";
 import { END_HOLD_SECONDS } from "./replayModel.ts";
 
 vi.mock("../../iso/index.ts", async () => {
@@ -234,7 +234,20 @@ describe("the replay player, the caravan's side (the server's recorded fight)", 
     expect(screen.getByTestId("replay-end-card")).toBeInTheDocument();
   });
 
+  it("N11: a quiet stretch (no key moment for a while) plays fast and says so; plain speeds resume at the next key moment", async () => {
+    const clockStub = stubClock();
+    await renderPlayer(replayCaravan());
+    const scrub = screen.getByTestId("replay-scrub") as HTMLInputElement;
+    await userEvent.click(screen.getByTestId("replay-play"));
+    clockStub.flush(100, 11);
+    // The recorded fight opens with no key moment for over 8 s: 1 s of wall time covers more than 2× would (40 ticks).
+    expect(screen.getByTestId("replay-quiet")).toHaveTextContent("fast-forwarding to the next key moment");
+    expect(Number(scrub.value)).toBeGreaterThan(40);
+  });
+
   it("D4: 2× by default; fight time runs at the tick rate × speed; the choice is remembered for the session", async () => {
+    setQuietFastForwardForTests(false);
+    onTestFinished(() => setQuietFastForwardForTests(true));
     const clockStub = stubClock();
     await renderPlayer(replayCaravan());
     const scrub = screen.getByTestId("replay-scrub") as HTMLInputElement;

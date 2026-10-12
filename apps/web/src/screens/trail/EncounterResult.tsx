@@ -35,11 +35,11 @@ function Group({ heading, items, testId }: { heading: string; items: readonly st
   );
 }
 
-export function ReplayAffordance({ jobId, encounterIndex, api }: { readonly jobId: string; readonly encounterIndex: number; readonly api?: Api }): JSX.Element {
+export function ReplayAffordance({ jobId, encounterIndex, api, autoplay = false }: { readonly jobId: string; readonly encounterIndex: number; readonly api?: Api; readonly autoplay?: boolean }): JSX.Element {
   const noteId = useId();
   return (
     <div>
-      <WatchFight jobId={jobId} encounterIndex={encounterIndex} label={T.watchFight} describedBy={noteId} {...(api ? { api } : {})} />
+      <WatchFight jobId={jobId} encounterIndex={encounterIndex} label={T.watchFight} describedBy={noteId} autoOpen={autoplay} {...(api ? { api } : {})} />
       <p className="hint" id={noteId}>
         {T.watchFightNote}
       </p>
@@ -47,7 +47,8 @@ export function ReplayAffordance({ jobId, encounterIndex, api }: { readonly jobI
   );
 }
 
-export function EncounterResult({ encounter, headingLevel = 2, api }: { readonly encounter: TripEncounterView; readonly headingLevel?: 2 | 3; readonly api?: Api }): JSX.Element {
+/** `autoplay` (final play-test review S4): the fight was just committed, so its replay opens playing at once. */
+export function EncounterResult({ encounter, headingLevel = 2, api, autoplay = false }: { readonly encounter: TripEncounterView; readonly headingLevel?: 2 | 3; readonly api?: Api; readonly autoplay?: boolean }): JSX.Element {
   const r = encounter.result;
   // Chunk 22 QA S6: "reached the core" only for an overrun; otherwise floored and capped at 99 %.
   const pct = depthPercent(encounter.depth, encounter.outcome === "caravan_overrun");
@@ -75,7 +76,7 @@ export function EncounterResult({ encounter, headingLevel = 2, api }: { readonly
       ) : (
         <p className="hint">{T.resultUnreadable}</p>
       )}
-      {r && <ReplayAffordance jobId={r.jobId} encounterIndex={encounter.index} {...(api ? { api } : {})} />}
+      {r && <ReplayAffordance jobId={r.jobId} encounterIndex={encounter.index} autoplay={autoplay} {...(api ? { api } : {})} />}
     </section>
   );
 }

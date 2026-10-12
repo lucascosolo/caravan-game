@@ -85,21 +85,35 @@ describe("OutfitScreen", () => {
     expect(onPacked).toHaveBeenCalled();
   });
 
-  it("no trip available: packed, waiting to ride out, with the server's refusal, its countdown, and Ride out disabled until it returns", async () => {
+  it("final play-test review N9: no trip available: Pack and ride out waits (disabled, with the countdown); nothing is packed", async () => {
+    const user = userEvent.setup();
+    const packManifest = vi.fn(async () => ({ manifest: packedManifest() }));
+    const exhausted = withCap(statusPacked(), { available: 0, nextRegenAtMs: statusPacked().nowMs + 1_200_000, fullAtMs: statusPacked().nowMs + 3_600_000 });
+    const tripStatus = vi.fn(async () => exhausted);
+    render(<OutfitScreen api={api({ packManifest, tripStatus })} caravanId={CARAVAN_ID} units={units} onBack={() => {}} onPacked={() => {}} onRodeOut={() => {}} />);
+    await screen.findByTestId("outfit-screen");
+    await user.click(within(screen.getByTestId("outfit-units")).getAllByRole("checkbox")[0]!);
+    expect(screen.getByTestId("outfit-ride-out")).toBeDisabled();
+    expect(screen.getByTestId("outfit-ride-out")).toHaveTextContent("Next trip in 20:00");
+    expect(screen.getByTestId("outfit-no-trip")).toHaveTextContent("No trip is available right now. The next one returns in 20:00; pack then.");
+    expect(packManifest).not.toHaveBeenCalled();
+  });
+
+  it("the trip runs out between the read and the confirm: packed, waiting to ride out, with the server's refusal, its countdown, and Ride out disabled until it returns", async () => {
     const user = userEvent.setup();
     const packManifest = vi.fn(async () => ({ manifest: packedManifest() }));
     const startTrip = vi.fn(async () => {
       throw capRefused();
     });
     const exhausted = withCap(statusPacked(), { available: 0, nextRegenAtMs: statusPacked().nowMs + 1_200_000, fullAtMs: statusPacked().nowMs + 3_600_000 });
-    const tripStatus = vi.fn(async () => exhausted);
+    // The outfit read saw a trip available; the start is refused (another device used it meanwhile).
+    let reads = 0;
+    const tripStatus = vi.fn(async () => (reads++ === 0 ? statusPacked() : exhausted));
     const onRodeOut = vi.fn();
     render(<OutfitScreen api={api({ packManifest, startTrip, tripStatus })} caravanId={CARAVAN_ID} units={units} onBack={() => {}} onPacked={() => {}} onRodeOut={onRodeOut} />);
     await screen.findByTestId("outfit-screen");
-    expect(screen.getByTestId("trip-cap")).toHaveTextContent("Trips available: 0 of 3. The next trip returns in 20:00.");
     await user.click(within(screen.getByTestId("outfit-units")).getAllByRole("checkbox")[0]!);
     await user.click(screen.getByTestId("outfit-ride-out"));
-    expect(screen.getByTestId("outfit-confirm-trip")).toHaveTextContent("No trip is available right now: the caravan is packed now and rides out when the next one returns, in 20:00.");
     await user.click(screen.getByTestId("outfit-confirm"));
     expect(await screen.findByTestId("outfit-packed")).toHaveTextContent("Packed, waiting to ride out.");
     expect(screen.getByTestId("packed-summary")).toHaveTextContent("1 unit · 1 trap · 20 fence segments");

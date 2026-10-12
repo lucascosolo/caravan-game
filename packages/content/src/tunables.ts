@@ -841,6 +841,17 @@ export const TUNABLES = {
   STARTING_ROSTER: { copiesPerStarterType: 3 },
   // ── END STARTING_ROSTER ──
 
+  // ── BEGIN GUIDE_RESERVE (final play-test review S1, client side; the server-side agent may own this value) ──
+  /**
+   * TUNABLE (final play-test review S1). How many living units the onboarding guide leaves in
+   * town when it pre-fills the first trip's manifest: it packs at most roster − GUIDE_RESERVE,
+   * so a first-trip overrun can never take the whole roster (PROJECT.md §13, "a slot's worth
+   * of units, never a whole collection"). Presentation of the guide only: the server's packer
+   * does not read it and a player may still tick every unit. An integer, never negative.
+   */
+  GUIDE_RESERVE: 2,
+  // ── END GUIDE_RESERVE ──
+
   // ────────────────────────────────────────────────────────────────────────────────────
   // Chunk 17 — the home town's merge board. Presentation-side limits only: the board is a
   // working surface backed by the overflow inventory (UNIT_INVENTORY_CAP above), so it can

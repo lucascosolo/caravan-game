@@ -70,7 +70,7 @@ still standing destroyed the whole packed roster.
 Tags: **S**: blocks the external play test. **D**: design question for the orchestrator.
 **N**: polish. Each item fits in one session.
 
-### S1. One overrun can wipe the whole roster, and recovery is a multi-hour dead end
+### S1. [client parts closed: fixplay-client; server parts with the server agent] One overrun can wipe the whole roster, and recovery is a multi-hour dead end
 
 - **Evidence:** the table above. 5 of 12 fresh accounts (A, B, C, h2, h7) had **0 units** within
   three trips. B's empty town: `shots/41-b-empty-town.png` ("0 of 36 board slots used · No units
@@ -121,7 +121,7 @@ Tags: **S**: blocks the external play test. **D**: design question for the orche
   If nothing is left, add an inbox notice "Your standing party is down: no units to send", plus a
   Town banner. A merge should carry the party slot over to the merged unit, not invalidate it.
 
-### S3. Hand-arranging the circle is a ~60-tap chore, and the DOM picker moves the last segment instead of placing a new one
+### S3. [closed: fixplay-client] Hand-arranging the circle is a ~60-tap chore, and the DOM picker moves the last segment instead of placing a new one
 
 - **Evidence:** A's encounter 2 ("No list this time… arrange the circle yourself",
   `shots/18-enc2.png`). The ring starts empty every encounter (`shots/19-enc2-formation.png`,
@@ -144,7 +144,7 @@ Tags: **S**: blocks the external play test. **D**: design question for the orche
   layout, skipping destroyed segments and spent traps). (3) Default camera: frame the ring plus
   the entry bands, not the island. Zoom out to the island only on demand.
 
-### S4. The fight is not shown: the result arrives as an itemised list and the replay is opt-in
+### S4. [closed: fixplay-client] The fight is not shown: the result arrives as an itemised list and the replay is opt-in
 
 - **Evidence:** commit, then `encounter-results` appeared in 408 ms: "The caravan held. … Killed /
   Damaged / Unhurt" (`shots/14-result.png`). The fight itself is behind a "Watch the fight" button
@@ -176,7 +176,7 @@ Tags: **S**: blocks the external play test. **D**: design question for the orche
   test") and `POST /me/store/purchase` answers 403 `store_closed`. If you want paid-path data,
   enable it only for a labelled cohort and split the dashboards by that cohort.
 
-### D1. At level 1, dying is free and surviving is total loss
+### D1. [copy line added: fixplay-client] At level 1, dying is free and surviving is total loss
 
 At the L1 floor a death costs nothing ("stays L1 (level 1 is the floor)"), but a unit still
 standing when the caravan falls is destroyed. h1's trip 1 was an overrun with 7 killed: the roster
@@ -188,7 +188,7 @@ collapse" into "de-merged one level, and lost only if already L1 *and* the carav
 `PACK_FLOOR` units", or (b) lose the survivors only from the encounter's breached side?
 Re-measure trip EV either way.
 
-### D2. Merging weakens a week-1 caravan
+### D2. [copy added: fixplay-client] Merging weakens a week-1 caravan
 
 The merge preview is honest: 2 × L1 (1,240 HP, reference hit 100) → 1 × L2 (775 HP, 62)
 (`shots/50-merge-dialog.png`). But a new player's roster (7) is below the 8 slots, so the only
@@ -242,76 +242,76 @@ are at 100 / 282 / 519 / 800 / 1,118; a tier-2 node costs 4 points, so rung 5 ne
 week 1 a tester sees 2 starter types plus one tier-1 type. **Question:** is that the variety the
 play test should judge "collection growth" on (§1 hook 2)?
 
-### N1. The guide contradicts itself on the first trip's plan
+### N1. [closed] The guide contradicts itself on the first trip's plan
 The welcome says "face two encounters, then bank" (`shots/02-welcome.png`). The bank-or-push
 advice after A's encounter 1 says to bank now (`shots/17-bankpush.png`). **Fix:** change the
 welcome to "face at least one encounter, then bank or push: the guide will say what it would do".
 
-### N2. Guide cards appear off-screen after an action
+### N2. [closed] Guide cards appear off-screen after an action
 After "Take Dust Rider", the page stays scrolled at y = 2235 while the next guide card ("Pack the
 caravan and ride out") renders at the top (`shots/05-after-refugee.png`). **Fix:** scroll the new
 guide card into view on every step change.
 
-### N3. The guest save prompt arrives before any play, and recurs
+### N3. [closed] The guest save prompt arrives before any play, and recurs
 "Save your progress" sits under the very first guide card (`shots/03-town.png`), and it reappears
 on later Town visits (h8). **Fix:** show it first after the first banked trip, and after "Not now"
 not again for 24 h or until something valuable happens (first unlock, first purchase).
 
-### N4. Region choice is blind
+### N4. [closed] Region choice is blind
 The permanent region picker lists four names with no description (`shots/01-launch.png`).
 **Fix:** one line per region (its two starter units and their affinities).
 
-### N5. The scouting report is a 7,000 px wall
+### N5. [closed, except the "vs your packed fence and traps" part] The scouting report is a 7,000 px wall
 Three candidates × full stat blocks (page height 7,139 px at 360 wide, `shots/09-candidates.png`,
 `shots/10b-scoutcard.png`). **Fix:** a one-row summary per candidate (raiders by stance icon,
 total HP, siege counter vs *your* packed fence and traps, approach mini-map) with the full block
 collapsed under "Scouting report". Keep everything one tap away (Legibility §4).
 
-### N6. Search copy says "within your Reputation band" when it is not
+### N6. [closed] Search copy says "within your Reputation band" when it is not
 "Your caravan: 400 Reputation (band 400–699) · Search … centred on 250" and all three offers are
 "band 100–399" (`shots/10-scoutcard.png`). **Fix:** "Three parties near 250 Reputation (encounter
 1 is searched 150 below your caravan)".
 
-### N7. "Owner loot: 0 Coin" on an overrun reads as if the Coin vanished
+### N7. [closed] "Owner loot: 0 Coin" on an overrun reads as if the Coin vanished
 A's overrun: "Unbanked Coin lost: 600", while the replay says "Loot reported for the raiding
 party's owner: 0 Coin" (`shots/25-enc2-replay-b.png`). **Fix:** for authored parties, "This was
 an authored outfit: it keeps nothing; your 600 unbanked Coin was lost to the trail".
 
-### N8. Guest parties are shown as "Unnamed drifter"
+### N8. [client part closed; server display open] Guest parties are shown as "Unnamed drifter"
 B saw A's party as "Unnamed drifter" (`shots/32-unnamed.png`). **Fix:** give every caravan a
 generated name at creation (as the guest flow already allows `caravanName`) and use it.
 
-### N9. You can pack with no trip available, and then you are stuck packed
+### N9. [closed] You can pack with no trip available, and then you are stuck packed
 h3 at 0 of 3 trips: outfit, then "Pack and ride out" leaves the units "Packed, waiting to ride
 out … The next one returns in 13:09" with no unpack (`shots/55-320-state.png`). **Fix:** disable
 "Pack and ride out" when 0 trips are available (show the countdown), or offer "Unpack" while not
 yet ridden out.
 
-### N10. Console noise on every edit and screen
+### N10. [autosave closed; the 404s are server-side, open] Console noise on every edit and screen
 Every formation edit fires `PUT …/formation` → 400 `unit_not_posted` until every unit is posted
 (about 20 in A's encounter 2). Every Town and Trail load logs a 404 for `GET …/trip` or
 `…/candidates`. **Fix:** skip the autosave PUT while the client knows units are unposted (it
 already shows the notice); answer 200 `{trip: null}` instead of 404 for "no trip yet". This also
 keeps chunk 32's crash panel clean.
 
-### N11. Some fights are 90 seconds of nothing
+### N11. [fast-forward closed; the leash label is open] Some fights are 90 seconds of nothing
 A's encounter 1 lasted 1:46. From 0:12 to 1:36 a lone Bounty Hunter (range 4) shot posts across
 the fence while the five guards stood still: "Dead or Alive … 83 damage" × 8 (replay text;
 `shots/16-replay-14.png`). **Fix (presentation):** fast-forward automatically at 4× through
 stretches with no position change and only one attacker acting, and label it "Your posts cannot
 reach it from here (outside their leash)". Track as a balance note too: ranged versus guard leash.
 
-### N12. Party editor: the sticky map covers the unit cards
+### N12. [closed] Party editor: the sticky map covers the unit cards
 At 360 wide the sticky iso map overlaps the top of each unit card ("…roster · L0" half hidden,
 `shots/56-party-editor.png`). **Fix:** do not make the map sticky below 480 px height, or reserve
 its height.
 
-### N13. 320 px header crowding
+### N13. [closed] 320 px header crowding
 When signed in, the "Inbox / Account / Sign out" row runs to the screen edge and the username
 badge drops out (`shots/55-320-formation.png`). **Fix:** move "Sign out" into the Account screen
 only.
 
-### N14. The commit dialog is a 28-line list
+### N14. [closed] The commit dialog is a 28-line list
 It lists every fence segment line by line (`shots/13-commit-dialog.png`). **Fix:** a summary
 ("20 segments: N 7, E 7, W 6; open: W #24 + 7 S"), with the full list behind a disclosure.
 
@@ -383,3 +383,45 @@ The anchor is PROJECT.md §13: a wipe is meant to cost "a slot's worth of units,
 - **D7:** "Refugees ready" and "Trip cap refilled" become on by default. Mine-near-cap and packs stay off.
 - **D8:** tune unlock-web costs so that the first tier-2 unlock arrives in about 2–3 days of normal play, measured with the balance harness's week model. Record it in BALANCE-LOG.md.
 - **Every N item is in scope.**
+
+## Client fix round (branch `fixplay-client`, 2026-10-12)
+
+Scope: the client parts of S1, all of S3 and S4, the D1 and D2 copy, and every client-side N
+item, as the orchestrator decided above. The edits are in `apps/web`, plus one delimited
+`GUIDE_RESERVE` block in `packages/content/src/tunables.ts` for the server agent to reconcile.
+"Start from my last arrangement" reads the previous encounter's committed formation through the
+existing `GET /caravans/:id/encounters/:n/formation`, so there is no server change. New tests:
+`apps/web/src/screens/trail/quickArrange.test.ts` and `playtestFixes.test.ts`. The unit tests
+and e2e specs whose pins the new behaviour moves were updated to match. Re-played on a phone
+viewport against the built server with the real resolver (fresh DB `caravan_dev_fixplay`).
+Screenshots are `scratchpad/shots/f*.png`.
+
+| item | what changed | evidence |
+|---|---|---|
+| S1 (client) | **Guide reserve.** While the guide is on the outfit step, the Pack screen pre-ticks at most roster − `GUIDE_RESERVE` (2) units, highest level first, and says so. **Whole-roster warning.** Whenever every unit is ticked, the Pack screen and the ride-out dialog warn: "You are packing all N of your units. Everything you pack can be lost…". Neither blocks the pack. | `f05-outfit-reserve.png` ("ticked 5 … left 2 in town"), `f13-whole-roster.png`. In the replay, the guided first fight with 5 packed units was overrun; the 2 in town survived (`f12-result.png`). |
+| S3 | **Picker auto-advance.** Placing a new item moves the selection to the next one of its kind (the next segment, the next unposted unit, the next unlaid trap), so "Place here" and canvas taps no longer move the item just placed. **Ring snap.** A tap within one cell of the ring snaps to the nearest ring position when a fence is selected. **Quick arrange.** "Fence North/East/South/West (n raiders)" buttons, and from encounter 2 "Start from my last arrangement": the previous formation minus broken segments, spent traps and dead units, stances kept, every item re-validated. **Camera.** It opens framed on the ring plus 3 cells. | `f08-formation-open.png` (ring framed), `f14-quick.png`, `f17-start-from-last.png` → `f18-carried.png` ("19 segments, 2 traps, 6 posts"). Encounter 1 by hand: 3 side taps + 1 + 6 unit taps + 1 + 3 trap taps = 14 taps on the canvas (23 through the DOM picker, 2 per item). Encounter 2+: 1 tap plus adjustments. |
+| S4 | **Autoplay.** A just-committed fight's replay opens at once at 2×, playing, with a primary "Skip to result" action. Opening it later from "Watch the fight" plays paused, as before. An overrun that ends the trip autoplays from the summary. **End card.** It is a sheet below the field, not over it. | `f10-autoplay.png` (0:06 of 0:22, "Skip to result"), `f11-endcard.png` (the raider at the core stays visible above the card). |
+| D1 | One line on the Pack screen, in the ride-out dialog and on bank-or-push: "Units that die lose a level; units still standing when the caravan falls are lost." | `f06-rideout-dialog` text, `f16-bankpush-stakes.png` |
+| D2 | While the roster is below `DEPLOYMENT_SLOT_CAP`, the merge preview says "merging lowers the number of units you can pack: 7 → 6. Merging pays off once you own more units than the caravan can carry." | MergeDialog (`merge-below-slots`) |
+| N1 | The welcome copy now reads "face at least one encounter, then bank if you are still standing or push on. The guide says what it would do". | `f02-welcome.png` |
+| N2 | Each new guide card scrolls itself into view (`block: nearest`). | After the refugee claim, `scrollY` was 72 and the outfit card was visible (`f04-after-refugee.png`). |
+| N3 | The town save prompt waits until the guide is finished or skipped. "Not now" snoozes it for 24 h on this device (a per-viewer key under `caravan.viewer.`, cleared on sign-out). | No prompt during the guide; shown after skipping. |
+| N4 | The region picker says "Starts with: Dust Rider (Beast), Well Digger (Grit)." from content. | `f01-launch.png`, `f20-320-launch.png` |
+| N5 | Each candidate leads with a summary: raiders by stance (◆ core / ◉ nearest / ▼ traps), total HP, the siege and what it counters, and sides. The full report is collapsed under "Full scouting report", and the guide copy says so. Candidates page height at 360 px: 7,139 → 2,177 px. **Open:** comparing the siege with *your* packed fence and traps needs the manifest on the candidates screen. | `f07-candidates.png` |
+| N6 | "Searched near 250 Reputation: encounter 1 is searched 150 below your caravan's 400." The intro no longer says "within your band". | `f07-candidates.png` |
+| N7 | On an overrun with no owner loot: "The raiding party's owner took no loot from this fight. Any unbanked Coin your caravan lost is itemized under what it settled: an authored outfit keeps nothing…" | `f11-endcard.png` |
+| N8 (client) | A guest caravan gets a generated name ("Copper Haulers", …) at creation. **Open (server):** a guest's party is still shown as `GUEST_OWNER_DISPLAY_NAME` "Unnamed drifter". `ownerDisplay` should use the caravan's name when there is no username. | AccountScreen test |
+| N9 | With 0 trips available, "Pack and ride out" is disabled and shows "Next trip in mm:ss", so nothing locks. | OutfitScreen test |
+| N10 (client) | No autosave PUT while a living unit is unposted; the client lists the unposted units itself. **Open (server):** answer `GET …/trip` and `…/candidates` "nothing yet" without a 404. | FormationScreen tests |
+| N11 | **Quiet stretch.** With no key moment for more than 8 s ahead, the replay plays at 8× and says "Nothing decisive for a while: fast-forwarding to the next key moment." The thresholds are presentation tunables. **Open:** the "outside their leash" explanation needs the resolver's reasons in the log. | ReplayPlayer N11 test |
+| N12 | Below 760 px of height, the party editor's map scrolls with the page instead of pinning over the cards. | CSS |
+| N13 | Sign-out is on the Account screen only; the 320 px header fits. | `f22-320-formation.png` |
+| N14 | The commit dialog leads with "By side: North 7 fenced, 0 open · …". The one-by-one list sits under "Every item, one by one (26)". | `f09-commit-dialog.png` |
+
+**For the orchestrator.**
+1. The guided first fight was measured at 81 % with all 7 units packed (BALANCE-LOG target 1). With
+   the reserve it rides with 5, and my one replay of it was overrun. The balance harness's
+   `first-trip.ts` should be re-run with `roster − GUIDE_RESERVE` packed before the play test.
+   If the hold rate falls below the 70 % target, the lever is the server agent's band-0 party-size cap.
+2. `GUIDE_RESERVE` is added in a delimited block in `packages/content/src/tunables.ts`, for
+   reconciling with the server agent's copy.
