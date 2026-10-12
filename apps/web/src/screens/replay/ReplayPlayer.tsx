@@ -46,6 +46,22 @@ let sessionSpeed: Speed = DEFAULT_REPLAY_SPEED;
 export function resetReplaySpeed(): void {
   sessionSpeed = DEFAULT_REPLAY_SPEED;
 }
+/** N11 (presentation tunables): a stretch is "quiet" when the next key moment is more than QUIET_GAP_SECONDS of fight time away; it then plays at QUIET_SPEED. */
+export const QUIET_GAP_SECONDS = 8;
+export const QUIET_SPEED = 8;
+let quietFastForward = true;
+/** Tests that measure the plain speeds switch the quiet fast-forward off (and back on). */
+export function setQuietFastForwardForTests(on: boolean): void {
+  quietFastForward = on;
+}
+/** Pure: is fight tick `t` inside a quiet stretch (no key moment within QUIET_GAP_SECONDS ahead, and not the last seconds of the fight)? */
+export function quietStretch(keyTicks: readonly number[], t: number, last: number, tickRate: number): boolean {
+  if (!quietFastForward) return false;
+  const gap = QUIET_GAP_SECONDS * tickRate;
+  if (last - t <= gap) return false;
+  const next = keyTicks.find((k) => k > t);
+  return next === undefined ? true : next - t > gap;
+}
 /** How many feed lines are kept on screen (newest first); the full log is always reachable by scrubbing. */
 const FEED_LINES_SHOWN = 60;
 /** How many key moments the strip under the stage shows. */
@@ -64,15 +80,17 @@ export interface ReplayPlayerProps {
   readonly encounterIndex?: number;
   readonly api?: Api;
   readonly settled?: ReplaySettled | null;
-  /** Tests start the clock themselves; the app always uses requestAnimationFrame. */
+  /** Tests start the clock themselves; the app always uses requestAnimationFrame. Final play-test review S4: a just-committed fight opens playing. */
   readonly autoPlay?: boolean;
+  /** S4: the speed a just-committed fight opens at (2×), whatever this session last chose. */
+  readonly initialSpeed?: Speed;
 }
 
 type Load = { readonly k: "loading" } | { readonly k: "error"; readonly error: ApiError } | { readonly k: "ready"; readonly view: ReplayView };
 
 const asApiError = (err: unknown): ApiError => (err instanceof ApiError ? err : new ApiError(0, "unknown", STRINGS.app.genericError));
 
-export function ReplayPlayer({ jobId, encounterIndex, api: apiProp, settled = null, autoPlay = false }: ReplayPlayerProps): JSX.Element {
+export function ReplayPlayer({ jobId, encounterIndex, api: apiProp, settled = null, autoPlay = false, initialSpeed }: ReplayPlayerProps): JSX.Element {
   const api = useApi(apiProp);
   const [load, setLoad] = useState<Load>({ k: "loading" });
   const fetchIt = useCallback(async (): Promise<void> => {
@@ -120,10 +138,10 @@ export function ReplayPlayer({ jobId, encounterIndex, api: apiProp, settled = nu
       <ErrorBox error={e} heading={T.loadFailed} onRetry={() => void fetchIt()} />
     );
   }
-  return <ReplayBody view={load.view} expected={{ jobId, ...(encounterIndex !== undefined ? { encounterIndex } : {}) }} settled={settled} autoPlay={autoPlay} />;
+  return <ReplayBody view={load.view} expected={{ jobId, ...(encounterIndex !== undefined ? { encounterIndex } : {}) }} settled={settled} autoPlay={autoPlay} initialSpeed={initialSpeed ?? null} />;
 }
 
-function ReplayBody({ view, expected, settled, autoPlay }: { readonly view: ReplayView; readonly expected: { jobId: string; encounterIndex?: number }; readonly settled: ReplaySettled | null; readonly autoPlay: boolean }): JSX.Element {
+function ReplayBody({ view, expected, settled, autoPlay, initialSpeed }: { readonly view: ReplayView; readonly expected: { jobId: string; encounterIndex?: number }; readonly settled: ReplaySettled | null; readonly autoPlay: boolean; readonly initialSpeed: Speed | null }): JSX.Element {
   const opened = useMemo(() => openReplay(view, expected), [view, expected.jobId, expected.encounterIndex]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!opened.ok) {
     const archived = opened.compacted === true;
@@ -144,7 +162,7 @@ function ReplayBody({ view, expected, settled, autoPlay }: { readonly view: Repl
       </div>
     );
   }
-  return <Playback view={view} model={opened.model} settled={settled} autoPlay={autoPlay} />;
+  return <Playback view={view} model={opened.model} settled={settled} autoPlay={autoPlay} initialSpeed={initialSpeed} />;
 }
 
 /** The ledger's itemization of what this encounter settled for the viewer (QA S8 / D3). The client words it and computes nothing. */
@@ -194,7 +212,7 @@ function Summary({ view, model, settled }: { readonly view: ReplayView; readonly
           <p className="hint" data-testid="replay-depth-explained">
             {T.depthExplained}
           </p>
-          <p data-testid="replay-loot">{v === "caravan" ? T.lootCaravan(o.loot) : T.lootOwner(o.loot)}</p>
+          <p data-testid="replay-loot">{v === "caravan" ? T.lootCaravan(o.loot, o.kind === "caravan_overrun") : T.lootOwner(o.loot)}</p>
         </>
       )}
       <div className="h3">{T.settledHeading}</div>
@@ -232,11 +250,11 @@ function Summary({ view, model, settled }: { readonly view: ReplayView; readonly
   );
 }
 
-function Playback({ view, model, settled, autoPlay }: { readonly view: ReplayView; readonly model: ReplayModel; readonly settled: ReplaySettled | null; readonly autoPlay: boolean }): JSX.Element {
+function Playback({ view, model, settled, autoPlay, initialSpeed }: { readonly view: ReplayView; readonly model: ReplayModel; readonly settled: ReplaySettled | null; readonly autoPlay: boolean; readonly initialSpeed: Speed | null }): JSX.Element {
   const last = model.ticks - 1;
   const [at, setAt] = useState(0);
   const [playing, setPlaying] = useState(autoPlay);
-  const [speed, setSpeedState] = useState<Speed>(sessionSpeed);
+  const [speed, setSpeedState] = useState<Speed>(initialSpeed ?? sessionSpeed);
   const [keyOnly, setKeyOnly] = useState(true);
   const [endDismissed, setEndDismissed] = useState(false);
   const [highlight, setHighlight] = useState<{ readonly key: number; readonly units: ReadonlySet<number> } | null>(null);
@@ -248,6 +266,12 @@ function Playback({ view, model, settled, autoPlay }: { readonly view: ReplayVie
   speedRef.current = speed;
   const atRef = useRef(at);
   atRef.current = at;
+  // Final play-test review N11: a long stretch with no key moment ahead (a lone shooter
+  // trading shots across a fence) plays at QUIET_SPEED until the next one. Presentation only.
+  const keyTicks = useMemo(() => model.feed.filter((l) => l.kind !== "hit").map((l) => l.tick), [model]);
+  const quietRef = useRef(false);
+  const quietAt = (t: number): boolean => quietStretch(keyTicks, t, last, model.tickRate);
+  quietRef.current = playing && quietAt(at);
   const hasClock = typeof requestAnimationFrame === "function";
   // QA S1: the clock runs past the last tick for END_HOLD_SECONDS of wall time; the frame clamps there and the final rows' marks play out.
   const holdTicks = hasClock ? END_HOLD_SECONDS * model.tickRate * speed : 0;
@@ -264,7 +288,8 @@ function Playback({ view, model, settled, autoPlay }: { readonly view: ReplayVie
       const dt = prev === null ? 0 : Math.min(250, now - prev);
       prev = now;
       const end = last + END_HOLD_SECONDS * model.tickRate * speedRef.current;
-      const next = Math.min(end, atRef.current + (dt / 1000) * model.tickRate * speedRef.current);
+      const rate = quietRef.current ? Math.max(speedRef.current, QUIET_SPEED) : speedRef.current;
+      const next = Math.min(end, atRef.current + (dt / 1000) * model.tickRate * rate);
       atRef.current = next;
       setAt(next);
       if (next >= end) setPlaying(false);
@@ -335,7 +360,7 @@ function Playback({ view, model, settled, autoPlay }: { readonly view: ReplayVie
               {o && (
                 <>
                   <p>{T.depth(pct, view.viewer)}</p>
-                  <p>{view.viewer === "caravan" ? T.lootCaravan(o.loot) : T.lootOwner(o.loot)}</p>
+                  <p>{view.viewer === "caravan" ? T.lootCaravan(o.loot, o.kind === "caravan_overrun") : T.lootOwner(o.loot)}</p>
                 </>
               )}
               <div className="replay__row">
@@ -375,6 +400,11 @@ function Playback({ view, model, settled, autoPlay }: { readonly view: ReplayVie
           )}
         </ol>
       </div>
+      {playing && quietAt(at) && (
+        <p className="hint" role="status" data-testid="replay-quiet">
+          {T.quietStretch}
+        </p>
+      )}
       <div className="replay__controls" data-testid="replay-controls">
         <div className="replay__row">
           <button

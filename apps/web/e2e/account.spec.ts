@@ -30,7 +30,12 @@ test("guest first launch → reload → link a username → sign in again with i
   await expect(page.getByTestId("welcome-region")).toContainText("High Plains");
   await expect(page.getByTestId("guest-badge")).toBeVisible();
   await page.getByTestId("welcome-begin").click();
-  // QA-30 D1: in town a guest is asked (never forced) to save the progress.
+  // Final play-test review N3: not while the first-session guide runs; once it is finished or
+  // skipped, a guest is asked in town (QA-30 D1: never forced) to save the progress.
+  await expect(page.getByTestId("guide-roster")).toBeVisible();
+  await expect(page.getByTestId("guest-save-prompt")).toHaveCount(0);
+  await page.getByTestId("guide-skip").click();
+  await page.getByTestId("guide-skip-confirm").click();
   await expect(page.getByTestId("guest-save-prompt")).toBeVisible();
 
   // The device credential is an HttpOnly cookie: present for the browser, invisible to the page.

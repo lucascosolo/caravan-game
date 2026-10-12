@@ -217,8 +217,13 @@ describe("FormationScreen", () => {
     expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-focus", "u-rider");
     await user.click(screen.getByText("tap-12-12"));
     expect(screen.getByTestId("iso-canvas").getAttribute("data-posts")).toBe("1");
-    expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-placing", "none");
     expect(screen.getByTestId("tray-unit-u-rider")).toHaveTextContent("Posted at (12, 12)");
+    // Final play-test review S3: the selection moves on to the next unit still in the wagon.
+    expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-placing", "post");
+    expect(screen.getByTestId("tap-to-place-hint")).toHaveTextContent("Canteen Carrier selected");
+    // Tap the placed post to pick it again: its stance picker.
+    await user.click(screen.getByText("tap-u-rider"));
+    expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-placing", "none");
     const picker = within(screen.getByTestId("stance-picker"));
     expect(picker.getByRole("radio", { name: "Guard" })).toHaveAttribute("aria-checked", "true");
     await user.click(picker.getByRole("radio", { name: "Hold" }));
@@ -277,7 +282,8 @@ describe("FormationScreen", () => {
     await user.selectOptions(select, `${ring5.x},${ring5.y}`);
     await user.click(picker.getByTestId("picker-place"));
     expect(screen.getByTestId("budget-meter")).toHaveTextContent("1 of");
-    await user.click(within(screen.getByTestId("tray-fence-next")).getByRole("button"));
+    // Final play-test review S3: the picker moved on to the next segment by itself (it no longer moves the one just placed).
+    expect(within(screen.getByTestId("tray-fence-next")).getByRole("button")).toHaveAttribute("aria-pressed", "true");
     // The taken position is listed but refused, with circle's code.
     const taken = within(screen.getByTestId("placement-picker")).getByRole("option", { name: new RegExp(`Ring position 5 \\(${ring5.x}, ${ring5.y}\\)`) });
     expect(taken).toBeDisabled();
@@ -375,7 +381,8 @@ describe("FormationScreen", () => {
     expect(pending).toHaveAttribute("role", "status");
     expect(pending).toHaveTextContent("living unit Canteen Carrier has no post");
     expect(screen.queryByTestId("server-issues")).toBeNull();
-    expect(saveFormation).toHaveBeenCalledTimes(1);
+    // Final play-test review N10: with a unit unposted the client says so itself; no save the server must refuse.
+    expect(saveFormation).not.toHaveBeenCalled();
     unmount();
     render(screenWith(fakeApi({ saveFormation }), { autosaveMs: NO_AUTOSAVE }));
     expect(screen.getByTestId("tray-unit-u-rider")).toHaveTextContent("Posted at (12, 12)");
@@ -387,6 +394,10 @@ describe("FormationScreen", () => {
     render(screenWith(fakeApi({ saveFormation }), { autosaveMs: 20 }));
     await user.click(within(screen.getByTestId("tray-unit-u-rider")).getByRole("button"));
     await user.click(screen.getByText("tap-12-12"));
+    // The selection moved on to the Canteen Carrier: post it too (every living unit posted: a draft the server keeps).
+    const canteen = within(screen.getByTestId("placement-picker")).getByTestId("picker-select") as HTMLSelectElement;
+    await user.selectOptions(canteen, "12,13");
+    await user.click(within(screen.getByTestId("placement-picker")).getByTestId("picker-place"));
     expect(await screen.findByText("Draft saved automatically.")).toBeInTheDocument();
   });
 

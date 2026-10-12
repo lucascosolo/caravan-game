@@ -12,13 +12,32 @@
  * device cookie; while that answer is out a status line says so, and on success this screen
  * is replaced by the game.
  */
-import { REGIONS } from "@caravan/content";
+import { REGIONS, getUnitType, unlockWebFor, type RegionId } from "@caravan/content";
 import { useState, type FormEvent } from "react";
 import { ApiError } from "../../api/client.ts";
 import { useSession } from "../../auth/session.tsx";
 import { STRINGS } from "../../strings.ts";
 
 type Mode = "signIn" | "register";
+
+/** Final play-test review N4: a region's starting units (its living web's tier-0 nodes) and their affinities, from content. */
+export function regionStarters(region: string): string {
+  if (!REGIONS.some((r) => r.id === region)) return "";
+  const names = unlockWebFor("living", region as RegionId)
+    .nodes.filter((n) => n.tier === 0)
+    .map((n) => {
+      const u = getUnitType(n.id);
+      return u ? `${u.displayName} (${STRINGS.webs.affinityName(u.affinity)})` : n.id;
+    });
+  return STRINGS.auth.regionStarters(names.join(", "));
+}
+
+/** Final play-test review N8: a guest's caravan gets a name at creation (it can be read as the party's name later). */
+export function generatedCaravanName(rand: () => number = Math.random): string {
+  const a = STRINGS.auth.nameFirst;
+  const b = STRINGS.auth.nameSecond;
+  return `${a[Math.floor(rand() * a.length) % a.length]} ${b[Math.floor(rand() * b.length) % b.length]}`;
+}
 
 function RegionField({ value, onChange }: { value: string; onChange: (v: string) => void }): JSX.Element {
   const s = STRINGS.auth;
@@ -32,6 +51,9 @@ function RegionField({ value, onChange }: { value: string; onChange: (v: string)
           </option>
         ))}
       </select>
+      <span className="hint" data-testid="region-starters" style={{ display: "block" }}>
+        {regionStarters(value)}
+      </span>
       <span className="hint">{s.regionHint}</span>
     </label>
   );
@@ -73,7 +95,7 @@ export function LoginScreen(): JSX.Element {
     try {
       const auth =
         kind === "guest"
-          ? await api.guest(guestRegion, undefined, replaceGuest)
+          ? await api.guest(guestRegion, generatedCaravanName(), replaceGuest)
           : kind === "signIn"
             ? await api.login(username, password, replaceGuest)
             : await api.register({ username, password, region, ...(caravanName.trim() ? { caravanName: caravanName.trim() } : {}) }, replaceGuest);

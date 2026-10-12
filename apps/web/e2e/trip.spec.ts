@@ -80,8 +80,23 @@ async function postRiders(page: Page, alive = 2): Promise<void> {
     await picker.getByRole("combobox").selectOption({ label: `(${cell.x}, ${cell.y})` });
     await picker.getByRole("button", { name: "Place here" }).click();
     await expect(riders.nth(i)).toContainText(`Posted at (${cell.x}, ${cell.y})`);
-    await page.getByRole("region", { name: "Selected" }).getByRole("button", { name: "Done" }).click();
+    // Final play-test review S3: placing the last unit clears the selection (nothing left to advance to).
+    const done = page.getByRole("region", { name: "Selected" }).getByRole("button", { name: "Done" });
+    if (await done.count()) await done.click();
   }
+}
+
+/**
+ * Final play-test review S4: a just-committed fight opens its replay at once, playing, with
+ * "Skip to result" as the dialog's action. Prove it opened, then skip to the itemized result.
+ */
+async function skipAutoplay(page: Page): Promise<void> {
+  const dialog = page.getByTestId("replay-dialog");
+  await expect(dialog).toBeVisible({ timeout: 20_000 });
+  const skip = dialog.getByTestId("replay-close");
+  await expect(skip).toHaveText("Skip to result");
+  await skip.click();
+  await expect(dialog).toHaveCount(0);
 }
 
 async function commit(page: Page): Promise<void> {
@@ -89,8 +104,9 @@ async function commit(page: Page): Promise<void> {
   const dialog = page.getByRole("dialog");
   await expect(page.getByTestId("commit-confirm")).toBeEnabled({ timeout: 15_000 });
   await dialog.getByTestId("commit-confirm").click();
-  // The fight resolves on the server; the screen waits on it, then shows the result.
-  await expect(page.getByTestId("encounter-results")).toBeVisible({ timeout: 20_000 });
+  // The fight resolves on the server; the screen waits on it, then shows the result (S4: its replay first).
+  await skipAutoplay(page);
+  await expect(page.getByTestId("encounter-results").or(page.getByTestId("trip-summary"))).toBeVisible({ timeout: 20_000 });
 }
 
 test("a full trip: outfit, ride out, three encounters (a rider dies at the second), bank, summary, and the trip cap spent in town", async ({ page, request }) => {
@@ -125,7 +141,8 @@ test("a full trip: outfit, ride out, three encounters (a rider dies at the secon
   await page.getByTestId("tray-fence-next").getByRole("button").click();
   await tapCell(page, { x: 12, y: 11 });
   await expect(page.getByTestId("budget-meter")).toContainText("1 of 20 segments placed");
-  // The placed segment stays selected (to move it); "Done" lets go before the next item.
+  // Final play-test review S3: the selection moved on to the NEXT segment; "Done" lets go of it.
+  await expect(page.getByTestId("tray-fence-next").getByRole("button")).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("region", { name: "Selected" }).getByRole("button", { name: "Done" }).click();
   await postRiders(page);
   await page.getByTestId("tray-trap-t0").getByRole("button").click();
@@ -134,7 +151,8 @@ test("a full trip: outfit, ride out, three encounters (a rider dies at the secon
   await picker.getByRole("combobox").selectOption({ index: 1 });
   await picker.getByRole("button", { name: "Place here" }).click();
   await expect(page.getByTestId("tray-trap-t0")).toContainText(/Laid at \(\d+, \d+\)/);
-  await page.getByRole("region", { name: "Selected" }).getByRole("button", { name: "Done" }).click();
+  // The only trap is laid: nothing of its kind is left, so the selection is already clear.
+  await expect(page.getByRole("region", { name: "Selected" })).toHaveCount(0);
   await commit(page);
 
   // ── results: what the fight cost, from the server ──

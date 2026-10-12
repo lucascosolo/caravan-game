@@ -56,7 +56,8 @@ describe("first launch is guest-first (chunk 30)", () => {
     await user.selectOptions(within(start).getByRole("combobox"), "badlands");
     await user.click(within(start).getByRole("button", { name: STRINGS.auth.submitStart }));
     expect(await screen.findByTestId("guest-badge")).toHaveTextContent(A.guestBadge);
-    expect(s.calls.find((c) => c.path === "/auth/guest")!.body).toEqual({ region: "badlands" });
+    // Final play-test review N8: the caravan gets a generated name; still no username, no password.
+    expect(s.calls.find((c) => c.path === "/auth/guest")!.body).toEqual({ region: "badlands", caravanName: expect.any(String) });
     // A guest has no one-tap sign-out (it would lose the account); the Account screen is offered instead.
     expect(screen.queryByRole("button", { name: STRINGS.app.signOut })).toBeNull();
     expect(screen.getByRole("button", { name: A.open })).toBeInTheDocument();

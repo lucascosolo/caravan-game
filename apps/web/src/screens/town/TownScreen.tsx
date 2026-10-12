@@ -440,6 +440,7 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
           api={api}
           caravanId={caravanId}
           instanceIds={mergeIds}
+          rosterSize={loaded.units.length}
           onCancel={() => setMergeIds(null)}
           restoreFocusTo={() => document.getElementById("board-heading")}
           onDone={(res) => {

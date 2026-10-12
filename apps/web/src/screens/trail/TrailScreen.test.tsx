@@ -125,10 +125,14 @@ describe("TrailScreen — search, scout three candidates, reroll gate, choose, a
     // B1: the server's authored facts, said as reported.
     expect(screen.getByTestId("authored-outside-band")).toHaveTextContent("Includes authored parties from outside your band");
     expect(screen.getByTestId("authored-share")).toHaveTextContent("3 of 3 offered are authored parties (the draw keeps authored parties to 30%");
-    // N1: each candidate's scouting report is open, and above its "Face …" button.
+    // Final play-test review N5: each candidate leads with a one-glance summary; the full report is
+    // collapsed under it (one tap away, in the DOM), and both sit above its "Face …" button.
     for (const i of [0, 1, 2]) {
+      const summary = screen.getByTestId(`scout-summary-${i}`);
+      expect(summary).toHaveTextContent(/raider/);
+      expect(summary).toHaveTextContent("Total HP");
       const details = screen.getByTestId(`candidate-${i}`).querySelector("details")!;
-      expect(details.open).toBe(true);
+      expect(details.open).toBe(false);
       expect(details.compareDocumentPosition(screen.getByTestId(`choose-${i}`)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
     // The reroll is visible, free, and time-gated: disabled with the seconds shown. No Coin anywhere.

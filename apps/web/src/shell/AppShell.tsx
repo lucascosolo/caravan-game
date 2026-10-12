@@ -1,10 +1,11 @@
 /**
- * The app shell: a thin header (who is signed in, the Account screen, sign out), a scrolling main area and a
+ * The app shell: a thin header (who is signed in, the Account screen), a scrolling main area and a
  * fixed bottom tab bar sized for thumbs (56px tall, each tab a full-width 44px+ target).
  * Portrait-first; on wide screens the content column is capped at 720px, not stretched.
  * The header also carries the inbox button and its unread badge (chunk 29).
  * Chunk 30: a guest has no username — the header says "Guest" and offers the Account screen,
  * where the progress is saved; there is no one-tap sign-out for a guest (it would lose the account).
+ * Final play-test review N13: sign-out lives on the Account screen only, so the header fits 320 px.
  */
 import type { ReactNode } from "react";
 import { STRINGS } from "../strings.ts";
@@ -22,13 +23,14 @@ export interface AppShellProps {
   readonly route: Route;
   /** Null for a guest (chunk 30). */
   readonly username: string | null;
-  readonly onSignOut: () => void;
+  /** Kept for callers; sign-out is on the Account screen (N13). */
+  readonly onSignOut?: () => void;
   readonly children: ReactNode;
   /** Chunk 24 QA N7: the first screen comes before any tab, so the tab bar is not drawn under it. */
   readonly hideTabs?: boolean;
 }
 
-export function AppShell({ route, username, onSignOut, children, hideTabs = false }: AppShellProps): JSX.Element {
+export function AppShell({ route, username, children, hideTabs = false }: AppShellProps): JSX.Element {
   const guest = username === null;
   return (
     <div className="shell">
@@ -50,11 +52,6 @@ export function AppShell({ route, username, onSignOut, children, hideTabs = fals
             {!hideTabs && (
               <button type="button" className="btn" aria-current={route === "account" ? "page" : undefined} onClick={() => navigate("account")}>
                 {STRINGS.account.open}
-              </button>
-            )}
-            {!guest && (
-              <button type="button" className="btn" onClick={onSignOut}>
-                {STRINGS.app.signOut}
               </button>
             )}
           </span>

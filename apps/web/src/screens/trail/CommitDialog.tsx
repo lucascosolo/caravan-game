@@ -16,7 +16,7 @@ import type { IssueView } from "../../api/types.ts";
 import { Modal } from "../../shell/Modal.tsx";
 import { humanizeIssue } from "../../shell/issues.ts";
 import { STRINGS } from "../../strings.ts";
-import { fenceBudget, fenceRuns, itemize, unplacedTraps, unpostedUnits } from "./placement.ts";
+import { fenceBudget, fenceRuns, fencesBySide, itemize, unplacedTraps, unpostedUnits } from "./placement.ts";
 
 const T = STRINGS.trail;
 
@@ -65,6 +65,16 @@ export function CommitDialog({ manifest, formation, gaps, busy, check, names, on
       <p>{T.confirmIntro}</p>
       <ul className="plain">
         <li>{formation.fences.length === 0 ? T.confirmFencesNone : T.confirmFences(formation.fences.length, runs)}</li>
+        {/* Final play-test review N14: the fence by side, at a glance. */}
+        {formation.fences.length > 0 && (
+          <li data-testid="commit-by-side">
+            {T.confirmBySide(
+              fencesBySide(formation)
+                .map((s) => T.confirmSide(T.edgeName(s.edge), s.placed, s.open))
+                .join(" · "),
+            )}
+          </li>
+        )}
         <li>{T.confirmGaps(gaps)}</li>
         <li>{T.confirmFenceLeft(left)}</li>
         <li>{T.confirmTraps(formation.traps.length)}</li>
@@ -72,14 +82,17 @@ export function CommitDialog({ manifest, formation, gaps, busy, check, names, on
         <li>{T.confirmPosts(formation.posts.length)}</li>
         {unposted.length > 0 && <li data-testid="commit-unposted">{T.confirmUnposted(unposted.map((u) => nameOf(u.ref)).join(", "))}</li>}
       </ul>
-      <ul className="plain dialog__items" aria-label={T.confirmIntro}>
-        {items.map((it) => (
-          <li key={it.ref} data-testid={`commit-item-${it.ref}`}>
-            <span className="hint">{it.kind === "fence" ? T.kindFence : it.kind === "trap" ? T.kindTrap : T.kindPost}</span> {name(it.kind, it.typeId)} · {it.where}
-            {it.detail ? ` · ${it.detail}` : ""}
-          </li>
-        ))}
-      </ul>
+      <details className="disclosure" data-testid="commit-items">
+        <summary>{T.confirmEveryItem(items.length)}</summary>
+        <ul className="plain dialog__items" aria-label={T.confirmIntro}>
+          {items.map((it) => (
+            <li key={it.ref} data-testid={`commit-item-${it.ref}`}>
+              <span className="hint">{it.kind === "fence" ? T.kindFence : it.kind === "trap" ? T.kindTrap : T.kindPost}</span> {name(it.kind, it.typeId)} · {it.where}
+              {it.detail ? ` · ${it.detail}` : ""}
+            </li>
+          ))}
+        </ul>
+      </details>
       {check.state === "checking" && (
         <p className="hint" role="status">
           {T.confirmChecking}

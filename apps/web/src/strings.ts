@@ -43,6 +43,10 @@ export const STRINGS = {
     switchToRegister: "New here? Start a caravan",
     switchToSignIn: "Have an account? Sign in",
     regionHint: "Permanent: chosen once for this caravan and never swapped. It decides which living units your caravan can ever unlock.",
+    // Final play-test review N4 / N8.
+    regionStarters: (list: string): string => `Starts with: ${list}.`,
+    nameFirst: ["Dusty", "Copper", "Lone Pine", "Red Mesa", "Silver Creek", "Sagebrush", "Iron Rail", "Juniper", "Big Sky", "Whetstone"],
+    nameSecond: ["Freighters", "Outfit", "Wagon Co.", "Haulers", "Company", "Train", "Teamsters", "Drovers"],
     working: "Working…",
     // Chunk 30: first launch is guest-first — no username or password until the player wants one.
     start: "Start your caravan",
@@ -213,7 +217,21 @@ export const STRINGS = {
     noTrip: "Packed, but not yet on the trail.",
     noTripBody: "The caravan is packed but has not ridden out. Ride out from the town; then the parties on the trail can be searched for here.",
     candidatesHeading: "Who is out there",
-    candidatesIntro: "Three parties within your Reputation band. Scout each one in full, then choose the one you will face. The choice is final for this encounter.",
+    candidatesIntro: "Three parties near the Reputation this encounter is searched at. Scout each one, then choose the one you will face. The choice is final for this encounter.",
+    // Final play-test review N6.
+    searchCentre: (centre: number, rating: number, n: number): string =>
+      centre === rating
+        ? `Searched near ${centre} Reputation, level with your caravan.`
+        : `Searched near ${centre} Reputation: encounter ${n} is searched ${Math.abs(centre - rating)} ${centre < rating ? "below" : "above"} your caravan's ${rating}.`,
+    // Final play-test review N5: the candidate summary line.
+    summaryRaiders: (n: number): string => `${n} raider${n === 1 ? "" : "s"}`,
+    summaryStance: (s: string, n: number): string => `${({ core: "◆ core", nearest: "◉ nearest", traps: "▼ traps" } as Record<string, string>)[s] ?? s} ${n}`,
+    summaryHpLabel: "Total HP",
+    summarySiegeLabel: "Siege",
+    summaryNoSiege: "none: fences and traps work at full effect",
+    summarySiege: (name: string, kind: string, category: string): string => `${name} (counters ${category} ${kind === "fence" ? "fences" : "traps"})`,
+    summaryApproachLabel: "Comes from",
+    scoutFullReport: "Full scouting report",
     searchButton: "Search for parties",
     searching: "Searching…",
     rerollButton: "Search again (free)",
@@ -310,6 +328,20 @@ export const STRINGS = {
     fenceDamaged: "Damaged segments (drag one to place it where it matters least)",
     // ring / budget / gaps
     ringHeading: "The ring",
+    // Final play-test review N14.
+    confirmBySide: (sides: string): string => `By side: ${sides}`,
+    confirmSide: (edge: string, placed: number, open: number): string => `${edge} ${placed} fenced, ${open} open`,
+    confirmEveryItem: (n: number): string => `Every item, one by one (${n})`,
+    // Final play-test review S3: fast arranging.
+    quickHeading: "Quick arrange",
+    quickHint: "Each side button fences that side's open positions with the next segments in the wagon. Then pick a unit and tap where it stands: the next unit is picked for you.",
+    fenceSide: (edge: string, raiders: number): string => `Fence ${edge}${raiders > 0 ? ` (${raiders} raider${raiders === 1 ? "" : "s"})` : ""}`,
+    lastButton: "Start from my last arrangement",
+    lastLoading: "Loading the last arrangement…",
+    lastApplied: (fences: number, traps: number, posts: number): string =>
+      `Your last arrangement is back, minus what broke, was spent or died: ${fences} segment${fences === 1 ? "" : "s"}, ${traps} trap${traps === 1 ? "" : "s"}, ${posts} post${posts === 1 ? "" : "s"}. Adjust it for this party.`,
+    lastNothing: "Nothing from the last arrangement survives to re-use.",
+    lastNone: "There is no earlier arrangement on this trip to start from.",
     budgetMeter: (placed: number, budget: number, ring: number): string => `${placed} of ${budget} segments placed · ${ring} ring positions`,
     budgetNote: (gapsAtLeast: number): string => `The budget is below a full ring on purpose: at least ${gapsAtLeast} positions stay open. Where they go is your call.`,
     gapsLine: (n: number): string => `${n} open position${n === 1 ? "" : "s"}`,
@@ -661,6 +693,9 @@ export const STRINGS = {
     statDamageMult: (mult: string): string => `Damage output ×${mult}`,
     previewAbility: (name: string): string => `Ability stays ${name}: the same ability, larger numbers, never a new one.`,
     previewNotStronger: "The produced units are not stronger than the consumed ones combined; they are more slot-efficient.",
+    // Final play-test review D2: below the slot cap, slot efficiency is worth nothing yet.
+    previewBelowSlots: (roster: number, slots: number, after: number): string =>
+      `Your roster (${roster}) is smaller than the caravan's ${slots} deployment slots, so merging lowers the number of units you can pack: ${roster} → ${after}. Merging pays off once you own more units than the caravan can carry.`,
     previewInParty: (n: number): string => `${n} of the units to be consumed ride in your standing party. The party will stop resolving until you edit it. Confirm you understand.`,
     previewInPartyCheckbox: "Yes, consume them; I will fix the party.",
     previewConfirm: (total: number): string => `Merge for ${total} Coin`,
@@ -800,6 +835,12 @@ export const STRINGS = {
     packing: "Packing…",
     capLoadFailed: "Could not read the trip cap; the server still decides whether the caravan can ride out.",
     confirmOverCaps: "This loadout is over a cap or has no living unit; the server will refuse it and say why.",
+    // Final play-test review S1 / D1 / N9.
+    stakesLine: "Units that die lose a level; units still standing when the caravan falls are lost.",
+    wholeRoster: (n: number): string => `You are packing all ${n} of your units. Everything you pack can be lost: if the caravan is overrun, nothing is left in town.`,
+    guideReserve: (packed: number, kept: number): string => `The guide ticked ${packed} unit${packed === 1 ? "" : "s"} and left ${kept} in town as a reserve, so one bad fight cannot take your whole roster. Change it if you like.`,
+    noTripNow: (mmss: string): string => `No trip is available right now. The next one returns in ${mmss}; pack then.`,
+    rideOutWaiting: (mmss: string): string => `Next trip in ${mmss}`,
   },
   /**
    * The standing raid party builder (chunk 17 UI for chunk 09). Copy rules: the party is a
@@ -1055,7 +1096,11 @@ export const STRINGS = {
     /** DEPTH_METRIC in one sentence (chunk 13 QA N5: the copy lives here; the route sends `depth.measuredFrom` and `depth.lootShare`). */
     depthExplained: "Depth is how far the deepest raider got inside the wagon circle: the share of the distance from the ring to the core that it closed (0 if none got past the ring line). A raid on a caravan that held earns its owner that share to the power 1.5 of the encounter's loot.",
     deepest: (name: string): string => `Deepest: ${name}.`,
-    lootCaravan: (coin: number): string => `Loot reported for the raiding party's owner: ${coin} Coin.`,
+    // Final play-test review N7: on an overrun with no loot, say where the caravan's Coin went (an authored outfit keeps nothing).
+    lootCaravan: (coin: number, overrun = false): string =>
+      overrun && coin === 0
+        ? "The raiding party's owner took no loot from this fight. Any unbanked Coin your caravan lost is itemized under what it settled: an authored outfit keeps nothing, so it is lost to the trail."
+        : `Loot reported for the raiding party's owner: ${coin} Coin.`,
     lootOwner: (coin: number): string => `Your party's loot from this fight: ${coin} Coin, as reported.`,
     // QA S8 / D3: what the encounter settled, itemized from the ledger (the server's `settled`).
     settledHeading: "What it settled",
@@ -1101,6 +1146,9 @@ export const STRINGS = {
     tallyCore: "The core was reached.",
     endTitle: "End of the fight",
     endDismiss: "Look at the field",
+    // Final play-test review S4 / N11.
+    skipToResult: "Skip to result",
+    quietStretch: "Nothing decisive for a while: fast-forwarding to the next key moment.",
     summaryToggle: (outcome: string): string => `How it ended: ${outcome}`,
     stripLabel: "Latest moments",
     siegeLegend: (names: string): string => `Siege with the raiders: ${names}.`,
@@ -1280,7 +1328,7 @@ export const STRINGS = {
     welcomeTown: "It holds your roster, your merge board, the mine and your banked Coin. A trip only ever risks what you packed for it and the Coin you have not banked yet.",
     welcomeRegion: (region: string): string => `Your caravan rides the ${region}. You chose that when you started, and it is permanent for this caravan: it decides which living units it can ever unlock.`,
     welcomeRegionUnknown: "Your caravan's region was chosen when you started, and it is permanent for this caravan.",
-    welcomePlan: "First trip: take a refugee, pack, ride out, face two encounters, then bank if you are still standing. About five minutes.",
+    welcomePlan: "First trip: take a refugee, pack, ride out and face at least one encounter, then bank if you are still standing or push on. The guide says what it would do; the choice is yours. About five minutes.",
     welcomeNoGifts: "Every caravan starts with the same starting roster: its region's starter units. The guide adds nothing to it and changes no rules: every fight is a real one.",
     welcomeBegin: "Begin",
     welcomeSaving: "Starting…",
@@ -1289,7 +1337,7 @@ export const STRINGS = {
     rosterBody:
       "Your caravan starts with its starting roster: its region's starter units, the same for every caravan. More units come from the Refugees panel in town: three offers drawn from the types you can use, a fresh menu every so often, and taking one is free. Take one now.",
     outfitTitle: "Pack the caravan and ride out",
-    outfitBody: "Open Outfit. Tick the units to take, add a trap, choose a fence and how many segments to carry, then ride out. Riding out uses one of your trips for the hour.",
+    outfitBody: "Open Outfit. The guide has ticked most of your units and left a reserve in town; add a trap, choose a fence and how many segments to carry, then ride out. Riding out uses one of your trips for the hour.",
     outfitStakes: "Only what you pack is at risk on the trail. The rest of your roster and your banked Coin stay safe in town.",
     toTown: "Go to the town",
     toTrail: "Go to the trail",
@@ -1299,7 +1347,7 @@ export const STRINGS = {
     searchTitle: "Encounter 1: find who is coming",
     searchBody: "Search to be served three raiding parties. Each one is another player's standing party (or, early on, a labelled authored outfit); its owner is not there.",
     scoutTitle: "Scout before you choose",
-    scoutBody: "Every unit, its stance, its HP, its ability, its siege and the edge it comes from is shown below. Nothing is hidden. Compare the three, then choose the one you will face.",
+    scoutBody: "Each party below leads with a summary: its raiders by stance, their total HP, its siege and the sides they come from. Tap Full scouting report for every unit, its HP, its ability and its start cell. Nothing is hidden. Compare the three, then choose the one you will face.",
     scoutPick: (name: string, raiders: number, hp: number, siege: number): string =>
       `For a first fight, ${name} is the smallest of the three: ${hp} HP in all, ${siege === 0 ? "no siege" : siege === 1 ? "1 siege piece" : `${siege} siege pieces`}, ${raiders === 1 ? "1 raider" : `${raiders} raiders`}. That is a reading of the scout, not a promise.`,
     // ── trail: the guided arrangement ──

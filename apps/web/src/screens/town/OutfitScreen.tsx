@@ -13,8 +13,9 @@
  * "Packed, waiting to ride out" panel (RideOutPanel) with the server's reason and countdown.
  * The server's packer decides legality; its issue list is shown exactly.
  */
-import { getFenceTier, getTrapType } from "@caravan/content";
-import { useCallback, useEffect, useState } from "react";
+import { TUNABLES, getFenceTier, getTrapType } from "@caravan/content";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useOnboarding } from "../../onboarding/OnboardingProvider.tsx";
 import { ApiError, type Api } from "../../api/client.ts";
 import type { TripStatusView } from "../../api/tripTypes.ts";
 import type { EconomyView, IssueView, ManifestView } from "../../api/types.ts";
@@ -64,6 +65,20 @@ interface Catalog {
   readonly trip: TripStatusView | null;
 }
 
+/**
+ * Final play-test review S1: the guide's pre-fill packs at most roster − GUIDE_RESERVE living
+ * units (highest merge level first, within the slot cap), so a first-trip overrun can never
+ * take the whole roster. At least one unit is always ticked so the trip can ride. Pure.
+ */
+export function guidePrefill(units: readonly RosterUnit[], reserve: number = TUNABLES.GUIDE_RESERVE, slots: number = TUNABLES.DEPLOYMENT_SLOT_CAP): readonly string[] {
+  if (units.length === 0) return [];
+  const n = Math.max(1, Math.min(slots, units.length - Math.max(0, reserve)));
+  return [...units]
+    .sort((a, b) => b.mergeLevel - a.mergeLevel || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .slice(0, n)
+    .map((u) => u.id);
+}
+
 const asApiError = (err: unknown): ApiError => (err instanceof ApiError ? err : new ApiError(0, "unknown", STRINGS.app.genericError));
 
 function MeterBar({ m, label, testId }: { m: Meter; label: string; testId: string }): JSX.Element {
@@ -90,6 +105,17 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked, onRodeOu
   const [packed, setPacked] = useState<ManifestView | null>(null);
   const [startError, setStartError] = useState<ApiError | null>(null);
   const [packedStatus, setPackedStatus] = useState<TripStatusView | null>(null);
+  const onboarding = useOnboarding();
+  const guiding = onboarding?.active === true && onboarding.step === "outfit";
+  const prefilled = useRef(false);
+  const [guideFilled, setGuideFilled] = useState<number | null>(null);
+  useEffect(() => {
+    if (!guiding || prefilled.current || units.length === 0) return;
+    prefilled.current = true;
+    const ids = guidePrefill(units);
+    setDraft((d) => (d.units.length > 0 ? d : { ...d, units: [...ids] }));
+    setGuideFilled(ids.length);
+  }, [guiding, units]);
 
   const load = useCallback(async (): Promise<void> => {
     setLoadError(null);
@@ -111,6 +137,7 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked, onRodeOu
   }, [load]);
 
   const meters = outfitMeters(draft);
+  const wholeRoster = units.length > 0 && units.every((u) => draft.units.includes(u.id));
 
   const pack = async (): Promise<void> => {
     setBusy(true);
@@ -200,6 +227,11 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked, onRodeOu
   ]);
   const fenceTierName = draft.fence ? (getFenceTier(draft.fence.tierId)?.displayName ?? draft.fence.tierId) : "";
   const overflow = catalog.forecast?.overflow ?? null;
+  // Final play-test review N9: with no trip available, packing would lock the manifest with nowhere to go; wait instead.
+  const noTrip =
+    catalog.trip && catalog.trip.cap.available === 0
+      ? formatSeconds(catalog.trip.cap.nextRegenAtMs === null ? 0 : Math.max(0, catalog.trip.cap.nextRegenAtMs - catalog.trip.nowMs) / 1000)
+      : null;
 
   return (
     <section data-testid="outfit-screen">
@@ -215,6 +247,19 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked, onRodeOu
         </p>
       )}
       {meters.noUnits && <p className="hint">{T.unitsNone}</p>}
+      {guideFilled !== null && (
+        <p className="hint" data-testid="outfit-guide-reserve">
+          {T.guideReserve(guideFilled, units.length - guideFilled)}
+        </p>
+      )}
+      {wholeRoster && (
+        <p className="notice" role="status" data-testid="outfit-whole-roster">
+          {T.wholeRoster(units.length)}
+        </p>
+      )}
+      <p className="hint" data-testid="outfit-stakes">
+        {T.stakesLine}
+      </p>
       <ul className="chips" data-testid="outfit-units">
         {units.map((u) => {
           const on = draft.units.includes(u.id);
@@ -320,9 +365,14 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked, onRodeOu
       )}
       {error && issues.length === 0 && <ErrorBox error={error} heading={T.issuesHeading} />}
 
+      {noTrip !== null && (
+        <p className="hint" role="status" data-testid="outfit-no-trip">
+          {T.noTripNow(noTrip)}
+        </p>
+      )}
       <div className="actions">
-        <button type="button" className="btn btn--primary btn--block" disabled={busy} onClick={() => setConfirming(true)} data-testid="outfit-ride-out">
-          {T.rideOut}
+        <button type="button" className="btn btn--primary btn--block" disabled={busy || noTrip !== null} onClick={() => setConfirming(true)} data-testid="outfit-ride-out">
+          {noTrip !== null ? T.rideOutWaiting(noTrip) : T.rideOut}
         </button>
       </div>
 
@@ -357,6 +407,8 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked, onRodeOu
                 : T.confirmNoTrip(formatSeconds(catalog.trip.cap.nextRegenAtMs === null ? 0 : Math.max(0, catalog.trip.cap.nextRegenAtMs - catalog.trip.nowMs) / 1000))}
             </p>
           )}
+          {wholeRoster && <p className="notice">{T.wholeRoster(units.length)}</p>}
+          <p className="hint">{T.stakesLine}</p>
           {(meters.anyOver || meters.noUnits) && <p className="error">{T.confirmOverCaps}</p>}
         </Modal>
       )}

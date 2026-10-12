@@ -20,6 +20,7 @@
 import {
   CORE_CELLS,
   ENTRY_BAND_DEPTH,
+  ENTRY_EDGES,
   GRID_HEIGHT,
   GRID_WIDTH,
   RING_ANCHORS,
@@ -36,14 +37,35 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import { ApiError, type Api } from "../../api/client.ts";
 import { onViewerReset } from "../../auth/session.tsx";
 import type { FormationView, IssueView, ManifestView } from "../../api/types.ts";
-import { IsoCanvas, cellToWorld, type CellRect, type HitResult, type IsoCanvasHandle, type IsoSceneState, type SceneGeometry } from "../../iso/index.ts";
+import { IsoCanvas, cellToWorld, type CellRect, type FrameRect, type HitResult, type IsoCanvasHandle, type IsoSceneState, type SceneGeometry } from "../../iso/index.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { Modal } from "../../shell/Modal.tsx";
 import { formatWhen, humanizeIssue } from "../../shell/issues.ts";
 import { STRINGS } from "../../strings.ts";
 import { CommitDialog, type CommitCheck } from "./CommitDialog.tsx";
 import { ManifestTray } from "./ManifestTray.tsx";
-import { clearAll, dropAt, dropRefusal, edgeReports, fenceBudget, gapCells, isEmptyFormation, isPlaced, kindOfRef, postReach, remove, setStance, type Refusal } from "./placement.ts";
+import {
+  carryForward,
+  clearAll,
+  dropAt,
+  dropRefusal,
+  edgeReports,
+  fenceBudget,
+  fenceSide,
+  gapCells,
+  isEmptyFormation,
+  isPlaced,
+  kindOfRef,
+  nextFenceRef,
+  nextUnplacedOfKind,
+  openOnSide,
+  postReach,
+  remove,
+  setStance,
+  snapToRing,
+  unpostedUnits,
+  type Refusal,
+} from "./placement.ts";
 import { PlacementPicker } from "./PlacementPicker.tsx";
 import { ScoutPanel } from "./ScoutPanel.tsx";
 import type { ScoutedEncounter } from "./scoutTypes.ts";
@@ -74,6 +96,19 @@ const RING_RECT: CellRect = (() => {
     x1: Math.min(GRID_WIDTH - 1, Math.max(...xs) + RING_FOCUS_MARGIN),
     y1: Math.min(GRID_HEIGHT - 1, Math.max(...ys) + RING_FOCUS_MARGIN),
   };
+})();
+
+/**
+ * Final play-test review S3: the camera opens on the ring (plus a margin for the posts and
+ * traps around it), not the whole island; pinch or scroll still zooms out to the entry bands.
+ */
+export const RING_OPEN_MARGIN = 3;
+const CIRCLE_FRAME: FrameRect = (() => {
+  const xs = RING_SEGMENTS.map((s) => s.cell.x);
+  const ys = RING_SEGMENTS.map((s) => s.cell.y);
+  const x0 = Math.max(0, Math.min(...xs) - RING_OPEN_MARGIN);
+  const y0 = Math.max(0, Math.min(...ys) - RING_OPEN_MARGIN);
+  return { x: x0, y: y0, w: Math.min(GRID_WIDTH, Math.max(...xs) + RING_OPEN_MARGIN + 1) - x0, h: Math.min(GRID_HEIGHT, Math.max(...ys) + RING_OPEN_MARGIN + 1) - y0 };
 })();
 
 /** AUTOSAVE_DEBOUNCE (presentation tunable): how long after the last edit the draft is sent to the server. */
@@ -364,16 +399,23 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
     setSelectedRef((cur) => (cur === hit.id ? null : hit.id));
   }, []);
   const placeSelected = useCallback(
-    (cell: Cell) => {
+    (at: Cell) => {
       if (locked || !selectedRef) return;
+      // S3: a fence wants a ring position; a tap a cell off the ring snaps to the nearest one.
+      const cell = kindOfRef(manifest, selectedRef) === "fence" ? (snapToRing(at) ?? at) : at;
       const why = dropRefusal(manifest, formation, selectedRef, cell);
       if (why) {
         setRefused({ name: nameOf(selectedRef), refusal: why });
         return;
       }
-      setFormation((f) => dropAt(manifest, f, selectedRef, cell));
+      const wasPlaced = isPlaced(formation, selectedRef);
+      const next = dropAt(manifest, formation, selectedRef, cell);
+      setFormation(next);
       setRefused(null);
       setStatus(null);
+      // S3: placing something new from the wagon moves the selection on to the next one of its
+      // kind, so "Place here" (or a tap) places the next segment instead of moving this one.
+      if (!wasPlaced) setSelectedRef(nextUnplacedOfKind(manifest, next, selectedRef));
     },
     [locked, selectedRef, manifest, formation, nameOf, setFormation],
   );
@@ -425,6 +467,13 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
     // Only after an edit: the arrangement the screen opened with is the server's (or this page's) already.
     if (!dirty || committedAt || busy || formation === openedWith.current) return;
     cancelAutosave();
+    // N10: the server keeps a draft only once every living unit is posted; say so here
+    // instead of sending a save it must refuse.
+    const unposted = unpostedUnits(manifest, formation);
+    if (unposted.length > 0) {
+      setAutosaveIssues(unposted.map((u) => ({ code: "unit_not_posted", message: `living unit '${u.ref}' has no post`, subject: u.ref })));
+      return;
+    }
     autosaveTimer.current = window.setTimeout(() => {
       autosaveTimer.current = null;
       const sent = formation;
@@ -540,6 +589,31 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
     }
   };
 
+  // ── S3: fast arranging ──────────────────────────────────────────────────────────────
+  const [lastBusy, setLastBusy] = useState(false);
+  const applyQuick = (next: Formation, message: string | null): void => {
+    setFormation(next);
+    setSelectedRef(null);
+    setRefused(null);
+    setStatus(message);
+  };
+  const startFromLast = async (): Promise<void> => {
+    if (encounterIndex <= 1) return;
+    setLastBusy(true);
+    setError(null);
+    try {
+      const prev = (await api.formation(caravanId, encounterIndex - 1)).formation;
+      const next = carryForward(manifest, prev.formation);
+      applyQuick(next, isEmptyFormation(next) ? T.lastNothing : T.lastApplied(next.fences.length, next.traps.length, next.posts.length));
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) setStatus(T.lastNone);
+      else fail(err);
+    } finally {
+      setLastBusy(false);
+    }
+  };
+  const fenceLeft = nextFenceRef(manifest, formation) !== null;
+
   const minGaps = RING_SEGMENTS.length - TUNABLES.FENCE_MATERIAL_BUDGET;
   const selectedUnplaced = selectedRef !== null && !isPlaced(formation, selectedRef);
   const focus = !locked && selectedUnplaced ? { key: selectedRef!, rect: RING_RECT } : null;
@@ -584,6 +658,7 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
         onDragEnd={onDragEnd}
         onDragCancel={cancelDrag}
         focus={focus}
+        frame={CIRCLE_FRAME}
         onUnavailable={() => setCanvasDown(T.canvasUnavailable)}
       />
       {canvasDown && <p className="hint">{canvasDown}</p>}
@@ -613,6 +688,38 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
         <p className="notice" role="status" data-testid="drop-refused" data-code={refused.refusal.code}>
           {T.refusedDrop(refused.name, refused.refusal.message)} <span className="error__code">{T.refusalCode(refused.refusal.code)}</span>
         </p>
+      )}
+
+      {!locked && (
+        <section className="quick" aria-labelledby="quick-heading" data-testid="quick-arrange">
+          <h2 id="quick-heading" className="h3">
+            {T.quickHeading}
+          </h2>
+          {encounterIndex > 1 && (
+            <button type="button" className="btn btn--block" disabled={lastBusy} onClick={() => void startFromLast()} data-testid="start-from-last">
+              {lastBusy ? T.lastLoading : T.lastButton}
+            </button>
+          )}
+          <div className="quick__sides">
+            {ENTRY_EDGES.map((edge) => {
+              const open = openOnSide(formation, edge);
+              const raiders = scout.scout.units.filter((u) => u.edge === edge).length;
+              return (
+                <button
+                  key={edge}
+                  type="button"
+                  className="btn"
+                  disabled={open === 0 || !fenceLeft}
+                  onClick={() => applyQuick(fenceSide(manifest, formation, edge), null)}
+                  data-testid={`fence-side-${edge}`}
+                >
+                  {T.fenceSide(T.edgeName(edge), raiders)}
+                </button>
+              );
+            })}
+          </div>
+          <p className="hint">{T.quickHint}</p>
+        </section>
       )}
 
       <h2>{T.ringHeading}</h2>

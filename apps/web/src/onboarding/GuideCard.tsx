@@ -3,7 +3,7 @@
  * actions, and — once past the first screen — "Skip the guide" behind a confirm. Sits in the
  * normal flow of the screen it guides (never an overlay over the controls it points at).
  */
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Modal } from "../shell/Modal.tsx";
 import { STRINGS } from "../strings.ts";
 import { useOnboarding } from "./OnboardingProvider.tsx";
@@ -23,6 +23,12 @@ export function GuideCard({ title, testId, children, actions }: GuideCardProps):
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const canSkip = ob?.view?.canSkip ?? false;
+  // Final play-test review N2: a new step's card is brought into view (the player may be
+  // scrolled down at the panel the last step pointed at). "nearest": a card already on screen does not move.
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    ref.current?.scrollIntoView?.({ block: "nearest" });
+  }, [testId]);
 
   const skip = async (): Promise<void> => {
     if (!ob) return;
@@ -39,7 +45,7 @@ export function GuideCard({ title, testId, children, actions }: GuideCardProps):
   };
 
   return (
-    <aside className="guide" aria-label={G.label} data-testid={testId}>
+    <aside className="guide" aria-label={G.label} data-testid={testId} ref={ref}>
       <p className="guide__label">{G.label}</p>
       <h2 className="guide__title">{title}</h2>
       {children}

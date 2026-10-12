@@ -97,11 +97,25 @@ async function tapWithCircleInView(page: Page, testId: string): Promise<void> {
   expect(after, `${testId}: circle in view after the edit`).toBe(true);
 }
 
+/**
+ * Final play-test review S4: a just-committed fight opens its replay at once, playing, with
+ * "Skip to result" as the dialog's action. Prove it opened, then skip to the itemized result.
+ */
+async function skipAutoplay(page: Page): Promise<void> {
+  const dialog = page.getByTestId("replay-dialog");
+  await expect(dialog).toBeVisible({ timeout: 20_000 });
+  const skip = dialog.getByTestId("replay-close");
+  await expect(skip).toHaveText("Skip to result");
+  await skip.click();
+  await expect(dialog).toHaveCount(0);
+}
+
 async function commit(page: Page): Promise<void> {
   await page.getByTestId("commit-open").click();
   await expect(page.getByTestId("commit-confirm")).toBeEnabled({ timeout: 15_000 });
   await copyIsTheRightWayRound(page);
   await page.getByRole("dialog").getByTestId("commit-confirm").click();
+  await skipAutoplay(page);
 }
 
 const fresh = (tag: string): string => `e2e_${tag}_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`;
@@ -266,7 +280,9 @@ test("a fresh account: register, the first screen, a refugee, the first trip gui
     await picker.getByRole("combobox").selectOption({ index: 1 });
     await picker.getByRole("button", { name: "Place here" }).click();
     await expect(unit).toContainText("Posted at");
-    await page.getByRole("region", { name: "Selected" }).getByRole("button", { name: "Done" }).click();
+    // Final play-test review S3: placing the last unit clears the selection (nothing left to advance to).
+    const done = page.getByRole("region", { name: "Selected" }).getByRole("button", { name: "Done" });
+    if (await done.count()) await done.click();
   }
   await commit(page);
   await expect(page.getByTestId("encounter-results")).toBeVisible({ timeout: 20_000 });

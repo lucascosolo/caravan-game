@@ -12,6 +12,7 @@
  * Copy rule (GUARDRAILS §2): a merged unit is never "stronger" than its parts — the produced
  * units are shown beside the consumed ones COMBINED, and the gain named is slots.
  */
+import { TUNABLES } from "@caravan/content";
 import { useEffect, useState } from "react";
 import { ApiError, type Api } from "../../api/client.ts";
 import type { MergePreview, MergeResultView, UnitStatsView } from "../../api/types.ts";
@@ -30,6 +31,8 @@ export interface MergeDialogProps {
   readonly onCancel: () => void;
   /** Focus target on close when the opener (a chip the merge consumed) is gone (QA-17 N4). */
   readonly restoreFocusTo?: () => HTMLElement | null;
+  /** Final play-test review D2: the roster's size, to say when merging lowers what the caravan can pack. */
+  readonly rosterSize?: number;
 }
 
 const asApiError = (err: unknown): ApiError => (err instanceof ApiError ? err : new ApiError(0, "unknown", STRINGS.app.genericError));
@@ -62,7 +65,7 @@ function StatsColumn({ heading, count, stats, testId }: { heading: string; count
   );
 }
 
-export function MergeDialog({ api, caravanId, instanceIds, onDone, onCancel, restoreFocusTo }: MergeDialogProps): JSX.Element {
+export function MergeDialog({ api, caravanId, instanceIds, onDone, onCancel, restoreFocusTo, rosterSize }: MergeDialogProps): JSX.Element {
   const [preview, setPreview] = useState<MergePreview | null>(null);
   const [loadError, setLoadError] = useState<ApiError | null>(null);
   const [commitError, setCommitError] = useState<ApiError | null>(null);
@@ -142,6 +145,11 @@ export function MergeDialog({ api, caravanId, instanceIds, onDone, onCancel, res
           <p className="hint">{T.statDamageMult(ratioText(preview.produced.perUnit.damageOutputMult, preview.produced.perUnit.multDen))}</p>
           <p className="hint">{T.previewAbility(preview.ability.displayName)}</p>
           <p className="hint">{T.previewNotStronger}</p>
+          {rosterSize !== undefined && rosterSize < TUNABLES.DEPLOYMENT_SLOT_CAP && (
+            <p className="notice" data-testid="merge-below-slots">
+              {T.previewBelowSlots(rosterSize, TUNABLES.DEPLOYMENT_SLOT_CAP, rosterSize - preview.slotsFreed)}
+            </p>
+          )}
           {preview.requiresConfirmInParty && (
             <div className="error" role="alert" data-testid="merge-in-party">
               <p style={{ marginTop: 0 }}>{T.previewInParty(preview.consumed.inParty.length)}</p>
