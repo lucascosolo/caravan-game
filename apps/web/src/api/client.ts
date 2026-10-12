@@ -26,6 +26,8 @@ import {
   economyShape,
   formationShape,
   manifestShape,
+  manifestReadShape,
+  candidatesReadShape,
   unpackShape,
   meShape,
   menuShape,
@@ -61,7 +63,7 @@ import type { RecentFightsView, ReplayView } from "./replayTypes.ts";
 import { accountViewShape, deleteResultShape, devicesShape, exportShape, linkResultShape, revokeOthersShape } from "./accountShapes.ts";
 import type { AccountExport, AccountView, DeleteResult, DevicesView, LinkResult, RevokeOthersResult } from "./accountTypes.ts";
 import type { BankResult, EncounterCommitResult, PushResult, StakesPreview, TripStartResult, TripStatusView } from "./tripTypes.ts";
-import type {
+import type { ManifestReadResponse, CandidatesReadResponse,
   AuthResponse,
   ApiErrorBody,
   CandidateMenuResponse,
@@ -163,7 +165,8 @@ export interface Api {
   spendUnlock(req: SpendRequest): Promise<SpendResult>;
   // Wagon circle (chunk 07 routes). All owner-only; a foreign caravan is a 404.
   packManifest(caravanId: string, req: PackManifestRequest): Promise<ManifestResponse>;
-  manifest(caravanId: string): Promise<ManifestResponse>;
+  /** N10: `{ manifest: null }` (200) in town with nothing packed. */
+  manifest(caravanId: string): Promise<ManifestReadResponse>;
   /** Final play-test review N9: unpack a caravan that is packed but has not ridden out. */
   unpackManifest(caravanId: string): Promise<{ readonly unpacked: { readonly manifestId: string } }>;
   saveFormation(caravanId: string, encounterIndex: number, formation: FormationBody): Promise<FormationResponse>;
@@ -172,7 +175,8 @@ export interface Api {
   // Matchmaking & scouting (chunk 14 routes). The reroll is free and time-gated: a 409
   // `reroll_cooldown` carries `availableAtMs` in `ApiError.body`; nothing here can shorten it.
   searchCandidates(caravanId: string, encounterIndex: number): Promise<CandidateMenuResponse>;
-  candidates(caravanId: string, encounterIndex: number): Promise<CandidateMenuResponse>;
+  /** N10: `{ menu: null, searched: false }` (200) before the encounter's first search. */
+  candidates(caravanId: string, encounterIndex: number): Promise<CandidatesReadResponse>;
   chooseCandidate(caravanId: string, encounterIndex: number, candidateId: string): Promise<ChoiceView>;
   // The trip loop (chunk 15 routes, chunk 23 client). Start consumes one trip-cap use (409
   // `trip_cap_exhausted` carries `cap` + `retryAfterSeconds` in `ApiError.body`); commit freezes
@@ -317,13 +321,13 @@ export function createApi(opts: ApiOptions): Api {
     progression: () => request("GET", "/me/progression", progressionShape),
     spendUnlock: (req) => request("POST", "/me/unlocks/spend", spendResultShape, req),
     packManifest: (caravanId, req) => request("POST", `${caravans(caravanId)}/manifest`, manifestShape, req),
-    manifest: (caravanId) => request("GET", `${caravans(caravanId)}/manifest`, manifestShape),
+    manifest: (caravanId) => request("GET", `${caravans(caravanId)}/manifest`, manifestReadShape),
     unpackManifest: (caravanId) => request("DELETE", `${caravans(caravanId)}/manifest`, unpackShape),
     saveFormation: (caravanId, n, formation) => request("PUT", `${caravans(caravanId)}/encounters/${n}/formation`, formationShape, formation),
     formation: (caravanId, n) => request("GET", `${caravans(caravanId)}/encounters/${n}/formation`, formationShape),
     commitFormation: (caravanId, n) => request("POST", `${caravans(caravanId)}/encounters/${n}/formation/commit`, formationShape),
     searchCandidates: (caravanId, n) => request("POST", `/me${caravans(caravanId)}/encounters/${n}/search`, menuShape),
-    candidates: (caravanId, n) => request("GET", `/me${caravans(caravanId)}/encounters/${n}/candidates`, menuShape),
+    candidates: (caravanId, n) => request("GET", `/me${caravans(caravanId)}/encounters/${n}/candidates`, candidatesReadShape),
     chooseCandidate: (caravanId, n, candidateId) => request("POST", `/me${caravans(caravanId)}/encounters/${n}/choose`, choiceShape, { candidateId }),
     tripStatus: (caravanId) => request("GET", `/me${caravans(caravanId)}/trip`, tripStatusShape),
     startTrip: (caravanId) => request("POST", `/me${caravans(caravanId)}/trip/start`, tripStartShape),

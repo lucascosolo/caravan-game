@@ -4,7 +4,8 @@
  * these routes pick and scout who will attack them.
  *
  *   POST /me/caravans/:caravanId/encounters/:n/search      draw 3 candidates (free; a repeat is time-gated)
- *   GET  /me/caravans/:caravanId/encounters/:n/candidates  the current menu, every candidate scoutable in full
+ *   GET  /me/caravans/:caravanId/encounters/:n/candidates  the current menu, every candidate scoutable in full;
+ *                                                          200 `{ menu: null, searched: false }` before the first search (N10)
  *   POST /me/caravans/:caravanId/encounters/:n/choose      commit to one ({ candidateId })
  *
  * There is deliberately no route that shortens the reroll wait, no body field that could
@@ -14,7 +15,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { withTransaction } from "../db/pool.js";
 import type { CaravanRow } from "../db/types.js";
-import { RerollCooldownError, chooseCandidate, notFound, readCandidates, searchCandidates } from "../matchmaking/service.js";
+import { RerollCooldownError, chooseCandidate, notFound, readCandidatesOrEmpty, searchCandidates } from "../matchmaking/service.js";
 import { findCaravanById } from "../repo/caravans.js";
 import { badRequest } from "../services/errors.js";
 import { isUuid } from "../util/uuid.js";
@@ -53,7 +54,7 @@ export async function matchmakingRoutes(app: FastifyInstance): Promise<void> {
 
   app.get<{ Params: EncounterParams }>("/me/caravans/:caravanId/encounters/:n/candidates", { preHandler: requireAuth }, async (req) => {
     const caravan = await ownCaravan(req);
-    return { menu: await readCandidates(app.db, caravan, encounterIndex(req.params.n), Date.now()) };
+    return readCandidatesOrEmpty(app.db, caravan, encounterIndex(req.params.n), Date.now());
   });
 
   app.post<{ Params: EncounterParams }>("/me/caravans/:caravanId/encounters/:n/choose", { preHandler: requireAuth }, async (req) => {

@@ -30,6 +30,7 @@
  *       selection and resolution never affects that fight.
  */
 import { manifestFromJson, partyFromJson, scoutParty, serializeParty, type PartyScoutView } from "@caravan/circle";
+import { getFenceTier, getTrapType } from "@caravan/content";
 import { createHash } from "node:crypto";
 import type pg from "pg";
 import { findOpenManifest } from "../circle/repo.js";
@@ -39,7 +40,7 @@ import { enqueueEncounterResolution } from "../jobs/handlers/encounterResolution
 import { StandingPartyInvalidError, snapshotStandingParty, type StandingPartySnapshot } from "../jobs/snapshots.js";
 import { canonicalJson, type Json, type JsonObject } from "../ledger/events.js";
 import { getCaravanPoolProgress } from "../repo/poolProgress.js";
-import { LEGACY_DEFAULT_CARAVAN_NAME } from "../services/caravanNames.js";
+import { LEGACY_DEFAULT_CARAVAN_NAME, generatedCaravanName } from "../services/caravanNames.js";
 import { AppError, badRequest, conflict } from "../services/errors.js";
 import {
   AUTHORED_PARTY_MAX_SHARE_BP,
@@ -248,6 +249,12 @@ export interface CandidateMenuView {
    * parties exist (`relaxed`). Null when the rule did not apply.
    */
   raiderCap: { packedUnits: number; cap: number; relaxed: boolean; excluded: number } | null;
+  /**
+   * Final play-test review N5: the caravan's OWN fence and traps as they stand for this encounter
+   * (the open manifest's survivors), so the screen can set each party's siege counter against what
+   * it would actually hit. The caravan's own data only; nothing about another account.
+   */
+  caravanLoadout: CaravanLoadout | null;
   escalation: { applied: number; perEncounter: number; nextEncounter: number };
   bandWidthUsed: number;
   widened: boolean;
@@ -409,6 +416,37 @@ export function candidateFromSnapshot(
   };
 }
 
+/** N5: the caravan's standing fence segments by tier and its unspent traps by type, with their categories. */
+export interface CaravanLoadout {
+  fences: { tierId: string; displayName: string; category: string; standing: number; packed: number }[];
+  traps: { typeId: string; displayName: string; category: string; ready: number; packed: number }[];
+}
+
+/** N5: the open manifest's survivors, summarized. Null when nothing is packed. */
+export async function caravanLoadout(db: Queryable, caravanId: string): Promise<CaravanLoadout | null> {
+  const m = await findOpenManifest(db, caravanId);
+  if (!m) return null;
+  const s = manifestFromJson(m.survivors);
+  const fences = new Map<string, CaravanLoadout["fences"][number]>();
+  for (const f of s.fences) {
+    const tier = getFenceTier(f.tierId);
+    const e = fences.get(f.tierId) ?? { tierId: f.tierId, displayName: tier?.displayName ?? f.tierId, category: tier?.category ?? "unknown", standing: 0, packed: 0 };
+    e.packed++;
+    if (f.hp > 0) e.standing++;
+    fences.set(f.tierId, e);
+  }
+  const traps = new Map<string, CaravanLoadout["traps"][number]>();
+  for (const t of s.traps) {
+    const type = getTrapType(t.typeId);
+    const e = traps.get(t.typeId) ?? { typeId: t.typeId, displayName: type?.displayName ?? t.typeId, category: type?.category ?? "unknown", ready: 0, packed: 0 };
+    e.packed++;
+    if (!t.spent) e.ready++;
+    traps.set(t.typeId, e);
+  }
+  const byId = <T,>(xs: Iterable<T>, key: (x: T) => string) => [...xs].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
+  return { fences: byId(fences.values(), (f) => f.tierId), traps: byId(traps.values(), (t) => t.typeId) };
+}
+
 /** N6: why a search's centre sits where it does, relative to the caravan's rating. Pure. */
 export function centreBasisOf(caravanRating: number, centre: number, encounterIndex: number): CandidateMenuView["centreBasis"] {
   const offset = centre - caravanRating;
@@ -431,6 +469,7 @@ function menuView(row: EncounterCandidatesRow, passes: SelectionPass[], authored
     centre: row.centre,
     centreBasis: centreBasisOf(row.caravan_rating, row.centre, row.encounter_index),
     raiderCap: cap ? { packedUnits: cap.packedUnits, cap: cap.cap, relaxed: cap.relaxed, excluded: cap.excludedPartyIds.length } : null,
+    caravanLoadout: null,
     escalation: { applied: row.centre - row.caravan_rating, perEncounter: ESCALATION_PER_ENCOUNTER, nextEncounter: escalationFor(row.encounter_index + 1) },
     bandWidthUsed: row.band_width_used,
     widened: row.band_width_used > REPUTATION_BAND_WIDTH,
@@ -527,7 +566,12 @@ export async function searchCandidates(client: pg.PoolClient, caravan: CaravanRo
   const pool: PoolEntry[] = counted.filter((e) => !capOut.has(e.partyId)).map(({ raiders: _raiders, ...e }) => e);
   // N8: a guest owner's party rides under its caravan's name (public: the results feed shows it).
   const guestNames = await caravanNamesOf(client, rows.filter((r) => !r.is_system && r.username === null).map((r) => r.owner_account_id));
-  const names = new Map(rows.map((r) => [r.party_id, ownerDisplay(r.username, r.is_system, guestNames.get(r.owner_account_id) ?? null)]));
+  // A caravan still carrying the legacy "Caravan" placeholder (or none) rides under the name it would be generated today.
+  const guestName = (accountId: string): string => {
+    const n = guestNames.get(accountId);
+    return n && n !== LEGACY_DEFAULT_CARAVAN_NAME ? n : generatedCaravanName(accountId);
+  };
+  const names = new Map(rows.map((r) => [r.party_id, ownerDisplay(r.username, r.is_system, !r.is_system && r.username === null ? guestName(r.owner_account_id) : null)]));
   // Chunk 25: the band's authored served share (second stage of retire-by-ratio), and the
   // draw rules in force, both stored with the menu so the draw replays from the row (QA N2).
   const band = bandOf(centre);
@@ -574,7 +618,7 @@ export async function searchCandidates(client: pg.PoolClient, caravan: CaravanRo
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::jsonb, $14, $15::jsonb, $16, $17::jsonb) RETURNING *`,
     [trip.id, encounterIndex, searchSeq, seed, caravanRating, centre, result.bandWidthUsed, JSON.stringify(stored), JSON.stringify(excludedPartyIds), JSON.stringify([...skipped]), canonicalJson(candidates as unknown as Json), opts.nowMs, JSON.stringify(authoredServed), band.index, JSON.stringify(rules), result.authoredWeightedDown, raiderCap === null ? null : JSON.stringify(raiderCap)],
   );
-  return viewOf(res.rows[0]!, opts.nowMs);
+  return { ...viewOf(res.rows[0]!, opts.nowMs), caravanLoadout: await caravanLoadout(client, caravan.id) };
 }
 
 /** The current menu for the encounter (the latest search; the chosen one, if any, is always the latest). */
@@ -583,7 +627,21 @@ export async function readCandidates(db: Queryable, caravan: CaravanRow, encount
   if (!Number.isInteger(encounterIndex) || encounterIndex < 1) throw badRequest("bad_encounter", "encounter index must be a positive integer");
   const row = (await findChosenSearch(db, trip.id, encounterIndex)) ?? (await findLatestSearch(db, trip.id, encounterIndex));
   if (!row) throw notFound("no_search", `no candidates have been searched for encounter ${encounterIndex}`);
-  return viewOf(row, nowMs);
+  return { ...viewOf(row, nowMs), caravanLoadout: await caravanLoadout(db, caravan.id) };
+}
+
+/**
+ * N10 (final play-test review): the route's read. "Nothing searched yet" is an empty state, not
+ * an error: 200 `{ menu: null, searched: false, encounterIndex }`. A caravan with no open trip is
+ * still a 404 `no_trip` (there is no encounter to ask about).
+ */
+export async function readCandidatesOrEmpty(db: Queryable, caravan: CaravanRow, encounterIndex: number, nowMs: number): Promise<{ menu: CandidateMenuView | null; searched: boolean; encounterIndex: number }> {
+  try {
+    return { menu: await readCandidates(db, caravan, encounterIndex, nowMs), searched: true, encounterIndex };
+  } catch (err) {
+    if (err instanceof AppError && err.code === "no_search") return { menu: null, searched: false, encounterIndex };
+    throw err;
+  }
 }
 
 export interface ChoiceView {
@@ -604,7 +662,7 @@ export async function chooseCandidate(client: pg.PoolClient, caravan: CaravanRow
   requireNextEncounter(manifest, encounterIndex);
   const chosen = await findChosenSearch(client, trip.id, encounterIndex);
   if (chosen) {
-    if (chosen.chosen_candidate_id === candidateId) return { menu: viewOf(chosen, nowMs), chosen: candidateView(chosen.candidates.find((c) => c.candidateId === candidateId)!) };
+    if (chosen.chosen_candidate_id === candidateId) return { menu: { ...viewOf(chosen, nowMs), caravanLoadout: await caravanLoadout(client, caravan.id) }, chosen: candidateView(chosen.candidates.find((c) => c.candidateId === candidateId)!) };
     throw conflict("already_chosen", "a different candidate for this encounter is already chosen");
   }
   const latest = await findLatestSearch(client, trip.id, encounterIndex);
@@ -622,7 +680,7 @@ export async function chooseCandidate(client: pg.PoolClient, caravan: CaravanRow
     "UPDATE encounter_candidates SET chosen_candidate_id = $4, chosen_at = now() WHERE trip_id = $1 AND encounter_index = $2 AND search_seq = $3 RETURNING *",
     [trip.id, encounterIndex, latest.search_seq, candidateId],
   );
-  return { menu: viewOf(res.rows[0]!, nowMs), chosen: candidateView(candidate) };
+  return { menu: { ...viewOf(res.rows[0]!, nowMs), caravanLoadout: await caravanLoadout(client, caravan.id) }, chosen: candidateView(candidate) };
 }
 
 /** The chosen candidate for an encounter of a trip (row shape: owner account id included), or null. Chunk 15 reads this; the client reads `readCandidates`. */

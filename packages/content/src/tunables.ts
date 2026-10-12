@@ -547,6 +547,14 @@ export const TUNABLES = {
    * three-raider starter outfits and difficulty rises monotonically from there.
    */
   AUTHORED_PARTY_SIZE_FLOOR: 3,
+  /**
+   * TUNABLE (final play-test review; BALANCE-LOG pass 2). Raiders in each FLOOR-band (ordinal 0)
+   * outfit that splits over fewer edges than this, in place of AUTHORED_PARTY_SIZE_FLOOR; 0 keeps
+   * the floor band on the curve. Since the guide leaves GUIDE_RESERVE units in town, a first trip
+   * posts 5 units, not 7, and three-raider floor outfits held only 66 % of guided first fights.
+   * The floor band keeps its 4-edge (4-raider) outfits, and every band above is unchanged.
+   */
+  AUTHORED_FLOOR_BAND_PARTY_SIZE: 2,
   /** TUNABLE (chunk 37): the band ordinals over which the outfits' living tier and merge level climb from the floor to the top (from ordinal 1). */
   AUTHORED_CLIMB_BANDS: 6,
   AUTHORED_PARTY_SIZE_RISE: 6,

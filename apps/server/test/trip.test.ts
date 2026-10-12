@@ -537,7 +537,7 @@ describe("the encounter chain: attrition carries forward, nothing is repaired, b
     expect((await caravanRow(d)).state).toBe("in_town");
     const trip = await pool.query("SELECT ended_at, end_reason FROM trip WHERE id = $1", [tripId]);
     expect(trip.rows[0].end_reason).toBe("banked");
-    expect((await call(d, "GET", `/caravans/${d.caravanId}/manifest`)).statusCode).toBe(404); // closed
+    expect((await call(d, "GET", `/caravans/${d.caravanId}/manifest`)).json().manifest).toBeNull(); // closed
     expect((await status(d)).trip).toMatchObject({ id: tripId, phase: "ended", endReason: "banked", unbankedCoin: 0 });
     // After the bank nothing is decidable any more.
     expect((await push(d, tripId, 3)).json().error).toBe("trip_banked");
@@ -629,7 +629,7 @@ describe("overrun ends the trip (chunk 19 applies the losses in the same transac
     expect(roster1).toEqual(roster0.filter((r: { id: string }) => r.id !== d.rider && r.id !== d.third));
     expect((await bank(d, tripId, 2)).json().error).toBe("trip_overrun");
     expect((await bank(d, tripId, 1)).statusCode).toBe(409);
-    expect((await call(d, "GET", `/caravans/${d.caravanId}/manifest`)).statusCode).toBe(404);
+    expect((await call(d, "GET", `/caravans/${d.caravanId}/manifest`)).json().manifest).toBeNull();
   });
 
   it("an overrun on the very first encounter: nothing accrued, nothing at stake beyond the packed loadout", async () => {

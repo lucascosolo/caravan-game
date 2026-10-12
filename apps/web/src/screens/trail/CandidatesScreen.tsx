@@ -17,7 +17,7 @@
  * a choice stands. The screen only renders the menu and relays the player's choice.
  */
 import { ApiError } from "../../api/client.ts";
-import type { CandidateMenuView, CandidateView } from "../../api/types.ts";
+import type { CaravanLoadoutView, CandidateMenuView, CandidateView } from "../../api/types.ts";
 import { monotonic, useAnchoredCountdown } from "../../shell/countdown.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { STRINGS } from "../../strings.ts";
@@ -31,14 +31,20 @@ const T = STRINGS.trail;
  * targeting stance, total HP, the siege and what it counters, and the approach by side. Every
  * number is the scout's own; the full report stays one tap away below it.
  */
-export function scoutSummary(scout: ScoutedParty): { readonly stances: string; readonly hp: number; readonly siege: string; readonly approach: string } {
+export function scoutSummary(scout: ScoutedParty, loadout: CaravanLoadoutView | null = null): { readonly stances: string; readonly hp: number; readonly siege: string; readonly approach: string } {
   const by = (s: string) => scout.units.filter((u) => u.stance === s).length;
   const stances = (["core", "nearest", "traps"] as const)
     .filter((s) => by(s) > 0)
     .map((s) => T.summaryStance(s, by(s)))
     .join(" · ");
   const hp = scout.units.reduce((n, u) => n + u.hp, 0);
-  const siege = scout.siege.length === 0 ? T.summaryNoSiege : scout.siege.map((s) => T.summarySiege(s.displayName, s.counters.kind, s.counters.category)).join("; ");
+  // N5: set each siege piece against the caravan's OWN packed fence and traps (the server's caravanLoadout).
+  const vsYours = (kind: string, category: string): string => {
+    if (!loadout) return "";
+    const n = kind === "fence" ? loadout.fences.filter((f) => f.category === category).reduce((a, f) => a + f.standing, 0) : loadout.traps.filter((t) => t.category === category).reduce((a, t) => a + t.ready, 0);
+    return ` ${T.summarySiegeVsYours(n, kind)}`;
+  };
+  const siege = scout.siege.length === 0 ? T.summaryNoSiege : scout.siege.map((s) => T.summarySiege(s.displayName, s.counters.kind, s.counters.category) + vsYours(s.counters.kind, s.counters.category)).join("; ");
   const approach = (["north", "east", "south", "west"] as const)
     .map((e) => ({ e, n: scout.units.filter((u) => u.edge === e).length }))
     .filter((x) => x.n > 0)
@@ -47,8 +53,8 @@ export function scoutSummary(scout: ScoutedParty): { readonly stances: string; r
   return { stances, hp, siege, approach };
 }
 
-function ScoutSummary({ scout, index }: { scout: ScoutedParty; index: number }): JSX.Element {
-  const s = scoutSummary(scout);
+function ScoutSummary({ scout, index, loadout }: { scout: ScoutedParty; index: number; loadout: CaravanLoadoutView | null }): JSX.Element {
+  const s = scoutSummary(scout, loadout);
   return (
     <dl className="scout-summary" data-testid={`scout-summary-${index}`}>
       <dt>{T.summaryRaiders(scout.units.length)}</dt>
@@ -77,7 +83,7 @@ export interface CandidatesScreenProps {
 // The countdown moved to shell/countdown.ts (chunk 23 reuses it for the trip cap); re-exported for existing imports.
 export { useAnchoredCountdown };
 
-export function CandidateCard({ candidate, busy, onChoose, index }: { candidate: CandidateView; busy: boolean; onChoose: (c: CandidateView) => void; index: number }): JSX.Element {
+export function CandidateCard({ candidate, busy, onChoose, index, loadout = null }: { candidate: CandidateView; busy: boolean; onChoose: (c: CandidateView) => void; index: number; loadout?: CaravanLoadoutView | null }): JSX.Element {
   const rep = candidate.reputation;
   const pct = Math.round((rep.sandbagEarnMultiplier * 100) / 1024);
   return (
@@ -94,7 +100,7 @@ export function CandidateCard({ candidate, busy, onChoose, index }: { candidate:
       <p className="card__line">
         {T.candidateRating(rep.rating, rep.band.low, rep.band.high)} · {T.candidateGap(rep.gapFromCaravan)} · {T.candidateBeyondBand(rep.gapBeyondBand)} · {T.candidateSandbag(pct)}
       </p>
-      <ScoutSummary scout={candidate.scout} index={index} />
+      <ScoutSummary scout={candidate.scout} index={index} loadout={loadout} />
       {/* N5: the full report is collapsed under the summary: one tap away, nothing hidden. */}
       <details className="scout-details">
         <summary className="btn btn--block">{T.scoutFullReport}</summary>
@@ -158,7 +164,7 @@ export function CandidatesScreen({ encounterIndex, menu, busy, error, onSearchAg
 
       <ul className="cards" aria-label={T.candidatesHeading} data-testid="candidate-list">
         {menu.candidates.map((c, i) => (
-          <CandidateCard key={c.candidateId} candidate={c} busy={busy} onChoose={onChoose} index={i} />
+          <CandidateCard key={c.candidateId} candidate={c} busy={busy} onChoose={onChoose} index={i} loadout={menu.caravanLoadout ?? null} />
         ))}
       </ul>
     </section>

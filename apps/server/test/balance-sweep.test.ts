@@ -30,7 +30,10 @@ describe("balance sweep — the CI slice (PHASE-2 §37)", () => {
   });
 
   it("a fresh account's first trip: encounter 1 in band 0, the guided layout holds ≥ 70 %, encounter 2 held more often than not", () => {
-    const rs = firstTripTasks(2, 1).map(firstTrip);
+    // Final play-test review: the guide leaves GUIDE_RESERVE units home (firstTripTasks' default), so
+    // the first fight posts 5. Eight seeds (64 caravans): two seeds' 16 fights are too few to read a
+    // 70 % bar from (the full probe, 200 caravans, holds 73 %; BALANCE-LOG pass 2).
+    const rs = firstTripTasks(8, 1).map(firstTrip);
     const s = summarize(rs);
     expect(Object.keys(s.bands1)).toEqual(["0"]);
     expect(s.held1 / s.fights1, JSON.stringify(s)).toBeGreaterThanOrEqual(0.7);

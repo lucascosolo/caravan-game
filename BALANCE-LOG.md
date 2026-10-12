@@ -42,10 +42,11 @@ overrun costs −20.
 ## Pass 2 — 2026-10-12 (final play-test review: S1, D6, D8; D3/D4 recorded). RESOLVER_VERSION unchanged at 8.
 
 No resolver code, content stat or resolver tunable changed, so RESOLUTION_CONTENT_HASH and the golden
-corpus are unchanged. The quick sweep after this pass reproduces pass 1's quick-corpus diagonal
-exactly (skilled / guided / naive: b0 92/67/67, b1 83/63/71, b2 96/75/79, b3 75/58/54, b4 83/54/54,
-b5 58/29/29, b6 54/38/42, b7 83/38/42 %). New tools: `unlock-pace.ts` (D8), `party-rating.ts` (D6),
-`cold-start.ts` (S1's raider cap).
+corpus are unchanged. Before change #22 (the floor band's outfits), the quick sweep reproduced pass
+1's quick-corpus diagonal exactly (skilled / guided / naive: b0 92/67/67, b1 83/63/71, b2 96/75/79,
+b3 75/58/54, b4 83/54/54, b5 58/29/29, b6 54/38/42, b7 83/38/42 %). After it, only the band-0 column
+moves (below). `first-trip.ts` gained `--reserve` (default GUIDE_RESERVE). New tools:
+`unlock-pace.ts` (D8), `party-rating.ts` (D6) and `cold-start.ts` (S1's raider cap).
 
 ### What changed
 
@@ -55,7 +56,24 @@ b5 58/29/29, b6 54/38/42, b7 83/38/42 %). New tools: `unlock-pace.ts` (D8), `par
 | 18 | `REPUTATION_LOSS_ATTACKER` | −15 → **0**, now fixed by design | D6, PROJECT.md §10: a standing party that is held or withdraws never lowers its owner's Reputation; only a success (+25, gap-scaled) raises it. Asserted at boot. The defender's split (+10 / −20) is unchanged. |
 | 19 | `REFUGEE_ROSTER_FLOOR` (new) | 3 | S1: while a caravan in town has fewer than 3 living units, its free refugee menu is due at once. Each claim brings the next menu in the same request until the roster is at 3. A tuning of §15's free timer: still 3 offers from the unlocked pool, one pick, nothing locked. |
 | 20 | `COLD_START_RAIDER_CAP_BANDS` (new) | 1 (band 0 only) | S1: in band 0 no party with more raiders than the caravan packed units is offered. The cap rises one raider at a time when fewer than 3 parties near the centre would fit, so it never empties a menu. Stored on the menu row (`raider_cap`), so menus replay. |
-| 21 | `GUIDE_RESERVE` (new) | 2 | S1: the client guide packs at most `roster − 2`. Presentation only: the server never reads it. |
+| 21 | `GUIDE_RESERVE` (new; the client fix round's definition) | 2 | S1: the client guide packs at most `roster − 2`. Presentation only: the server never reads it. |
+| 22 | `AUTHORED_FLOOR_BAND_PARTY_SIZE` (new); `AUTHORED_SET_VERSION` 4 → 5 | the floor band's 1- and 2-edge outfits: 3 → **2** raiders (its 4-edge outfits keep 4; every band above is unchanged) | With the reserve, the guided first fight posts 5 units, not 7, and held only **66 %** (132 / 200) against the three-raider floor outfits. The decision's bar is ≥ 70 %. The raider cap could not help, because every floor outfit fielded 3 and the guide already picks the fewest. Two levers were tried: dropping the floor band's siege changed nothing (66 %, identical fights), and 2-raider floor outfits gave **73 %** (146 / 200). The validator's 3-unit minimum is relaxed to this size for the floor band only. |
+
+### The first fight with the guide's reserve (`first-trip.ts`, 4 regions × each refugee × 25 seeds = 200 caravans; 1 trap)
+
+The guide now packs `roster − GUIDE_RESERVE` = 5 of 7. Which 2 stay home depends on instance ids, so
+the probe rotates them by the seed.
+
+| | packs 7 (`--reserve 0`) | packs 5, floor outfits of 3 | **packs 5, floor outfits of 2 (#22)** |
+|---|---|---|---|
+| guided encounter 1 held | 161 / 200 = 81 % | 132 / 200 = 66 % | **146 / 200 = 73 %** (target ≥ 70 %) |
+| encounter 2, guide's shape | 125 / 161 = 78 % | 105 / 132 = 80 % | 108 / 146 = 74 % |
+| encounter 2, best of the skilled set | 127 / 161 = 79 % | 112 / 132 = 85 % | 113 / 146 = 77 % |
+| first trip completed (two holds, then bank) | 63 % | 53 % | 54 % |
+
+The guide's picks at encounter 1 after #22 were Bounty Board Riders 60 / 81, Gunslinger's Dozen
+53 / 79, Prairie Wolf Pack 22 / 29 and Salt Flat Drifters 11 / 11. The two badlands ranged outfits are
+what is left of the gap. Encounter 2 (band 1) is unchanged by #22.
 
 ### D8: time to the first tier-2 living unlock (`unlock-pace.ts`)
 
@@ -109,21 +127,20 @@ and anchors every band. This is a population effect that the offline sweep canno
 This is a rebuilt caravan of 1–4 unmerged starters with 1 Spike Pit and a full Brush Pile budget, at
 REPUTATION_START (encounter 1 in band 0), served from the authored pool with the guide's pick:
 
-| packed | raiders faced (cap off → on) | guided held | skilled held |
-|---|---|---|---|
-| 1 | 3 → 3 (the cap relaxes to 3) | 0 % | 13 % |
-| 2 | 3 → 3 (relaxes to 3) | 33 % | 54 % |
-| 3 | 3 → 3 | 45 % | 57 % |
-| 4 | 3 → 3 | 57 % | 63 % |
+| packed | before #22: raiders faced, guided / skilled held | **after #22**: raiders faced, guided / skilled held |
+|---|---|---|
+| 1 | 3 (the cap relaxes to 3): 0 % / 13 % | 2 (relaxes to 2): 42 % / 50 % |
+| 2 | 3 (relaxes to 3): 33 % / 54 % | 2: 46 % / 85 % |
+| 3 | 3: 45 % / 57 % | 2: 57 % / 89 % |
+| 4 | 3: 57 % / 63 % | 2: 66 % / 79 % |
 
-Against the authored pool alone the cap changes nothing. Every band-0 outfit fields
-AUTHORED_PARTY_SIZE_FLOOR = 3 raiders, and the guide already picks the fewest. So the cap relaxes to
-3 for a 1- or 2-unit caravan, and it only bites once live parties of 1–2 raiders stand in band 0.
-Together with the roster floor, the rebuild path the decision intends works like this. A wiped
-caravan takes three free refugees at once (relief), packs 3 and holds 45–57 % at encounter 1. That is
-still a coin flip. If the play test shows wiped testers stalling, the levers are REFUGEE_ROSTER_FLOOR
-(3 → 4 or 5: 57–63 % at 4) or a 2-raider floor outfit (AUTHORED_PARTY_SIZE_FLOOR). Neither is moved
-here: the decision fixed the floor at 3.
+The cap on and off gives identical rows against the authored pool. The guide already picks the
+fewest raiders, and every 1–2-edge floor outfit fields the same count. So the cap only bites once
+live parties larger than a rebuilt caravan stand in band 0. The rebuild path the decision intends
+now works like this. A wiped caravan takes three free refugees at once (relief), packs 3, and holds
+57 % of guided / 89 % of skilled encounter-1 fights (it was 45 / 57 % before #22). If the play test
+shows wiped testers stalling, the next lever is REFUGEE_ROSTER_FLOOR (3 → 4). It is not moved here:
+the decision fixed it at 3.
 
 ### Open — for the play test's telemetry (chunk 32), no mechanic change now
 
@@ -142,6 +159,10 @@ here: the decision fixed the floor at 3.
    authored ones at the same band.
 8. **S1's rebuild.** Watch the hold rate of caravans that packed ≤ 3 units, and the time from a wipe
    back to a banked trip.
+9. **Ranged raiders against the guard leash** (final play-test review N11). A lone Bounty Hunter
+   with range 4 shot posts over the fence for 84 s while five guards stood inside their leash. Watch
+   fight length and the share of quiet time in fights with ranged raiders. The replay label for it
+   needs a log-format change and is left for after the play test.
 
 ---
 

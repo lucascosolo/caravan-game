@@ -231,6 +231,9 @@ export const STRINGS = {
     summaryNoSiege: "none: fences and traps work at full effect",
     summarySiege: (name: string, kind: string, category: string): string => `${name} (counters ${category} ${kind === "fence" ? "fences" : "traps"})`,
     summaryApproachLabel: "Comes from",
+    /** N5: what that counter would hit of the caravan's own packed loadout. */
+    summarySiegeVsYours: (n: number, kind: string): string =>
+      n === 0 ? `— none of your packed ${kind === "fence" ? "fence" : "traps"} is of that kind` : `— counters ${n} of your packed ${kind === "fence" ? `fence segment${n === 1 ? "" : "s"}` : `trap${n === 1 ? "" : "s"}`}`,
     scoutFullReport: "Full scouting report",
     /** S1: the band-0 cold-start raider cap. */
     raiderCap: (cap: number, packed: number, relaxed: boolean): string =>

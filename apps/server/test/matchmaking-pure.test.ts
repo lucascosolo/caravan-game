@@ -422,7 +422,8 @@ describe("the authored set (chunk 25)", () => {
       expect(s.username.length).toBeLessThanOrEqual(32);
       expect(s.outfit.name.length).toBeGreaterThan(0);
       expect(s.outfit.flavor.length).toBeGreaterThan(0);
-      expect(s.units.length).toBeGreaterThanOrEqual(3);
+      // Three raiders and up, except the floor band's 1- and 2-edge outfits (AUTHORED_FLOOR_BAND_PARTY_SIZE, final play-test review).
+      expect(s.units.length).toBeGreaterThanOrEqual(s.band === specs[0]!.band && s.edgeCount < 4 ? Math.min(3, TUNABLES.AUTHORED_FLOOR_BAND_PARTY_SIZE || 3) : 3);
       expect(s.units.length).toBeLessThanOrEqual(TUNABLES.PARTY_SLOT_CAP);
       expect(s.siege.length).toBeLessThanOrEqual(TUNABLES.SIEGE_SLOT_CAP);
       for (const u of s.units) expect(u.typeId.startsWith(`${s.regionId}.`)).toBe(true);

@@ -33,6 +33,26 @@
         "relaxed": false,
         "excluded": 0
       },
+      "caravanLoadout": {
+        "fences": [
+          {
+            "tierId": "fence.brush_pile",
+            "displayName": "Brush Pile",
+            "category": "timber",
+            "standing": 20,
+            "packed": 20
+          }
+        ],
+        "traps": [
+          {
+            "typeId": "trap.spike_pit",
+            "displayName": "Spike Pit",
+            "category": "groundwork",
+            "ready": 1,
+            "packed": 1
+          }
+        ]
+      },
       "escalation": {
         "applied": -150,
         "perEncounter": 15,

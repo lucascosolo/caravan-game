@@ -171,6 +171,24 @@ export type DefensiveStanceView = import("@caravan/circle").DefensiveStance;
 export type FormationBody = import("@caravan/circle").Formation;
 
 /** `POST|GET /caravans/:id/manifest` → `{ manifest }`. */
+/** N5: the caravan's packed fence and traps, as the candidates read sends them. */
+export interface CaravanLoadoutView {
+  readonly fences: readonly { readonly tierId: string; readonly displayName: string; readonly category: string; readonly standing: number; readonly packed: number }[];
+  readonly traps: readonly { readonly typeId: string; readonly displayName: string; readonly category: string; readonly ready: number; readonly packed: number }[];
+}
+
+/** N10: the GET read — null in town with nothing packed. */
+export interface ManifestReadResponse {
+  readonly manifest: ManifestView | null;
+}
+
+/** N10: the GET candidates read — `menu` null (and `searched` false) before the first search. */
+export interface CandidatesReadResponse {
+  readonly menu: CandidateMenuView | null;
+  readonly searched?: boolean | undefined;
+  readonly encounterIndex?: number | undefined;
+}
+
 export interface ManifestResponse {
   readonly manifest: ManifestView;
 }
@@ -208,6 +226,8 @@ export interface CandidateMenuView {
   readonly centreBasis?: { readonly offset: number; readonly reason: "first_encounter_offset" | "escalation" | "none"; readonly inCaravanBand: boolean; readonly centreBand: BandView } | undefined;
   /** S1: the band-0 cold-start raider cap this search applied, or null. */
   readonly raiderCap?: { readonly packedUnits: number; readonly cap: number; readonly relaxed: boolean; readonly excluded: number } | null | undefined;
+  /** N5: the caravan's own packed fence (standing / packed by tier) and traps (ready / packed by type), with categories. */
+  readonly caravanLoadout?: CaravanLoadoutView | null | undefined;
   readonly escalation: { readonly applied: number; readonly perEncounter: number; readonly nextEncounter: number };
   readonly bandWidthUsed: number;
   readonly widened: boolean;

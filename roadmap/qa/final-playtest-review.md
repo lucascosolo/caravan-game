@@ -71,7 +71,7 @@ Tags: **S**: blocks the external play test. **D**: design question for the orche
 **N**: polish. Each item fits in one session.
 
 ### S1. [closed: client parts fixplay-client, server parts server fix round] One overrun can wipe the whole roster, and recovery is a multi-hour dead end
-> **Server parts closed (server fix round).** Three tunables were added. `GUIDE_RESERVE` (2) is the client's single definition (fixplay-client). `REFUGEE_ROSTER_FLOOR` (3): a caravan in town below it has its free menu due at once, and each claim brings the next menu until the roster is at the floor (same unlocked pool, one pick, a re-anchored grid). `COLD_START_RAIDER_CAP_BANDS` (1): in band 0 no party with more raiders than the caravan packed is offered; the cap relaxes only to fill a menu and is stored on the row as `raider_cap`, so the menu replays. A PROJECT.md §15 amendment line records the reason. BALANCE-LOG pass 2 re-checks the cap: against the authored pool alone it changes nothing, because every band-0 outfit has 3 raiders. The client parts (the guide reserve and the pack warning) belong to the client fixer.
+> **Server parts closed (server fix round).** Three tunables were added. `GUIDE_RESERVE` (2) is the client's single definition (fixplay-client). `REFUGEE_ROSTER_FLOOR` (3): a caravan in town below it has its free menu due at once, and each claim brings the next menu until the roster is at the floor (same unlocked pool, one pick, a re-anchored grid). `COLD_START_RAIDER_CAP_BANDS` (1): in band 0 no party with more raiders than the caravan packed is offered; the cap relaxes only to fill a menu and is stored on the row as `raider_cap`, so the menu replays. A PROJECT.md §15 amendment line records the reason. With the reserve, the guided first fight posts 5 units and held only 66 % (`first-trip.ts`). The floor band's 1- and 2-edge outfits now field 2 raiders (`AUTHORED_FLOOR_BAND_PARTY_SIZE`, authored set v5), which brings it to 73 % (target ≥ 70 %). The cap is re-checked in BALANCE-LOG pass 2: against the authored pool alone it changes nothing, because the guide already picks the smallest outfit. The client parts (the guide reserve and the pack warning) belong to the client fixer.
 
 
 - **Evidence:** the table above. 5 of 12 fresh accounts (A, B, C, h2, h7) had **0 units** within
@@ -277,7 +277,9 @@ not again for 24 h or until something valuable happens (first unlock, first purc
 The permanent region picker lists four names with no description (`shots/01-launch.png`).
 **Fix:** one line per region (its two starter units and their affinities).
 
-### N5. [closed, except the "vs your packed fence and traps" part] The scouting report is a 7,000 px wall
+### N5. [closed] The scouting report is a 7,000 px wall
+> **Server part closed (server fix round).** The search, candidates and choose reads now carry `caravanLoadout`: the caravan's own standing fence segments by tier and its unspent traps by type, with their categories. The candidate summary sets each siege counter against it ("counters 12 of your packed fence segments").
+
 Three candidates × full stat blocks (page height 7,139 px at 360 wide, `shots/09-candidates.png`,
 `shots/10b-scoutcard.png`). **Fix:** a one-row summary per candidate (raiders by stance icon,
 total HP, siege counter vs *your* packed fence and traps, approach mini-map) with the full block
@@ -298,7 +300,7 @@ party's owner: 0 Coin" (`shots/25-enc2-replay-b.png`). **Fix:** for authored par
 an authored outfit: it keeps nothing; your 600 unbanked Coin was lost to the trail".
 
 ### N8. [closed] Guest parties are shown as "Unnamed drifter"
-> **Closed (server fix round).** Every caravan created without a name now gets a generated one (`services/caravanNames.ts`, deterministic from the account id). A guest's party is served under its caravan's name. "Unnamed drifter" remains only for an old caravan still named with the legacy "Caravan" placeholder.
+> **Closed (server fix round).** Every caravan created without a name now gets a generated one (`services/caravanNames.ts`, deterministic from the account id). A guest's party is served under its caravan's name. A caravan that still carries the legacy "Caravan" placeholder is served under the name it would be generated today, so the matchmaking path never shows "Unnamed drifter".
 
 B saw A's party as "Unnamed drifter" (`shots/32-unnamed.png`). **Fix:** give every caravan a
 generated name at creation (as the guest flow already allows `caravanName`) and use it.
@@ -311,14 +313,18 @@ out … The next one returns in 13:09" with no unpack (`shots/55-320-state.png`)
 "Pack and ride out" when 0 trips are available (show the countdown), or offer "Unpack" while not
 yet ridden out.
 
-### N10. [autosave closed; the 404s are server-side, open] Console noise on every edit and screen
+### N10. [closed] Console noise on every edit and screen
+> **Server part closed (server fix round).** `GET …/trip` already answered 200 with `trip: null`. `GET /caravans/:id/manifest` with nothing packed now answers 200 `{ manifest: null }`, and `GET …/encounters/:n/candidates` before the first search answers 200 `{ menu: null, searched: false, encounterIndex }`. The client reads both, and still accepts the old 404s. New contract cases: `manifest-empty` and `candidates-empty`.
+
 Every formation edit fires `PUT …/formation` → 400 `unit_not_posted` until every unit is posted
 (about 20 in A's encounter 2). Every Town and Trail load logs a 404 for `GET …/trip` or
 `…/candidates`. **Fix:** skip the autosave PUT while the client knows units are unposted (it
 already shows the notice); answer 200 `{trip: null}` instead of 404 for "no trip yet". This also
 keeps chunk 32's crash panel clean.
 
-### N11. [fast-forward closed; the leash label is open] Some fights are 90 seconds of nothing
+### N11. [fast-forward closed; the leash label is open, deliberately] Some fights are 90 seconds of nothing
+> **Left open until after the play test (orchestrator decision).** The label "your posts cannot reach it (outside their leash)" needs the resolver to record *why* a post did not engage. That is a new field in the tick log, which is a change of log format: a RESOLVER_VERSION bump, regenerated goldens, and old replays read under the old format. That is not worth doing before the play test. The ranged-versus-leash balance note is BALANCE-LOG pass 2, open item 9.
+
 A's encounter 1 lasted 1:46. From 0:12 to 1:36 a lone Bounty Hunter (range 4) shot posts across
 the fence while the five guards stood still: "Dead or Alive … 83 damage" × 8 (replay text;
 `shots/16-replay-14.png`). **Fix (presentation):** fast-forward automatically at 4× through

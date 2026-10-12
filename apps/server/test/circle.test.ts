@@ -184,7 +184,7 @@ describe("packing and locking the manifest", () => {
     const unpack = await app.inject({ method: "DELETE", url: `/caravans/${q.caravanId}/manifest`, headers: { authorization: `Bearer ${q.token}` } });
     expect(unpack.statusCode).toBe(200);
     expect(unpack.json().unpacked.manifestId).toBe(packed.json().manifest.id);
-    expect((await call(q, "GET", `/caravans/${q.caravanId}/manifest`)).statusCode).toBe(404);
+    expect((await call(q, "GET", `/caravans/${q.caravanId}/manifest`)).json().manifest).toBeNull();
     expect((await pool.query<{ n: string }>("SELECT count(*)::text AS n FROM ledger_event WHERE account_id = $1", [q.accountId])).rows[0]!.n).toBe(ledgerBefore);
     const closed = await pool.query<{ closed_at: Date | null }>("SELECT closed_at FROM wagon_manifest WHERE id = $1", [packed.json().manifest.id]);
     expect(closed.rows[0]!.closed_at).not.toBeNull();
@@ -381,7 +381,7 @@ describe("arranging the formation per encounter, and carry-forward", () => {
 
   it("closing the manifest ends the trip: frozen thereafter, and the caravan can pack again", async () => {
     await withTransaction(appRole, (client) => closeManifest(client, manifestId));
-    expect((await call(p, "GET", `/caravans/${p.caravanId}/manifest`)).statusCode).toBe(404);
+    expect((await call(p, "GET", `/caravans/${p.caravanId}/manifest`)).json().manifest).toBeNull();
     const frozen = await expectDbError(appRole, `UPDATE wagon_manifest SET survivors = packed WHERE id = $1`, [manifestId]);
     expect(frozen?.message).toMatch(/closed and frozen/);
     const again = await call(p, "POST", `/caravans/${p.caravanId}/manifest`, STARTER_PACK(p));

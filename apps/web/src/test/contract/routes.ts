@@ -11,6 +11,8 @@
 import { ShapeError, expectShape, type Guard } from "../../api/shape.ts";
 import {
   authShape,
+  candidatesReadShape,
+  manifestReadShape,
   choiceShape,
   economyShape,
   formationShape,
@@ -59,8 +61,10 @@ export const CONTRACT_GUARDS: Readonly<Record<string, Guard<unknown> | null>> = 
   "party-feed": partyFeedShape,
   "manifest-pack": manifestShape,
   manifest: manifestShape,
+  "manifest-empty": manifestReadShape,
   search: menuShape,
-  candidates: menuShape,
+  candidates: candidatesReadShape,
+  "candidates-empty": candidatesReadShape,
   choose: choiceShape,
   "formation-put": formationShape,
   formation: formationShape,
