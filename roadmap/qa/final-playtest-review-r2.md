@@ -579,3 +579,15 @@ on the formation read. Migration **028** (`028_caravan_names`).
   - The deletion test now asserts that no table, and no decompressed replay, still contains the
     caravan name the party rode under.
 
+### Gates (observed)
+
+`TEST_DATABASE_URL=…/caravan_test_r2g E2E_PORT=3953 SMOKE_PORT=3953 E2E_WEB_PORT=4253 pnpm check`, after
+merging main (the client half). The final merge reported "Already up to date".
+
+- tests: content 82, resolver 587, circle 108, web 473, server 814 (+1 skipped);
+- determinism 366, perf:resolver 15;
+- e2e 12 passed (2.6 m), including `reloads.spec.ts`; e2e:hosting 14 passed (2.5 m);
+- "all 11 steps passed in 14.6 min".
+
+The run before the inbox e2e fix failed at e2e:hosting on the N4 name collision described above.
+
