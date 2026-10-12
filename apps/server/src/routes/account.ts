@@ -18,7 +18,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { issueSession } from "../auth/sessions.js";
 import { toAccountPublic, type AccountRow } from "../db/types.js";
-import { clearDeviceCookie, deleteDevice, deleteOtherDevices, deviceIdOfSession, deviceLabel, hashDeviceToken, readDeviceCookie, setDeviceCookie, touchLiveDevice } from "../account/device.js";
+import { clearDeviceCookie, deleteDevice, deleteOtherDevices, deviceIdOfSession, deviceLabel, findLiveDevice, hashDeviceToken, readDeviceCookie, setDeviceCookie, touchLiveDevice } from "../account/device.js";
 import { checkDeletionRequest, createGuest, deletionTerms, deviceViews, eraseAccount, exportAccount, linkAccount } from "../account/service.js";
 import { findAccountById } from "../repo/accounts.js";
 import { AppError, badRequest, conflict, unauthorized } from "../services/errors.js";
@@ -32,7 +32,37 @@ function str(value: unknown, field: string): string {
 }
 
 export const guestSignOutRefused = () =>
-  conflict("guest_sign_out", "a guest account has no password: signing this device out would lose it for good — link a username and password first");
+  conflict("guest_sign_out", "a guest account has no password: leaving it deletes it for good — send { abandon: true } to delete it, or link a username and password first");
+
+/** QA-30 S4: the unlinked guest account this request's device cookie names, if any. */
+export async function guestOnDevice(req: FastifyRequest): Promise<{ accountId: string; deviceId: string } | null> {
+  const raw = readDeviceCookie(req);
+  if (!raw) return null;
+  const device = await findLiveDevice(req.server.db, hashDeviceToken(raw));
+  if (!device) return null;
+  const account = await findAccountById(req.server.db, device.account_id);
+  if (!account || account.is_system || account.username !== null) return null;
+  return { accountId: account.id, deviceId: device.id };
+}
+
+/**
+ * QA-30 S4: a new sign-in on a device that holds a guest would overwrite the guest's only key.
+ * Refused (409 `guest_on_device`) unless the request says `replaceGuest: true` — and then the
+ * guest is ERASED (account_erase, reason guest_replaced) once the new sign-in has succeeded, so
+ * it is neither silently lost nor left behind as an unreachable account still being served.
+ */
+export function refuseGuestReplacement(guest: { accountId: string } | null, body: { replaceGuest?: unknown } | null | undefined): void {
+  if (guest && body?.replaceGuest !== true) {
+    throw conflict("guest_on_device", "this device holds a guest caravan with no username or password; signing in or starting again here deletes it — send replaceGuest: true to go ahead, or continue it");
+  }
+}
+
+export async function eraseReplacedGuest(req: FastifyRequest, guest: { accountId: string; deviceId: string } | null, keepAccountId: string): Promise<void> {
+  if (!guest || guest.accountId === keepAccountId) return;
+  // The proof account_erase asks for: a live session of that guest, issued on its own device.
+  const s = await issueSession(req.server.db, guest.accountId, { deviceId: guest.deviceId });
+  await eraseAccount(req.server.db, guest.accountId, s.token, "guest_replaced");
+}
 
 /** The session response every sign-in route sends; a newly created device's credential goes into the HttpOnly cookie, never the body. */
 export async function sendSignedIn(req: FastifyRequest, reply: FastifyReply, account: AccountRow, opts: { deviceId?: string; code?: number; extra?: Record<string, unknown> } = {}): Promise<FastifyReply> {
@@ -46,17 +76,23 @@ async function currentDeviceId(req: FastifyRequest): Promise<string | null> {
 }
 
 export async function accountRoutes(app: FastifyInstance): Promise<void> {
-  app.post<{ Body: { region?: unknown; caravanName?: unknown } }>("/auth/guest", async (req, reply) => {
+  app.post<{ Body: { region?: unknown; caravanName?: unknown; replaceGuest?: unknown } }>("/auth/guest", async (req, reply) => {
     app.rateLimiter.hit("guestPerIp", req.ip);
     const body = req.body ?? {};
+    const guest = await guestOnDevice(req);
+    refuseGuestReplacement(guest, body);
     const input: { regionId: string; caravanName?: string } = { regionId: str(body.region, "region") };
     if (body.caravanName !== undefined) input.caravanName = str(body.caravanName, "caravanName");
     const { account, caravan } = await createGuest(app.db, input);
+    await eraseReplacedGuest(req, guest, account.id);
     return sendSignedIn(req, reply, account, { code: 201, extra: { caravan } });
   });
 
   app.post("/auth/resume", async (req, reply) => {
     app.rateLimiter.hit("resumePerIp", req.ip);
+    // QA-30 N7: a JSON content type forces a CORS preflight, so no page of another origin — or a
+    // same-SITE sibling — can make the browser spend this device's sessions with a simple POST.
+    if (!/^application\/json\b/i.test(String(req.headers["content-type"] ?? ""))) throw new AppError(415, "json_required", "resume takes an application/json request");
     const raw = readDeviceCookie(req);
     const device = raw ? await touchLiveDevice(app.db, hashDeviceToken(raw)) : null;
     const account = device ? await findAccountById(app.db, device.account_id) : null;
@@ -109,13 +145,20 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
   app.get("/me/export", { preHandler: requireAuth }, async (req, reply) => {
     const account = req.auth!.account;
     app.rateLimiter.hit("exportPerAccount", account.id);
-    const body = await exportAccount(app.db, account.id);
-    return reply.header("content-disposition", `attachment; filename="caravan-vaults-export-${account.id}.json"`).header("cache-control", "no-store").send(body);
+    const text = await exportAccount(app.db, account.id);
+    return reply
+      .header("content-type", "application/json; charset=utf-8")
+      .header("content-disposition", `attachment; filename="caravan-vaults-export-${account.id}.json"`)
+      .header("cache-control", "no-store")
+      .send(text);
   });
 
   app.post<{ Body: { confirm?: unknown; password?: unknown } }>("/me/account/delete", { preHandler: requireAuth }, async (req, reply) => {
     const account = req.auth!.account;
     app.rateLimiter.hit("deletePerAccount", account.id);
+    // QA-30 N3: the password check here shares the login's per-username counter, so a stolen
+    // bearer token is not a second, separately-limited password-guessing channel.
+    if (account.username !== null) app.rateLimiter.hit("loginPerUsername", account.username);
     await checkDeletionRequest(account, req.body ?? {});
     // The raw bearer token is account_erase's proof of the caller (migration 020); requireAuth has already matched it.
     const token = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? "")?.[1] ?? "";

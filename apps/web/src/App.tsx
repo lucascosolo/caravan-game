@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useState } from "react";
 import { useSession, SessionProvider } from "./auth/session.tsx";
 import { LoginScreen } from "./screens/login/LoginScreen.tsx";
 import { AccountScreen } from "./screens/account/AccountScreen.tsx";
+import { GuestSavePrompt } from "./screens/account/GuestSavePrompt.tsx";
 import { WebsScreen } from "./screens/webs/WebsScreen.tsx";
 import { STRINGS } from "./strings.ts";
 import { OnboardingProvider, useOnboarding } from "./onboarding/OnboardingProvider.tsx";
@@ -86,6 +87,8 @@ function Routed(): JSX.Element {
   return (
     <AppShell route={route === "login" || route === "packs" || route === "cosmetics" ? "town" : route} username={session.account.username} onSignOut={() => void signOut()} hideTabs={welcome}>
       {!welcome && <ShellGuide api={api} route={route} onPartySaved={() => setPartyEpoch((n) => n + 1)} />}
+      {/* QA-30 D1: a guest is reminded to save their progress in town (never blocking). */}
+      {!welcome && (route === "town" || route === "login") && <GuestSavePrompt place="town" />}
       <Suspense
         fallback={
           <p className="hint" role="status">

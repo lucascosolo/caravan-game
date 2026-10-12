@@ -9,7 +9,7 @@
  */
 import { expect, test } from "@playwright/test";
 
-test("guest first launch → reload → link a username → sign in again with it, same account", async ({ page, context }) => {
+test("guest first launch → reload → link a username → sign in again with it, same account → delete it", async ({ page, context }) => {
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 360, height: 640 });
   const username = `e2e_guest_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`;
@@ -30,6 +30,8 @@ test("guest first launch → reload → link a username → sign in again with i
   await expect(page.getByTestId("welcome-region")).toContainText("High Plains");
   await expect(page.getByTestId("guest-badge")).toBeVisible();
   await page.getByTestId("welcome-begin").click();
+  // QA-30 D1: in town a guest is asked (never forced) to save the progress.
+  await expect(page.getByTestId("guest-save-prompt")).toBeVisible();
 
   // The device credential is an HttpOnly cookie: present for the browser, invisible to the page.
   const cookie = (await context.cookies()).find((c) => c.name === "caravan_device");
@@ -67,4 +69,25 @@ test("guest first launch → reload → link a username → sign in again with i
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   expect(((await (await login).json()) as { account: { id: string; guest: boolean } }).account).toMatchObject({ id: accountId, guest: false });
   await expect(page.getByText(username, { exact: true })).toBeVisible();
+  await expect(page.getByTestId("guest-save-prompt")).toHaveCount(0);
+
+  // ── QA-30 D5: … → deleted. The typed phrase and the password, a notice, and the start card on reload ──
+  await page.getByRole("button", { name: "Account", exact: true }).click();
+  const del = page.getByTestId("delete-card");
+  const button = del.getByRole("button", { name: "Delete my account for good" });
+  await expect(button).toBeDisabled();
+  await del.getByLabel("Type “delete my account” to confirm").fill("delete my account");
+  await del.getByLabel("Your password").fill(password);
+  await expect(button).toBeEnabled();
+  const erased = page.waitForResponse((r) => r.url().endsWith("/api/me/account/delete"));
+  await button.click();
+  expect((await erased).status()).toBe(200);
+  await expect(page.getByTestId("start-notice")).toHaveText("Your account has been deleted.");
+  await page.reload();
+  await expect(page.getByTestId("guest-start")).toBeVisible();
+  // The linked credentials no longer sign in.
+  await page.getByLabel("Username").fill(username);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("invalid credentials");
 });

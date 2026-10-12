@@ -9,7 +9,7 @@
  * localStorage. `resuming` is true while that first answer is out.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { createApi, type Api } from "../api/client.ts";
+import { ApiError, createApi, type Api } from "../api/client.ts";
 import type { AccountPublic, AuthResponse } from "../api/types.ts";
 
 export interface Session {
@@ -27,12 +27,21 @@ export interface SessionContextValue {
   readonly resuming: boolean;
   /** Chunk 30: the account changed under the same session (a guest linked a username). */
   readonly updateAccount: (account: AccountPublic) => void;
-  /** Chunk 30: the account is gone (deleted): forget the session without calling the server. */
-  readonly forget: () => void;
+  /** Chunk 30: the account is gone (deleted): forget the session without calling the server; `notice` is shown on the start screen. */
+  readonly forget: (notice?: string) => void;
+  /**
+   * QA-30 S4: the launch / after-401 resume failed for a reason OTHER than "no device here" (a
+   * 5xx, the network). The start screen must not show then — a guest pressing "Start playing"
+   * would lose their caravan — so the client shows a retry state instead.
+   */
+  readonly resumeError: ApiError | null;
+  readonly retryResume: () => void;
+  /** A one-line notice for the start screen (the account was deleted, a guest left). */
+  readonly notice: string | null;
 }
 
-/** Automatic resumes after a 401, per page load: enough for an evicted session, never a loop. */
-const AUTO_RESUMES_MAX = 3;
+/** QA-30 S4: automatic resumes after a 401, per rolling minute: enough for evicted sessions in many tabs, never a loop. */
+const AUTO_RESUMES_PER_MINUTE = 3;
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
@@ -84,7 +93,9 @@ export function SessionProvider({ children, fetchImpl, autoResume = fetchImpl ==
   const [resuming, setResuming] = useState(autoResume);
   // Bumped by a 401: try the device cookie once more before showing the start screen.
   const [resumeEpoch, setResumeEpoch] = useState(0);
-  const autoResumes = useRef(0);
+  const [resumeError, setResumeError] = useState<ApiError | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const autoResumes = useRef<number[]>([]);
   // The api reads the token through a ref so one client instance serves every render.
   const tokenRef = useRef<string | null>(null);
   tokenRef.current = session?.token ?? null;
@@ -94,9 +105,14 @@ export function SessionProvider({ children, fetchImpl, autoResume = fetchImpl ==
       createApi({
         getToken: () => tokenRef.current,
         onUnauthorized: () => {
+          // Several calls in flight can 401 together on one dead token: only the first one counts.
+          if (tokenRef.current === null) return;
+          tokenRef.current = null;
           setSession(null);
-          if (autoResume && autoResumes.current < AUTO_RESUMES_MAX) {
-            autoResumes.current += 1;
+          const now = Date.now();
+          autoResumes.current = autoResumes.current.filter((t) => now - t < 60_000);
+          if (autoResume && autoResumes.current.length < AUTO_RESUMES_PER_MINUTE) {
+            autoResumes.current.push(now);
             setResumeEpoch((n) => n + 1);
           }
         },
@@ -109,14 +125,19 @@ export function SessionProvider({ children, fetchImpl, autoResume = fetchImpl ==
     if (!autoResume) return;
     let live = true;
     setResuming(true);
+    setResumeError(null);
     api
       .resume()
       .then((auth) => {
         // A sign-in that landed meanwhile wins: never replace a session the player just made.
         if (live) setSession((prev) => prev ?? { token: auth.token, account: auth.account });
       })
-      .catch(() => {
-        // No device here (401 no_device), or the server is unreachable: the start screen shows.
+      .catch((err: unknown) => {
+        // 401 no_device: there is nothing to resume — the start screen. Anything else (5xx, the
+        // network, a bad payload) is NOT "no account here": retry, never the start screen.
+        if (!live) return;
+        const e = err instanceof ApiError ? err : new ApiError(0, "network", "network error");
+        if (!(e.status === 401)) setResumeError(e);
       })
       .finally(() => {
         if (live) setResuming(false);
@@ -140,13 +161,23 @@ export function SessionProvider({ children, fetchImpl, autoResume = fetchImpl ==
     [api],
   );
   const updateAccount = useCallback((account: AccountPublic) => setSession((prev) => (prev ? { ...prev, account } : prev)), []);
-  const forget = useCallback(() => {
+  const forget = useCallback((n?: string) => {
     resetViewerState();
+    setNotice(n ?? null);
     setSession(null);
   }, []);
+  const retryResume = useCallback(() => setResumeEpoch((n) => n + 1), []);
 
-  const value = useMemo<SessionContextValue>(() => ({ session, api, signIn, signOut, resuming, updateAccount, forget }), [session, api, signIn, signOut, resuming, updateAccount, forget]);
+  const value = useMemo<SessionContextValue>(
+    () => ({ session, api, signIn, signOut, resuming, updateAccount, forget, resumeError, retryResume, notice }),
+    [session, api, signIn, signOut, resuming, updateAccount, forget, resumeError, retryResume, notice],
+  );
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
+}
+
+/** The session context when there is one (components that also render outside a provider, in tests). */
+export function useOptionalSession(): SessionContextValue | null {
+  return useContext(SessionContext);
 }
 
 export function useSession(): SessionContextValue {

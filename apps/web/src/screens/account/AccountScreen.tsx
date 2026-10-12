@@ -79,8 +79,15 @@ export function AccountScreen({ api: apiOverride, saveFile = browserDownload }: 
       )}
       <DevicesCard api={api} guest={guest} devices={view.devices} onChanged={(devices) => setView({ ...view, devices })} />
       <ExportCard api={api} saveFile={saveFile} />
-      <SignOutCard guest={guest} onSignOut={(abandon) => void signOut(abandon)} />
-      <DeleteCard api={api} confirmPhrase={view.deletion.confirmPhrase} requiresPassword={view.deletion.requiresPassword} onDeleted={forget} />
+      <SignOutCard
+        guest={guest}
+        onSignOut={(abandon) => {
+          // QA-30 D2: a guest leaving is an erasure on the server; the start screen then says so.
+          if (abandon) void api.logout(true).then(() => forget(T.guestLeft), () => forget());
+          else void signOut(false);
+        }}
+      />
+      <DeleteCard api={api} confirmPhrase={view.deletion.confirmPhrase} requiresPassword={view.deletion.requiresPassword} onDeleted={() => forget(T.deleted)} />
     </section>
   );
 }

@@ -17,12 +17,13 @@ import deleteJson from "../../test/contract/account-delete.json";
 import exportJson from "../../test/contract/export.json";
 import { fakeFetch, meResponse, type Call, type Handler } from "../../test/fixtures.ts";
 import { STRINGS } from "../../strings.ts";
+import { ONBOARDING_STEPS } from "../../onboarding/steps.ts";
 
 // The town draws on the canvas; here it is a stand-in so the shell and the account flow are what is under test.
 vi.mock("../town/TownScreen.tsx", () => ({ TownScreen: () => <section data-testid="town-screen">town</section> }));
 
 const A = STRINGS.account;
-const done = { onboarding: { step: "done", steps: ["welcome", "done"], enrolled: true, completed: true, skipped: false, canSkip: false, updatedAt: null } };
+const done = { onboarding: { step: "done", steps: [...ONBOARDING_STEPS], enrolled: true, completed: true, skipped: false, canSkip: false, updatedAt: null } };
 
 function server(extra: Record<string, Handler> = {}) {
   return fakeFetch({
@@ -157,6 +158,8 @@ describe("Account screen", () => {
     expect(button).toBeEnabled();
     await user.click(button);
     expect(await screen.findByTestId("guest-start")).toBeInTheDocument();
+    // QA-30 D5: the player is told, not dropped silently on the start card.
+    expect(screen.getByTestId("start-notice")).toHaveTextContent(A.deleted);
     expect(s.calls.find((c) => c.path === "/me/account/delete")!.body).toEqual({ confirm: "delete my account" });
   });
 
@@ -184,6 +187,100 @@ describe("Account screen", () => {
     await user.click(within(dialog).getByRole("button", { name: A.signOutGuest }));
     await screen.findByTestId("guest-start");
     expect(s.calls.find((c) => c.path === "/auth/logout")!.body).toEqual({ abandon: true });
+    // QA-30 D2: leaving a guest account deletes it, and the copy says so.
+    expect(dialog).toHaveTextContent(/deletes it/);
+    expect(screen.getByTestId("start-notice")).toHaveTextContent(A.guestLeft);
+  });
+});
+
+describe("QA-30 S4 / D1 / N4: resume failures, many tabs, a guest already on the device, the save prompt", () => {
+  it("a resume that fails with a 5xx (or the network) shows a retry state, never the start screen; Retry gets back in", async () => {
+    const user = userEvent.setup();
+    let down = true;
+    const s = server({ "POST /auth/resume": () => (down ? { status: 503, body: { error: "unavailable", message: "try later" } } : { status: 200, body: authGuestJson.body }) });
+    render(<App fetchImpl={s.fetch} autoResume />);
+    expect(await screen.findByTestId("resume-failed")).toBeInTheDocument();
+    expect(screen.queryByTestId("guest-start")).toBeNull();
+    expect(screen.queryByRole("button", { name: STRINGS.auth.submitStart })).toBeNull();
+    down = false;
+    await user.click(screen.getByRole("button", { name: STRINGS.app.retry }));
+    expect(await screen.findByTestId("guest-badge")).toBeInTheDocument();
+  });
+
+  it("parallel 401s on one evicted token cost ONE resume, and the tab is back in the game, not on the start card", async () => {
+    window.history.replaceState(null, "", "#/account");
+    let resumes = 0;
+    const tokenOf = (c: Call) => (c.headers["Authorization"] ?? "").replace("Bearer ", "");
+    const guarded = (body: unknown): Handler => (c) => (tokenOf(c) === "t1" ? { status: 401, body: { error: "unauthorized", message: "unauthorized" } } : { status: 200, body });
+    const s = server({
+      "POST /auth/resume": () => {
+        resumes += 1;
+        return { status: 200, body: { ...authGuestJson.body, token: resumes === 1 ? "t1" : "t2" } };
+      },
+      "GET /me/account": guarded(accountGuestJson.body),
+      "GET /me/inbox/unread": guarded({ unreadCount: 0, latestAtMs: null }),
+      "GET /me/onboarding": guarded(done),
+    });
+    render(<App fetchImpl={s.fetch} autoResume />);
+    expect(await screen.findByTestId("account-screen")).toBeInTheDocument();
+    expect(screen.queryByTestId("guest-start")).toBeNull();
+    expect(resumes).toBe(2);
+  });
+
+  it("five resumes in a row (five tabs) each get in", async () => {
+    for (let i = 0; i < 5; i++) {
+      const s = server({ "POST /auth/resume": () => ({ status: 200, body: { ...authGuestJson.body, token: `tab${i}` } }) });
+      const { unmount } = render(<App fetchImpl={s.fetch} autoResume />);
+      expect(await screen.findByTestId("guest-badge")).toBeInTheDocument();
+      expect(s.calls.filter((c) => c.path === "/auth/resume")[0]!.body).toEqual({});
+      unmount();
+    }
+  });
+
+  it("'Start playing' on a device that holds a guest asks first; deleting it re-sends with replaceGuest, continuing resumes", async () => {
+    const user = userEvent.setup();
+    let asked = 0;
+    const s = server({
+      "POST /auth/guest": (c: Call) => {
+        if ((c.body as { replaceGuest?: boolean }).replaceGuest !== true) {
+          asked += 1;
+          return { status: 409, body: { error: "guest_on_device", message: "this device holds a guest caravan" } };
+        }
+        return { status: 201, body: authGuestJson.body };
+      },
+    });
+    render(<App fetchImpl={s.fetch} autoResume />);
+    await user.click(within(await screen.findByTestId("guest-start")).getByRole("button", { name: STRINGS.auth.submitStart }));
+    const card = await screen.findByTestId("guest-on-device");
+    expect(card).toHaveTextContent(STRINGS.auth.guestOnDeviceBody);
+    await user.click(within(card).getByRole("button", { name: STRINGS.auth.replaceGuestStart }));
+    expect(await screen.findByTestId("guest-badge")).toBeInTheDocument();
+    expect(asked).toBe(1);
+    expect(s.calls.filter((c) => c.path === "/auth/guest").map((c) => (c.body as { replaceGuest?: boolean }).replaceGuest ?? false)).toEqual([false, true]);
+  });
+
+  it("a guest sees the non-blocking save prompt in town (Not now hides it); a linked player never does; the welcome screen has no Account button", async () => {
+    const user = userEvent.setup();
+    const s = server({ "POST /auth/resume": () => ({ status: 200, body: authGuestJson.body }) });
+    const { unmount } = render(<App fetchImpl={s.fetch} autoResume />);
+    const prompt = await screen.findByTestId("guest-save-prompt");
+    expect(prompt).toHaveTextContent(A.savePromptTitle);
+    expect(screen.getByTestId("town-screen")).toBeInTheDocument();
+    await user.click(within(prompt).getByRole("button", { name: A.savePromptDismiss }));
+    expect(screen.queryByTestId("guest-save-prompt")).toBeNull();
+    unmount();
+    const linked = server({ "POST /auth/resume": () => ({ status: 200, body: { ...authGuestJson.body, account: { ...authGuestJson.body.account, username: "dev", guest: false } } }) });
+    const r2 = render(<App fetchImpl={linked.fetch} autoResume />);
+    await screen.findByTestId("town-screen");
+    expect(screen.queryByTestId("guest-save-prompt")).toBeNull();
+    r2.unmount();
+    const welcome = server({
+      "POST /auth/resume": () => ({ status: 200, body: authGuestJson.body }),
+      "GET /me/onboarding": () => ({ status: 200, body: { onboarding: { ...done.onboarding, step: "welcome", completed: false } } }),
+    });
+    render(<App fetchImpl={welcome.fetch} autoResume />);
+    await screen.findByTestId("onboarding-welcome");
+    expect(screen.queryByRole("button", { name: A.open })).toBeNull();
   });
 });
 

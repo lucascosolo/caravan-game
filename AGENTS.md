@@ -163,8 +163,11 @@ Migrations are plain SQL pairs in `apps/server/migrations/NNN_name.{up,down}.sql
 stores nothing), `GET /me/account`, `POST /me/account/link`, `GET|DELETE /me/devices[/:id]`,
 `POST /me/devices/revoke-others`, `GET /me/export`, `POST /me/account/delete` (through the
 `account_erase` SECURITY DEFINER function, which anonymizes shared records to a tombstone). Auth
-routes are rate-limited; `CARAVAN_RATE_LIMITS=off` (set by the server vitest env and `pnpm e2e`) is
-refused in production. Server routes so far: `POST /auth/register`,
+routes are rate-limited (`TUNABLES.ACCOUNT_RATE_LIMITS`; counted IN MEMORY PER PROCESS, so N server
+processes give N× the limits); `CARAVAN_RATE_LIMITS=off` (set by the server vitest env and `pnpm e2e`) is
+refused in production. Behind a reverse proxy set `TRUST_PROXY` to the hop count or the proxy addresses /
+CIDRs (off by default; `true` is refused), or every client shares the proxy's per-address limit. Every
+function in schema public must pin `search_path = pg_catalog, public, pg_temp` (a test enumerates pg_proc). Server routes so far: `POST /auth/register`,
 `POST /auth/login`, `POST /auth/logout`, `GET /me`, `GET /health` (bearer token auth), plus
 the ledger, progression, circle, economy and unlock routes of chunks 02–07 and 16
 (`GET /unlocks/webs`, `GET /me/unlocks`, `POST /me/unlocks/spend`), the party routes of
@@ -184,7 +187,7 @@ serves three scoutable candidates at every band from the first search. Migration
 refuse to roll back while system accounts exist, and a multi-step `db:rollback N` or
 `db:reset` runs every down step in ONE transaction, so a refusal rolls back nothing. Before
 a `db:reset` (or a rollback past 011) of a seeded database, run
-`DELETE FROM account WHERE is_system` as the owner role, then `pnpm db:reset && pnpm db:seed`
+`DELETE FROM account WHERE is_system OR username IS NULL` as the owner role (migration 020 down refuses while guests or the erasure tombstone exist), then `pnpm db:reset && pnpm db:seed`
 (the test suite empties `account` itself before its reset).
 
 **Encounters resolve in the server process (chunk 13 QA S1).** `apps/server/src/index.ts` builds

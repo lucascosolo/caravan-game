@@ -19,28 +19,28 @@
         "unread": true
       },
       {
-        "key": "packs:2",
-        "category": "packs_rotated",
+        "key": "trip_cap:2",
+        "category": "trip_cap_refilled",
         "version": 2,
         "occurredAtMs": 1790000120000,
         "occurredAt": "2026-10-11T12:00:01.000Z",
         "detail": {
-          "weekIndex": 40,
-          "startsAtMs": 1790000120000,
-          "endsAtMs": 1790000240000
+          "available": 3,
+          "cap": 3,
+          "fullAtMs": 1790000120000
         },
         "unread": true
       },
       {
-        "key": "trip_cap:3",
-        "category": "trip_cap_refilled",
+        "key": "packs:3",
+        "category": "packs_rotated",
         "version": 3,
         "occurredAtMs": 1790000060000,
         "occurredAt": "2026-10-11T12:00:02.000Z",
         "detail": {
-          "available": 3,
-          "cap": 3,
-          "fullAtMs": 1790000060000
+          "weekIndex": 40,
+          "startsAtMs": 1790000060000,
+          "endsAtMs": 1790000240000
         },
         "unread": true
       },

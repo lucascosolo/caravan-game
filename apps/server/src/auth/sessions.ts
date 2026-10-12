@@ -8,13 +8,14 @@ import { SESSIONS_PER_ACCOUNT_MAX, SESSION_TTL_MS } from "../config.js";
 import type { AccountRow } from "../db/types.js";
 import { findAccountById } from "../repo/accounts.js";
 import { hashDeviceToken, insertDevice, newDeviceToken, pruneDevices } from "../account/device.js";
-import { DEVICE_SESSIONS_MAX } from "../account/tunables.js";
+import { DEVICE_SESSIONS_MAX, SESSION_TOUCH_INTERVAL_MS } from "../account/tunables.js";
 import {
   deleteSession,
   evictDeviceSessionsBeyondCap,
   evictSessionsBeyondCap,
   findLiveSessionByTokenHash,
   insertSession,
+  touchSession,
   purgeExpiredSessions,
 } from "../repo/sessions.js";
 
@@ -71,7 +72,7 @@ export async function issueSession(
     deviceToken = newDeviceToken();
     deviceId = (await insertDevice(db, { accountId, tokenHash: hashDeviceToken(deviceToken), label: opts.label ?? "Unknown device" })).id;
   }
-  const session = await insertSession(db, { accountId, tokenHash: hashToken(token), expiresAt, deviceId });
+  const session = await insertSession(db, { accountId, token, expiresAt, deviceId });
   if (opts.deviceId !== undefined) await evictDeviceSessionsBeyondCap(db, deviceId, DEVICE_SESSIONS_MAX);
   await pruneDevices(db, accountId);
   await evictSessionsBeyondCap(db, accountId, SESSIONS_PER_ACCOUNT_MAX);
@@ -93,6 +94,10 @@ export async function authenticate(db: pg.Pool, authorizationHeader: string | un
   if (!session) return null;
   const account = await findAccountById(db, session.account_id);
   if (!account || account.is_system) return null;
+  // QA-30 S4: least-recently-used eviction needs a use time; written at most once per interval.
+  if (session.last_used_at.getTime() <= session.created_at.getTime() || Date.now() - session.last_used_at.getTime() > SESSION_TOUCH_INTERVAL_MS) {
+    await touchSession(db, session.id, SESSION_TOUCH_INTERVAL_MS);
+  }
   return { sessionId: session.id, account };
 }
 

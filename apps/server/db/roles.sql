@@ -130,8 +130,17 @@ TO caravan_app;
 -- it, so it can never open the exception for its own UPDATE. The audit log is the owner's.
 REVOKE INSERT, UPDATE, DELETE ON TABLE account_erasure_active FROM caravan_app;
 REVOKE INSERT, UPDATE, DELETE ON TABLE account_erasure_audit FROM caravan_app;
--- account_erase takes the caller's RAW bearer token as proof (only its hash is stored).
-GRANT EXECUTE ON FUNCTION account_erase(uuid, text) TO caravan_app;
+-- account_erase takes the caller's RAW bearer token as proof (only its hash is stored). Its
+-- signature grew a reason in 023 (QA-30 D2); grant whichever this database has.
+DO $$
+BEGIN
+  IF to_regprocedure('public.account_erase(uuid, text, text)') IS NOT NULL THEN
+    GRANT EXECUTE ON FUNCTION account_erase(uuid, text, text) TO caravan_app;
+  ELSIF to_regprocedure('public.account_erase(uuid, text)') IS NOT NULL THEN
+    GRANT EXECUTE ON FUNCTION account_erase(uuid, text) TO caravan_app;
+  END IF;
+END
+$$;
 
 -- Chunk 32: the admin flag is read-only for the app role
 -- ---------------------------------------------------------------------------------
@@ -163,6 +172,37 @@ BEGIN
   IF to_regclass('public.encounter_log_summary') IS NOT NULL THEN
     REVOKE INSERT, UPDATE, DELETE ON TABLE encounter_log_summary FROM caravan_app;
     GRANT EXECUTE ON FUNCTION encounter_log_retention_sweep(integer) TO caravan_app;
+  END IF;
+END
+$$;
+-- ---------------------------------------------------------------------------------
+-- Chunk 30 QA (roadmap/qa/30-punchlist.md S1–S3, migration 023)
+-- ---------------------------------------------------------------------------------
+-- S2: no temporary objects. A TEMP table named like a public one is searched FIRST by any
+-- function whose search path does not put pg_temp last — the shadowing that opened every
+-- guard's erasure exception. migration 023 pins every function's path (pg_temp last); this
+-- removes the means as well. PUBLIC holds TEMPORARY by default, so it is revoked there too.
+DO $$
+BEGIN
+  EXECUTE format('REVOKE TEMPORARY ON DATABASE %I FROM PUBLIC', current_database());
+  EXECUTE format('REVOKE TEMPORARY ON DATABASE %I FROM caravan_app', current_database());
+END
+$$;
+
+-- S3: an account leaves only through account_erase (SECURITY DEFINER, caller proof, the
+-- anonymization). A plain DELETE as the app role would cascade other players' replays away.
+REVOKE DELETE ON TABLE account, caravan FROM caravan_app;
+
+-- S1: a bearer session is issued only by session_issue() (SECURITY DEFINER; the raw token is
+-- hashed inside the database). The app keeps SELECT, DELETE (sign-out, eviction, purge) and
+-- UPDATE of last_used_at (least-recently-used eviction, S4) only.
+DO $$
+BEGIN
+  IF to_regprocedure('public.session_issue(uuid, uuid, text, timestamptz)') IS NOT NULL THEN
+    REVOKE INSERT, UPDATE ON TABLE session FROM caravan_app;
+    GRANT UPDATE (last_used_at) ON TABLE session TO caravan_app;
+    GRANT EXECUTE ON FUNCTION session_issue(uuid, uuid, text, timestamptz) TO caravan_app;
+    GRANT EXECUTE ON FUNCTION account_erase_expired_guests(integer) TO caravan_app;
   END IF;
 END
 $$;

@@ -318,10 +318,10 @@ $$ LANGUAGE plpgsql;
 -- account_erase: the one audited path
 -- ---------------------------------------------------------------------------------
 -- PROOF OF THE CALLER. p_bearer_token is the RAW bearer token of a live session of p_account.
--- The database stores only sha256(token) (session.token_hash), so nothing the app role can
--- read lets it build this argument: a compromised server process can erase only an account
--- whose live token it is handed in a request, never an arbitrary id. A wrong or expired
--- token, or another account's, is refused (42501) before anything is touched.
+-- The database stores only sha256(token) (session.token_hash). What this guarantees (corrected
+-- in QA-30 S1, see migration 023): a BUG passing the wrong account id is refused, since it has no
+-- live token of that account. It does NOT stop a fully compromised server, which issues sessions.
+-- A wrong or expired token, or another account's, is refused (42501) before anything is touched.
 CREATE FUNCTION account_erase(p_account uuid, p_bearer_token text) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE

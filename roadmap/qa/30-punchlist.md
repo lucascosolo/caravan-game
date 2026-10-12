@@ -290,3 +290,50 @@ fine at play-test scale; note a cap or streaming for chunk 36.
   - Redaction works by structure: an id is kept only if it is the account's own (an allowlist), never matched by key name.
   - Cap the export size with a clear error.
 - **D5 and every nit are in scope.** D5 needs an e2e that covers guest → linked → deleted, a decompressing scan of the replay logs, and the client multi-tab and failed-resume tests. Lower-priority nits may stay open if the punch list says why.
+
+## Fix round (2026-10-11, branch fix30, migration 023 provisional)
+
+- **S1 — closed (as decided).** Threat model corrected in the build notes and the migration comments: the
+  token check stops a bug from erasing the wrong account; it cannot stop a fully compromised server, which
+  issues sessions. Sessions now come only from `session_issue()` (SECURITY DEFINER, hashes inside the
+  database); `caravan_app` has no INSERT and no UPDATE on `session` (UPDATE of `last_used_at` only). Test: a
+  forged INSERT / UPDATE of `session` as the app role is 42501, and `account_erase` with the chosen token is
+  42501.
+- **S2 — closed.** TEMPORARY revoked from PUBLIC and caravan_app (roles.sql); every function in public pinned
+  to `pg_catalog, public, pg_temp` by 024's catalog loop (covers 022's retention functions too); the two
+  invoker erasure functions name `public.account_erasure_active`. Not done literally: rewriting every body
+  to schema-qualify each table — the pinned path gives the same resolution (reason in the build notes).
+  Tests: CREATE TEMP TABLE as caravan_app → 42501; a pg_proc-enumerating test fails on any function without
+  the setting; the owner's shadow tables open no guard and prove no caller.
+- **S3 — closed.** DELETE on `account` and `caravan` revoked from caravan_app. Test → 42501; qa01's caravan
+  DELETE probe now accepts 42501 (the trigger is behind it).
+- **S4 — closed.** Per-device cap 10, least-recently-used eviction; parallel 401s cost one resume; non-401
+  resume failures show a retry card; `guest_on_device` 409 + an explicit, worded choice; replacing erases the
+  old guest. Server and web tests added.
+- **D1 — closed.** Guest save prompt in town and on the end-of-trip summary (dismissible, in memory); e2e
+  checks it in town.
+- **D2 — closed.** Leaving a guest account erases it (`guest_left`), copy says so; expired-guest erasure
+  function added. Hand-off: chunk 36's scheduled job should call `account_erase_expired_guests`.
+- **D3 — closed.** `TRUST_PROXY`; limits in the tunables registry with play-test defaults and a per-device
+  login limit; per-process note in AGENTS.md. A global ceiling was not added (the decision did not ask for
+  one; the per-username / per-device limits bound guessing).
+- **D4 — closed.** Every owned table, allowlist redaction, 413 cap. Test: an export with fights both ways
+  contains no UUID outside the account's own set.
+- **D5 — closed.** Decompressing replay scan, write/shadow attack tests, e2e delete, client failed-resume /
+  multi-tab tests, deleted notice.
+- **N1 — closed** (tombstone excluded from `authored`). **N2 — partly closed:** the menu step reads only menus
+  whose pool held the account's party (GIN `jsonb_path_ops` on `encounter_candidates.pool`); the ledger step
+  still scans other accounts' payloads — open on purpose: narrowing by causation ids risks missing a payload
+  type that names the account, and the all-tables test only covers what the suite exercises. For chunk 36: an
+  id index (or a per-event "names account" column) is the real fix. **N3 — closed / accepted:** the delete
+  route's password check shares the login's per-username counter; per-username lockout of password login
+  (10 / 15 min; resume still works) and `username_taken` probing via link (bounded by link 10 / 15 min per
+  account and guest 100 / h per address) are accepted risks. **N4 — closed** (no Account button on the welcome
+  screen). **N5 — closed** (020 down text; AGENTS.md reset deletes `is_system OR username IS NULL`).
+  **N6 — open, hand-off to chunk 34:** no password change or "sign out everywhere including here"; linking
+  keeps the guest's device credential. **N7 — closed** (resume requires `application/json`, 415 otherwise).
+  **N8 — accepted:** the erased player's unit-instance ids stay in others' ledgers and job inputs; they name
+  nothing once the rows are gone, and mapping them would rewrite the refs a stored, sha-sealed replay log uses
+  (logs cannot be rewritten). **N9 — open:** reserving erased handles needs a keyed hash whose key lives
+  outside the database (a plain hash of a 3–32 character handle is brute-forceable); decide with chunk 34's
+  account work. **N10 — closed** (20 MB cap; streaming left to chunk 36 if exports grow).

@@ -31,6 +31,24 @@ export function testDatabaseUrl(): string {
 export const APP_DB_ROLE = "caravan_app";
 export const APP_DB_ROLE_DEFAULT_PASSWORD = "caravan_app";
 
+/**
+ * QA-30 D3: whether the server sits behind a reverse proxy, so per-address rate limits key on the
+ * client's address (X-Forwarded-For) rather than the proxy's. TRUST_PROXY:
+ *   unset / "off" / "false"      not behind a proxy (default): X-Forwarded-For is ignored;
+ *   a positive integer            trust that many proxy hops;
+ *   addresses / CIDRs (a,b,...)   trust only those proxies.
+ * "true" (trust any hop) is REFUSED: anyone could then set their own address.
+ */
+export function trustProxyFromEnv(env: NodeJS.ProcessEnv): false | number | string {
+  const v = (env["TRUST_PROXY"] ?? "").trim();
+  if (v === "" || v === "off" || v === "false") return false;
+  if (v === "true") throw new Error("TRUST_PROXY=true is refused: give a hop count or the proxy addresses / CIDRs");
+  if (/^[1-9]\d?$/.test(v)) return Number(v);
+  const parts = v.split(",").map((p) => p.trim());
+  if (parts.every((p) => /^[0-9a-fA-F:.]+(\/\d{1,3})?$/.test(p))) return parts.join(",");
+  throw new Error(`TRUST_PROXY must be off, a hop count, or proxy addresses / CIDRs; got '${v}'`);
+}
+
 /** Session lifetime. Operational, not balance. */
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 

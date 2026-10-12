@@ -1,7 +1,8 @@
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
 import type pg from "pg";
 import type { AuthContext } from "./auth/sessions.js";
 import { createPool } from "./db/pool.js";
+import { trustProxyFromEnv } from "./config.js";
 import type { InlineEncounterWorker } from "./dev/testResolver.js";
 import { DEFAULT_HANDLERS } from "./jobs/handlers/encounterResolution.js";
 import { EncounterWorkerLoop } from "./jobs/inProcessWorker.js";
@@ -71,6 +72,8 @@ export interface BuildAppOptions {
    * null turns them off; a config replaces them (the rate-limit tests pass small ones).
    */
   rateLimits?: RateLimitConfig | null;
+  /** QA-30 D3: Fastify's trustProxy (default: TRUST_PROXY from the environment, off). */
+  trustProxy?: false | number | string;
   /** Chunk 30: the limiter's clock (tests). */
   rateLimitClock?: () => number;
 }
@@ -79,7 +82,11 @@ export interface BuildAppOptions {
 const DOUBLE_POLL_MS = 30_000;
 
 export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInstance> {
-  const app = Fastify({ logger: opts.logger ?? false });
+  // QA-30 D3: off unless TRUST_PROXY names the proxy (hop count or addresses); "true" is refused.
+  const trust = opts.trustProxy !== undefined ? opts.trustProxy : trustProxyFromEnv(process.env);
+  // A hop count becomes the equivalent function (the address n hops from the socket is the client).
+  const fastifyOptions: FastifyServerOptions = { logger: opts.logger ?? false, trustProxy: typeof trust === "number" ? (_addr: string, hop: number) => hop < trust : trust };
+  const app = Fastify(fastifyOptions);
   const db = opts.db ?? createPool();
   app.decorate("db", db);
   app.decorate("inlineEncounterWorker", opts.inlineEncounterWorker ?? null);

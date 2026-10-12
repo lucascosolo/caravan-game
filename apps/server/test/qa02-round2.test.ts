@@ -243,7 +243,7 @@ describe("R2-S3: job state moves only through the owner's writers", () => {
     for (const f of fns) {
       expect(f.fowner, f.proname).toBe(tableOwner);
       expect(f.secdef, f.proname).toBe(true);
-      expect(f.config?.[0], f.proname).toMatch(/^search_path=pg_catalog,\s*public$/);
+      expect(f.config?.[0], f.proname).toMatch(/^search_path=pg_catalog,\s*public,\s*pg_temp$/);
       expect(f.app_can_exec, f.proname).toBe(true);
     }
     // And the column privilege is exactly what roles.sql says.
