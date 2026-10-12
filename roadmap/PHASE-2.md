@@ -1287,7 +1287,9 @@ the CI slice is `apps/server/test/balance-sweep.test.ts` (150 s budget). No reso
 (RESOLVER_VERSION 8, goldens unchanged); content and tunables only: defense ×1.5, move speed
 ×0.7, trap damage ×1.5, trap trigger radius 0.75 → 1.25, REPUTATION_START 1000 → 400,
 STARTING_ROSTER 1 → 3 copies per starter type, the authored difficulty curve re-authored
-(AUTHORED_SET_VERSION 4), two raider offense bumps.
+(AUTHORED_SET_VERSION 4), two raider offense bumps, and the caravan's Reputation for a hold
++15 → +10 (overrun −20 unchanged: equilibrium hold ≈ 67 %, the orchestrator's choice of lever for
+trip EV; total loss on overrun stays).
 
 Results after (full sweep, 6528 matchups):
 
@@ -1295,21 +1297,27 @@ Results after (full sweep, 6528 matchups):
 |---|---|---|
 | fresh account's encounter 1 band | 2 | 0 |
 | guided first fight held (≥ 70 %) | 0 / 64 | 162 / 200 = 81 % |
-| encounter 2 held by a sensible free layout (> 50 %) | — | 82 % (guided shape), 84 % (skilled) |
+| encounter 2 held by a sensible free layout (> 50 %) | — | 78 % (guided shape), 80 % (skilled) |
 | band-typical roster at its own band, skilled (b0…b7) | 58 38 63 54 54 8 50 54 % | 95 81 97 80 82 61 57 83 % |
 | same, naive | 38 29 46 29 25 0 25 29 % | 73 71 81 58 57 28 30 40 % |
 | stalemates in the corpus / healer turtle | 1 / 1728 | 0 / 6528; turtle 2 / 96 (bar < 25 %) |
 | fight length median, share in 20–90 s | 17.6 s, 42 % | 22.3 s, 59 % |
 | features flagged within band × stance (\|Δ\| > 25 pts) | 16 | 3 (Claim Jumper, Drover, posts with heavy strike) |
-| equilibrium band, fresh / L1 / L2 / L3 / L4 / L5 | 0 / 0 / 2 / 3 / 2 / 6 | 3 / 3 / 4 / 5 / 7 / 7 |
-| trip EV best bank point (skilled, at equilibrium) L1 / L2 / L3 / L4 | +1,189 k=2 / neg / neg / neg | +4,984 k=5 / +5,709 k=4 / −2,452 / −4,799 |
+| equilibrium band, fresh / L1 / L2 / L3 / L4 / L5 | 0 / 0 / 2 / 3 / 2 / 6 | 3 / 3 / 3 / 4 / 7 / 7 (break-even 67 %) |
+| trip EV best bank point (skilled, at equilibrium) L1 / L2 / L3 / L4 | +1,189 k=2 / neg / neg / neg | +4,539 k=3 / +3,239 k=3 / +2,327 k=4 / −3,932 |
 | owner loot per held fight vs per overrun | 536 vs 1,559 | 505 vs 1,777 (28 %) |
 | breaker: worst share of a segment per unit per tick | — | 50.0 % (= cap) |
 
-Not met, for a decision: positive trip EV for L3 and L4 circles at equilibrium (structural — the
-destroyed-at-wipe rule × the Reputation break-even outweigh any Coin number; BALANCE-LOG.md target
-4), and the `core` targeting stance dominates offense (held 1–40 % in bands 3–7 against 35–100 % for
-the other stances). The weekly free earn derivation is unchanged at 55,000 (1.09× ceiling, bound 1.5×).
+Not met: positive trip EV for 8 × L4. No Reputation split from +15 to +6 reaches it, because an
+L4 circle loses about 1.2 units a HELD band-7 fight (≈ 5,800 Coin of de-merges against 1,925 of
+Coin), so it is negative before any overrun (BALANCE-LOG.md target 4). The weekly free earn
+derivation is unchanged at 55,000 (1.09× ceiling, bound 1.5×).
+
+Open for the play test's telemetry (chunk 32 dashboards), no mechanic change now: the `core`
+targeting stance dominates offense (held 1–40 % in bands 3–7 against 35–100 % for the other
+stances — watch the live stance mix and hold rate by stance); healing in a four-healer turtle
+offsets 40 % of post damage, over the 25–35 % target (watch the healing share in real circles);
+8 × L4 trip EV; and the sweep's band-typical roster assumption.
 
 **Definition of done.** No single type predicts outcomes above threshold in the sweep,
 the alpha's bank-versus-push curve shows real decisions at encounters two through five,
