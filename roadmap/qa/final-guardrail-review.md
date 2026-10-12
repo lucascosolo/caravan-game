@@ -320,3 +320,139 @@ roles.sql.
   - N2/N3: AGENTS.md is enough to set up a fresh clone (the roles and databases, `.env` loading, Playwright).
   - N4: redact the defender's caravan id from the party feed and ledger payloads seen by the party owner.
   - N8: CI's smoke and e2e run as `caravan_app`.
+
+## Fix round 1 (2026-10-12, branch `fixfinal`): every item closed as decided
+
+No schema change was needed, so there is no migration 026. Each item below is closed, with what
+now holds and the test that pins it.
+
+- **S1, closed.**
+  - `pnpm db:seed` (`apps/server/src/seed.ts`) loads only the 96 authored parties. They reach
+    their nodes through ladder rungs, and their rosters are `unit_acquired` / `unit_retired`
+    ledger events (chunk 25 QA D3). It prints "No login accounts were created".
+  - The dev and e2e fixture account now needs `--dev` (`pnpm db:seed:dev`).
+    `devSeedRequested` refuses it under `NODE_ENV=production` (exit 2).
+  - `src/dev/devAccount.ts` makes that account an ordinary `registerAccount`: the starting roster
+    through `grantUnit`, and no hand-inserted or off-web units. The extra seeded units (an L2 sand
+    sharpshooter and a canteen carrier) are gone. The seed no longer prints the password.
+  - `scripts/e2e.mjs` passes `--dev`.
+  - Tests in `test/final-review.test.ts`, "S1 / N5": the refusal; the roster is the starting
+    nodes only; and `rebuildAuthoredRoster` equals `liveRoster`, with `verifyProjection` ok.
+- **N5, closed** by S1, with the same test (the ledger rebuild of the dev account equals its live
+  state).
+- **S2, closed.**
+  - `SERVE_WEB=1` (`config.ts` `serveWebFromEnv`, `app.ts`, `web/static.ts`) serves
+    `apps/web/dist` and mounts every API route under `/api`; `/health` answers at both.
+  - The client gets a CSP, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, COOP, and HSTS
+    in production. `/assets/*` is immutable-cached and `index.html` is `no-cache`. Paths that
+    escape the directory, dotfiles and NULs get 400 or 404. `*.map` gets 404 under
+    `NODE_ENV=production`. API answers are `no-store` when hosted.
+  - The CSP caught one real break: PixiJS compiles with `new Function`, so the formation canvas
+    showed "unavailable" in the first hosting e2e run. The fix is `import "pixi.js/unsafe-eval"` in
+    `apps/web/src/iso/scene.ts`, not `'unsafe-eval'` in the policy.
+  - Production refuses the repo's default or empty database passwords
+    (`assertProductionDatabaseUrl`). The server, `migrate.js`, `seed.js` and `admin.js` all check
+    it. The cookie stays `Secure` in production.
+  - `docs/PLAYTEST-HOSTING.md` covers roles and databases with strong passwords (plus a
+    shared-instance alternative), the env file, `TRUST_PROXY`, HTTPS through Caddy (with a
+    Caddyfile), migrate, seed, systemd, admin, the dashboard, backups and a restore rehearsal, a
+    reset between cohorts, and upgrades.
+  - `pnpm e2e:hosting` runs the WHOLE Playwright suite against the built server in this
+    single-process mode (13 specs: the usual 11, plus `e2e/hosting.spec.ts` for the headers,
+    `/api`, the cookie, a deep link and no CSP violation).
+  - Server tests in `final-review.test.ts`, "S2": production config, and single-process hosting
+    (production and dev app instances).
+- **D1, closed.**
+  - `STORE_MODE` (`config.ts` `storeModeFromEnv`) is `off` by default under
+    `NODE_ENV=production` and `sandbox` elsewhere.
+  - With it off, `GET /me/store` carries `mode: "off"` and still previews every offer, and `POST
+    /me/store/purchase` answers 409 `store_unavailable` before reading the body. The dashboard's
+    `packFunnel` is `{counted: false, storeMode: "off"}` with every number 0, and the admin screen
+    says so.
+  - The Packs screen shows "Packs are not on sale during the play test", and each tier shows "Not
+    available during the play test" instead of a buy button.
+  - Nothing else in the economy reads it.
+  - Tests: `final-review.test.ts` "D1" (no `pack_purchase` row and no `coin_purchased` event after
+    the 409), `PacksScreen.test.tsx` "final review D1", and `telemetry.test.ts` (sandbox funnel
+    `counted: true`).
+- **D2, closed.**
+  - `ACCOUNT_RATE_LIMITS.loginFailuresPerUsernameAddress` is 10 per 15 min, and
+    `loginFailuresPerUsername` is a backstop of 100 per 15 min.
+  - Only failures count (`RateLimiter.check` / `record` / `reset`, `passwordFailureLimits`), and a
+    success clears that address's count. A login carrying a live device cookie of the same account
+    is exempt, and `/auth/resume` stays outside the username limits.
+  - The account-delete password check shares the same counters.
+  - Tests in `account-lifecycle.test.ts`:
+    - one address's failures leave another address free to sign in;
+    - the backstop holds across addresses;
+    - the account's own device is exempt, and another account's device is not.
+- **N1, closed.**
+  - The root `ci` script is now `check` (`scripts/check.mjs`). It runs typecheck, lint,
+    test:boundary, test, determinism, perf:resolver, build, migrate, smoke, e2e and e2e:hosting.
+    `--from <step>` resumes at a step.
+  - `.github/workflows/ci.yml` is exactly `pnpm check`, after the Postgres service, pnpm, Node, a
+    frozen install and Playwright's Chromium.
+  - AGENTS.md says `pnpm check`, and explains why not `pnpm ci`.
+- **N2, closed.**
+  - AGENTS.md has a "First time on a fresh clone" block: `corepack`; the `caravan` role and both
+    databases; `.env` from `.env.example`; `db:migrate`; `db:seed:dev`; the Playwright install;
+    `pnpm check`.
+  - Every entry point and script loads the repo's `.env` (or `ENV_FILE`), never overriding the
+    real environment: `config.ts` `loadDotEnv`, `scripts/lib/env.mjs`, and the server's vitest
+    config. `.env.example` documents the new variables.
+  - Test: `final-review.test.ts` "N2".
+- **N3, closed.**
+  - `pnpm db:roles` exists, at the root and in the server package.
+  - The resolver count is 587 tests in 15 files.
+  - The stale PHASE-2 §30 rate-limit numbers are superseded by the tunables. AGENTS.md now points
+    at `TUNABLES.ACCOUNT_RATE_LIMITS`.
+- **N4, closed.**
+  - `routes/ledger.ts` `redactForeignIds` also drops every `…CaravanId` / `caravanId` key that is
+    not one of the reader's own caravans.
+  - The party feed's `defender` no longer has `caravanId`; the web client never read it.
+  - Tests: `stakes.test.ts` (the owner's feed and ledger bodies do not contain the defender's
+    caravan id; a unit test of `redactForeignIds`) and `party.test.ts`.
+- **N6, closed.** `scripts/e2e.mjs` and `scripts/smoke-server.mjs` refuse to start when something
+  already answers on their port (`scripts/lib/env.mjs` `assertPortFree`).
+- **N7, closed.**
+  - `createPool` pins `search_path=public` on every connection.
+  - At boot, `checkRoleSettings` (`db/roleSettings.ts`) reads the role's `pg_db_role_setting`. It
+    is a warning outside production and a refusal to start in production.
+  - Test: `final-review.test.ts` "N7". It sets the setting only `IN DATABASE` the test database, so
+    no other server sees it, then resets it.
+- **N8, closed.** `pnpm check`'s smoke and both e2e runs use the `caravan_app` URL of the test
+  database. The smoke run also proves production refuses the test database's default password, then
+  boots `SERVE_WEB=1` and checks `/health`, `/api/health` and `/` (with a CSP).
+
+### Gates (observed on the fix commit)
+
+`TEST_DATABASE_URL=…/caravan_test_final2 E2E_PORT=3959 SMOKE_PORT=3959 E2E_WEB_PORT=4259 pnpm check`:
+
+- content 82, resolver 587, circle 108, web 441, server 786 (+1 skipped) tests passed;
+- determinism: 3 processes × 3 runs agree with the 72 goldens; perf:resolver 15/15;
+- build passed, with the bundle check ok;
+- smoke: "NODE_ENV=production refused to start with the repo-default database password (as it
+  must)", and "built server (SERVE_WEB=1) answered /health, /api/health and /";
+- e2e: 11 passed (4.0 m); e2e:hosting: 13 passed (5.0 m);
+- "all 11 steps passed in 24.0 min".
+
+### docs/PLAYTEST-HOSTING.md followed literally (database `caravan_playtest_final2`, port 3959)
+
+| Step | Result |
+|---|---|
+| 1. Get the code and build | A clean `git archive` copy of the fix commit. `pnpm install --frozen-lockfile` and `pnpm build`: "build ok". |
+| 2. Roles and database | **Deviated.** The sandbox refuses `sudo -u postgres` and `su`, and on the shared cluster `caravan` / `caravan_app` are in use by the parallel reviewer, so I could not set their passwords. `CREATE ROLE caravan` → "role "caravan" already exists". `CREATE DATABASE caravan_playtest_final2 OWNER caravan` → ok. I used the doc's shared-instance alternative, added after this walk: `caravan_ptf2_owner` (IN ROLE caravan, `SET role = caravan`) and `caravan_ptf2_app` (IN ROLE caravan_app), each with a 48-hex-character `openssl rand` password. |
+| 3. Env file | Written as in the doc, with mode 600. |
+| 3/4 with the default passwords first | `migrate.js up` → "MIGRATE_DATABASE_URL uses a default password from this repo … Refused when NODE_ENV=production" (exit 1). `seed.js` → the same for DATABASE_URL (exit 1). `seed.js --dev` → "seed --dev is refused when NODE_ENV=production" (exit 2). `index.js` → `ProductionConfigError: DATABASE_URL uses a default password`. |
+| 4. Migrate (strong passwords) | "Applied: 1_core_schema … 25_compaction_erasure_lock". `status` shows every migration `[x]`. All 36 tables are owned by `caravan`. |
+| 5. Seed | "Authored parties (set v4): 96 created" and "No login accounts were created". `--dev` was refused (exit 2). 96 system accounts, 0 others. |
+| 6. Run | The logs say "encounters resolve in-process with the real resolver", "store: off (packs previewed, not sold)", "serving the client from …/apps/web/dist; API under /api; source maps not served", "Server listening at http://127.0.0.1:3959". `/health` → `{"ok":true}`. The systemd unit itself was not run (no systemd in the sandbox). |
+| 7. Caddy | Caddy v2.8.4, built with `go install` because GitHub release downloads are blocked by policy. `PT_DOMAIN=localhost`. `https://localhost/health` and `/api/health` → `{"ok":true}`. `/` → `HTTP/2 200` with CSP, `strict-transport-security: max-age=31536000`, `x-frame-options: DENY` and `cache-control: no-cache`. `/assets/AdminScreen-….js.map` → 404. `http://localhost/` → 308 to https. A real trip through `https://localhost/api` with the real resolver resolved in about 0.2 s. Playwright `e2e/hosting.spec.ts` against `https://localhost`: 2 passed. Over HTTPS the cookie is `Path=/; HttpOnly; SameSite=Strict; Max-Age=15552000; Secure`. `caddy run` installed its root CA into the NSS, Java and system stores; `caddy untrust --cert …` removed it, and the doc now says so. |
+| 8. Grant admin | `admin.js grant <user> --by reviewer` → "granted admin to …". `list` shows it. |
+| 9. Dashboard | The admin gets 200 with 28 panels; `packFunnel` is `{…, "storeMode":"off", "counted":false}`. A guest gets 404. `/me/store` has `mode: "off"` and 3 offers. A purchase gets 409 `store_unavailable`. |
+| 10. Backups | `pg_dump -Fc` gave 405 926 bytes. The restore rehearsal: a scratch database, `pg_restore --no-owner --role=caravan` (exit 0), then `migrate.js roles`. Counts are equal (98 accounts, 3 509 ledger events, 1 job, 75 triggers). `caravan_app` has INSERT on `ledger_event` and none on `encounter_log`, as on the original. |
+| 11. Reset between cohorts | Server stopped. `DELETE FROM account` → "DELETE 98". `migrate.js reset` → "Reset complete." `seed.js` → 96 created. A stale device cookie on `/api/auth/resume` → 401 `no_device`; the doc now states that observed behaviour. |
+| 12. Upgrade | `migrate.js up` → "Nothing to apply."; `seed.js` → "96 already current"; restart → healthy. |
+
+Clean-up: the server and Caddy are stopped, Caddy's root CA is removed from the trust stores, and
+the two rehearsal databases and two login roles are dropped.

@@ -64,6 +64,18 @@ SQL
 
 If the roles already exist, for example from an earlier play test on this instance, set new
 passwords instead: `ALTER ROLE caravan PASSWORD '…'; ALTER ROLE caravan_app PASSWORD '…';`.
+
+If you must share an instance whose `caravan` / `caravan_app` are used by something else with
+other passwords, do not touch those. Create two login roles that act as them instead, and use
+these names in the URLs of step 3:
+
+```sql
+CREATE ROLE caravan_pt_owner LOGIN PASSWORD '<owner pw>' NOSUPERUSER NOCREATEROLE IN ROLE caravan;
+ALTER ROLE caravan_pt_owner SET role = caravan;   -- objects stay owned by caravan, so roles.sql's grants apply
+CREATE ROLE caravan_pt_app LOGIN PASSWORD '<app pw>' NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION NOBYPASSRLS IN ROLE caravan_app;
+```
+
+The app role must carry no role-level setting; the server refuses one in production.
 The passwords `caravan` and `caravan_app` from the repo are refused in production (step 4 shows
 the error).
 
@@ -188,8 +200,9 @@ Caddy obtains and renews the certificate itself, redirects http to https and set
 CSP in Caddy.
 
 To rehearse on one machine without a public name, use `PT_DOMAIN=localhost`. Caddy then uses its
-own local CA (`caddy trust` installs it), and `curl --cacert` takes its root:
-`~/.local/share/caddy/pki/authorities/local/root.crt`, or `/root/.local/…` under sudo.
+own local CA, which `caddy run` installs into the system, NSS and Java trust stores. Remove it
+afterwards with `caddy untrust --cert ~/.local/share/caddy/pki/authorities/local/root.crt`.
+`curl --cacert` takes that same root (`/root/.local/…` under sudo).
 
 Check from outside:
 
@@ -272,8 +285,8 @@ sudo systemctl start caravan
 # sign up the operator again, then step 8
 ```
 
-Testers' devices still hold a cookie for the old database. It is simply no longer recognized, and
-the client offers a fresh start.
+Testers' devices still hold a cookie for the old database. `POST /api/auth/resume` now refuses it
+(401 `no_device`), so they start again from the first screen.
 
 ## 12. Upgrading during the play test
 
