@@ -634,6 +634,12 @@ export const STRINGS = {
    * parts — it is more slot-efficient; every merge string says what is freed, not what is
    * gained. The mine VISUALIZES the trickle: no string may offer to improve it.
    */
+  // Final play-test review r2 N15: who a standing party struck (shell/defender.ts).
+  defender: {
+    named: (username: string, caravan: string): string => `${username} (${caravan})`,
+    departed: "a caravan that has since left the trail",
+    unknown: "someone",
+  },
   town: {
     // Final play-test review r2 D2: the standing party is down.
     mineMore: "How the mine works",
@@ -936,7 +942,7 @@ export const STRINGS = {
     feedHeading: "Where it struck",
     feedIntro: "Every time this party was served into someone's trip, newest first. You were not there; this is the record.",
     feedEmpty: "Not served yet. It is offered to caravans in your Reputation band whenever it is valid.",
-    feedEntry: (who: string, caravan: string, encounter: string): string => `vs ${who} (${caravan}), ${encounter}`,
+    feedEntry: (who: string, encounter: string): string => `vs ${who}${encounter ? `, ${encounter}` : ""}`,
     feedEncounter: (n: number): string => `encounter ${n}`,
     feedOutcomeUnknown: "Outcome: recorded",
     feedCoin: (n: number): string => `${n} Coin`,
@@ -944,7 +950,6 @@ export const STRINGS = {
     feedLadder: (n: number): string => `+${n} ladder`,
     feedMore: "Older",
     feedWatch: "Watch the fight",
-    unknownDefender: "someone",
     // QA-17 punch list
     feedOutcomeKind: (kind: string): string | null =>
       ({
@@ -1288,8 +1293,7 @@ export const STRINGS = {
       `Earned ${coin} Coin · ${reputation > 0 ? "+" : ""}${reputation} Reputation · +${ladder} ladder`,
     strikeTransferred: (coin: number): string => `Of that, ${coin} Coin was unbanked Coin the overrun caravans lost to your party.`,
     strikeDiscarded: (coin: number): string => `${coin} Coin did not fit under your storage cap and was not credited.`,
-    strikeLine: (who: string, caravan: string, encounter: number | null): string =>
-      `vs ${who} (${caravan})${encounter === null ? "" : `, encounter ${encounter} of their trip`}`,
+    strikeLine: (who: string, encounter: number | null): string => `vs ${who}${encounter === null ? "" : `, encounter ${encounter} of their trip`}`,
     strikeOutcome: (kind: string | null): string =>
       (kind === null
         ? null
@@ -1303,7 +1307,6 @@ export const STRINGS = {
     showStrikes: (count: number): string => (count === 1 ? "Show the fight" : "Show the fights"),
     loadingStrikes: "Loading the fights…",
     strikeNotListed: (n: number): string => `${n} more in this hour are counted above; every one is in the Party tab's results feed.`,
-    someone: "someone",
     watch: "Watch the fight",
     openFeed: "Open the results feed",
     olderStrikes: (batchesPastLimit: number, beforeHorizon: boolean): string =>
@@ -1393,7 +1396,7 @@ export const STRINGS = {
     onTrailBody: "The first trip waits for you on the Trail tab. Nothing happens to it while you look around.",
     // ── trail: scouting ──
     searchTitle: "Encounter 1: find who is coming",
-    searchBody: "Search to be served three raiding parties. Each one is another player's standing party (or, early on, a labelled authored outfit); its owner is not there.",
+    searchBody: "Search to be served three raiding parties. On this first trip they are authored outfits, labelled as such and kept fair for a new caravan. From your next trip on you also meet other players' standing parties; their owners are never there.",
     scoutTitle: "Scout before you choose",
     scoutBody: "Each party below leads with a summary: its raiders by stance, their total HP, its siege and the sides they come from. Tap Full scouting report for every unit, its HP, its ability and its start cell. Nothing is hidden. Compare the three, then choose the one you will face.",
     scoutPick: (name: string, raiders: number, hp: number, siege: number, passedOverRanged = false): string =>
@@ -1464,8 +1467,7 @@ export const STRINGS = {
     decide2Body: "Banking now makes the Coin you carried safe in town for good and brings your units home; that ends the first trip. Pushing on is allowed too, at the stakes shown below.",
     // ── after the trip: the passive side ──
     partyTitle: "Whose parties you just fought",
-    partyBody:
-      "The parties you just faced were standing parties: other players' (or labelled authored outfits). Their owners were not there and lost nothing. Yours works the same way: it is served into other players' trips while you are away, and you read afterwards how it did.",
+    partyBody: "The parties on your first trip were authored outfits, there to learn on. From your next trip on you also meet other players' standing parties: their owners are never there and lose nothing. Yours works the same way: it is served into other players' trips while you are away, and you read afterwards how it did.",
     partyOverrun: "Your first trip was overrun. That happens, and the stakes were itemized before you chose to push. Ride out again when you have a unit and a trip available.",
     /** An encounter-1 overrun: the player made no stake choice yet (QA S2). */
     partyOverrunFirst: "Your first fight was lost. That happens: fights are real. Ride out again when you have a unit and a trip available.",
@@ -1476,10 +1478,8 @@ export const STRINGS = {
     voidedBody: (encounter: number, survived: number): string =>
       `Encounter ${encounter} could not be resolved on the server, so nothing of that fight was applied. The trip ended as a bank after ${survived === 0 ? "no survived encounter: nothing was credited and nothing was lost" : survived === 1 ? "the 1 encounter you survived" : `the ${survived} encounters you survived`}. The ride still used one of your trips for the hour.`,
     /** A trip that ended at its first fight: one party faced, not several. */
-    partyBodyOne:
-      "The party you just faced was a standing party: another player's (or a labelled authored outfit). Its owner was not there and lost nothing. Yours works the same way: it is served into other players' trips while you are away, and you read afterwards how it did.",
-    partyBodyNoFight:
-      "Every raiding party you are served is a standing party: another player's (or a labelled authored outfit). Its owner is not there and loses nothing. Yours works the same way: it is served into other players' trips while you are away, and you read afterwards how it did.",
+    partyBodyOne: "The party you just faced was an authored outfit, there to learn on. From your next trip on you also meet other players' standing parties: their owners are never there and lose nothing. Yours works the same way: it is served into other players' trips while you are away, and you read afterwards how it did.",
+    partyBodyNoFight: "Your first trip meets authored outfits; after it you also meet other players' standing parties. Their owners are never there and lose nothing. Yours works the same way: it is served into other players' trips while you are away, and you read afterwards how it did.",
     partyRaise: "Raise my party from my roster",
     partyRaising: "Raising…",
     partyRaised: (n: number): string => `Your standing party is up: ${n === 1 ? "1 unit" : `${n} units`} from your roster, ready to be served. It is a template; it never loses a unit.`,

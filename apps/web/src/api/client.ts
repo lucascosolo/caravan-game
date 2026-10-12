@@ -24,6 +24,7 @@ import {
   authShape,
   choiceShape,
   economyShape,
+  formationReadShape,
   formationShape,
   manifestShape,
   manifestReadShape,
@@ -71,6 +72,7 @@ import type { ManifestReadResponse, CandidatesReadResponse,
   EconomyView,
   FormationBody,
   FormationResponse,
+  FormationView,
   IssueView,
   ManifestResponse,
   MeResponse,
@@ -171,6 +173,8 @@ export interface Api {
   unpackManifest(caravanId: string): Promise<{ readonly unpacked: { readonly manifestId: string } }>;
   saveFormation(caravanId: string, encounterIndex: number, formation: FormationBody): Promise<FormationResponse>;
   formation(caravanId: string, encounterIndex: number): Promise<FormationResponse>;
+  /** r2 N10: `?ifNone=null` — 200 `{ formation: null }` where no draft exists yet (an older server's 404 \`no_formation\` reads as null too). */
+  formationIfAny(caravanId: string, encounterIndex: number): Promise<FormationView | null>;
   commitFormation(caravanId: string, encounterIndex: number): Promise<FormationResponse>;
   // Matchmaking & scouting (chunk 14 routes). The reroll is free and time-gated: a 409
   // `reroll_cooldown` carries `availableAtMs` in `ApiError.body`; nothing here can shorten it.
@@ -325,6 +329,14 @@ export function createApi(opts: ApiOptions): Api {
     unpackManifest: (caravanId) => request("DELETE", `${caravans(caravanId)}/manifest`, unpackShape),
     saveFormation: (caravanId, n, formation) => request("PUT", `${caravans(caravanId)}/encounters/${n}/formation`, formationShape, formation),
     formation: (caravanId, n) => request("GET", `${caravans(caravanId)}/encounters/${n}/formation`, formationShape),
+    formationIfAny: async (caravanId, n) => {
+      try {
+        return (await request("GET", `${caravans(caravanId)}/encounters/${n}/formation?ifNone=null`, formationReadShape)).formation;
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404 && err.code === "no_formation") return null;
+        throw err;
+      }
+    },
     commitFormation: (caravanId, n) => request("POST", `${caravans(caravanId)}/encounters/${n}/formation/commit`, formationShape),
     searchCandidates: (caravanId, n) => request("POST", `/me${caravans(caravanId)}/encounters/${n}/search`, menuShape),
     candidates: (caravanId, n) => request("GET", `/me${caravans(caravanId)}/encounters/${n}/candidates`, candidatesReadShape),

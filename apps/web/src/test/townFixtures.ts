@@ -5,7 +5,7 @@
  */
 import { PARTY_CONFIG_VERSION, siegeCounterEntry } from "@caravan/circle";
 import { SIEGE_TYPES } from "@caravan/content";
-import type { Api } from "../api/client.ts";
+import { ApiError, type Api } from "../api/client.ts";
 import type { EconomyView, MeResponse, MergePreview, PartyView, RecruitView, RefugeeView, UnitStatsView, UnlocksResponse } from "../api/types.ts";
 import { ACCOUNT_ID, CARAVAN_ID } from "./fixtures.ts";
 
@@ -13,7 +13,7 @@ export { ACCOUNT_ID, CARAVAN_ID };
 
 export function fakeApi(over: Partial<Api> = {}): Api {
   const notCalled = (): Promise<never> => Promise.reject(new Error("not expected"));
-  return {
+  const api: Omit<Api, "formationIfAny"> = {
     register: notCalled,
     login: notCalled,
     logout: notCalled,
@@ -79,6 +79,7 @@ export function fakeApi(over: Partial<Api> = {}): Api {
     adminDashboard: notCalled,
     ...over,
   };
+  return { ...api, formationIfAny: over.formationIfAny ?? formationIfAnyVia(api) };
 }
 
 export const uid = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -224,5 +225,17 @@ export function unlocksWith(trapReached: readonly string[]): UnlocksResponse {
         nodes: trapReached.map((id) => ({ id, tier: 0, cost: 0, requires: [], starting: true, reached: true, prerequisitesMet: true, affordable: false, missing: [] })),
       },
     ],
+  };
+}
+
+/** r2 N10: a fake's `formationIfAny` reads through its `formation` (a 404 no_formation is "none yet"). */
+export function formationIfAnyVia(api: Pick<Api, "formation">): Api["formationIfAny"] {
+  return async (caravanId, n) => {
+    try {
+      return (await api.formation(caravanId, n)).formation;
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404 && err.code === "no_formation") return null;
+      throw err;
+    }
   };
 }

@@ -87,6 +87,8 @@ describe("the guide's step model (chunk 24)", () => {
     });
     const gunslingers = party([380, 380], [melee * 4, melee * 3]);
     const mixed = party([900, 450], [melee, melee * 4]);
+    // A long arm is not a gun: a Grizzly's 1.2-cell swipe with a Trapper is a mixed party.
+    expect(isRangedOnly(party([1300, 450], [Math.round(melee * 1.2), melee * 4]))).toBe(false);
     const brawlers = party([1100, 1100], [melee, melee]);
     expect(isRangedOnly(gunslingers)).toBe(true);
     expect(isRangedOnly(mixed)).toBe(false);

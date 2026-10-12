@@ -22,6 +22,7 @@ import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { publishUnread } from "../../shell/inboxSignal.ts";
 import { formatWhen } from "../../shell/issues.ts";
 import { navigate } from "../../shell/router.tsx";
+import { defenderLabel } from "../../shell/defender.ts";
 import { STRINGS } from "../../strings.ts";
 import { WatchFight } from "../replay/WatchFight.tsx";
 import { AnalyticsToggle } from "./AnalyticsToggle.tsx";
@@ -266,7 +267,7 @@ function StrikeLines({ itemKey, detail, api, onWatch }: { readonly itemKey: stri
     <ul className="inbox-strikes">
       {lines.map((s) => (
         <li key={s.seq} data-testid={`inbox-strike-${s.seq}`}>
-          <div className="card__line">{T.strikeLine(s.defender.username ?? T.someone, s.defender.caravanName ?? T.someone, s.encounterIndex)}</div>
+          <div className="card__line">{T.strikeLine(defenderLabel(s.defender), s.encounterIndex)}</div>
           <div className="card__line">{T.strikeOutcome(s.outcomeKind)}</div>
           <div className="card__line hint">
             {T.strikeLineEarned(s.coinEarned, s.reputationDelta)}

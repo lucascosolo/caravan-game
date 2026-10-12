@@ -25,6 +25,7 @@ import { useApi } from "../../auth/session.tsx";
 import { IsoCanvas, cellToWorld, type HitResult, type IsoCanvasHandle, type IsoSceneState } from "../../iso/index.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { Modal } from "../../shell/Modal.tsx";
+import { defenderLabel } from "../../shell/defender.ts";
 import { STRINGS } from "../../strings.ts";
 import { CIRCLE_GEOMETRY } from "../trail/FormationScreen.tsx";
 import { ScoutPanel } from "../trail/ScoutPanel.tsx";
@@ -500,7 +501,7 @@ export function PartyScreen(props: PartyScreenProps = {}): JSX.Element {
             {feed.entries.map((e) => (
               <li key={e.seq} className="card">
                 <div className="card__name">
-                  {T.feedEntry(e.defender.username ?? T.unknownDefender, e.defender.caravanName ?? T.unknownDefender, e.encounterIndex === null ? "" : T.feedEncounter(e.encounterIndex))}
+                  {T.feedEntry(defenderLabel(e.defender), e.encounterIndex === null ? "" : T.feedEncounter(e.encounterIndex))}
                 </div>
                 <div className="card__line">{(e.outcomeKind ? T.feedOutcomeKind(e.outcomeKind) : null) ?? T.feedOutcomeUnknown}</div>
                 <div className="card__line hint">

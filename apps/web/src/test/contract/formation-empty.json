@@ -1,0 +1,8 @@
+{
+  "route": "GET /caravans/:id/encounters/:n/formation?ifNone=null (no draft yet)",
+  "status": 200,
+  "body": {
+    "formation": null,
+    "encounterIndex": 1
+  }
+}

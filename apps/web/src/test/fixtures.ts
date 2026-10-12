@@ -155,7 +155,8 @@ export function fakeFetch(routes: Record<string, Handler>): { fetch: typeof fetc
     const body = typeof init?.body === "string" ? (JSON.parse(init.body) as unknown) : undefined;
     const call: Call = { method, path, body, headers };
     calls.push(call);
-    const handler = routes[`${method} ${path}`];
+    // r2 N10: a route registered without its query string also answers the same path with one (`?ifNone=null`).
+    const handler = routes[`${method} ${path}`] ?? routes[`${method} ${path.split("?")[0]}`];
     if (!handler) return new Response(JSON.stringify({ error: "not_found", message: `no route ${method} ${path}` }), { status: 404 });
     const out = handler(call);
     if (out.status === 204) return new Response(null, { status: 204 });

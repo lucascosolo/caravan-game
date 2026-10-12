@@ -18,6 +18,7 @@ import type {
   CandidateView,
   ChoiceView,
   EconomyView,
+  FormationReadResponse,
   FormationResponse,
   FormationView,
   InventoryStatusView,
@@ -222,6 +223,8 @@ const formationView: Guard<FormationView> = object({
 });
 
 export const formationShape: Guard<FormationResponse> = object({ formation: formationView });
+/** r2 N10: `GET …/formation?ifNone=null` — the formation, or null when no draft exists yet. */
+export const formationReadShape: Guard<FormationReadResponse> = object({ formation: nullable(formationView), encounterIndex: optional(integer({ min: 1, max: 1_000_000 })) });
 
 // ── Matchmaking & scouting (chunk 14 routes) ─────────────────────────────────────────
 
@@ -607,7 +610,7 @@ export const partyFeedShape: Guard<PartyFeedPage> = object({
       occurredAt: TIMESTAMP,
       jobId: nullable(ID),
       encounterIndex: nullable(integer({ min: 0, max: MAX_ENCOUNTER })),
-      defender: object({ username: nullable(NAME), caravanName: nullable(NAME), regionId: nullable(ID) }),
+      defender: object({ username: nullable(NAME), caravanName: nullable(NAME), regionId: nullable(ID), departed: optional(boolean()) }),
       outcomeKind: nullable(ID),
       coinEarned: COIN,
       reputationDelta: integer(),

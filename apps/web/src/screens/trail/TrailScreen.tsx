@@ -179,12 +179,8 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
       }
       const manifest = await openManifest(api, caravan.id);
       if (!manifest) throw new ApiError(0, "bad_payload", STRINGS.app.badPayload, "GET manifest: the open trip has no open manifest");
-      let initial: FormationView | null = null;
-      try {
-        initial = (await api.formation(caravan.id, encounterIndex)).formation;
-      } catch (err) {
-        if (!is404(err, "no_formation")) throw err;
-      }
+      // r2 N10: no draft yet is the normal state on a cold load: asked for as an empty state, not a 404.
+      const initial: FormationView | null = await api.formationIfAny(caravan.id, encounterIndex);
       setState({ kind: "ready", caravanId: caravan.id, trip: manifest, encounterIndex, initial, scout: encounterFromCandidate(encounterIndex, chosen) });
     } catch (err) {
       setState({ kind: "error", error: asApiError(err) });

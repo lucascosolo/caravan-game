@@ -12,6 +12,7 @@ import { ShapeError, expectShape, type Guard } from "../../api/shape.ts";
 import {
   authShape,
   candidatesReadShape,
+  formationReadShape,
   manifestReadShape,
   choiceShape,
   economyShape,
@@ -65,6 +66,7 @@ export const CONTRACT_GUARDS: Readonly<Record<string, Guard<unknown> | null>> = 
   search: menuShape,
   candidates: candidatesReadShape,
   "candidates-empty": candidatesReadShape,
+  "formation-empty": formationReadShape,
   choose: choiceShape,
   "formation-put": formationShape,
   formation: formationShape,
