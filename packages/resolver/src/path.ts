@@ -98,7 +98,8 @@ const NEIGHBOUR_DY = [-1, 0, 0, 1];
  * `breachCost(fenceIndex)` is the extra cost of stepping into that intact segment's cell;
  * return COST_INFINITE for "cannot breach".
  */
-export function findPath(grid: PathGrid, start: Cell, goal: Cell, breachCost: (fenceIndex: number) => number): PathStep[] | null {
+export function findPath(grid: PathGrid, start: Cell, goal: Cell, breachCost: (fenceIndex: number) => number, work?: { pathSearches: number; pathExpansions: number }): PathStep[] | null {
+  if (work) work.pathSearches++;
   const n = GRID_WIDTH * GRID_HEIGHT;
   const startKey = cellKey(start);
   const goalKey = cellKey(goal);
@@ -163,6 +164,7 @@ export function findPath(grid: PathGrid, start: Cell, goal: Cell, breachCost: (f
     const cur = pop();
     if (closed[cur] === 1) continue;
     closed[cur] = 1;
+    if (work) work.pathExpansions++;
     if (cur === goalKey) break;
     const cx = cur % GRID_WIDTH;
     const cy = Math.floor(cur / GRID_WIDTH);

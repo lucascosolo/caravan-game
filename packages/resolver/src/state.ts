@@ -243,6 +243,22 @@ export interface SimState {
   grid: PathGrid;
   /** Set in phase 8 when a fence broke this tick; phase 2 of the NEXT tick recomputes every path. */
   fenceBrokeSinceRecompute: boolean;
+  /** PHASE-2 §36 (QA S3): integer counts of the work done, for the deterministic performance gate. Never logged, never read by the simulation. */
+  readonly work: WorkCounters;
+}
+
+/**
+ * PHASE-2 §36 (QA S3): how much work a fight cost, counted in integers — the machine-independent
+ * half of the resolver's performance budget. Counted alongside the simulation, never read by it,
+ * and not part of the log, so replays and goldens are untouched.
+ */
+export interface WorkCounters {
+  /** Units alive at the start of each tick, summed over the fight. */
+  unitTicks: number;
+  /** A* searches run (path.ts findPath). */
+  pathSearches: number;
+  /** Cells A* closed (expanded), summed over every search. */
+  pathExpansions: number;
 }
 
 export function msToTicks(ms: Millis, tickRate: number): number {
@@ -443,6 +459,7 @@ export function initialState(input: ResolveInput): SimState {
     siege: party.siege.map((s) => ({ ref: s.ref, typeId: s.typeId, counters: s.counters })),
     grid: buildGrid(fences, battlefield.anchors),
     fenceBrokeSinceRecompute: false,
+    work: { unitTicks: 0, pathSearches: 0, pathExpansions: 0 },
   };
 }
 

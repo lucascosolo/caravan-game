@@ -6,7 +6,11 @@
  *
  *   createdb -O caravan caravan_load          # any database whose name contains "load" (refused otherwise)
  *   pnpm load:queue -- --db postgres://caravan:caravan@127.0.0.1:5432/caravan_load \
- *     [--burst 10000] [--burst-parties 1] [--trips 500] [--processes 4] [--loops 2] [--profile]
+ *     [--burst 10000] [--burst-parties 1] [--trips 500] [--processes 4] [--loops 2] [--profile] [--strict]
+ *
+ * Exit status (QA-36 D2): non-zero only when a CORRECTNESS check fails. The throughput target is
+ * reported as MET / NOT MET with the host's load average; `--strict` (a dedicated host only) makes
+ * a missed target fail the run too.
  *   (= pnpm --filter @caravan/server exec tsx ../../scripts/load/queue-load.ts …)
  *
  * ASSUMED LAUNCH CONCURRENCY (no live data exists yet; revisit with chunk 32's telemetry):
@@ -48,6 +52,9 @@ import type { JsonObject } from "../../apps/server/src/ledger/events.js";
 import { seedAuthoredParties } from "../../apps/server/src/matchmaking/authored.js";
 import { createUnitInstance } from "../../apps/server/src/repo/unitInstances.js";
 import { TRIP_SETTLE_HOOKS } from "../../apps/server/src/trip/service.js";
+import { verifyProjection } from "../../apps/server/src/ledger/projection.js";
+import { TUNABLES } from "../../packages/content/src/index.js";
+import { cpus, loadavg } from "node:os";
 
 const arg = (name: string, d: string): string => {
   const i = process.argv.indexOf(`--${name}`);
@@ -153,6 +160,8 @@ const TRIPS = num("trips", 500);
 const PROCESSES = num("processes", 4);
 const LOOPS = num("loops", 2);
 const PROFILE = process.argv.includes("--profile");
+/** QA-36 D2: on a dedicated host, a missed throughput target fails the run too. Elsewhere it is REPORTED (MET / NOT MET with the load average). */
+const STRICT = process.argv.includes("--strict");
 const LAUNCH_TRIPS = 100;
 const LAUNCH_COMMITS_PER_S = 1.1;
 const TARGET_JOBS_PER_S = Math.round(100 * LAUNCH_COMMITS_PER_S);
@@ -329,19 +338,39 @@ try {
   await settled(phaseA);
   const wa = await report();
   const la = await latency(phaseA);
+  // QA-36 D2: "settled" is scoped to phase A's own jobs, and to a SETTLED outcome: a trip_encounter
+  // row per job whose kind is the job's own (a trip voided by a parked job has none).
   const sa = (await owner.query<{ completed: string; parked: string; attempts: string; settled: string }>(
     `SELECT count(*) FILTER (WHERE status = 'completed')::text AS completed, count(*) FILTER (WHERE status = 'parked')::text AS parked, sum(attempts)::text AS attempts,
-            (SELECT count(*) FROM wagon_manifest m WHERE m.encounters_resolved = 1 OR m.closed_at IS NOT NULL)::text AS settled
+            (SELECT count(*) FROM trip_encounter te JOIN resolution_job j ON j.id = te.job_id
+              WHERE te.job_id = ANY($1) AND te.outcome_kind = j.result -> 'outcome' ->> 'kind')::text AS settled
        FROM resolution_job WHERE id = ANY($1)`,
     [phaseA],
   )).rows[0]!;
   console.log(`  first commit → last resolution ${(la.spanMs / 1000).toFixed(1)} s (${((Number(sa.completed) * 1000) / la.spanMs).toFixed(0)} jobs/s, bounded by the commit rate); commit→resolved p50 ${la.p50.toFixed(0)} ms, p95 ${la.p95.toFixed(0)} ms, p99 ${la.p99.toFixed(0)} ms, max ${la.max.toFixed(0)} ms; worker CPU ${(wa.cpuMs / Math.max(1, wa.done)).toFixed(1)} ms/job`);
   check(Number(sa.completed) === TRIPS && Number(sa.parked) === 0 && Number(sa.attempts) === TRIPS, `phase A: ${sa.completed}/${TRIPS} completed, ${sa.parked} parked, ${sa.attempts} leases (one each)`);
-  check(Number(sa.settled) >= TRIPS, `phase A: every trip settled its encounter (${sa.settled} manifests folded)`);
+  check(Number(sa.settled) === TRIPS, `phase A: every trip settled its encounter with the job's own outcome (${sa.settled} trip_encounter rows of ${TRIPS})`);
   check(wa.errorCount === 0, `phase A: no worker errors${wa.errorCount ? ` (${wa.errorCount}: ${wa.errors.join(" | ")})` : ""}`);
 
   // ── phase B: the 100× burst, all against ONE standing party ──
   setMode("none");
+  // QA-36 D2: retention under load — the owner lowers the size budget for phase B, so every
+  // completion compacts its caravan's logs (the §36 prune, under its savepoint) while the other
+  // workers complete, and a concurrent sweep loop runs beside them. Restored afterwards.
+  await owner.query("UPDATE encounter_log_retention SET size_budget_bytes = 1024");
+  let sweeping = true;
+  let swept = 0;
+  const sweepErrors: string[] = [];
+  const sweeper = (async () => {
+    while (sweeping) {
+      try {
+        swept += Number((await appRole.query<{ n: number }>("SELECT encounter_log_retention_sweep(500) AS n")).rows[0]!.n);
+      } catch (err) {
+        sweepErrors.push(String(err));
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  })();
   const stars = owners.slice(0, Math.min(BURST_PARTIES, owners.length));
   console.log(`\nphase B: ${BURST} encounters against ${stars.length === 1 ? "ONE standing party" : `${stars.length} standing parties`}, enqueued concurrently (48 in flight) while ${PROCESSES}×${LOOPS} workers drain`);
   const partyBytes = async () => (await owner.query<{ j: string }>("SELECT string_agg(row_to_json(sp)::text, '|' ORDER BY account_id) AS j FROM standing_party sp WHERE account_id = ANY($1)", [stars.map((x) => x.accountId)])).rows[0]!.j;
@@ -368,17 +397,23 @@ try {
   const enqueueMs = Date.now() - t;
   console.log(`  enqueued ${burstIds.length} in ${(enqueueMs / 1000).toFixed(1)} s (${((burstIds.length * 1000) / enqueueMs).toFixed(0)} enqueues/s, 48 in flight)`);
   await settled(burstIds);
+  sweeping = false;
+  await sweeper;
+  await owner.query("UPDATE encounter_log_retention SET size_budget_bytes = $1", [TUNABLES.LOG_SIZE_BUDGET_BYTES]);
   const wb = await report();
   const lb = await latency(burstIds);
-  const sb = (await owner.query<{ completed: string; parked: string; attempts: string; events: string; logs: string; avg_stored: string; max_stored: string; groups: string; mixed: string }>(
+  const sb = (await owner.query<{ completed: string; parked: string; attempts: string; events: string; logs: string; distinct_logs: string; compacted: string; avg_stored: string; max_stored: string; groups: string; mixed: string }>(
     `WITH j AS (SELECT id, status, attempts FROM resolution_job WHERE id = ANY($1)),
-          l AS (SELECT l.job_id, l.stored_bytes, l.log_sha256, (r.input -> 'formation')::text || (r.input -> 'survivors')::text || (r.input -> 'party')::text AS inputs
-                  FROM encounter_log l JOIN resolution_job r ON r.id = l.job_id WHERE l.job_id = ANY($1)),
+          -- A job's log is either still stored or compacted to its summary (which keeps its sha256 and size).
+          stored AS (SELECT job_id, stored_bytes, log_sha256, false AS compacted FROM encounter_log WHERE job_id = ANY($1)
+                     UNION ALL SELECT job_id, stored_bytes, log_sha256, true FROM encounter_log_summary WHERE job_id = ANY($1)),
+          l AS (SELECT l.job_id, l.stored_bytes, l.log_sha256, l.compacted, (r.input -> 'formation')::text || (r.input -> 'survivors')::text || (r.input -> 'party')::text AS inputs
+                  FROM stored l JOIN resolution_job r ON r.id = l.job_id),
           g AS (SELECT inputs, count(DISTINCT log_sha256) AS shas FROM l GROUP BY inputs)
      SELECT (SELECT count(*) FROM j WHERE status = 'completed')::text AS completed, (SELECT count(*) FROM j WHERE status = 'parked')::text AS parked,
             (SELECT sum(attempts) FROM j)::text AS attempts,
             (SELECT count(*) FROM ledger_event WHERE causation_id = ANY($1))::text AS events,
-            (SELECT count(*) FROM l)::text AS logs, (SELECT round(avg(stored_bytes)) FROM l)::text AS avg_stored, (SELECT max(stored_bytes) FROM l)::text AS max_stored,
+            (SELECT count(*) FROM l)::text AS logs, (SELECT count(DISTINCT job_id) FROM l)::text AS distinct_logs, (SELECT count(*) FROM l WHERE compacted)::text AS compacted, (SELECT round(avg(stored_bytes)) FROM l)::text AS avg_stored, (SELECT max(stored_bytes) FROM l)::text AS max_stored,
             (SELECT count(*) FROM g)::text AS groups, (SELECT count(*) FROM g WHERE shas > 1)::text AS mixed`,
     [burstIds],
   )).rows[0]!;
@@ -389,11 +424,41 @@ try {
   check(Number(sb.completed) === BURST && Number(sb.parked) === 0, `phase B: ${sb.completed}/${BURST} completed, ${sb.parked} parked`);
   check(Number(sb.attempts) === BURST, `phase B: every job leased exactly once (${sb.attempts} leases)`);
   check(Number(sb.events) === 2 * BURST, `phase B: exactly two ledger events per job (${sb.events})`);
-  check(Number(sb.logs) === BURST, `phase B: one stored log per job (${sb.logs})`);
+  check(Number(sb.logs) === BURST && Number(sb.distinct_logs) === BURST, `phase B: exactly one log or summary per job (${sb.logs}; ${sb.compacted} compacted under load, ${swept} of them by the concurrent sweep)`);
+  check(Number(sb.compacted) > 0, `phase B: compaction ran concurrently with completions (${sb.compacted} summaries)`);
+  check(sweepErrors.length === 0, `phase B: the concurrent sweep raised nothing${sweepErrors.length ? ` (${sweepErrors.length}: ${sweepErrors.slice(0, 2).join(" | ")})` : ""}`);
   check(before === after, `phase B: the standing party row${stars.length > 1 ? "s are" : " is"} byte-identical after being served into every encounter`);
   check(Number(sb.mixed) === 0, `phase B: identical inputs → byte-identical logs across workers and order (${sb.groups} input groups, ${sb.mixed} with more than one log)`);
   check(wb.errorCount === 0, `phase B: no worker errors${wb.errorCount ? ` (${wb.errorCount}: ${wb.errors.join(" | ")})` : ""}`);
-  check(jobsPerS >= TARGET_JOBS_PER_S, `throughput target: ${jobsPerS.toFixed(0)} ≥ ${TARGET_JOBS_PER_S} resolutions/s (100× the assumed launch rate)`);
+  // QA-36 D2: the property the account locks exist for. Every touched account's projected balances
+  // equal the fold of its ledger rows, Coin stays within its cap, and no overrun transfer was paid twice.
+  const touched = [...new Set([...defenders.map((d) => d.accountId), ...owners.map((o) => o.accountId)])];
+  let projectionBad = 0;
+  let overCap = 0;
+  for (const id of touched) {
+    const v = await verifyProjection(owner, id);
+    // Coin only: the setup seeds Reputation by a direct UPDATE (outside the ledger), so the rating
+    // pools legitimately differ from the fold; Coin moves only through the ledger.
+    if (v.error || v.live.coinBalance !== v.rebuilt.coinBalance) {
+      projectionBad++;
+      if (projectionBad === 1) console.log(`  first mismatch ${id}: live ${JSON.stringify(v.live)} rebuilt ${JSON.stringify(v.rebuilt)} ${v.error ?? ""}`.slice(0, 1500));
+    }
+  }
+  overCap = Number((await owner.query<{ n: string }>("SELECT count(*)::text AS n FROM account WHERE id = ANY($1) AND coin_balance > coin_storage_cap", [touched])).rows[0]!.n);
+  const doubleTransfers = Number(
+    (await owner.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM (SELECT causation_id FROM ledger_event WHERE event_type = 'coin_transferred_to_party_owner' GROUP BY causation_id, payload->>'jobId' HAVING count(*) > 1) x",
+    )).rows[0]!.n,
+  );
+  check(projectionBad === 0, `Coin: every touched account's projected Coin equals the fold of its ledger (${touched.length} accounts, ${projectionBad} mismatched)`);
+  check(overCap === 0, `Coin: no touched account above its storage cap (${overCap})`);
+  check(doubleTransfers === 0, `Coin: each overrun transfer to a party owner credited at most once (${doubleTransfers} duplicates)`);
+
+  // The throughput target: REPORTED with the host's load, a failure only with --strict (a dedicated host).
+  const load = loadavg().map((x) => x.toFixed(2)).join(", ");
+  const met = jobsPerS >= TARGET_JOBS_PER_S;
+  console.log(`\nTHROUGHPUT TARGET ${met ? "MET" : "NOT MET"}: ${jobsPerS.toFixed(0)} resolutions/s vs ≥ ${TARGET_JOBS_PER_S} (100× the assumed launch rate), load average ${load} on ${cpus().length} cores${STRICT ? "" : " — reported only (pass --strict on a dedicated host to gate on it)"}`);
+  if (STRICT && !met) process.exitCode = 1;
   await app.close();
 } finally {
   await stopWorkers();

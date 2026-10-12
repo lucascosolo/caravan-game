@@ -39,6 +39,8 @@ export interface EncounterWorkerLoopOptions {
   /** The trip loop's settle hooks (trip/service.ts TRIP_SETTLE_HOOKS): settle at resolution, void on park. */
   readonly hooks?: Pick<WorkerOptions, "afterCompleted" | "afterParked">;
   readonly onError: (err: unknown) => void;
+  /** PHASE-2 §36 (QA N2): a stored log over LOG_SIZE_BUDGET (an anomaly; it is compacted at once). */
+  readonly onLogOverBudget?: (jobId: string, storedBytes: number, budgetBytes: number) => void;
   /** Called with every outcome other than idle (logging). */
   readonly onOutcome?: (outcome: RunOutcome) => void;
 }
@@ -94,6 +96,7 @@ export class EncounterWorkerLoop {
             ...(this.opts.retryBackoffMs ? { retryBackoffMs: this.opts.retryBackoffMs } : {}),
             ...(this.opts.hooks ?? {}),
             onHookError: (err) => this.opts.onError(err),
+            ...(this.opts.onLogOverBudget ? { onLogOverBudget: this.opts.onLogOverBudget } : {}),
           });
           if (this.opts.onOutcome) for (const o of outcomes) this.opts.onOutcome(o);
         } while (this.again && !this.stopped);

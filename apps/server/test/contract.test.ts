@@ -33,7 +33,7 @@ import { appendCoinCredits } from "../src/economy/coin.js";
 import { appendEvents } from "../src/ledger/ledger.js";
 import { DEFAULT_HANDLERS } from "../src/jobs/handlers/encounterResolution.js";
 import { drain } from "../src/jobs/worker.js";
-import { COMPACTED_REASON, NO_LOG_REASON } from "../src/routes/replay.js";
+import { COMPACTED_OVER_BUDGET_REASON, NO_LOG_REASON } from "../src/routes/replay.js";
 import { pruneEncounterLogs } from "../src/replay/store.js";
 import { TUNABLES } from "@caravan/content";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
@@ -531,7 +531,7 @@ describe("client–server contract (chunk 08 QA D4)", () => {
       await pool.query("UPDATE encounter_log_retention SET size_budget_bytes = $1", [TUNABLES.LOG_SIZE_BUDGET_BYTES]);
     }
     const compacted = (await record("replay-compacted", "GET /me/encounters/:jobId/replay (log compacted, PHASE-2 §36)", await call(v, "GET", replayUrl), 200)) as Record<string, unknown>;
-    expect(compacted).toMatchObject({ viewer: "caravan", renderable: false, reason: COMPACTED_REASON, log: null, outcome: (mine as unknown as { outcome: unknown }).outcome, compacted: { reason: "size_budget" } });
+    expect(compacted).toMatchObject({ viewer: "caravan", renderable: false, reason: COMPACTED_OVER_BUDGET_REASON, log: null, outcome: (mine as unknown as { outcome: unknown }).outcome, compacted: { reason: "size_budget" } });
 
     // Write the fixtures (only when they changed, so a rerun leaves the tree clean).
     mkdirSync(OUT, { recursive: true });

@@ -122,7 +122,7 @@ export function acquireTarget(state: SimState, u: UnitState): number {
  */
 export function planPostedRoute(state: SimState, u: UnitState, goal: FixedPoint): Waypoint[] | null {
   const from: FixedPoint = { x: u.x, y: u.y };
-  const steps = findPath(state.grid, cellOf(from), cellOf(goal), noBreach);
+  const steps = findPath(state.grid, cellOf(from), cellOf(goal), noBreach, state.work);
   if (steps === null) return null;
   const route = smoothPath(state.grid, from, steps);
   const end: Waypoint = { x: goal.x, y: goal.y, breach: -1 };

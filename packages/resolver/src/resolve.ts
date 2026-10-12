@@ -81,6 +81,8 @@ export interface ResolveOutput {
   readonly fences: readonly FenceSummary[];
   readonly traps: readonly TrapSummary[];
   readonly log: readonly LogEvent[];
+  /** PHASE-2 §36 (QA S3): the fight's integer work counts (ticks included). Not part of the log or the golden text. */
+  readonly work: { readonly ticks: number; readonly unitTicks: number; readonly pathSearches: number; readonly pathExpansions: number };
 }
 
 export function resolve(rawInput: unknown): ResolveOutput {
@@ -134,5 +136,6 @@ export function resolve(rawInput: unknown): ResolveOutput {
     fences: state.fences.map((f) => ({ f: f.index, ref: f.ref, segment: f.segment, tierId: f.tierId, category: f.category, startHp: fenceStartHp[f.index]!, hp: f.hp, maxHp: f.maxHp, intact: f.intact, brokenTick: f.brokenTick })),
     traps: state.traps.map((t) => ({ i: t.index, ref: t.ref, typeId: t.typeId, x: t.pos.x, y: t.pos.y, spent: t.spent, spentTick: t.spentTick })),
     log,
+    work: { ticks, ...state.work },
   };
 }

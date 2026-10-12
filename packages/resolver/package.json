@@ -15,7 +15,7 @@
     "lint": "eslint . && node scripts/lint-selftest.mjs",
     "test": "vitest run",
     "determinism": "node scripts/determinism.mjs",
-    "budget": "RESOLVER_BUDGET_STRICT=1 vitest run test/budget.test.ts"
+    "budget": "vitest run test/budget.test.ts"
   },
   "dependencies": {},
   "devDependencies": {
