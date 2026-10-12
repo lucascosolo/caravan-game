@@ -408,14 +408,32 @@ export function selectCandidates(input: SelectionInput): SelectionResult {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
-// Cold-start raider cap (final play-test review S1): a band-0 fairness rule, like the
-// nearest-N authored fill. Applied to the pool BEFORE the seeded draw; the menu row stores the
-// filtered pool and the cap, so the draw replays from the row exactly as before.
+// Cold-start raider cap (final play-test review S1; keyed on the caravan's roster since the
+// final guardrail review r2 D1): a rebuilding caravan's fairness rule, like the nearest-N
+// authored fill. Applied to the pool BEFORE the seeded draw; the menu row stores the filtered
+// pool and the cap, so the draw replays from the row exactly as before.
 // ─────────────────────────────────────────────────────────────────────────────────────────
 
-/** TUNABLES.COLD_START_RAIDER_CAP_BANDS: the rule applies while the search centre's display band index is below this. */
-export const COLD_START_RAIDER_CAP_BANDS: number = TUNABLES.COLD_START_RAIDER_CAP_BANDS;
-if (!Number.isInteger(COLD_START_RAIDER_CAP_BANDS) || COLD_START_RAIDER_CAP_BANDS < 0) throw new Error("TUNABLES.COLD_START_RAIDER_CAP_BANDS must be a non-negative integer");
+/**
+ * TUNABLES.COLD_START_ROSTER_MAX: the rule applies while the caravan's WHOLE roster (in town plus
+ * packed), counted in starting-unit equivalents (`rosterEquivalents`), is at most this.
+ */
+export const COLD_START_ROSTER_MAX: number = TUNABLES.COLD_START_ROSTER_MAX;
+if (!Number.isInteger(COLD_START_ROSTER_MAX) || COLD_START_ROSTER_MAX < 0) throw new Error("TUNABLES.COLD_START_ROSTER_MAX must be a non-negative integer");
+
+/**
+ * PURE. A roster's size in starting-unit (level-1) equivalents: Σ 2^(level − 1). A merged unit is
+ * the units it took to make it (2 → 1 per level), so merging a roster down to a few strong units
+ * never makes it look like a caravan that is rebuilding from a wipe.
+ */
+export function rosterEquivalents(mergeLevels: readonly number[]): number {
+  let n = 0;
+  for (const l of mergeLevels) {
+    if (!Number.isInteger(l) || l < TUNABLES.MERGE_LEVEL_MIN || l > TUNABLES.MERGE_LEVEL_MAX) throw new RangeError(`merge level ${String(l)} is out of range`);
+    n += 2 ** (l - 1);
+  }
+  return n;
+}
 
 /** A pool entry with its raider count (living units in the party's stored composition). */
 export interface RaiderCountedEntry extends PoolEntry {
@@ -424,8 +442,10 @@ export interface RaiderCountedEntry extends PoolEntry {
 
 /** What the cold-start raider cap did to one search. Stored on the menu row (`raider_cap`). */
 export interface RaiderCap {
-  /** The display band of the search centre (the rule only runs below COLD_START_RAIDER_CAP_BANDS). */
-  readonly band: number;
+  /** The caravan's whole roster in starting-unit equivalents when it searched (the rule runs while ≤ rosterMax). */
+  readonly rosterSize: number;
+  /** COLD_START_ROSTER_MAX in force. */
+  readonly rosterMax: number;
   /** Living units the caravan packed for this trip. */
   readonly packedUnits: number;
   /** The most raiders an offered party may field: packedUnits, raised only as far as needed to fill a menu. */
@@ -437,16 +457,26 @@ export interface RaiderCap {
 }
 
 /**
- * PURE. The cold-start raider cap for a search at `centre` by a caravan that packed `packedUnits`
- * living units, or null when the centre's band is outside the rule. The cap starts at
- * packedUnits and rises one raider at a time (never past PARTY_SLOT_CAP) until at least `count`
- * parties within ±REPUTATION_BAND_WIDTH_MAX of the centre fit under it, so the rule can thin a
- * menu but never empty one. Deterministic: the entries' order does not matter.
+ * PURE. The cold-start raider cap for a search at `centre` by a caravan whose whole roster is
+ * `rosterSize` starting-unit equivalents and which packed `packedUnits` living units, or null when
+ * the roster is above COLD_START_ROSTER_MAX (the rule is for a caravan rebuilding, whatever its
+ * Reputation or the search band). The cap starts at packedUnits and rises one raider at a time
+ * (never past PARTY_SLOT_CAP) until at least `count` parties within ±REPUTATION_BAND_WIDTH_MAX of
+ * the centre fit under it, so the rule can thin a menu but never empty one. Deterministic: the
+ * entries' order does not matter.
  */
-export function coldStartRaiderCap(entries: readonly RaiderCountedEntry[], centre: number, packedUnits: number, count: number = CANDIDATES_PER_SEARCH): RaiderCap | null {
-  if (!Number.isInteger(centre) || !Number.isInteger(packedUnits) || packedUnits < 0) throw new RangeError("centre and packedUnits must be integers, packedUnits ≥ 0");
-  const band = bandOf(centre).index;
-  if (band >= COLD_START_RAIDER_CAP_BANDS) return null;
+export function coldStartRaiderCap(
+  entries: readonly RaiderCountedEntry[],
+  centre: number,
+  packedUnits: number,
+  rosterSize: number,
+  count: number = CANDIDATES_PER_SEARCH,
+  rosterMax: number = COLD_START_ROSTER_MAX,
+): RaiderCap | null {
+  if (!Number.isInteger(centre) || !Number.isInteger(packedUnits) || packedUnits < 0 || !Number.isInteger(rosterSize) || rosterSize < 0) {
+    throw new RangeError("centre, packedUnits and rosterSize must be integers, packedUnits and rosterSize ≥ 0");
+  }
+  if (rosterSize > rosterMax) return null;
   const near = entries.filter((e) => Math.abs(e.rating - centre) <= REPUTATION_BAND_WIDTH_MAX);
   const start = Math.max(1, packedUnits);
   let cap = start;
@@ -455,7 +485,7 @@ export function coldStartRaiderCap(entries: readonly RaiderCountedEntry[], centr
     .filter((e) => e.raiders > cap)
     .map((e) => e.partyId)
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  return { band, packedUnits, cap, relaxed: cap > start, excludedPartyIds };
+  return { rosterSize, rosterMax, packedUnits, cap, relaxed: cap > start, excludedPartyIds };
 }
 
 /**

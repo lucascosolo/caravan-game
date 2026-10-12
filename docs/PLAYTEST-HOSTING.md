@@ -26,6 +26,8 @@ export PT_DB=caravan_playtest             # one database per play test
 export PT_PORT=3000                       # the Node process, on loopback only
 export PT_ENV=/etc/caravan/playtest.env   # the environment file the server reads
 export PT_REPO=/srv/caravan               # where the code lives
+export PT_OWNER_ROLE=caravan              # the login that owns the schema (step 2)
+export PT_APP_ROLE=caravan_app            # the login the server runs as (step 2)
 ```
 
 You need: Node 22, pnpm 10 (`corepack enable`), Postgres 16 (its `postgres` superuser through
@@ -66,8 +68,9 @@ If the roles already exist, for example from an earlier play test on this instan
 passwords instead: `ALTER ROLE caravan PASSWORD '…'; ALTER ROLE caravan_app PASSWORD '…';`.
 
 If you must share an instance whose `caravan` / `caravan_app` are used by something else with
-other passwords, do not touch those. Create two login roles that act as them instead, and use
-these names in the URLs of step 3:
+other passwords, do not touch those. Create two login roles that act as them instead, and set
+`PT_OWNER_ROLE=caravan_pt_owner` and `PT_APP_ROLE=caravan_pt_app` (step 0); every later step uses
+those two variables:
 
 ```sql
 CREATE ROLE caravan_pt_owner LOGIN PASSWORD '<owner pw>' NOSUPERUSER NOCREATEROLE IN ROLE caravan;
@@ -85,8 +88,8 @@ the error).
 sudo mkdir -p "$(dirname "$PT_ENV")"
 sudo tee "$PT_ENV" > /dev/null <<ENV
 NODE_ENV=production
-DATABASE_URL=postgres://caravan_app:$PT_APP_PW@$PT_PG_HOST:$PT_PG_PORT/$PT_DB
-MIGRATE_DATABASE_URL=postgres://caravan:$PT_OWNER_PW@$PT_PG_HOST:$PT_PG_PORT/$PT_DB
+DATABASE_URL=postgres://$PT_APP_ROLE:$PT_APP_PW@$PT_PG_HOST:$PT_PG_PORT/$PT_DB
+MIGRATE_DATABASE_URL=postgres://$PT_OWNER_ROLE:$PT_OWNER_PW@$PT_PG_HOST:$PT_PG_PORT/$PT_DB
 HOST=127.0.0.1
 PORT=$PT_PORT
 SERVE_WEB=1
@@ -102,6 +105,15 @@ sudo chmod 600 "$PT_ENV"
   on the tester's address rather than Caddy's. Never set it without a proxy, or anyone could
   forge their address.
 - `HOST=127.0.0.1`: only Caddy can reach the Node process.
+
+Login limits, so you can answer testers (all in `TUNABLES.ACCOUNT_RATE_LIMITS`, counted per
+process). Wrong passwords are limited per (username, address): 10 per 15 minutes. Behind that sits
+a per-username backstop of 100 wrong passwords per 15 minutes from any number of addresses. Usernames
+are public (they name standing parties), so anyone who controls 10 or more addresses can lock a
+username out of password sign-in for 15 minutes. **The tester's own device is never locked out:** a
+browser that already holds the account's device cookie signs in (and resumes) regardless. A tester
+who sees "too many attempts" on a new device should wait 15 minutes or use a device that is already
+signed in. This is the decided trade-off (final review D2, round-2 N3).
 
 Every script and the server read this file when you point `ENV_FILE` at it. Variables already set
 in the environment win. Commands below run as `ENV_FILE="$PT_ENV" …`; a systemd unit uses
@@ -128,7 +140,7 @@ ENV_FILE="$PT_ENV" node apps/server/dist/seed.js
 ```
 
 This loads the 96 authored standing parties (12 per Reputation band) that a fresh database needs
-to serve three scoutable candidates at every band. Expect `Authored parties (set v4): 96 created …`
+to serve three scoutable candidates at every band. Expect `Authored parties (set v5): 96 created …`
 and `No login accounts were created`. It is idempotent. `--dev` (the dev / e2e fixture account
 with a published password) is refused here: `seed --dev is refused when NODE_ENV=production`.
 
@@ -145,7 +157,14 @@ The first log lines must say: `encounters resolve in-process with the real resol
 /api; source maps not served`, `Server listening at http://127.0.0.1:3000`. In a second shell,
 `curl -s http://127.0.0.1:$PT_PORT/health` answers `{"ok":true}`. Stop it with Ctrl-C.
 
-Then run it under systemd (`/etc/systemd/system/caravan.service`):
+Then run it under systemd. The unit runs as an unprivileged OS user `caravan` that only needs to
+read the code (create it once; it owns nothing):
+
+```sh
+sudo useradd --system --no-create-home --home-dir "$PT_REPO" --shell /usr/sbin/nologin caravan
+```
+
+`/etc/systemd/system/caravan.service`:
 
 ```ini
 [Unit]
@@ -176,7 +195,14 @@ The server refuses to start, and says why in the log, if any of these hold:
 - `SERVE_WEB=1` with no built client;
 - the app role carries a role-level setting (`ALTER ROLE caravan_app RESET ALL` clears it).
 
-A crash or restart is safe. A fight whose resolver died holding the job's lease is picked up
+A role-level setting is refused with its own message (`refusing to start: the database role has
+role-level settings (…)`), even one such as `statement_timeout = 1` that would break every other
+query.
+
+Stopping is graceful. On SIGTERM (`systemctl stop` / `restart`) or Ctrl-C the server logs
+`SIGTERM: shutting down …`, stops accepting connections, finishes the requests in flight, takes no
+new fight but finishes the one it is resolving, then logs `shut down cleanly` and exits 0 (within
+20 s at most). A crash is safe too: a fight whose resolver died holding the job's lease is picked up
 again when the 30 s lease expires, and its trip continues.
 
 ## 7. HTTPS with Caddy
@@ -252,23 +278,25 @@ With `STORE_MODE=off` the pack funnel reads "not counted". The tuning table maps
 ## 10. Backups
 
 The database is the whole state. Take a custom-format dump as the owner, nightly and before every
-upgrade or reset:
+upgrade or reset. A dump holds every player's data and password hash: the directory is private to
+the user that takes the dumps, and the dump is written with `umask 077` (mode 600):
 
 ```sh
-sudo mkdir -p /var/backups/caravan
-PGPASSWORD="$PT_OWNER_PW" pg_dump -Fc -h "$PT_PG_HOST" -p "$PT_PG_PORT" -U caravan -d "$PT_DB" -f /var/backups/caravan/$PT_DB-$(date -u +%Y%m%dT%H%MZ).dump
+sudo install -d -m 700 -o "$USER" /var/backups/caravan
+( umask 077 && PGPASSWORD="$PT_OWNER_PW" pg_dump -Fc -h "$PT_PG_HOST" -p "$PT_PG_PORT" -U "$PT_OWNER_ROLE" -d "$PT_DB" -f /var/backups/caravan/$PT_DB-$(date -u +%Y%m%dT%H%MZ).dump )
+ls -l /var/backups/caravan    # -rw------- for every dump
 ```
 
-The cron line is `0 4 * * * caravan PGPASSWORD=… pg_dump …` with the same arguments; keep about
-14 dumps.
+The cron line (in the crontab of the user that owns `/var/backups/caravan`) is
+`0 4 * * * umask 077 && PGPASSWORD=… pg_dump …` with the same arguments; keep about 14 dumps.
 
 Rehearse a restore into a scratch database. The server must not be pointed at it until the
 grants are re-applied:
 
 ```sh
 sudo -u postgres createdb -p "$PT_PG_PORT" -O caravan ${PT_DB}_restore
-PGPASSWORD="$PT_OWNER_PW" pg_restore -h "$PT_PG_HOST" -p "$PT_PG_PORT" -U caravan -d ${PT_DB}_restore --no-owner --role=caravan <dump file>
-MIGRATE_DATABASE_URL=postgres://caravan:$PT_OWNER_PW@$PT_PG_HOST:$PT_PG_PORT/${PT_DB}_restore NODE_ENV=production node apps/server/dist/db/migrate.js roles
+PGPASSWORD="$PT_OWNER_PW" pg_restore -h "$PT_PG_HOST" -p "$PT_PG_PORT" -U "$PT_OWNER_ROLE" -d ${PT_DB}_restore --no-owner --role=caravan <dump file>
+MIGRATE_DATABASE_URL=postgres://$PT_OWNER_ROLE:$PT_OWNER_PW@$PT_PG_HOST:$PT_PG_PORT/${PT_DB}_restore NODE_ENV=production ENV_FILE=/dev/null node apps/server/dist/db/migrate.js roles
 ```
 
 ## 11. Reset between cohorts
@@ -278,7 +306,7 @@ the account cascade and nothing else. Re-apply the schema, re-seed and re-grant:
 
 ```sh
 sudo systemctl stop caravan
-PGPASSWORD="$PT_OWNER_PW" psql -v ON_ERROR_STOP=1 -h "$PT_PG_HOST" -p "$PT_PG_PORT" -U caravan -d "$PT_DB" -c "DELETE FROM account"
+PGPASSWORD="$PT_OWNER_PW" psql -v ON_ERROR_STOP=1 -h "$PT_PG_HOST" -p "$PT_PG_PORT" -U "$PT_OWNER_ROLE" -d "$PT_DB" -c "DELETE FROM account"
 ENV_FILE="$PT_ENV" node apps/server/dist/db/migrate.js reset
 ENV_FILE="$PT_ENV" node apps/server/dist/seed.js
 sudo systemctl start caravan

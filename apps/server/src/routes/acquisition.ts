@@ -32,6 +32,8 @@ export async function acquisitionRoutes(app: FastifyInstance): Promise<void> {
   );
 
   app.post<{ Params: { caravanId: string } }>("/me/caravans/:caravanId/refugees/claim", { preHandler: requireAuth }, async (req, reply) => {
+    // Final guardrail review r2 S1: the refugee routes share one per-account limit (TUNABLES.ACCOUNT_RATE_LIMITS).
+    app.rateLimiter.hit("refugeeActionsPerAccount", req.auth!.account.id);
     const body = bodyObject(req.body);
     const result = await claimRefugee(app.db, {
       accountId: req.auth!.account.id,
@@ -50,6 +52,8 @@ export async function acquisitionRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post<{ Params: { caravanId: string } }>("/me/caravans/:caravanId/refugees/refresh", { preHandler: requireAuth }, async (req, reply) => {
+    // Final guardrail review r2 S1: the refugee routes share one per-account limit (TUNABLES.ACCOUNT_RATE_LIMITS).
+    app.rateLimiter.hit("refugeeActionsPerAccount", req.auth!.account.id);
     const body = bodyObject(req.body);
     const result = await refreshRefugees(app.db, {
       accountId: req.auth!.account.id,
@@ -67,6 +71,8 @@ export async function acquisitionRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post<{ Params: { caravanId: string } }>("/me/caravans/:caravanId/refugees/reroll", { preHandler: requireAuth }, async (req, reply) => {
+    // Final guardrail review r2 S1: the refugee routes share one per-account limit (TUNABLES.ACCOUNT_RATE_LIMITS).
+    app.rateLimiter.hit("refugeeActionsPerAccount", req.auth!.account.id);
     const body = bodyObject(req.body);
     const result = await rerollRefugees(app.db, {
       accountId: req.auth!.account.id,

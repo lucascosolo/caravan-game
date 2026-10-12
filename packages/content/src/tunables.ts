@@ -585,16 +585,22 @@ export const TUNABLES = {
    */
   AUTHORED_FILL_NEAREST_N: 6,
   /**
-   * TUNABLE (final play-test review S1, PROJECT.md §15/§17 amendment). Cold-start fairness, in the
-   * same family as AUTHORED_FILL_NEAREST_N: while a search's centre falls in a display band below
-   * this (1 = band 0 only; 0 turns the rule off), a party with MORE raiders than the caravan
-   * PACKED living units is not offered. If fewer than CANDIDATES_PER_SEARCH parties within
-   * ±REPUTATION_BAND_WIDTH_MAX would remain, the raider cap rises one at a time until enough do
-   * (never past PARTY_SLOT_CAP), so a search never fails for it. Applied to the pool before the
-   * seeded draw and stored with the menu (encounter_candidates.raider_cap), so menus replay.
-   * Reads the manifest's unit count only — never Coin, purchases or the owner (GUARDRAILS §2).
+   * TUNABLE (final play-test review S1; final guardrail review r2 D1). Cold-start fairness for a
+   * caravan REBUILDING, in the same family as AUTHORED_FILL_NEAREST_N: while the caravan's whole
+   * roster (in town plus packed), counted in starting-unit equivalents (Σ 2^(level − 1), so a
+   * merged unit counts as the units it took), is at most this, a party with MORE raiders than the
+   * caravan PACKED living units is not offered — at any encounter and any Reputation. If fewer than
+   * CANDIDATES_PER_SEARCH parties within ±REPUTATION_BAND_WIDTH_MAX would remain, the raider cap
+   * rises one at a time until enough do (never past PARTY_SLOT_CAP), so a search never fails for it.
+   * Applied to the pool before the seeded draw and stored with the menu
+   * (encounter_candidates.raider_cap), so menus replay. Default: the starting roster's size
+   * (STARTING_ROSTER.copiesPerStarterType × STARTING_NODES.living = 3 × 2; a content test pins it),
+   * so a fresh caravan that has taken its first refugee is already past it. Reads the roster and
+   * the manifest only — never Coin, purchases or the owner (GUARDRAILS §2). (Was
+   * COLD_START_RAIDER_CAP_BANDS, keyed on the search centre's band: a band-1 caravan packing one
+   * strong unit was offered only 2-raider parties.)
    */
-  COLD_START_RAIDER_CAP_BANDS: 1,
+  COLD_START_ROSTER_MAX: 6,
 
   // ────────────────────────────────────────────────────────────────────────────────────
   // Chunk 16 — Coin economy and merge pricing. Coin buys PACE only (GUARDRAILS §2): nothing
@@ -1055,6 +1061,12 @@ export const TUNABLES = {
     linkPerAccount: { limit: 10, windowMs: 15 * 60_000 },
     exportPerAccount: { limit: 5, windowMs: 60 * 60_000 },
     deletePerAccount: { limit: 10, windowMs: 15 * 60_000 },
+    /**
+     * TUNABLE (final guardrail review r2 S1). POST …/refugees/claim | refresh | reroll, together,
+     * per account. A person picks from a menu a few times an hour at most; this only bounds a
+     * script (each call can write a menu row).
+     */
+    refugeeActionsPerAccount: { limit: 30, windowMs: 60_000 },
   },
 } as const;
 

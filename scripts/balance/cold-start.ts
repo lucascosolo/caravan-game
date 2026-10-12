@@ -1,20 +1,24 @@
 /**
- * The band-0 cold-start raider cap (final play-test review S1, COLD_START_RAIDER_CAP_BANDS),
- * re-checked: a rebuilt caravan of 1–4 unmerged starter units, searched for encounter 1 at
- * REPUTATION_START (band 0) from the authored pool, as the server serves it — with the cap
- * (`coldStartRaiderCap` on the pool before `selectCandidates`) and without it. The guide's pick
- * (fewest raiders) is fought with the guided layout and with the best of the skilled set.
+ * The cold-start raider cap (final play-test review S1; keyed on the caravan's roster since the
+ * final guardrail review r2 D1, COLD_START_ROSTER_MAX), re-checked: a rebuilt caravan of 1–4
+ * unmerged starter units (its whole roster, so the rule runs), searched for encounter 1 from the
+ * authored pool, as the server serves it — with the cap (`coldStartRaiderCap` on the pool before
+ * `selectCandidates`) and without it. The guide's pick (fewest raiders) is fought with the guided
+ * layout and with the best of the skilled set. `--rating` sets the caravan's living Reputation
+ * (default REPUTATION_START; since D1 the rule no longer depends on the band searched).
  *
- *   pnpm --filter @caravan/server exec tsx ../../scripts/balance/cold-start.ts [--seeds 25]
+ *   pnpm --filter @caravan/server exec tsx ../../scripts/balance/cold-start.ts [--seeds 25] [--rating 400]
  *
  * Pure resolver fights through the server's own adapter path (sweep.ts), deterministic.
  */
 import { REGION_IDS, TUNABLES, type RegionId } from "../../packages/content/src/index.js";
-import { candidateSeed, coldStartRaiderCap, escalatedCentre, selectCandidates } from "../../apps/server/src/matchmaking/band.js";
+import { bandOf, candidateSeed, coldStartRaiderCap, escalatedCentre, selectCandidates } from "../../apps/server/src/matchmaking/band.js";
 import { GUIDED, SKILLED, authoredParties, bestFight, guidePick, manifestOf, oneFight, pct, share, starterTypes, type RosterSpec, type ServedParty } from "./sweep.js";
 
 const si = process.argv.indexOf("--seeds");
 const SEEDS = si >= 0 ? Number(process.argv[si + 1]) : 25;
+const ri = process.argv.indexOf("--rating");
+const RATING = ri >= 0 ? Number(process.argv[ri + 1]) : TUNABLES.REPUTATION_START;
 const parties = authoredParties();
 const byId = new Map(parties.map((p) => [p.pool.partyId, p] as const));
 
@@ -25,9 +29,10 @@ function rebuilt(regionId: RegionId, size: number): RosterSpec {
 }
 
 function menu(seedId: string, packed: number, capped: boolean): ServedParty[] {
-  const centre = escalatedCentre(TUNABLES.REPUTATION_START, 1);
+  const centre = escalatedCentre(RATING, 1);
   const counted = parties.map((p) => ({ ...p.pool, raiders: p.party.units.length }));
-  const cap = capped ? coldStartRaiderCap(counted, centre, packed) : null;
+  // The rebuilt roster is exactly what was packed (unmerged): `packed` starting-unit equivalents.
+  const cap = capped ? coldStartRaiderCap(counted, centre, packed, packed) : null;
   const out = new Set(cap?.excludedPartyIds ?? []);
   const pool = counted.filter((e) => !out.has(e.partyId)).map(({ raiders: _r, ...e }) => e);
   const r = selectCandidates({ centre, seed: candidateSeed(seedId, `${seedId}-trip`, 1, 1), pool });
@@ -47,7 +52,7 @@ function outcome(roster: RosterSpec, sp: ServedParty): { guided: boolean; skille
   return res;
 }
 
-console.log(`Cold-start raider cap — encounter 1 at REPUTATION_START ${TUNABLES.REPUTATION_START} (centre ${escalatedCentre(TUNABLES.REPUTATION_START, 1)}, band 0), ${SEEDS} seeds × ${REGION_IDS.length} regions; the guide's pick; unmerged starters, 1 Spike Pit, a full Brush Pile budget`);
+console.log(`Cold-start raider cap (COLD_START_ROSTER_MAX ${TUNABLES.COLD_START_ROSTER_MAX}) — encounter 1 at living Reputation ${RATING} (centre ${escalatedCentre(RATING, 1)}, band ${bandOf(escalatedCentre(RATING, 1)).index}), ${SEEDS} seeds × ${REGION_IDS.length} regions; the guide's pick; unmerged starters, 1 Spike Pit, a full Brush Pile budget`);
 console.log(`${"packed".padEnd(8)}${"cap".padEnd(6)}${"raiders faced".padEnd(16)}${"guided held".padStart(12)}${"skilled held".padStart(14)}`);
 for (const size of [1, 2, 3, 4]) {
   for (const capped of [false, true]) {

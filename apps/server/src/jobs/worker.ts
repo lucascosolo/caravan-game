@@ -230,10 +230,15 @@ async function runParkedHook(pool: pg.Pool, opts: WorkerOptions, job: Resolution
   }
 }
 
-/** Run jobs until the queue reports nothing ready. Returns everything that happened. */
-export async function drain(pool: pg.Pool, opts: WorkerOptions, maxJobs = 10_000): Promise<RunOutcome[]> {
+/**
+ * Run jobs until the queue reports nothing ready. Returns everything that happened. `shouldStop`
+ * (final guardrail review r2 N4, graceful shutdown) is asked before each lease: a job already
+ * leased runs to its completion, and no new one is taken once it answers true.
+ */
+export async function drain(pool: pg.Pool, opts: WorkerOptions, maxJobs = 10_000, shouldStop?: () => boolean): Promise<RunOutcome[]> {
   const outcomes: RunOutcome[] = [];
   for (let i = 0; i < maxJobs; i++) {
+    if (shouldStop?.()) break;
     const outcome = await runOnce(pool, opts);
     if (outcome.kind === "idle") break;
     outcomes.push(outcome);

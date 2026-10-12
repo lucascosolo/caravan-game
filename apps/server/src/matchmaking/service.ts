@@ -57,6 +57,7 @@ import {
   bandWidths,
   candidateSeed,
   coldStartRaiderCap,
+  rosterEquivalents,
   type RaiderCap,
   currentDrawRules,
   FIRST_ENCOUNTER_CENTRE_OFFSET,
@@ -557,11 +558,13 @@ export async function searchCandidates(client: pg.PoolClient, caravan: CaravanRo
     if (recentSet.has(r.party_id)) excludedPartyIds.push(r.party_id);
     else counted.push({ partyId: r.party_id, ownerAccountId: r.owner_account_id, rating: r.reputation, authored: r.is_system, raiders: Number(r.raiders) });
   }
-  // Final play-test review S1: in band 0, no party with more raiders than the caravan packed
-  // units (raised only as far as it takes to fill a menu). Filtered before the draw; the stored
-  // pool and `raider_cap` replay it.
+  // Final play-test review S1 / final guardrail review r2 D1: while the caravan's whole roster is
+  // small (a caravan rebuilding), no party with more raiders than it packed units (raised only as
+  // far as it takes to fill a menu). Filtered before the draw; the stored pool and `raider_cap`
+  // replay it.
   const packedUnits = manifestFromJson((await findOpenManifest(client, caravan.id))!.packed).units.length;
-  const raiderCap = coldStartRaiderCap(counted, centre, packedUnits);
+  const levels = await client.query<{ merge_level: number }>("SELECT merge_level FROM unit_instance WHERE caravan_id = $1", [caravan.id]);
+  const raiderCap = coldStartRaiderCap(counted, centre, packedUnits, rosterEquivalents(levels.rows.map((r) => r.merge_level)));
   const capOut = new Set(raiderCap?.excludedPartyIds ?? []);
   const pool: PoolEntry[] = counted.filter((e) => !capOut.has(e.partyId)).map(({ raiders: _raiders, ...e }) => e);
   // N8: a guest owner's party rides under its caravan's name (public: the results feed shows it).

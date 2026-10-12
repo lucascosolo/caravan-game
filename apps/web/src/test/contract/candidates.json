@@ -27,12 +27,7 @@
           "high": 399
         }
       },
-      "raiderCap": {
-        "packedUnits": 3,
-        "cap": 3,
-        "relaxed": false,
-        "excluded": 0
-      },
+      "raiderCap": null,
       "caravanLoadout": {
         "fences": [
           {

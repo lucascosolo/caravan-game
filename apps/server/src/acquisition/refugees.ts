@@ -23,9 +23,10 @@
  *            does: there is nothing to forfeit and nothing to replace).
  *
  * Roster relief (final play-test review S1, REFUGEE_ROSTER_FLOOR): while the caravan is IN TOWN
- * with fewer living units than the floor, the free refresh is due at once rather than on the
- * grid — the same free menu, from the same unlocked pool, taken the same way (a claim takes the
- * next one in the same request; `refresh` takes it explicitly). A free menu taken early opens
+ * with fewer living units than the floor, the next free menu is due as soon as the current one is
+ * CLAIMED rather than on the grid — one menu at a time (final guardrail review r2 S1) — the same
+ * free menu, from the same unlocked pool, taken the same way (a claim takes the next one in the
+ * same request; `refresh` takes it explicitly). A new menu before claiming is the paid reroll. A free menu taken early opens
  * its window at that instant (the grid re-anchors), so the drip never runs ahead of the timer
  * once the roster is back at the floor. It is a tuning of the free timer, never a grant.
  *
@@ -152,9 +153,15 @@ export async function readRosterRelief(db: Queryable, caravanId: string): Promis
   return rosterReliefOf(row?.state === "in_town", row?.n ?? 0);
 }
 
-/** The free menu is owed: by the grid, or by roster relief. */
-function freeMenuOwed(menu: Pick<RefugeeMenuRow, "window_opened_at_ms">, nowMs: number, relief: RosterRelief): boolean {
-  return relief.active || isFreeRefreshDue(menu, nowMs);
+/**
+ * The free menu is owed: by the grid, or by roster relief — and relief owes ONE MENU AT A TIME
+ * (final guardrail review round 2, S1): a new relief menu only once the current one is claimed.
+ * An unclaimed menu under relief is not re-drawn for free; another menu before claiming it is
+ * the ordinary paid reroll. (Before this, `refresh` under relief was an unlimited free re-draw:
+ * a free exact pick and an unthrottled row writer.)
+ */
+export function freeMenuOwed(menu: Pick<RefugeeMenuRow, "window_opened_at_ms" | "claimed_type_id">, nowMs: number, relief: RosterRelief): boolean {
+  return isFreeRefreshDue(menu, nowMs) || (relief.active && menu.claimed_type_id !== null);
 }
 
 /**
@@ -233,8 +240,9 @@ export interface RefugeeView {
   };
   /**
    * Final play-test review S1: roster relief. `active` = the caravan is in town with fewer than
-   * `rosterFloor` living units, so the free menu is due now (`timer.freeRefreshDue`) whatever
-   * the grid says. Same pool, same draw, one pick: a sooner free menu, never a wider one.
+   * `rosterFloor` living units, so once the current menu is claimed the next free menu is due at
+   * once (`timer.freeRefreshDue`) whatever the grid says — one menu at a time (final guardrail
+   * review r2 S1). Same pool, same draw, one pick: a sooner free menu, never a wider one.
    */
   relief: RosterRelief;
   reroll: {
@@ -428,7 +436,8 @@ export async function claimRefugee(
     if (upd.rowCount !== 1) throw conflict("menu_claimed", `menu ${sequence} was claimed underneath this request`);
     // The claim takes the due free refresh (QA D1): the next menu arrives in this request.
     // Roster relief is read AFTER the grant: the claimed unit counts toward the floor (S1).
-    const due = freeMenuOwed(current, nowMs, await readRosterRelief(client, caravanId));
+    // `current` was read before the claim's UPDATE: it is claimed now.
+    const due = freeMenuOwed({ ...current, claimed_type_id: unitTypeId }, nowMs, await readRosterRelief(client, caravanId));
     const after = due ? await takeFreeRefresh(client, owner, current, nowMs) : (await readMenu(client, caravanId, sequence))!;
     const trickle = await peekTrickle(client, input.accountId, nowMs);
     return {
@@ -490,7 +499,11 @@ export async function refreshRefugees(
     if (fromSequence !== current.sequence) {
       throw conflict("stale_menu", `fromSequence ${fromSequence} is not the current menu (${current.sequence}); read the current menu and decide again`);
     }
-    if (!freeMenuOwed(current, nowMs, await readRosterRelief(client, caravanId))) {
+    const relief = await readRosterRelief(client, caravanId);
+    if (!freeMenuOwed(current, nowMs, relief)) {
+      if (relief.active) {
+        throw conflict("free_refresh_not_due", `roster relief owes one free menu at a time: claim one of menu ${current.sequence}'s offers and the next free menu comes with it, or reroll for Coin to see another one first`);
+      }
       throw conflict("free_refresh_not_due", `the next free menu opens at ${nextFreeRefreshAtMs(current)} (in ${nextFreeRefreshAtMs(current) - nowMs} ms); reroll for Coin to see one sooner`);
     }
     const forfeited = current.claimed_type_id === null ? menuView(current).offers : null;
