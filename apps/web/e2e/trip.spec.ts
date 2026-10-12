@@ -177,7 +177,8 @@ test("a full trip: outfit, ride out, three encounters (a rider dies at the secon
   await expect(replay.getByTestId("replay-reason")).toHaveText("Reason: no replay log was recorded for this fight");
   await expect(replay.getByTestId("replay-outcome")).toHaveText("Your caravan held.");
   await expect(replay.getByTestId("replay-depth-explained")).toContainText("from the ring to the core");
-  await expect(replay.getByTestId("replay-loot")).toContainText(/Loot reported for the raiding party's owner: \d+ Coin\./);
+  // Final play-test review N7: an authored outfit keeps nothing, and the line says so; a live owner's loot is reported.
+  await expect(replay.getByTestId("replay-loot")).toContainText(/Loot reported for the raiding party's owner: \d+ Coin\.|This was an authored outfit: it keeps nothing/);
   await expect(replay.getByTestId("iso-canvas")).toHaveCount(0);
   await fitsPortrait(page);
   await page.setViewportSize({ width: 320, height: 640 });
