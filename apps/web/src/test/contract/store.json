@@ -359,6 +359,7 @@
       "storageCap": 50000,
       "purchaseLimitPerTierPerWeek": 1,
       "note": "All three tiers stack in one week, each once; the pay-to-accelerate ceiling is their combined Coin, which exceeds the storage cap."
-    }
+    },
+    "mode": "sandbox"
   }
 }

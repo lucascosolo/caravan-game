@@ -12,7 +12,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type pg from "pg";
-import { migrateDatabaseUrl } from "../config.js";
+import { assertProductionDatabaseUrl, loadDotEnv, migrateDatabaseUrl } from "../config.js";
 import { createPool } from "./pool.js";
 
 export interface Migration {
@@ -151,6 +151,9 @@ export async function migrateReset(pool: pg.Pool, migrations: Migration[] = load
 
 async function main(): Promise<void> {
   const [command = "up", arg] = process.argv.slice(2);
+  // Final review N2 / S2: the repo's .env, then no repo-default password in production.
+  loadDotEnv();
+  assertProductionDatabaseUrl(process.env, process.env["MIGRATE_DATABASE_URL"] ?? process.env["DATABASE_URL"], "MIGRATE_DATABASE_URL");
   const pool = createPool(migrateDatabaseUrl());
   try {
     switch (command) {

@@ -11,12 +11,15 @@
  * (caravan_app) can only read account_admin (db/roles.sql). There is no HTTP route that
  * writes it, for players or for admins.
  */
-import { migrateDatabaseUrl } from "./config.js";
+import { assertProductionDatabaseUrl, loadDotEnv, migrateDatabaseUrl } from "./config.js";
 import { createPool } from "./db/pool.js";
 import { grantAdmin, listAdmins, revokeAdmin } from "./analytics/admin.js";
 
 async function main(): Promise<void> {
   const [cmd, username, ...rest] = process.argv.slice(2);
+  // Final review N2 / S2: the repo's .env, then no repo-default password in production.
+  loadDotEnv();
+  assertProductionDatabaseUrl(process.env, process.env["MIGRATE_DATABASE_URL"] ?? process.env["DATABASE_URL"], "MIGRATE_DATABASE_URL");
   const pool = createPool(migrateDatabaseUrl());
   try {
     if (cmd === "grant" && username) {

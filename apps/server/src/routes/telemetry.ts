@@ -70,7 +70,7 @@ export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoute
       if (!DIGITS.test(query["week"]) || Number(query["week"]) > current) throw badRequest("invalid_week", `week must be a pack-rotation week index 0..${current}`);
       week = Number(query["week"]);
     }
-    return buildDashboard(app.db, { nowMs: Date.now(), days, ...(week === undefined ? {} : { week }) });
+    return buildDashboard(app.db, { nowMs: Date.now(), days, storeMode: app.storeMode, ...(week === undefined ? {} : { week }) });
   });
 
   // Any other /admin/* path answers exactly like an unknown route (QA N1).

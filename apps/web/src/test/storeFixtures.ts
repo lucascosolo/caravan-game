@@ -95,6 +95,8 @@ export interface StoreOpts {
   /** Replace a tier's cosmetics this week (the offer_changed path). */
   readonly swap?: Partial<Record<PackTierView, readonly string[]>>;
   readonly week?: number;
+  /** Final review D1: STORE_MODE (default sandbox). */
+  readonly mode?: "sandbox" | "off";
 }
 
 export function storeView(opts: StoreOpts = {}): StoreView {
@@ -112,6 +114,7 @@ export function storeView(opts: StoreOpts = {}): StoreView {
   const open = offers.filter((o) => !o.purchased);
   const combinedCoin = open.reduce((a, o) => a + o.coin, 0);
   return {
+    mode: opts.mode ?? "sandbox",
     backend: { name: "sandbox_stub", sandbox: true, realCharges: false, message: "SANDBOX STUB: purchases record the grant and charge nothing. Real payment integration is not part of this build." },
     week: { index: week, startsAtMs: weekStart(week), endsAtMs: weekStart(week + 1), nowMs: weekStart(week) + 3_600_000 },
     balance: { balance, cap, room: Math.max(0, cap - balance), atCap: balance >= cap, pendingTrickle: 0 },

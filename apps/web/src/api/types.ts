@@ -586,6 +586,8 @@ export interface UpcomingWeekView {
 }
 
 export interface StoreView {
+  /** Final review D1: "off" during the play test: every offer is previewed, none can be bought. */
+  readonly mode: "sandbox" | "off";
   readonly backend: { readonly name: string; readonly sandbox: true; readonly realCharges: false; readonly message: string };
   readonly week: { readonly index: number; readonly startsAtMs: number; readonly endsAtMs: number; readonly nowMs: number };
   readonly balance: { readonly balance: number; readonly cap: number; readonly room: number; readonly atCap: boolean; readonly pendingTrickle: number };

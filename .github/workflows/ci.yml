@@ -1,9 +1,14 @@
-# Caravan Vaults CI (chunk 21). Runs on every push and pull request.
+# Caravan Vaults CI (chunk 21; final review N1). Runs on every push and pull request.
 #
-# The job mirrors `pnpm ci` in the root package.json step for step, so anything that
-# passes here passes locally with the same commands (see AGENTS.md "Build / test / run").
-# A staging deploy step is deliberately absent: no hosting target is chosen yet. When one
-# is, add a second job that needs `ci` and runs on pushes to main only.
+# The job is EXACTLY `pnpm check` (scripts/check.mjs: typecheck, lint, test:boundary, test,
+# determinism, perf:resolver, build, migrate, smoke, e2e, e2e:hosting) plus what a fresh runner
+# needs first: the Postgres 16 service, pnpm and Node, the frozen install and Playwright's Chromium.
+# Anything that passes `pnpm check` locally passes here. The smoke run and both e2e runs connect as
+# caravan_app, the role the shipped server runs as (final review N8).
+#
+# A staging deploy step is deliberately absent: the play test is hosted by hand from
+# docs/PLAYTEST-HOSTING.md. When a hosting target is chosen, add a second job that needs `ci` and
+# runs on pushes to main only.
 name: CI
 
 on:
@@ -24,9 +29,9 @@ env:
 
 jobs:
   ci:
-    name: typecheck, lint, boundary, tests, determinism, build
+    name: pnpm check
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     services:
       postgres:
@@ -63,49 +68,11 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      # `pnpm typecheck` / `pnpm test` / `pnpm build` are recursive and include the web
-      # client (apps/web: tsc, vitest + testing-library in jsdom, vite build) since chunk 06.
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Lint (resolver isolation rules + self-test)
-        run: pnpm lint
-
-      - name: Resolver dependency boundary
-        run: pnpm test:boundary
-
-      - name: Server tests (Postgres service)
-        run: pnpm test
-
-      - name: Determinism harness (chunk 13; pending until it lands)
-        run: pnpm determinism
-
-      # PHASE-2 §36 (QA-36 S3): the resolver budget, run alone for a clean report. Blocking: the pinned
-      # integer work counters per corpus fight, and the heaviest fight / integer-reference CPU ratio.
-      # The absolute 100 ms per fight is printed (MET / EXCEEDED); asserted only with RESOLVER_BUDGET_STRICT=1.
-      - name: Resolver budget (PHASE-2 §36 — work counters, relative time; absolute reported)
-        run: pnpm perf:resolver
-
-      - name: Build runnable server output and the web client
-        run: pnpm build
-
-      - name: Migrate the test database for the smoke run
-        run: pnpm db:migrate
-        env:
-          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
-
-      - name: Smoke-run the built server
-        run: pnpm smoke
-        env:
-          SMOKE_DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
-
-      - name: Install Playwright Chromium (web smoke e2e, chunk 06)
+      - name: Install Playwright Chromium (the e2e steps of pnpm check)
         run: pnpm --filter @caravan/web exec playwright install --with-deps chromium
 
-      - name: Web smoke e2e (built client + built server, seeded test database)
-        run: pnpm e2e
-        env:
-          E2E_DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+      - name: pnpm check
+        run: pnpm check
 
       - name: Upload build output
         if: success()

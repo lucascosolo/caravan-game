@@ -293,6 +293,11 @@ export function AdminScreen(props: { readonly api?: Api } = {}): JSX.Element {
         <Table rows={[p.tripCap]} columns={[{ label: "Cap per hour", value: (r) => r.capPerHour }, { label: "Starts", value: (r) => r.starts }, { label: "Accounts", value: (r) => r.accounts }, { label: "Took the last use", value: (r) => r.tookLastUse }, { label: "Share", value: (r) => r.tookLastUseBp, rate: true }]} />
       </Panel>
       <Panel id="packFunnel">
+        {!p.packFunnel.counted && (
+          <p className="hint" data-testid="admin-funnel-off">
+            The store is off on this server (STORE_MODE=off): packs are previewed but not sold, so no funnel is counted.
+          </p>
+        )}
         <p className="hint" data-testid="admin-funnel">
           Opened the game {p.packFunnel.viewers} → opened the store {p.packFunnel.storeViewers} → bought {p.packFunnel.buyers}
         </p>

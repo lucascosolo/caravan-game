@@ -2,7 +2,8 @@ import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastif
 import type pg from "pg";
 import type { AuthContext } from "./auth/sessions.js";
 import { createPool } from "./db/pool.js";
-import { trustProxyFromEnv } from "./config.js";
+import { storeModeFromEnv, trustProxyFromEnv, type ServeWebConfig, type StoreMode } from "./config.js";
+import { webStaticRoutes } from "./web/static.js";
 import type { InlineEncounterWorker } from "./dev/testResolver.js";
 import { DEFAULT_HANDLERS } from "./jobs/handlers/encounterResolution.js";
 import { EncounterWorkerLoop } from "./jobs/inProcessWorker.js";
@@ -41,6 +42,8 @@ declare module "fastify" {
     retentionJob: LogRetentionLoop | null;
     /** Chunk 30: the auth / account routes' fixed-window limiter. */
     rateLimiter: RateLimiter;
+    /** Final review D1: "off" refuses purchases (409 store_unavailable) and hides the store funnel. */
+    storeMode: StoreMode;
   }
   interface FastifyRequest {
     auth?: AuthContext;
@@ -76,6 +79,10 @@ export interface BuildAppOptions {
   trustProxy?: false | number | string;
   /** Chunk 30: the limiter's clock (tests). */
   rateLimitClock?: () => number;
+  /** Final review D1: whether packs can be bought. Default: STORE_MODE from the environment (off under NODE_ENV=production). */
+  storeMode?: StoreMode;
+  /** Final review S2: serve the built client and mount the API under /api. Default none (index.ts passes SERVE_WEB's config). */
+  serveWeb?: ServeWebConfig | null;
 }
 
 /** Operational: the test double's sweep interval (its kicks do the work). */
@@ -89,6 +96,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   const app = Fastify(fastifyOptions);
   const db = opts.db ?? createPool();
   app.decorate("db", db);
+  app.decorate("storeMode", opts.storeMode ?? storeModeFromEnv(process.env));
   app.decorate("inlineEncounterWorker", opts.inlineEncounterWorker ?? null);
   app.decorate("rateLimiter", new RateLimiter(opts.rateLimits !== undefined ? opts.rateLimits : rateLimitsFromEnv(process.env), opts.rateLimitClock));
   const inline = opts.inlineEncounterWorker ?? null;
@@ -146,29 +154,46 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
     return reply.code(500).send({ error: "internal", message: "internal error" });
   });
 
-  app.get("/health", async () => {
+  const health = async (): Promise<{ ok: true }> => {
     await db.query("SELECT 1");
     return { ok: true };
-  });
+  };
+  // Final review S2: under SERVE_WEB the API lives under /api (the client's origin and prefix);
+  // /health also stays at the root, for the process manager and the reverse proxy's health check.
+  const serveWeb = opts.serveWeb ?? null;
+  if (serveWeb) app.get("/health", health);
 
-  await app.register(authRoutes);
-  await app.register(accountRoutes);
-  await app.register(meRoutes);
-  await app.register(ledgerRoutes);
-  await app.register(progressionRoutes);
-  await app.register(economyRoutes);
-  await app.register(circleRoutes);
-  await app.register(unlockRoutes);
-  await app.register(acquisitionRoutes);
-  await app.register(partyRoutes);
-  await app.register(matchmakingRoutes);
-  await app.register(storeRoutes);
-  await app.register(cosmeticRoutes);
-  await app.register(tripRoutes);
-  await app.register(replayRoutes);
-  await app.register(inboxRoutes);
-  await app.register(onboardingRoutes);
-  // Chunk 32: client telemetry (screen flow, crashes), the opt-out, and the admin-only dashboard.
-  await app.register(telemetryRoutes);
+  await app.register(
+    async (api) => {
+      api.addHook("onSend", async (_req, reply, payload) => {
+        void reply.header("x-content-type-options", "nosniff");
+        // Hosted: API answers are per-player and never cached by a proxy or the browser.
+        if (serveWeb && !reply.hasHeader("cache-control")) void reply.header("cache-control", "no-store");
+        return payload;
+      });
+      api.get("/health", health);
+      await api.register(authRoutes);
+      await api.register(accountRoutes);
+      await api.register(meRoutes);
+      await api.register(ledgerRoutes);
+      await api.register(progressionRoutes);
+      await api.register(economyRoutes);
+      await api.register(circleRoutes);
+      await api.register(unlockRoutes);
+      await api.register(acquisitionRoutes);
+      await api.register(partyRoutes);
+      await api.register(matchmakingRoutes);
+      await api.register(storeRoutes);
+      await api.register(cosmeticRoutes);
+      await api.register(tripRoutes);
+      await api.register(replayRoutes);
+      await api.register(inboxRoutes);
+      await api.register(onboardingRoutes);
+      // Chunk 32: client telemetry (screen flow, crashes), the opt-out, and the admin-only dashboard.
+      await api.register(telemetryRoutes);
+    },
+    { prefix: serveWeb ? "/api" : "" },
+  );
+  if (serveWeb) await app.register(async (web) => webStaticRoutes(web, serveWeb));
   return app;
 }

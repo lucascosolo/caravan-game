@@ -653,7 +653,7 @@ link, no Sign in with Apple / Google until chunk 34). Migration **020** (`020_ac
   and `GET /me/account` (account, devices, deletion terms). Labels are "Browser on Platform" from the
   User-Agent; no IP is stored. Pre-019 sessions are backfilled one device each; a session inserted
   without a device gets one (`session_ensure_device`, token hash `bare:<id>` no cookie can match).
-- **Rate limits** (`src/account/tunables.ts`, TUNABLE, in-memory fixed windows per process): login
+- **Rate limits** (`src/account/tunables.ts`, TUNABLE, in-memory fixed windows per process; the CURRENT numbers are `TUNABLES.ACCOUNT_RATE_LIMITS` — raised in the QA-30 fix round, and since the final review D2 password failures count per (username, address) with a per-username backstop; the figures below are the original build's): login
   20 / 15 min per IP and 10 / 15 min per username tried; registration and guest creation 10 / h per
   IP; resume 120 / 15 min per IP; link 10 / 15 min, export 5 / h, delete 10 / 15 min per account. 429
   `rate_limited` with `retryAfterMs` + Retry-After. `CARAVAN_RATE_LIMITS=off` (vitest env, `pnpm e2e`)

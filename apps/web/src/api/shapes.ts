@@ -683,6 +683,7 @@ const offer: Guard<PackOfferView> = agreeing(
 const upcomingWeek: Guard<UpcomingWeekView> = object({ weekIndex: integer({ min: 0 }), startsAtMs: MS, endsAtMs: MS, offers: array(offerBase, { maxLength: 3 }) });
 
 export const storeShape: Guard<StoreView> = object({
+  mode: literal("sandbox", "off"),
   backend: object({ name: ID, sandbox: literal(true), realCharges: literal(false), message: TEXT }),
   week: object({ index: integer({ min: 0 }), startsAtMs: MS, endsAtMs: MS, nowMs: MS }),
   balance: object({ balance: COIN, cap: COIN, room: COIN, atCap: boolean(), pendingTrickle: COIN }),

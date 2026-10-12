@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { verifyPassword } from "../auth/password.js";
 import { PASSWORD_MAX } from "../config.js";
-import { clearDeviceCookie, deleteDevice, deviceIdOfSession, hashDeviceToken, readDeviceCookie } from "../account/device.js";
+import { clearDeviceCookie, deleteDevice, deviceIdOfSession, findLiveDevice, hashDeviceToken, readDeviceCookie } from "../account/device.js";
+import { passwordFailureLimits } from "../account/rateLimit.js";
 import { revokeSession } from "../auth/sessions.js";
 import { findAccountByUsername } from "../repo/accounts.js";
 import { badRequest, unauthorized } from "../services/errors.js";
@@ -55,7 +56,6 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: LoginBody }>("/auth/login", async (req, reply) => {
     app.rateLimiter.hit("loginPerIp", req.ip);
     const body = req.body ?? {};
-    if (typeof body.username === "string") app.rateLimiter.hit("loginPerUsername", body.username.trim().toLowerCase().slice(0, 64));
     // QA-30 D3: a per-device limit too (the device cookie, hashed, when the browser has one).
     const deviceCookie = readDeviceCookie(req);
     if (deviceCookie) app.rateLimiter.hit("loginPerDevice", hashDeviceToken(deviceCookie));
@@ -65,16 +65,27 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     } catch {
       throw unauthorized("invalid credentials");
     }
-    const password = str(body.password, "password");
-    if (password.length > PASSWORD_MAX) throw unauthorized("invalid credentials");
     const account = await findAccountByUsername(app.db, username);
+    // Final review D2: failures are limited per (username, address) with a generous per-username
+    // backstop, so one address cannot lock a player out from everywhere. A browser holding a live
+    // device cookie of THIS account has already proved the device and is exempt.
+    const failures = passwordFailureLimits(app.rateLimiter, username, req.ip);
+    const ownDevice = deviceCookie !== null && account !== null && (await findLiveDevice(app.db, hashDeviceToken(deviceCookie)))?.account_id === account.id;
+    if (!ownDevice) failures.check();
+    const password = str(body.password, "password");
+    if (password.length > PASSWORD_MAX) {
+      failures.fail();
+      throw unauthorized("invalid credentials");
+    }
     // Always run the hash, even for an unknown username, so timing doesn't reveal existence.
     const ok = await verifyPassword(password, account?.password_hash ?? DUMMY_PASSWORD_HASH);
     // Chunk 25 (chunk 14 QA B1): a system account — the non-player owner of an authored
     // party — has no login, whatever its password hash says. Same 401 as a wrong password.
     if (!account || !ok || account.is_system) {
+      failures.fail();
       throw unauthorized("invalid credentials");
     }
+    failures.succeed();
     // QA-30 S4: only once the credentials are right does the device's guest question arise.
     const guest = await guestOnDevice(req);
     if (guest && guest.accountId !== account.id) refuseGuestReplacement(guest, body);

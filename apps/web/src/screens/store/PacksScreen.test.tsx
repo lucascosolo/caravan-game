@@ -61,6 +61,22 @@ describe("PacksScreen", () => {
     expect(purchasePack).not.toHaveBeenCalled();
   });
 
+  it("final review D1: with the store off every pack is previewed, none has a buy button, and nothing can be bought", async () => {
+    const purchasePack = vi.fn();
+    render(<PacksScreen api={api({ store: vi.fn(async () => storeView({ mode: "off" })), purchasePack })} />);
+    const banner = await screen.findByTestId("store-off-banner");
+    expect(banner).toHaveTextContent("Packs are not on sale during the play test");
+    expect(screen.queryByTestId("sandbox-banner")).toBeNull();
+    for (const tier of [1, 2, 3]) {
+      const offer = screen.getByTestId(`offer-${tier}`);
+      expect(within(offer).getByTestId(`offer-${tier}-contents`).querySelectorAll("li").length).toBeGreaterThan(0);
+      expect(screen.queryByTestId(`buy-${tier}`)).toBeNull();
+      expect(screen.getByTestId(`buy-${tier}-unavailable`)).toHaveTextContent("Not available during the play test");
+    }
+    expect(screen.getByTestId("store-ceiling")).toBeInTheDocument();
+    expect(purchasePack).not.toHaveBeenCalled();
+  });
+
   it("shows the overflow forecast for each tier and for all unpurchased tiers combined", async () => {
     render(<PacksScreen api={api({ store: vi.fn(async () => storeView({ balance: 20_000 })) })} />);
     const f1 = await screen.findByTestId("offer-1-overflow");

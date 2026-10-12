@@ -13,11 +13,14 @@
     "dev": "pnpm --filter @caravan/server dev",
     "dev:web": "pnpm --filter @caravan/web dev",
     "e2e": "node scripts/e2e.mjs",
+    "e2e:hosting": "node scripts/e2e.mjs --hosting",
     "db:migrate": "pnpm --filter @caravan/server db:migrate",
     "db:rollback": "pnpm --filter @caravan/server db:rollback",
     "db:reset": "pnpm --filter @caravan/server db:reset",
     "db:seed": "pnpm --filter @caravan/server db:seed",
+    "db:seed:dev": "pnpm --filter @caravan/server db:seed:dev",
     "db:status": "pnpm --filter @caravan/server db:status",
+    "db:roles": "pnpm --filter @caravan/server db:roles",
     "test:boundary": "node scripts/resolver-boundary-check.mjs",
     "determinism": "node scripts/determinism.mjs",
     "perf:resolver": "pnpm --filter @caravan/resolver run budget",
@@ -26,7 +29,7 @@
     "build": "node scripts/build.mjs && pnpm --filter @caravan/web build",
     "start": "node apps/server/dist/index.js",
     "smoke": "node scripts/smoke-server.mjs",
-    "ci": "pnpm typecheck && pnpm lint && pnpm test:boundary && pnpm test && pnpm determinism && pnpm perf:resolver && pnpm build"
+    "check": "node scripts/check.mjs"
   },
   "devDependencies": {
     "esbuild": "0.28.2",

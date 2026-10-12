@@ -1,69 +1,55 @@
 /**
- * Dev seed: one playable-shaped account for later chunks to develop against.
- *   username: dev   password: devpassword   region: desert
- * Idempotent: if `dev` already exists, nothing is changed.
+ * The seed (final review S1).
  *
- *   pnpm db:seed
+ *   pnpm db:seed           the authored cold-start parties only (PHASE-2 §25): what every
+ *                          database — dev, test, the play test — needs for matchmaking to serve
+ *                          three scoutable candidates at every band. Idempotent and versioned.
+ *   pnpm db:seed -- --dev  ALSO the dev / e2e fixture account (username dev, password
+ *                          devpassword, region desert; SEED_USERNAME / SEED_PASSWORD override it).
+ *                          REFUSED when NODE_ENV=production.
+ *
+ * Both write through the ordinary services as the app role (DATABASE_URL): the authored parties
+ * reach their nodes by ladder rungs and appear in the ledger (chunk 25 QA D3); the dev account is
+ * an ordinary registration whose only units are the STARTING_ROSTER granted through `grantUnit`.
  */
-import { REGIONS, isUnitTypeId } from "@caravan/content";
+import { REGIONS } from "@caravan/content";
+import { assertProductionDatabaseUrl, loadDotEnv } from "./config.js";
 import { createPool } from "./db/pool.js";
+import { DevSeedRefusedError, devSeedRequested, seedDevAccount } from "./dev/devAccount.js";
 import { seedAuthoredParties } from "./matchmaking/authored.js";
-import { findAccountByUsername } from "./repo/accounts.js";
-import { listCaravansForAccount } from "./repo/caravans.js";
-import { createUnitInstance } from "./repo/unitInstances.js";
-import { markOnboardingDone } from "./onboarding/service.js";
-import { registerAccount } from "./services/onboarding.js";
 
-/**
- * Chunk 08: SEED_USERNAME / SEED_PASSWORD may be overridden from the environment so the
- * formation e2e can seed a run-unique account with the same roster (its trip state — a
- * locked manifest, a committed formation — is never reset, so a fresh account per run is
- * the only way to start from "in town"). Defaults are the dev account.
- */
+loadDotEnv();
+
 export const SEED_USERNAME = process.env["SEED_USERNAME"] ?? "dev";
 export const SEED_PASSWORD = process.env["SEED_PASSWORD"] ?? "devpassword";
 export const SEED_REGION = REGIONS[0].id;
 
-// Real unit type ids from @caravan/content (chunk 03). Desert roster: two scouts-equivalent
-// riders to merge, a ranged unit, and a healer — enough shape to render and merge against.
-const SEED_UNIT_TYPES = [
-  { unitTypeId: "desert.dust_rider", mergeLevel: 1 },
-  { unitTypeId: "desert.dust_rider", mergeLevel: 1 },
-  { unitTypeId: "desert.sand_sharpshooter", mergeLevel: 2 },
-  { unitTypeId: "desert.canteen_carrier", mergeLevel: 1 },
-] as const;
-for (const u of SEED_UNIT_TYPES) {
-  if (!isUnitTypeId(u.unitTypeId)) throw new Error(`seed references unknown unit type '${u.unitTypeId}'`);
-}
-
 async function main(): Promise<void> {
+  let dev: boolean;
+  try {
+    dev = devSeedRequested(process.argv.slice(2), process.env);
+  } catch (err) {
+    if (err instanceof DevSeedRefusedError) {
+      console.error(err.message);
+      process.exit(2);
+    }
+    throw err;
+  }
+  assertProductionDatabaseUrl(process.env, process.env["DATABASE_URL"], "DATABASE_URL");
   const pool = createPool();
   try {
-    // Chunk 25: the authored cold-start parties (PHASE-2 §25), so a fresh database serves
-    // three scoutable candidates at every band from the first search. Idempotent and
-    // versioned: a changed set (a content drop) updates existing parties in place.
     const authored = await seedAuthoredParties(pool);
     console.log(`Authored parties (set v${authored.version}): ${authored.created.length} created, ${authored.updated.length} updated, ${authored.existing.length} already current.`);
-    const existing = await findAccountByUsername(pool, SEED_USERNAME);
-    if (existing) {
-      const caravans = await listCaravansForAccount(pool, existing.id);
-      console.log(`Seed account '${SEED_USERNAME}' already exists (account ${existing.id}, ${caravans.length} caravan(s)). Nothing to do.`);
+    if (!dev) {
+      console.log("No login accounts were created (pass --dev for the dev / e2e fixture account; refused in production).");
       return;
     }
-    const { account, caravan } = await registerAccount(pool, {
-      username: SEED_USERNAME,
-      password: SEED_PASSWORD,
-      regionId: SEED_REGION,
-      caravanName: "Dev Caravan",
-    });
-    for (const u of SEED_UNIT_TYPES) {
-      await createUnitInstance(pool, { caravanId: caravan.id, ...u });
-    }
-    // Chunk 24: a seeded account comes with a ready-made roster no new player has, so it is a
-    // dev / e2e fixture, not a new player: the first-session guide is marked done.
-    await markOnboardingDone(pool, account.id);
-    console.log(`Seeded account '${SEED_USERNAME}' (${account.id}) with caravan '${caravan.name}' (${caravan.id}) in region '${caravan.region_id}' and ${SEED_UNIT_TYPES.length} units.`);
-    console.log(`Log in with: POST /auth/login {"username":"${SEED_USERNAME}","password":"${SEED_PASSWORD}"}`);
+    const r = await seedDevAccount(pool, { username: SEED_USERNAME, password: SEED_PASSWORD, regionId: SEED_REGION });
+    console.log(
+      r.created
+        ? `Seeded dev account '${SEED_USERNAME}' (${r.accountId}), caravan ${r.caravanIds[0]}, region '${SEED_REGION}', the starting roster only.`
+        : `Dev account '${SEED_USERNAME}' already exists (account ${r.accountId}, ${r.caravanIds.length} caravan(s)). Nothing to do.`,
+    );
   } finally {
     await pool.end();
   }
