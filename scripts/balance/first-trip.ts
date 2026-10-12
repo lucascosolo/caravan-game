@@ -15,7 +15,9 @@
  *     levels and breaks ties by instance id, which is random in production: here the units left
  *     home are rotated by the seed, so every starter mix is sampled;
  *   - encounter 1 is searched at REPUTATION_START + FIRST_ENCOUNTER_CENTRE_OFFSET over the
- *     authored pool (a cold start: no live parties), through the server's own selectCandidates;
+ *     authored pool, through the server's own selectCandidates — exactly what a first trip meets
+ *     since the play-test review round 2 (TUNABLES.AUTHORED_ONLY_FIRST_TRIPS: live parties are
+ *     left out of a caravan's first trip); `--raised` is the second trip's gate against them;
  *   - the guide's pick (fewest raiders, least HP) is fought with the guided arrangement;
  *   - on a hold, encounter 2 is searched at the rating the fight left, the player picks the
  *     same way, and arranges it FREELY: reported both for the guide's shape again (a sensible

@@ -20,7 +20,7 @@
  *               is approximated by the BEST of these per matchup ("take the best"): an upper
  *               bound on what one reading of the scout gets, since a player cannot try them all.
  */
-import { CONTENT, FIXED_ONE, REGION_IDS, TUNABLES, getUnitType, unlockWebFor, type RegionId } from "../../packages/content/src/index.js";
+import { CONTENT, REGION_IDS, TUNABLES, getUnitType, unlockWebFor, type RegionId } from "../../packages/content/src/index.js";
 import {
   ENTRY_EDGES,
   RING_SEGMENTS,
@@ -603,8 +603,8 @@ export function servedMenu(caravanId: string, tripId: string, rating: number, en
   return { centre, menu: r.picks.map((p) => byId.get(p.partyId)!) };
 }
 
-/** Final play-test review r2 S2: a raider is ranged when its attack range is beyond 1.5 cells (the round-2 probe's line). */
-export const RANGED_ATTACK_RANGE_ABOVE = (3 * FIXED_ONE) / 2;
+/** Final play-test review r2 S2: a raider is ranged when its attack range exceeds the melee default — the client guide's rule (TrailGuide isRangedRaider). */
+export const RANGED_ATTACK_RANGE_ABOVE: number = TUNABLES.ATTACK_RANGE_MELEE_DEFAULT;
 /** r2 S2: every raider of the party is ranged (it can stand outside the fence and shoot the posts). */
 export function isRangedOnly(party: Party): boolean {
   return party.units.length > 0 && party.units.every((u) => getUnitType(u.typeId)!.attackRange > RANGED_ATTACK_RANGE_ABOVE);

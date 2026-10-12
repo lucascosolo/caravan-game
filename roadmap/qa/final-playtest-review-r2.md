@@ -494,3 +494,86 @@ Tags: **S**: blocks the external play test. **D**: design question for the orche
 - **D3:** already closed. The round-2 guardrail fixes (S1) owe one free menu at a time and rate-limit the refugee routes. Re-verify it.
 - **D4 (Coin with nothing to buy): no change before the play test.** Record it in BALANCE-LOG as a telemetry question, with the observation.
 - **Every N item is in scope.** N for the linked player's party served under their username: show the caravan name, as for guests.
+
+## Server fix round (branch `fixr2p-server`, 2026-10-12)
+
+The client half is on main (merged here). Payload changes are additive: `replacedPrevious` on the
+resume, `authoredOnlyTrip` on a menu, `defender.departed` in the feed and inbox, and `?ifNone=null`
+on the formation read. Migration **028** (`028_caravan_names`).
+
+- **S1, server: closed.**
+  - The session being issued is never evicted: `evictDeviceSessionsBeyondCap` /
+    `evictSessionsBeyondCap` take its id and leave it out of the candidates (the others are cut to
+    cap − 1). That was the round-2 cause.
+  - `POST /auth/resume` replaces the session it is given (`Authorization: Bearer …` or
+    `{ previousToken }`) when that is a live session of the same account on the same device;
+    anything else is ignored, never an error. The response carries `replacedPrevious`.
+  - Tests (`account-lifecycle.test.ts`):
+    - 50 resumes passing the previous token: each new token answers `/me`, `/me/onboarding`,
+      `/me/inbox/unread` and `/me/analytics` with 200, the replaced one answers 401, and 1 session
+      is left;
+    - 50 cold resumes with no token: all 200, and 10 sessions are left;
+    - foreign, junk and over-long previous tokens are ignored.
+  - e2e `apps/web/e2e/reloads.spec.ts`: a guest reloads **50 times in under a minute** and is back
+    in town each time, as the same account, with no 401 from the API. It passed (12.5 s). With the
+    old `auth/sessions.ts` and `repo/sessions.ts` swapped back in, it failed at **reload 11**, where
+    the round-2 reviewer saw it.
+- **S2, server: closed.**
+  - `TUNABLES.AUTHORED_ONLY_FIRST_TRIPS` (1): every encounter of a caravan's first trip is drawn
+    from authored outfits only. The rule runs before the seeded draw and is stored as
+    `draw_rules.authoredOnlyTrip`, so the menu replays.
+  - Tests (`matchmaking.test.ts`): trip 1 is all authored with six live parties at the very centre,
+    and its menus replay. Trip 2 serves live parties again.
+  - Every test fixture that needs live parties now gives its caravans one finished trip a day
+    earlier (`helpers.ts seasonCaravan`).
+  - Harness:
+    - `sweep.ts guidePick` now follows the client guide, including its ranged rule;
+    - `first-trip.ts` is now exactly the production first trip;
+    - `first-trip.ts --raised` adds the second-trip gate. Its CI slice is in `balance-sweep.test.ts`.
+  - Measured (BALANCE-LOG pass 4):
+    - **first trip: guided encounter 1 held 179 / 200 = 90 %** (was 73 %);
+    - **second trip against raised starter parties: guided 73 %, best skilled 81 %**, against
+      targets of 60 % / 70 %, so no lever was applied.
+  - **For the orchestrator:** the aggregate hides a regional gap. Badlands' own raised parties hold
+    37 % guided and 44 % skilled, and a whole raised Mountain or Badlands roster (6 raiders) beats a
+    5-unit guided circle almost always.
+    - The lever was measured but not applied: posts' engagement +1 cell lifts every ranged pair to
+      100 %.
+    - Applying it would mean editing content for every unit, a RESOLVER_VERSION bump, new goldens
+      and a full re-sweep.
+- **D1: explored, no content lever accepted** (`scripts/balance/fast-runners.ts`, BALANCE-LOG
+  pass 4).
+  - A larger trap trigger changes nothing.
+  - 15 % slower raiders cut overruns from 51 % to 44 % guided, but every fast overrun still costs
+    about 4.6 standing units.
+  - Recorded as the top telemetry question.
+- **D2, server read: confirmed.** After a total loss the party is empty and `suggested` is null.
+  Once the roster is rebuilt, `suggested` carries the new units and the free siege, and one
+  `PUT /me/party` makes the party valid and servable again (`party.test.ts`). The client's banner
+  (on main) uses it.
+- **D3: re-verified.** The round-2 guardrail fix is in force: "500 refreshes below the floor yield
+  ONE free menu" passes in `acquisition.test.ts`, and the refugee routes share a per-account limit.
+- **D4: recorded** in BALANCE-LOG pass 4 as a telemetry question, with g4's week.
+- **N1: no server change needed.** The server already returns the machine code (`error`) and the
+  sentence (`message`) separately. Showing only the sentence is client work, which is on main.
+- **N4: closed.**
+  - The generated-name lists grew from 16 × 16 to 32 × 32 (1,024 names).
+  - A generated name re-rolls on a collision. A requested name that another caravan already carries
+    (case-insensitive) gets an ordinal, for example "Dusty Teamsters II", cut to fit 40 characters.
+    That covers the client's own generated guest names too.
+  - Migration 028 adds an index on `lower(name)`.
+  - Test: 40 unnamed caravans get 40 distinct names, and three requests for the same name come back
+    as base, II and III.
+- **N10, server: closed, additively.** `GET …/formation?ifNone=null` answers 200
+  `{ formation: null, encounterIndex }` when no draft exists. Without the parameter it is still the
+  404 that current clients expect. The cold-load 401s were the client's (fixed on main); the reload
+  e2e now asserts there are none.
+- **N15: closed.** A feed or inbox defender whose caravan is the erasure tombstone, or is gone,
+  carries `departed: true`, so the client can say "a caravan that has since left the trail".
+- **N16: closed.** Every player's party is served under its caravan's name, never the username.
+  - Migration 028 also extends erasure to match: `account_erasure_active.names` holds the erased
+    account's caravan names. The erasure walk replaces any `displayName` equal to one of them, and
+    the cross-account ledger scan looks for them too.
+  - The deletion test now asserts that no table, and no decompressed replay, still contains the
+    caravan name the party rode under.
+
