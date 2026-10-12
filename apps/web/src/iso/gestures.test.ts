@@ -45,7 +45,7 @@ describe("gesture machine (chunk 08 QA B3)", () => {
     expect(kinds(tap.up({ id: 1, x: 11, y: 10, t: 100 }, false))).toEqual(["tapCell"]);
     const tapEntity = new GestureMachine();
     tapEntity.down({ id: 1, x: 10, y: 10, t: 0 }, onPost, always);
-    expect(tapEntity.up({ id: 1, x: 10, y: 10, t: 100 }, false)).toEqual([{ kind: "tapEntity", hit: post }]);
+    expect(tapEntity.up({ id: 1, x: 10, y: 10, t: 100 }, false)).toEqual([{ kind: "tapEntity", hit: post, at: { x: 10, y: 10 } }]);
     const drag = new GestureMachine();
     drag.down({ id: 1, x: 10, y: 10, t: 0 }, onPost, always);
     drag.move({ id: 1, x: 40, y: 10, t: 10 });

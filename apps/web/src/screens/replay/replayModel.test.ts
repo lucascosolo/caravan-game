@@ -272,9 +272,25 @@ describe("chunk 22 QA fixes in the model", () => {
     if (!r.ok) expect(r.reason).toBe("the server's labels do not match the stored log");
   });
 
-  it("S2: the opening frame covers the ring and reaches toward every edge raiders came in from — not the whole field", () => {
+  it("r2 N14: the opening frame takes in every raider's start cell, so nobody is off-canvas at 0:00; the camera then moves in to the close frame", () => {
     const m = open(replayCaravan());
     const r = m.frameRect;
+    for (const e of m.replay.events) {
+      if (e.k !== "spawn" || m.replay.log.units[e.u]?.side !== "attacker") continue;
+      const x = Math.floor(e.x / 1024);
+      const y = Math.floor(e.y / 1024);
+      expect(x).toBeGreaterThanOrEqual(r.x);
+      expect(x).toBeLessThan(r.x + r.w);
+      expect(y).toBeGreaterThanOrEqual(r.y);
+      expect(y).toBeLessThan(r.y + r.h);
+    }
+    expect(m.closeTick).toBeGreaterThanOrEqual(0);
+    expect(m.closeTick).toBeLessThan(m.ticks);
+  });
+
+  it("S2: the close frame covers the ring and reaches toward every edge raiders came in from — not the whole field", () => {
+    const m = open(replayCaravan());
+    const r = m.closeRect;
     for (const c of REPLAY_GEOMETRY.ringCells) {
       expect(c.x).toBeGreaterThanOrEqual(r.x);
       expect(c.x).toBeLessThan(r.x + r.w);

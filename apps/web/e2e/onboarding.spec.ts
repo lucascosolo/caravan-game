@@ -12,7 +12,7 @@
  *   guided arrangement (fence, gap, post, trap, rest — each step next to the circle; "now scout
  *   why"), commit → the real (double-resolved) result, honestly → the bank-or-push card reads
  *   the stakes and recommends, never insists → push → encounter 2: a free arrangement → bank →
- *   the trip summary → "while you were out, someone else's party met a caravan": raise the
+ *   the trip summary → "whose parties you just fought": raise the
  *   standing party from the roster → finish. The server then agrees: guide done, the trip
  *   banked after two encounters, and nothing granted beyond the starting roster and the trip.
  *
@@ -307,7 +307,7 @@ test("a fresh account: register, the first screen, a refugee, the first trip gui
   // ── the passive side: someone else's party met a caravan; raise yours ──
   const party = page.getByTestId("guide-party");
   await expect(party).toBeVisible();
-  await expect(party).toContainText("While you were out, someone else's party met a caravan");
+  await expect(party).toContainText("Whose parties you just fought");
   await copyIsTheRightWayRound(page);
   await atWidths(page);
   await party.getByTestId("guide-raise-party").click();
@@ -381,7 +381,7 @@ for (const branch of [
     await expect(card).toBeVisible();
     await expect(card.getByRole("heading").first()).toHaveText("Your caravan was overrun");
     await expect(card.getByRole("heading").nth(1)).toHaveText("Meanwhile, your own party meets other players' caravans");
-    await expect(card).not.toContainText("While you were out, someone else's party met a caravan");
+    await expect(card).not.toContainText("Whose parties you just fought");
     await expect(card).not.toContainText("what you packed is lost");
     await expect(card).not.toContainText("itemized before"); // no stake choice was made at encounter 1
     const losses = card.getByTestId("guide-overrun-losses");

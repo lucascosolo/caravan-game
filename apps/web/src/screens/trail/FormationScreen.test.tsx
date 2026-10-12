@@ -8,8 +8,10 @@ import { ApiError, BAD_PAYLOAD, type Api } from "../../api/client.ts";
 import type { ManifestView } from "../../api/types.ts";
 import type { IsoCanvasProps } from "../../iso/index.ts";
 import { survivorsManifest } from "../../test/circleFixtures.ts";
+import { STRINGS } from "../../strings.ts";
 import { FormationScreen, clearLocalDrafts } from "./FormationScreen.tsx";
-import { fixtureEncounter } from "./scoutFixture.ts";
+import { fixtureCandidate, fixtureEncounter } from "./scoutFixture.ts";
+import { sidesOf } from "./FormationScreen.tsx";
 
 // The canvas needs WebGL; in jsdom it is replaced by buttons that fire the same callbacks
 // the real one fires from taps. Placement logic is in placement.ts and tested there. The
@@ -50,6 +52,16 @@ vi.mock("../../iso/index.ts", async () => {
         <button type="button" onClick={() => props.onTapEntity?.({ kind: "post", id: "u-rider" })}>
           tap-u-rider
         </button>
+        {props.state.fences[0] && (
+          <>
+            <button type="button" onClick={() => props.onTapEntity?.({ kind: "fence", id: props.state.fences[0]!.id }, { x: 13, y: 13 })}>
+              tap-near-fence
+            </button>
+            <button type="button" onClick={() => props.onTapEntity?.({ kind: "fence", id: props.state.fences[0]!.id }, props.state.fences[0]!.cell)}>
+              tap-on-fence
+            </button>
+          </>
+        )}
         {attacker && (
           <button type="button" onClick={() => props.onTapEntity?.({ kind: "attacker", id: attacker.id })}>
             tap-attacker
@@ -244,6 +256,34 @@ describe("FormationScreen", () => {
     await user.click(screen.getByTestId("selection-remove"));
     expect(screen.getByTestId("iso-canvas").getAttribute("data-posts")).toBe("0");
     expect(screen.getByTestId("tray-unit-u-rider")).toHaveTextContent("In the wagon");
+  });
+
+  it("final play-test review r2 N7: with a unit selected, a tap next to a fence places the unit on that cell; a tap on the fence's own cell selects the fence", async () => {
+    const user = userEvent.setup();
+    render(screenWith(fakeApi()));
+    await user.click(within(screen.getByTestId("tray-fence-next")).getByRole("button"));
+    await user.click(screen.getByText("tap-ring-3"));
+    expect(screen.getByTestId("iso-canvas").getAttribute("data-fences")).toBe("1");
+    await user.click(within(screen.getByTestId("tray-unit-u-rider")).getByRole("button"));
+    await user.click(screen.getByText("tap-near-fence"));
+    expect(screen.getByTestId("tray-unit-u-rider")).toHaveTextContent("Posted at (13, 13)");
+    expect(screen.getByTestId("iso-canvas").getAttribute("data-fences")).toBe("1");
+    // The next unit is selected now; a tap on the segment's own cell cannot place it, so it selects the segment.
+    await user.click(screen.getByText("tap-on-fence"));
+    expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-placing", "none");
+  });
+
+  it("final play-test review r2 N11: 'Start from my last arrangement' says when the last party came from other sides", async () => {
+    const now = sidesOf(scout.scout.units);
+    // The last party came from one side only; this one from more (or others).
+    const other = now.length === 1 && now[0] === "north" ? "south" : "north";
+    const prev = fixtureCandidate(2);
+    const prevMoved = { ...prev, scout: { ...prev.scout, units: prev.scout.units.map((u) => ({ ...u, edge: other })) } };
+    const candidates = vi.fn(async () => ({ menu: { candidates: [prevMoved], chosen: { candidateId: prevMoved.candidateId, chosenAt: "" } } as never }));
+    render(screenWith(fakeApi({ candidates })));
+    const button = await screen.findByTestId("start-from-last");
+    await waitFor(() => expect(button).toHaveTextContent(`it faced ${STRINGS.trail.edgeName(other)}; this party comes from`));
+    expect(candidates).toHaveBeenCalledWith("c1", 2);
   });
 
   it("B2: a post's circles are the resolver's reach, at true radii (aggro and attack include UNIT_RADIUS)", async () => {

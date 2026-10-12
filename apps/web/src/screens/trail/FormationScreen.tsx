@@ -75,6 +75,11 @@ import { TrayGesture, TRAY_LONG_PRESS_MS } from "./trayGesture.ts";
 
 const T = STRINGS.trail;
 
+/** The entry sides a party's raiders start on, in ENTRY_EDGES order (r2 N11). */
+export function sidesOf(units: readonly { readonly edge: string }[]): readonly string[] {
+  return ENTRY_EDGES.filter((e) => units.some((u) => u.edge === e));
+}
+
 /** The lattice and fixed features, from the resolver's geometry (one source of truth). */
 export const CIRCLE_GEOMETRY: SceneGeometry = {
   width: GRID_WIDTH,
@@ -389,15 +394,6 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
     },
     [updateDrag, endDrag],
   );
-  const onTapEntity = useCallback((hit: HitResult) => {
-    if (hit.kind === "attacker") {
-      setSelectedAttacker(hit.id);
-      setScoutOpen(true);
-      return;
-    }
-    setSelectedAttacker(null);
-    setSelectedRef((cur) => (cur === hit.id ? null : hit.id));
-  }, []);
   const placeSelected = useCallback(
     (at: Cell) => {
       if (locked || !selectedRef) return;
@@ -418,6 +414,30 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
       if (!wasPlaced) setSelectedRef(nextUnplacedOfKind(manifest, next, selectedRef));
     },
     [locked, selectedRef, manifest, formation, nameOf, setFormation],
+  );
+  const onTapEntity = useCallback(
+    (hit: HitResult, cell?: Cell | null) => {
+      // Final play-test review r2 N7: with something selected to place, a tap that lands NEXT TO a
+      // fence segment (its touch radius reaches a cell or more inside the ring) but on a cell where
+      // the selection can legally go places it there. A tap the selection cannot use — on the
+      // segment's own cell — still selects the segment. Posts and traps keep their touch circles:
+      // tapping one is how its stance is changed, even while the next unit is auto-selected.
+      if (!locked && selectedRef && cell && hit.kind === "fence" && hit.id !== selectedRef) {
+        const target = kindOfRef(manifest, selectedRef) === "fence" ? (snapToRing(cell) ?? cell) : cell;
+        if (!dropRefusal(manifest, formation, selectedRef, target)) {
+          placeSelected(cell);
+          return;
+        }
+      }
+      if (hit.kind === "attacker") {
+        setSelectedAttacker(hit.id);
+        setScoutOpen(true);
+        return;
+      }
+      setSelectedAttacker(null);
+      setSelectedRef((cur) => (cur === hit.id ? null : hit.id));
+    },
+    [locked, selectedRef, manifest, formation, placeSelected],
   );
   const onTapCell = useCallback(
     (cell: Cell) => {
@@ -597,6 +617,29 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
     setRefused(null);
     setStatus(message);
   };
+  // Final play-test review r2 N11: which sides the LAST encounter's raiders came from, so "Start
+  // from my last arrangement" says when it would face the wrong way. Best effort: a failed or
+  // missing read just leaves the plain label.
+  const [lastSides, setLastSides] = useState<readonly string[] | null>(null);
+  useEffect(() => {
+    if (encounterIndex <= 1 || locked) return;
+    let live = true;
+    api
+      .candidates(caravanId, encounterIndex - 1)
+      .then((r) => {
+        const menu = r.menu;
+        const chosen = menu?.chosen ? menu.candidates.find((c) => c.candidateId === menu.chosen!.candidateId) : undefined;
+        if (live && chosen) setLastSides(sidesOf(chosen.scout.units));
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [api, caravanId, encounterIndex, locked]);
+  const nowSides = sidesOf(scout.scout.units);
+  const sideList = (sides: readonly string[]): string => sides.map((e) => T.edgeName(e)).join(" and ");
+  const lastOtherSides = lastSides !== null && lastSides.length > 0 && nowSides.length > 0 && lastSides.join() !== nowSides.join() ? { was: sideList(lastSides), now: sideList(nowSides) } : null;
+
   const startFromLast = async (): Promise<void> => {
     if (encounterIndex <= 1) return;
     setLastBusy(true);
@@ -604,7 +647,8 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
     try {
       const prev = (await api.formation(caravanId, encounterIndex - 1)).formation;
       const next = carryForward(manifest, prev.formation);
-      applyQuick(next, isEmptyFormation(next) ? T.lastNothing : T.lastApplied(next.fences.length, next.traps.length, next.posts.length));
+      const message = isEmptyFormation(next) ? T.lastNothing : T.lastApplied(next.fences.length, next.traps.length, next.posts.length);
+      applyQuick(next, lastOtherSides && !isEmptyFormation(next) ? `${message} ${T.lastAppliedOtherSides(lastOtherSides.was, lastOtherSides.now)}` : message);
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) setStatus(T.lastNone);
       else fail(err);
@@ -697,7 +741,7 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
           </h2>
           {encounterIndex > 1 && (
             <button type="button" className="btn btn--block" disabled={lastBusy} onClick={() => void startFromLast()} data-testid="start-from-last">
-              {lastBusy ? T.lastLoading : T.lastButton}
+              {lastBusy ? T.lastLoading : lastOtherSides ? T.lastButtonOtherSides(lastOtherSides.was, lastOtherSides.now) : T.lastButton}
             </button>
           )}
           <div className="quick__sides">

@@ -153,14 +153,14 @@ export interface CellRect {
  * the targets are big enough to tap). Never zooms OUT: if the current camera is already
  * closer than the fit, it only re-centres on the rect.
  */
-export function focusCamera(cam: Camera, viewportW: number, viewportH: number, rect: CellRect, margin = 12): Camera {
+export function focusCamera(cam: Camera, viewportW: number, viewportH: number, rect: CellRect, margin = 12, minZoom = 0): Camera {
   const corners = [project({ x: rect.x0, y: rect.y0 }), project({ x: rect.x1 + 1, y: rect.y0 }), project({ x: rect.x1 + 1, y: rect.y1 + 1 }), project({ x: rect.x0, y: rect.y1 + 1 })];
   const minX = Math.min(...corners.map((c) => c.x));
   const maxX = Math.max(...corners.map((c) => c.x));
   const minY = Math.min(...corners.map((c) => c.y));
   const maxY = Math.max(...corners.map((c) => c.y));
   const fit = clampZoom(Math.min((viewportW - margin * 2) / (maxX - minX), (viewportH - margin * 2) / (maxY - minY)));
-  const zoom = Math.max(cam.zoom, fit);
+  const zoom = Math.max(cam.zoom, fit, clampZoom(minZoom));
   const cx = (minX + maxX) / 2;
   const cy = (minY + maxY) / 2;
   return { zoom, offsetX: viewportW / 2 - cx * zoom, offsetY: viewportH / 2 - cy * zoom };

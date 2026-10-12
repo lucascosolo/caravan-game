@@ -11,6 +11,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ApiError, createApi, type Api } from "../api/client.ts";
 import type { AccountPublic, AuthResponse } from "../api/types.ts";
+import { STRINGS } from "../strings.ts";
 
 export interface Session {
   readonly token: string;
@@ -38,6 +39,11 @@ export interface SessionContextValue {
   readonly retryResume: () => void;
   /** A one-line notice for the start screen (the account was deleted, a guest left). */
   readonly notice: string | null;
+}
+
+/** The one resume answer that means "there is no account on this device": the start screen is right then. */
+export function isNoDevice(e: ApiError): boolean {
+  return e.status === 401 && e.code === "no_device";
 }
 
 /** QA-30 S4: automatic resumes after a 401, per rolling minute: enough for evicted sessions in many tabs, never a loop. */
@@ -96,6 +102,7 @@ export function SessionProvider({ children, fetchImpl, autoResume = fetchImpl ==
   const [resumeError, setResumeError] = useState<ApiError | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const autoResumes = useRef<number[]>([]);
+  const resumeInFlight = useRef<Promise<AuthResponse> | null>(null);
   // The api reads the token through a ref so one client instance serves every render.
   const tokenRef = useRef<string | null>(null);
   tokenRef.current = session?.token ?? null;
@@ -109,11 +116,17 @@ export function SessionProvider({ children, fetchImpl, autoResume = fetchImpl ==
           if (tokenRef.current === null) return;
           tokenRef.current = null;
           setSession(null);
+          if (!autoResume) return;
           const now = Date.now();
           autoResumes.current = autoResumes.current.filter((t) => now - t < 60_000);
-          if (autoResume && autoResumes.current.length < AUTO_RESUMES_PER_MINUTE) {
+          if (autoResumes.current.length < AUTO_RESUMES_PER_MINUTE) {
             autoResumes.current.push(now);
             setResumeEpoch((n) => n + 1);
+          } else {
+            // Final play-test review r2 S1: the device cookie keeps answering, but its sessions keep
+            // dying. That is NOT "no account here": show the retry state, never the start screen
+            // (where a guest's only working button would delete the caravan).
+            setResumeError(new ApiError(401, "session_lost", STRINGS.auth.sessionLost));
           }
         },
         ...(fetchImpl ? { fetchImpl } : {}),
@@ -123,21 +136,33 @@ export function SessionProvider({ children, fetchImpl, autoResume = fetchImpl ==
 
   useEffect(() => {
     if (!autoResume) return;
+    // Final play-test review r2 S1: reuse the live session. A resume is asked for only when there is
+    // no valid token in memory, and never twice at once (StrictMode runs effects twice in dev).
+    if (tokenRef.current !== null) {
+      setResuming(false);
+      return;
+    }
     let live = true;
     setResuming(true);
     setResumeError(null);
-    api
-      .resume()
+    const inFlight = resumeInFlight.current ?? api.resume();
+    resumeInFlight.current = inFlight;
+    const clear = (): void => {
+      if (resumeInFlight.current === inFlight) resumeInFlight.current = null;
+    };
+    inFlight.then(clear, clear);
+    inFlight
       .then((auth) => {
         // A sign-in that landed meanwhile wins: never replace a session the player just made.
         if (live) setSession((prev) => prev ?? { token: auth.token, account: auth.account });
       })
       .catch((err: unknown) => {
-        // 401 no_device: there is nothing to resume — the start screen. Anything else (5xx, the
-        // network, a bad payload) is NOT "no account here": retry, never the start screen.
+        // Only a definite 401 no_device means there is nothing to resume — the start screen.
+        // Anything else (another 401, a 429, a 5xx, the network, a bad payload) is NOT "no account
+        // here": retry, never the start screen (final play-test review r2 S1).
         if (!live) return;
         const e = err instanceof ApiError ? err : new ApiError(0, "network", "network error");
-        if (!(e.status === 401)) setResumeError(e);
+        if (!isNoDevice(e)) setResumeError(e);
       })
       .finally(() => {
         if (live) setResuming(false);
@@ -166,7 +191,12 @@ export function SessionProvider({ children, fetchImpl, autoResume = fetchImpl ==
     setNotice(n ?? null);
     setSession(null);
   }, []);
-  const retryResume = useCallback(() => setResumeEpoch((n) => n + 1), []);
+  const retryResume = useCallback(() => {
+    // A deliberate retry (the retry card, "Continue the guest caravan") gets a fresh automatic budget.
+    autoResumes.current = [];
+    setResumeError(null);
+    setResumeEpoch((n) => n + 1);
+  }, []);
 
   const value = useMemo<SessionContextValue>(
     () => ({ session, api, signIn, signOut, resuming, updateAccount, forget, resumeError, retryResume, notice }),

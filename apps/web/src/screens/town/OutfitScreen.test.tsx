@@ -1,7 +1,7 @@
 import { TUNABLES } from "@caravan/content";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client.ts";
 import type { ManifestView } from "../../api/types.ts";
 import { CARAVAN_ID, economyView, fakeApi, uid, unlocksWith } from "../../test/townFixtures.ts";
@@ -34,6 +34,37 @@ function api(over = {}) {
 }
 
 describe("OutfitScreen", () => {
+  beforeEach(() => window.localStorage.clear());
+
+  it("final play-test review r2 N5: the next outfit opens with the last trip's traps and fence, and one tap packs its units again (minus any lost)", async () => {
+    const user = userEvent.setup();
+    const packManifest = vi.fn(async () => ({ manifest: packedManifest() }));
+    const startTrip = vi.fn(async () => ({ tripId: uid(900), manifestId: uid(500), cap: statusResolving().cap, status: statusResolving() }));
+    const first = render(<OutfitScreen api={api({ packManifest, startTrip })} caravanId={CARAVAN_ID} units={units} onBack={() => {}} onPacked={() => {}} onRodeOut={() => {}} />);
+    await screen.findByTestId("outfit-screen");
+    expect(screen.queryByTestId("outfit-last")).toBeNull();
+    const boxes = within(screen.getByTestId("outfit-units")).getAllByRole("checkbox");
+    for (const b of boxes.slice(0, 3)) await user.click(b);
+    for (let i = 0; i < 4; i++) await user.click(within(screen.getByTestId("outfit-traps")).getByRole("button", { name: "Add Spike Pit" }));
+    await user.selectOptions(screen.getByTestId("outfit-fence-tier"), "fence.brush_pile");
+    await user.click(screen.getByTestId("outfit-ride-out"));
+    await user.click(await screen.findByTestId("outfit-confirm"));
+    await vi.waitFor(() => expect(startTrip).toHaveBeenCalled());
+    first.unmount();
+
+    // Next trip: unit 1 was lost; traps and fence come back on their own, units on one tap.
+    render(<OutfitScreen api={api()} caravanId={CARAVAN_ID} units={units.slice(1)} onBack={() => {}} onPacked={() => {}} onRodeOut={() => {}} />);
+    await screen.findByTestId("outfit-screen");
+    expect(screen.getByTestId("outfit-traps-meter")).toHaveTextContent(`4 of ${TUNABLES.TRAP_SLOT_CAP} trap slots`);
+    expect(screen.getByTestId("outfit-fence-tier")).toHaveValue("fence.brush_pile");
+    expect(screen.getByTestId("outfit-units-meter")).toHaveTextContent(`0 of ${CAP} deployment slots`);
+    const again = screen.getByTestId("outfit-same-as-last");
+    expect(again).toHaveTextContent("2 units, 4 traps, 20 fence segments");
+    expect(screen.getByTestId("outfit-last")).toHaveTextContent("1 unit from last trip is no longer in the roster.");
+    await user.click(again);
+    expect(screen.getByTestId("outfit-units-meter")).toHaveTextContent(`2 of ${CAP} deployment slots`);
+  });
+
   it("meters the roster against DEPLOYMENT_SLOT_CAP and warns past it; traps and fence against theirs", async () => {
     const user = userEvent.setup();
     render(<OutfitScreen api={api()} caravanId={CARAVAN_ID} units={units} onBack={() => {}} onPacked={() => {}} onRodeOut={() => {}} />);
@@ -94,8 +125,8 @@ describe("OutfitScreen", () => {
     await screen.findByTestId("outfit-screen");
     await user.click(within(screen.getByTestId("outfit-units")).getAllByRole("checkbox")[0]!);
     expect(screen.getByTestId("outfit-ride-out")).toBeDisabled();
-    expect(screen.getByTestId("outfit-ride-out")).toHaveTextContent("Next trip in 20:00");
-    expect(screen.getByTestId("outfit-no-trip")).toHaveTextContent("No trip is available right now. The next one returns in 20:00; pack then.");
+    expect(screen.getByTestId("outfit-ride-out")).toHaveTextContent("Next trip in 20 min");
+    expect(screen.getByTestId("outfit-no-trip")).toHaveTextContent("No trip is available right now. The next one returns in 20 min; pack then.");
     expect(packManifest).not.toHaveBeenCalled();
   });
 
@@ -117,7 +148,7 @@ describe("OutfitScreen", () => {
     await user.click(screen.getByTestId("outfit-confirm"));
     expect(await screen.findByTestId("outfit-packed")).toHaveTextContent("Packed, waiting to ride out.");
     expect(screen.getByTestId("packed-summary")).toHaveTextContent("1 unit · 1 trap · 20 fence segments");
-    expect(screen.getByTestId("ride-out-refused")).toHaveTextContent("No trip is available right now. The next one returns in 20:00");
+    expect(screen.getByTestId("ride-out-refused")).toHaveTextContent("No trip is available right now. The next one returns in 20 min");
     expect(screen.getByTestId("ride-out-open-confirm")).toBeDisabled();
     expect(onRodeOut).not.toHaveBeenCalled();
     // Nothing on the way offers to buy or speed up a trip.
