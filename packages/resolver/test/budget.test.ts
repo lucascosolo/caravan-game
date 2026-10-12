@@ -12,62 +12,87 @@
  *     180 s of blows, the most a full-load fight can log.
  * The stored form is the LOG_FORMAT replay (src/replay.ts) serialized as JSON and gzipped.
  */
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
-import { encodeReplay, readReplay, resolve, type LogEvent, type ResolveOutput } from "../src/index.js";
+import { RESOLVER_VERSION, encodeReplay, readReplay, resolve, type LogEvent, type ResolveOutput } from "../src/index.js";
 import { clone, fullLoadFullLength, fullLoadScenario, runToCap, scenarios } from "./fixtures.js";
+import { WORK_COUNTERS_FILE, workCountersText } from "./golden.js";
 
 const BUDGET = 100 * 1024;
 /**
- * PHASE-2 §36: one 180-second fight resolves in under 100 ms on the server, measured in CI over
- * the WHOLE golden corpus (`scenarios()`, the fights `pnpm determinism` pins byte-for-byte) and the
- * three full-load fights below. Operational, not balance: it bounds the resolver's cost, so it is
- * not in the tunables registry.
+ * PHASE-2 §36: one 180-second fight resolves in under 100 ms on the server. Operational, not
+ * balance, so not in the tunables registry. Since QA-36 S3 it is gated in three layers, none of
+ * which a loaded or slower CI runner can fail by noise:
  *
- * WHERE THE BOUND IS ASSERTED. CPU time is not load-invariant: measured on 4 cores with
- * `pnpm determinism` running beside this file, the heaviest corpus fight (c13-full-load-full-length,
- * ~75-90 ms alone) read 103-137 ms of CPU — shared caches and SMT siblings slow the same
- * instructions. So the §36 bound itself (100 ms) is asserted by `pnpm perf:resolver`
- * (the resolver package's `budget` script: this file ALONE, RESOLVER_BUDGET_STRICT=1), a CI step of its own
- * after the parallel suite; inside the parallel `pnpm test` the same measurements run with a 2×
- * allowance, so a loaded runner cannot fail CI and a resolver that doubles its cost still does.
+ *   1. WORK (blocking, exact). The resolver counts its own work in integers (`ResolveOutput.work`:
+ *      ticks, unit-ticks, A* searches, cells A* expanded — src/state.ts WorkCounters; never logged,
+ *      never read by the simulation). Every golden-corpus fight's counts are pinned in
+ *      packages/resolver/golden/work-counters.json, written by `UPDATE_GOLDEN=1` together with the
+ *      golden logs and carrying RESOLVER_VERSION, so the golden gate (scripts/golden-gate.mjs)
+ *      demands a version bump to change them. An algorithmic regression — A* blowing up, a loop
+ *      gone quadratic — changes these numbers on any machine, with zero noise. A balance change
+ *      regenerates them with the goldens.
+ *   2. TIME, RELATIVE (blocking, generous). In this process, interleaved, the heaviest corpus fight
+ *      against a fixed integer reference workload (`referenceWork`, no resolver code): the ratio of
+ *      their best CPU times must stay ≤ RELATIVE_MAX. Machine speed and most contention cancel.
+ *   3. TIME, ABSOLUTE (report only). Every corpus fight's best CPU time and the 100 ms budget are
+ *      printed (MET / EXCEEDED); `pnpm perf:resolver` runs this file alone for a clean number. The
+ *      absolute bound is asserted only on a dedicated perf host (RESOLVER_BUDGET_STRICT=1).
  *
- * Load-robust otherwise (QA-13 S6): process CPU time (user + system of this forked vitest worker),
- * not wall time; the minimum of several runs after a warm-up, with a GC before each; and the
- * corpus is timed in batches, one test each, so no synchronous block runs for more than a few
- * seconds.
+ * Measured before QA-36: run alone on a 4-core host, the heaviest fight (c13-full-load-full-length)
+ * read 63-117 ms of CPU across runs and even within one run — noise (±30 %) larger than the margin.
  */
-const RESOLVE_BUDGET_STRICT = process.env["RESOLVER_BUDGET_STRICT"] === "1";
-/** The §36 budget. */
 const RESOLVE_BUDGET_MS = 100;
-/** What this run asserts: the budget alone (strict), or 2× it beside the rest of the suite. */
-const RESOLVE_BOUND_MS = RESOLVE_BUDGET_STRICT ? RESOLVE_BUDGET_MS : 2 * RESOLVE_BUDGET_MS;
-const BOUND_LABEL = RESOLVE_BUDGET_STRICT ? `${RESOLVE_BUDGET_MS} ms (strict, §36)` : `${RESOLVE_BOUND_MS} ms (2× the §36 ${RESOLVE_BUDGET_MS} ms: parallel suite; pnpm perf:resolver asserts ${RESOLVE_BUDGET_MS})`;
+/** A dedicated perf host only: also ASSERT the absolute budget. */
+const RESOLVE_BUDGET_STRICT = process.env["RESOLVER_BUDGET_STRICT"] === "1";
+const UPDATE = process.env["UPDATE_GOLDEN"] === "1";
+const WORK_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "golden", WORK_COUNTERS_FILE);
 /**
- * Corpus timing: at least CORPUS_RUNS_MIN runs per fight after a warm-up, and up to CORPUS_RUNS_MAX
- * while the best is still above half the budget (only the few heavy fights). Measured under a
- * concurrent `pnpm determinism`: best of 3 let one collected-garbage run of the heaviest fight
- * read 137 ms against ~80 ms unloaded; best of up to 9, with a GC before every run, does not.
+ * Layer 2's bound. Calibrated 2026-10-12 on a 4-core host: heaviest fight / reference read 4.0-5.9
+ * (alone and beside `pnpm determinism`, load average ~5); 12 is ~2.5× the typical 4.5. Generous on purpose: it is there to catch the resolver
+ * getting ~2.5× slower relative to plain integer work, which layer 1 cannot see (a
+ * constant-factor slowdown with the same counts).
  */
-const CORPUS_RUNS_MIN = 3;
-const CORPUS_RUNS_MAX = 9;
+const RELATIVE_MAX = 12;
+/** Runs per fight after a warm-up; the best counts (a GC before each, `--expose-gc`). */
+const CORPUS_RUNS = 3;
 const CORPUS_BATCH = 8;
 
 /** `--expose-gc` (vitest.config.ts): collect before each timed run so one run never pays for the previous run's garbage. */
 const collect: () => void = typeof (globalThis as { gc?: () => void }).gc === "function" ? (globalThis as unknown as { gc: () => void }).gc : () => {};
 
-/** CPU milliseconds of `f` per run, after one warm-up call: `runs` runs, or up to `maxRuns` while the best is >= `until`. Sorted ascending. */
-function cpuTimes(f: () => unknown, runs: number, maxRuns = runs, until = 0): number[] {
+/** CPU milliseconds of one call of `f`. */
+function cpuOnce(f: () => unknown): number {
+  collect();
+  const start = process.cpuUsage();
   f();
-  const times: number[] = [];
-  while (times.length < runs || (times.length < maxRuns && Math.min(...times) >= until)) {
-    collect();
-    const start = process.cpuUsage();
-    f();
-    const used = process.cpuUsage(start);
-    times.push((used.user + used.system) / 1000);
+  const used = process.cpuUsage(start);
+  return (used.user + used.system) / 1000;
+}
+
+/** Best CPU milliseconds of `f` over `runs` runs after one warm-up call. */
+function cpuBest(f: () => unknown, runs: number): number {
+  f();
+  let best = Infinity;
+  for (let i = 0; i < runs; i++) best = Math.min(best, cpuOnce(f));
+  return best;
+}
+
+/** Layer 2's yardstick: fixed integer work (an xorshift walk over a typed array), ~20 ms on the calibration host. No resolver code. */
+function referenceWork(): number {
+  const a = new Int32Array(4096);
+  let x = 0x2545f491;
+  for (let i = 0; i < 12_000_000; i++) {
+    x ^= x << 13;
+    x ^= x >>> 17;
+    x ^= x << 5;
+    const k = x & 4095;
+    a[k] = (a[k]! + (x | 0)) | 0;
   }
-  return times.sort((a, b) => a - b);
+  return a[17]!;
 }
 
 function measure(out: ResolveOutput): { raw: number; gz: number; keyframes: number; oldJson: number } {
@@ -81,20 +106,50 @@ function measure(out: ResolveOutput): { raw: number; gz: number; keyframes: numb
   };
 }
 
+type Work = ResolveOutput["work"];
+
 describe("budgets", () => {
-  it(`time: the full-length full-load fight (180 s, the most a fight can log) and the realistic full loads each resolve in under ${BOUND_LABEL} of CPU (best of 5 / 15 after a warm-up)`, () => {
-    const full = cpuTimes(() => resolve(clone(fullLoadFullLength())), 5);
-    // Best of 15 for the shorter fights (QA-13 S6: the suite runs this file beside the 100× harness on
-    // every core; the minimum of more short runs is the load-robust estimate).
-    const real = cpuTimes(() => resolve(clone(fullLoadScenario())), 15);
-    const cap = cpuTimes(() => runToCap(clone(fullLoadScenario())), 15);
-    process.stdout.write(`resolve time (CPU, bound ${BOUND_LABEL}): full-length full load best ${full[0]!.toFixed(1)} ms; full load (ends at arrival) best ${real[0]!.toFixed(1)} ms; full load forced to 3600 ticks best ${cap[0]!.toFixed(1)} ms\n`);
-    expect(full[0]!).toBeLessThan(RESOLVE_BOUND_MS);
-    expect(real[0]!).toBeLessThan(RESOLVE_BOUND_MS);
-    expect(cap[0]!).toBeLessThan(RESOLVE_BOUND_MS);
+  it("work (layer 1, blocking): every golden-corpus fight's integer work counts equal the pinned ones (golden/work-counters.json)", () => {
+    const work: Record<string, Work> = {};
+    for (const { name, input } of scenarios()) {
+      const a = resolve(clone(input)).work;
+      expect(resolve(clone(input)).work, `${name}: work counts are deterministic`).toEqual(a);
+      work[name] = a;
+    }
+    const text = workCountersText(RESOLVER_VERSION, work);
+    if (UPDATE) {
+      if (!existsSync(WORK_FILE) || readFileSync(WORK_FILE, "utf8") !== text) writeFileSync(WORK_FILE, text);
+      return;
+    }
+    expect(existsSync(WORK_FILE), `no ${WORK_FILE}: UPDATE_GOLDEN=1 writes it with the golden logs`).toBe(true);
+    const pinned = JSON.parse(readFileSync(WORK_FILE, "utf8")) as { resolverVersion: number; fights: Record<string, Work> };
+    expect(pinned.resolverVersion, "work-counters.json carries the current RESOLVER_VERSION").toBe(RESOLVER_VERSION);
+    const changed = Object.keys(work).filter((n) => JSON.stringify(work[n]) !== JSON.stringify(pinned.fights[n]));
+    const detail = changed.slice(0, 5).map((n) => `${n}: pinned ${JSON.stringify(pinned.fights[n])} → now ${JSON.stringify(work[n])}`).join("; ");
+    expect(changed, `the resolver now does different work on these fights (${detail}). If intended, bump RESOLVER_VERSION and regenerate with UPDATE_GOLDEN=1`).toEqual([]);
+    expect(Object.keys(pinned.fights).sort()).toEqual(Object.keys(work).sort());
+    const heaviest = Object.entries(work).sort((x, y) => y[1].pathExpansions - x[1].pathExpansions)[0]!;
+    process.stdout.write(`work counters: ${Object.keys(work).length} fights pinned; most A* expansions ${heaviest[0]} ${heaviest[1].pathExpansions} in ${heaviest[1].pathSearches} searches over ${heaviest[1].ticks} ticks\n`);
   });
 
-  describe(`time: every golden-corpus fight resolves in under ${BOUND_LABEL} of CPU (PHASE-2 §36; best of ${CORPUS_RUNS_MIN}-${CORPUS_RUNS_MAX} after a warm-up)`, () => {
+  it(`time, relative (layer 2, blocking): the heaviest corpus fight costs ≤ ${RELATIVE_MAX}× a fixed integer reference workload, timed interleaved in this process`, () => {
+    const heavy = scenarios().find((s) => s.name === "c13-full-load-full-length")!;
+    expect(heavy, "the corpus's full-length full-load fight").toBeDefined();
+    const run = () => resolve(clone(heavy.input));
+    run();
+    referenceWork();
+    let bestFight = Infinity;
+    let bestRef = Infinity;
+    for (let i = 0; i < 5; i++) {
+      bestRef = Math.min(bestRef, cpuOnce(referenceWork));
+      bestFight = Math.min(bestFight, cpuOnce(run));
+    }
+    const ratio = bestFight / bestRef;
+    process.stdout.write(`relative resolve time: ${heavy.name} best ${bestFight.toFixed(1)} ms / reference best ${bestRef.toFixed(1)} ms = ${ratio.toFixed(2)} (bound ${RELATIVE_MAX})\n`);
+    expect(ratio).toBeLessThan(RELATIVE_MAX);
+  });
+
+  describe(`time, absolute (layer 3, ${RESOLVE_BUDGET_STRICT ? "asserted: RESOLVER_BUDGET_STRICT=1" : "reported"}): every golden-corpus fight's CPU time against the ${RESOLVE_BUDGET_MS} ms budget (best of ${CORPUS_RUNS})`, () => {
     const corpus = scenarios();
     const timed: { name: string; ticks: number; best: number }[] = [];
     const batches: (typeof corpus)[] = [];
@@ -102,21 +157,22 @@ describe("budgets", () => {
     it.each(batches.map((b, i) => [i + 1, b] as const))("batch %i", (_n, batch) => {
       for (const { name, input } of batch) {
         let ticks = 0;
-        const best = cpuTimes(() => {
+        const best = cpuBest(() => {
           ticks = resolve(clone(input)).ticks;
-        }, CORPUS_RUNS_MIN, CORPUS_RUNS_MAX, RESOLVE_BUDGET_MS / 2)[0]!;
+        }, CORPUS_RUNS);
         timed.push({ name, ticks, best });
-        expect(best, `${name} (${ticks} ticks) took ${best.toFixed(1)} ms of CPU`).toBeLessThan(RESOLVE_BOUND_MS);
+        if (RESOLVE_BUDGET_STRICT) expect(best, `${name} (${ticks} ticks) took ${best.toFixed(1)} ms of CPU`).toBeLessThan(RESOLVE_BUDGET_MS);
       }
     });
-    it("covers the whole corpus, including full-length (180 s) fights, and reports the slowest", () => {
+    it("covers the whole corpus, including full-length (180 s) fights, and reports the budget", () => {
       expect(timed.length).toBe(corpus.length);
       const fullLength = timed.filter((t) => t.ticks === 3600);
       expect(fullLength.length).toBeGreaterThan(0);
       const slowest = [...timed].sort((a, b) => b.best - a.best).slice(0, 3);
       const mean = timed.reduce((a, t) => a + t.best, 0) / timed.length;
+      const worst = slowest[0]!;
       process.stdout.write(
-        `corpus resolve time (CPU, bound ${BOUND_LABEL}, ${timed.length} fights, ${fullLength.length} of them full-length): mean ${mean.toFixed(1)} ms; slowest ${slowest.map((t) => `${t.name} ${t.best.toFixed(1)} ms (${t.ticks} ticks)`).join(", ")}; slowest full-length ${Math.max(...fullLength.map((t) => t.best)).toFixed(1)} ms\n`,
+        `corpus resolve time (CPU, ${timed.length} fights, ${fullLength.length} full-length): mean ${mean.toFixed(1)} ms; slowest ${slowest.map((t) => `${t.name} ${t.best.toFixed(1)} ms (${t.ticks} ticks)`).join(", ")} — §36 budget ${RESOLVE_BUDGET_MS} ms ${worst.best < RESOLVE_BUDGET_MS ? "MET" : "EXCEEDED"} on this host (${((1 - worst.best / RESOLVE_BUDGET_MS) * 100).toFixed(0)} % margin)\n`,
       );
     });
   });

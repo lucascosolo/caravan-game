@@ -17,6 +17,7 @@
  *   - the Coin cap clamp (QA-02 S6): committed stream = handler stream with each credit
  *     clamped to the room left and `overflowDiscarded` recorded (see clampCoinCreditDrafts).
  */
+import { TUNABLES } from "@caravan/content";
 import { RESOLVER_VERSION } from "@caravan/resolver";
 import type pg from "pg";
 import type { ResolutionJobRow } from "../db/types.js";
@@ -101,7 +102,13 @@ export interface WorkerOptions {
   /** Chunk 15 QA D3: runs after a job PARKS (its own transaction); the trip loop voids the trip. Errors go to `onHookError`. */
   afterParked?: (pool: pg.Pool, job: ResolutionJobRow) => Promise<void>;
   /** Where a failed hook is reported (default: ignored; the lazy settle retries and surfaces it). */
-  onHookError?: (err: unknown, job: ResolutionJobRow, hook: "afterCompleted" | "afterParked") => void;
+  onHookError?: (err: unknown, job: ResolutionJobRow, hook: "afterCompleted" | "afterParked" | "compaction") => void;
+  /**
+   * PHASE-2 §36 (QA N2): a stored log above LOG_SIZE_BUDGET — an abnormal fight log (the largest
+   * corpus log is ~30 KB of the 100 KB budget). It is compacted to its summary at once, so the
+   * defender has no replay of it; the in-process loop logs it as an anomaly.
+   */
+  onLogOverBudget?: (jobId: string, storedBytes: number, budgetBytes: number) => void;
 }
 
 function errorMessage(err: unknown): string {
@@ -163,12 +170,25 @@ export async function runOnce(pool: pg.Pool, opts: WorkerOptions): Promise<RunOu
       const drafts = await clampCoinCreditDrafts(client, output.events);
       const rows = await appendEvents(client, job.id, drafts);
       // Chunk 13: the replay, stored with the completion (same transaction, fenced on this lease), then the retention prune.
-      if (output.encounterLog) await storeEncounterLog(client, output.encounterLog, fence);
+      const storedBytes = output.encounterLog ? await storeEncounterLog(client, output.encounterLog, fence) : 0;
       if (opts.afterAppend) await opts.afterAppend(job, client);
       const completed = await markJobCompleted(client, job.id, output.result, fence);
       // PHASE-2 §36: compaction needs the job's result, so the caravan's prune runs once more now that
       // the job is completed — an over-budget log is compacted before this transaction commits.
-      if (output.encounterLog) await pruneEncounterLogs(client, output.encounterLog.caravanId);
+      // QA-36 D4: under a SAVEPOINT — storage housekeeping never costs a player their fight. A
+      // compaction that fails here is rolled back alone (reported via onHookError) and left to the
+      // hourly sweep; the completion still commits.
+      if (output.encounterLog) {
+        await client.query("SAVEPOINT compaction");
+        try {
+          await pruneEncounterLogs(client, output.encounterLog.caravanId);
+          await client.query("RELEASE SAVEPOINT compaction");
+        } catch (err) {
+          await client.query("ROLLBACK TO SAVEPOINT compaction");
+          opts.onHookError?.(err, completed, "compaction");
+        }
+        if (storedBytes > TUNABLES.LOG_SIZE_BUDGET_BYTES) opts.onLogOverBudget?.(job.id, storedBytes, TUNABLES.LOG_SIZE_BUDGET_BYTES);
+      }
       if (opts.afterCompleted) {
         await client.query("SAVEPOINT after_completed");
         try {

@@ -1,6 +1,14 @@
 DROP INDEX IF EXISTS encounter_candidates_chosen_recent_idx;
--- Rolling back drops the compacted results summaries with their table (like 013's down drops the
--- logs): a development operation, never run against a live database.
+-- QA-36 N5: rolling back would drop every compacted results summary — the only record left of
+-- those fights' end cards — so it refuses while any exist (as 009 and 011 refuse while system
+-- accounts exist). Remove the accounts first (DELETE FROM account cascades them), then roll back.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM encounter_log_summary) THEN
+    RAISE EXCEPTION 'refusing to roll back 022: encounter_log_summary holds compacted results summaries (DELETE FROM account first)' USING ERRCODE = 'check_violation';
+  END IF;
+END
+$$;
 
 DROP FUNCTION IF EXISTS encounter_log_retention_sweep(integer);
 

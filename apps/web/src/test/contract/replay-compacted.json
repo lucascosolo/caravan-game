@@ -101,7 +101,7 @@
     "resolverVersion": 8,
     "logFormat": 2,
     "renderable": false,
-    "reason": "this replay's tick log was compacted to its results summary (log retention)",
+    "reason": "this fight's tick log was larger than the replay size budget, so only its results summary was kept",
     "labels": {
       "units": [],
       "fences": [],

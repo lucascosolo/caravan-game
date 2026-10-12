@@ -24,7 +24,7 @@ import { getJob } from "../src/jobs/queue.js";
 import { LogRetentionLoop } from "../src/jobs/retentionWorker.js";
 import { drain } from "../src/jobs/worker.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
-import { COMPACTED_REASON } from "../src/routes/replay.js";
+import { COMPACTED_OVER_BUDGET_REASON } from "../src/routes/replay.js";
 import { encounterLogRetention, findEncounterLogSummary, pruneEncounterLogs, retentionMatchesTunables, sweepEncounterLogRetention } from "../src/replay/store.js";
 import { replayTally } from "../src/replay/summary.js";
 import { DELETE_CONFIRM_PHRASE } from "../src/account/tunables.js";
@@ -238,7 +238,7 @@ describe("PHASE-2 §36: replay retention by compaction", () => {
     const after = await call(d, "GET", url);
     expect(after.statusCode).toBe(200);
     const body = after.json();
-    expect(body).toMatchObject({ viewer: "caravan", renderable: false, reason: COMPACTED_REASON, log: null, outcome: before.outcome, depth: before.depth, party: before.party, labels: { units: [], fences: [], traps: [] } });
+    expect(body).toMatchObject({ viewer: "caravan", renderable: false, reason: COMPACTED_OVER_BUDGET_REASON, log: null, outcome: before.outcome, depth: before.depth, party: before.party, labels: { units: [], fences: [], traps: [] } });
     expect(body.compacted).toMatchObject({ reason: "size_budget", tally: { ...counts } });
     if (deepest) expect(body.compacted.tally.deepest).toMatchObject({ typeId: deepest.typeId, displayName: expect.any(String) });
     expect(body.stored).toMatchObject({ sha256: row.log_sha256, rawBytes: row.raw_bytes, storedBytes: row.stored_bytes });
@@ -248,6 +248,9 @@ describe("PHASE-2 §36: replay retention by compaction", () => {
     await call(d, "GET", `/me/caravans/${d.caravanId}/trip`); // the trip loop settles lazily on read
     const recent = (await call(d, "GET", "/me/encounters")).json() as { encounters: { jobId: string; replay: string }[] };
     expect(recent.encounters.find((e) => e.jobId === jobId)?.replay).toBe("compacted");
+    // QA-36 N4: the account export carries the kept summary in place of the compacted log.
+    const exported = (await call(d, "GET", "/me/export")).json() as { encounters: Record<string, unknown>[] };
+    expect(exported.encounters.find((e) => e["job_id"] === jobId)).toMatchObject({ replay_stored: false, replay_compacted: true, compacted_reason: "size_budget", log_sha256: row.log_sha256, compacted_summary: { tally: result.replay.tally } });
     const stranger = await registerPlayer();
     expect((await call(stranger, "GET", url)).statusCode).toBe(404);
     // A second compaction of the same job is a no-op.
@@ -392,5 +395,135 @@ describe("PHASE-2 §36 × chunk 30: compaction and account erasure compose, in e
     expect(s).toMatchObject({ caravan_id: TOMB_CARAVAN, defender_account_id: TOMB_ACCOUNT, party_owner_account_id: o.accountId });
     expect(JSON.stringify(s)).not.toContain(d.accountId);
     expect((await call(o, "GET", url)).json()).toMatchObject({ viewer: "party_owner", renderable: false, compacted: { reason: "size_budget" } });
+  });
+});
+
+/**
+ * QA-36 S1: compaction and erasure RACING on one fight, on two connections — the erasure's open
+ * transaction holds the fight's lock (migration 025) while the other side runs, then commits.
+ * Both orders, both sides. No fight may lose its summary; no summary may keep an erased id.
+ */
+describe("QA-36 S1: compaction and account erasure, concurrently, in both orders and for both sides", () => {
+  const TOMB_ACCOUNT = "00000000-0000-4000-8000-0000000000d0";
+  const TOMB_CARAVAN = "00000000-0000-4000-8000-0000000000d1";
+  beforeAll(async () => {
+    for (let i = 0; i < 4; i++) owners.push(await makeOwner(960 + i * 20));
+  });
+  async function aFight(): Promise<{ d: Player; o: Player; jobId: string }> {
+    const d = await makeDefender();
+    const jobId = await commitFirstEncounter(d);
+    expect((await worker()).filter((x) => x.kind === "completed" && x.job.id === jobId)).toHaveLength(1);
+    const ownerId = ((await getJob(pool, jobId))!.input as EncounterJobInput).partyOwnerAccountId;
+    const o = owners.find((x) => x.accountId === ownerId)!;
+    expect(o).toBeDefined();
+    return { d, o, jobId };
+  }
+  const tinyBudget = () => pool.query("UPDATE encounter_log_retention SET size_budget_bytes = 1024");
+  const restoreBudget = () => pool.query("UPDATE encounter_log_retention SET size_budget_bytes = $1", [TUNABLES.LOG_SIZE_BUDGET_BYTES]);
+  const settledWithin = async <T>(p: Promise<T>, ms: number): Promise<boolean> =>
+    Promise.race([p.then(() => true, () => true), new Promise<boolean>((r) => setTimeout(() => r(false), ms))]);
+  const eraseViaRoute = (p: Player) => call(p, "POST", "/me/account/delete", { confirm: DELETE_CONFIRM_PHRASE, password: "correct horse battery" });
+
+  for (const side of ["defender", "party owner"] as const) {
+    it(`compaction first (uncommitted), then the ${side} is erased: the erasure waits, and the summary is kept and anonymized`, async () => {
+      const { d, o, jobId } = await aFight();
+      const victim = side === "defender" ? d : o;
+      await tinyBudget();
+      const c = await pool.connect();
+      try {
+        await c.query("BEGIN");
+        expect((await c.query("SELECT encounter_log_prune($1) AS n", [d.caravanId])).rows[0].n).toBe(1);
+        const erasing = eraseViaRoute(victim);
+        expect(await settledWithin(erasing, 400), "the erasure waits for the in-flight compaction").toBe(false);
+        await c.query("COMMIT");
+        const res = await erasing;
+        expect(res.statusCode, res.body).toBe(200);
+        expect(res.json().counts[side === "defender" ? "fightsDefendedKept" : "fightsStruckAnonymized"]).toBeGreaterThanOrEqual(1);
+      } finally {
+        c.release();
+        await restoreBudget();
+      }
+      if (side === "party owner") owners.splice(owners.indexOf(o), 1);
+      expect((await pool.query("SELECT 1 FROM encounter_log WHERE job_id = $1", [jobId])).rowCount).toBe(0);
+      const s = await findEncounterLogSummary(pool, jobId);
+      expect(s, "the other player's fight keeps its summary").not.toBeNull();
+      expect(JSON.stringify(s)).not.toContain(victim.accountId);
+      expect(JSON.stringify(s)).not.toContain(victim.caravanId);
+      if (side === "defender") expect(s).toMatchObject({ caravan_id: TOMB_CARAVAN, defender_account_id: TOMB_ACCOUNT, party_owner_account_id: o.accountId });
+      else expect(s).toMatchObject({ caravan_id: d.caravanId, defender_account_id: d.accountId, party_owner_account_id: TOMB_ACCOUNT });
+      const survivor = side === "defender" ? o : d;
+      expect((await call(survivor, "GET", `/me/encounters/${encodeURIComponent(jobId)}/replay`)).json()).toMatchObject({ renderable: false, compacted: { reason: "size_budget" } });
+    });
+
+    it(`erasure of the ${side} first (uncommitted), compaction concurrently: the compaction skips the locked fight without waiting or failing, and compacts it anonymized afterwards`, async () => {
+      const { d, o, jobId } = await aFight();
+      const victim = side === "defender" ? d : o;
+      await tinyBudget();
+      const c = await pool.connect();
+      try {
+        await c.query("BEGIN");
+        await c.query("SELECT account_erasure_core($1, 'player_request')", [victim.accountId]);
+        // The app role's prune and the sweep: no wait, no 23503, nothing compacted for that fight.
+        const prune = appRole.query("SELECT encounter_log_prune($1) AS n", [d.caravanId]);
+        expect(await settledWithin(prune, 2000), "the compaction does not wait on the erasure").toBe(true);
+        expect((await prune).rows[0].n).toBe(0);
+        expect(await sweepEncounterLogRetention(appRole, 500)).toBe(0);
+        await c.query("COMMIT");
+      } catch (err) {
+        await c.query("ROLLBACK");
+        throw err;
+      } finally {
+        c.release();
+      }
+      try {
+        // Now the log is the tombstone's (re-pointed by the committed erasure): compacted with its ids.
+        expect(await sweepEncounterLogRetention(appRole, 500)).toBeGreaterThanOrEqual(1);
+      } finally {
+        await restoreBudget();
+      }
+      if (side === "party owner") owners.splice(owners.indexOf(o), 1);
+      const s = await findEncounterLogSummary(pool, jobId);
+      expect(s, "the other player's fight keeps its summary").not.toBeNull();
+      expect(JSON.stringify(s)).not.toContain(victim.accountId);
+      if (side === "defender") expect(s).toMatchObject({ caravan_id: TOMB_CARAVAN, defender_account_id: TOMB_ACCOUNT, party_owner_account_id: o.accountId });
+      else expect(s).toMatchObject({ caravan_id: d.caravanId, defender_account_id: d.accountId, party_owner_account_id: TOMB_ACCOUNT });
+    });
+  }
+});
+
+describe("QA-36 S2: the hourly retention run also erases expired guests (chunk 30's hand-off)", () => {
+  async function guest(): Promise<{ accountId: string }> {
+    const res = await app.inject({ method: "POST", url: "/auth/guest", payload: { region: "desert" } });
+    expect(res.statusCode, res.body).toBe(201);
+    return { accountId: res.json().account.id };
+  }
+  it("a guest with no live device or session, older than 180 days, is gone after runNow(); a guest with a live device is kept; the log step still runs", async () => {
+    const stale = await guest();
+    const fresh = await guest();
+    for (const a of [stale, fresh]) await pool.query("UPDATE account SET created_at = now() - interval '200 days' WHERE id = $1", [a.accountId]);
+    await pool.query("UPDATE device SET expires_at = now() - interval '1 second' WHERE account_id = $1", [stale.accountId]);
+    await pool.query("UPDATE session SET expires_at = now() - interval '1 second' WHERE account_id = $1", [stale.accountId]);
+    const errors: unknown[] = [];
+    const loop = new LogRetentionLoop(appRole, { intervalMs: 3_600_000, guestBatch: 1, onError: (err) => errors.push(err) });
+    loop.start();
+    const run = await loop.runNow();
+    await loop.stop();
+    expect(errors).toEqual([]);
+    expect(run).toMatchObject({ guestsErased: 1, guestBatches: 2, failed: [] });
+    expect(run!.batches).toBeGreaterThanOrEqual(1);
+    expect((await pool.query("SELECT 1 FROM account WHERE id = $1", [stale.accountId])).rowCount).toBe(0);
+    expect((await pool.query("SELECT 1 FROM account WHERE id = $1", [fresh.accountId])).rowCount).toBe(1);
+    expect((await pool.query("SELECT reason FROM account_erasure_audit ORDER BY erased_at DESC LIMIT 1")).rows[0].reason).toBe("guest_expired");
+  });
+
+  it("an error in one step never skips the other", async () => {
+    const errors: unknown[] = [];
+    // A log batch outside 1..5000 makes the sweep raise; the guest step still runs.
+    const loop = new LogRetentionLoop(appRole, { intervalMs: 3_600_000, batch: 0, onError: (err) => errors.push(err) });
+    loop.start();
+    const run = await loop.runNow();
+    await loop.stop();
+    expect(run).toMatchObject({ failed: ["logs"], guestBatches: 1 });
+    expect(errors).toHaveLength(1);
   });
 });

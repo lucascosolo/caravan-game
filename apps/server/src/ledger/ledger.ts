@@ -18,6 +18,8 @@ import {
 /** Advisory lock namespaces (first key of pg_advisory_xact_lock(int, int)). */
 export const LOCK_NS_CARAVAN = 1;
 export const LOCK_NS_ACCOUNT = 2;
+/** PHASE-2 §36 (QA S1): one fight's log / summary, taken by compaction (try) and account erasure (wait) — in SQL only (migration 025). */
+export const LOCK_NS_ENCOUNTER_LOG = 36;
 
 /** Take the per-account append lock for the rest of the current transaction. */
 export async function lockAccountForAppend(client: pg.PoolClient, accountId: string): Promise<void> {

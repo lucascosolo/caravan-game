@@ -16,6 +16,19 @@ import { encodeReplay, type ResolveOutput } from "../src/index.js";
 
 export const GOLDEN_SUFFIX = ".golden.json";
 
+/**
+ * PHASE-2 §36 (QA S3): the corpus's integer work counts, pinned beside the golden logs in this
+ * one file (not *.golden.json, so it is not a scenario). Written by UPDATE_GOLDEN=1 from
+ * test/budget.test.ts; it carries `resolverVersion`, so scripts/golden-gate.mjs treats it like a
+ * golden: changing it needs a RESOLVER_VERSION bump.
+ */
+export const WORK_COUNTERS_FILE = "work-counters.json";
+
+export function workCountersText(resolverVersion: number, fights: Readonly<Record<string, unknown>>): string {
+  const names = Object.keys(fights).sort();
+  return `{\n"resolverVersion": ${resolverVersion},\n"fights": {\n${names.map((n) => `${JSON.stringify(n)}: ${JSON.stringify(fights[n])}`).join(",\n")}\n}\n}\n`;
+}
+
 export function goldenText(name: string, out: ResolveOutput): string {
   const replay = encodeReplay(out);
   const { events, ...header } = replay;

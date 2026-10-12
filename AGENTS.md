@@ -146,7 +146,7 @@ pnpm --filter @caravan/web e2e                        # Playwright smoke vs a ru
 pnpm e2e                     # the same, self-contained: seeds E2E_DATABASE_URL (dev, a run-unique formation account packed and ridden out, a run-unique trip account in town), starts the BUILT server on :3917 with CARAVAN_TEST_RESOLVER=double, runs the e2e, stops it (run `pnpm build` first)
 
 pnpm determinism             # resolver determinism harness (chunk 13): the golden-gate self-test (scripts/golden-gate.test.mjs), then the 72-fight corpus 100× byte-identical in-process (one test per scenario per 25-run batch) and equal to the golden logs in packages/resolver/golden (UPDATE_GOLDEN=1 regenerates), then 3 separate Node processes (different corpus orders) compared by sha256 with each other and the goldens; with a base ref (DETERMINISM_BASE_REF locally) it refuses a changed/deleted golden unless RESOLVER_VERSION increased as an integer and every changed golden carries it (`[resolver-bump]` covers only new fixtures)
-pnpm perf:resolver           # PHASE-2 §36: every golden-corpus fight (and the 180 s full-load fight) under 100 ms of CPU, timed ALONE (RESOLVER_BUDGET_STRICT=1); the parallel suite runs the same test with a 2x allowance. A CI step of its own, after determinism
+pnpm perf:resolver           # PHASE-2 §36 resolver budget, run alone: blocking on the integer work counters pinned per corpus fight (packages/resolver/golden/work-counters.json, regenerated with the goldens by UPDATE_GOLDEN=1, a RESOLVER_VERSION bump to change) and on the heaviest fight / integer-reference CPU ratio (≤ 12); the absolute 100 ms per fight is REPORTED (RESOLVER_BUDGET_STRICT=1 asserts it, for a dedicated perf host). A CI step of its own, after determinism
 pnpm load:queue -- --db <owner URL of a *load* database>     # PHASE-2 §36 job-queue load test (resets that DB; not in CI): real trips + a 10 000-encounter one-party burst; --burst-parties N spreads it, --profile times each SQL statement
 pnpm load:explain -- --db <owner URL of a *load* database> --write   # PHASE-2 §36: seeds ~50k accounts / 156k menus and rewrites the matchmaking EXPLAIN plans in apps/server/db/explain/
 pnpm --filter @caravan/resolver test   # the resolver alone: 576 tests in 15 files (288 of them the 100× harness in 25-run batches), no DB, no network, ~70 s on 4 cores
@@ -187,7 +187,7 @@ serves three scoutable candidates at every band from the first search. Migration
 refuse to roll back while system accounts exist, and a multi-step `db:rollback N` or
 `db:reset` runs every down step in ONE transaction, so a refusal rolls back nothing. Before
 a `db:reset` (or a rollback past 011) of a seeded database, run
-`DELETE FROM account WHERE is_system OR username IS NULL` as the owner role (migration 020 down refuses while guests or the erasure tombstone exist), then `pnpm db:reset && pnpm db:seed`
+`DELETE FROM account WHERE is_system OR username IS NULL` as the owner role (migration 020 down refuses while guests or the erasure tombstone exist; migration 022 down refuses while compacted replay summaries exist — if the database has any, `DELETE FROM account` instead), then `pnpm db:reset && pnpm db:seed`
 (the test suite empties `account` itself before its reset).
 
 **Encounters resolve in the server process (chunk 13 QA S1).** `apps/server/src/index.ts` builds

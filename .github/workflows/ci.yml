@@ -80,9 +80,10 @@ jobs:
       - name: Determinism harness (chunk 13; pending until it lands)
         run: pnpm determinism
 
-      # PHASE-2 §36: every golden-corpus fight (and the 180 s full-load fight) under 100 ms of CPU,
-      # timed ALONE — inside the parallel `pnpm test` the same test runs with a 2× load allowance.
-      - name: Resolver time budget (PHASE-2 §36, run alone)
+      # PHASE-2 §36 (QA-36 S3): the resolver budget, run alone for a clean report. Blocking: the pinned
+      # integer work counters per corpus fight, and the heaviest fight / integer-reference CPU ratio.
+      # The absolute 100 ms per fight is printed (MET / EXCEEDED); asserted only with RESOLVER_BUDGET_STRICT=1.
+      - name: Resolver budget (PHASE-2 §36 — work counters, relative time; absolute reported)
         run: pnpm perf:resolver
 
       - name: Build runnable server output and the web client

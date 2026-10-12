@@ -76,6 +76,8 @@ const NO_LABELS = { units: [], fences: [], traps: [] } as const;
 
 /** PHASE-2 §36: why a compacted fight has no tick log (the web client words it for the player). */
 export const COMPACTED_REASON = "this replay's tick log was compacted to its results summary (log retention)";
+/** QA-36 N2: a log over LOG_SIZE_BUDGET is an abnormal fight log, compacted at write — not "retention". */
+export const COMPACTED_OVER_BUDGET_REASON = "this fight's tick log was larger than the replay size budget, so only its results summary was kept";
 
 /** The compacted summary as the route sends it: the stored tally, with the deepest raider's display name. */
 function compactedView(s: EncounterLogSummaryRow) {
@@ -213,7 +215,7 @@ export async function replayRoutes(app: FastifyInstance): Promise<void> {
         resolverVersion: s.resolver_version,
         logFormat: s.log_format,
         renderable: false,
-        reason: COMPACTED_REASON,
+        reason: s.reason === "size_budget" ? COMPACTED_OVER_BUDGET_REASON : COMPACTED_REASON,
         labels: noLabels,
         // As for a stored log: the storage metadata is the caravan side's only.
         stored: owner ? null : { rawBytes: s.raw_bytes, storedBytes: s.stored_bytes, encoding: null, sha256: s.log_sha256, contentHash: s.content_hash, createdAt: s.log_created_at.toISOString() },

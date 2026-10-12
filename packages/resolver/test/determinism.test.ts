@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { ABILITY_ARCHETYPES, RESOLVER_VERSION, endOfTick, initialState, normalizeInput, readReplay, resolve, runTick, type LogEvent, type SimState } from "../src/index.js";
 import { clone, scenarios } from "./fixtures.js";
-import { GOLDEN_SUFFIX, goldenText } from "./golden.js";
+import { GOLDEN_SUFFIX, WORK_COUNTERS_FILE, goldenText } from "./golden.js";
 
 const GOLDEN_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "golden");
 const UPDATE = process.env["UPDATE_GOLDEN"] === "1";
@@ -106,7 +106,8 @@ describe("determinism harness", () => {
     expect(changed, "golden logs differ: the resolver now resolves these fights differently. If intended, bump RESOLVER_VERSION and regenerate with UPDATE_GOLDEN=1").toEqual([]);
     const files = readdirSync(GOLDEN_DIR).filter((f) => f.endsWith(GOLDEN_SUFFIX));
     expect(files.map((f) => f.slice(0, -GOLDEN_SUFFIX.length)).sort()).toEqual([...names].sort());
-    expect(readdirSync(GOLDEN_DIR).filter((f) => !f.endsWith(GOLDEN_SUFFIX))).toEqual([]);
+    // PHASE-2 §36: and the work counters (test/budget.test.ts), nothing else.
+    expect(readdirSync(GOLDEN_DIR).filter((f) => !f.endsWith(GOLDEN_SUFFIX))).toEqual([WORK_COUNTERS_FILE]);
   });
 
   it("every golden file is a readable replay of the current resolver version, and decodes to the fight's log", () => {
