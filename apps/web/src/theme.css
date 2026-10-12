@@ -431,6 +431,41 @@ h2 {
   flex: 1;
 }
 
+/* ---------- trail: the candidate summary (final play-test review N5) ---------- */
+.scout-summary {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+  margin: 8px 0;
+}
+.scout-summary dt {
+  color: var(--fg-muted);
+}
+.scout-summary dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- trail: quick arrange (final play-test review S3) ---------- */
+.quick__sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+.quick__sides .btn {
+  min-width: 0;
+}
+
+/* Final play-test review N12: on a short screen the party editor's map scrolls with the page
+   instead of pinning over the unit cards (the party has no tray to drag from). */
+@media (max-height: 760px) {
+  .party .iso {
+    position: relative;
+  }
+}
+
 /* ---------- trail: the encounter formation screen (chunk 08) ---------- */
 /* Sizes in rem (chunk 06 QA): 1rem = 16px at the default text size, so 2.75rem = the 44px target. */
 /* The map stays pinned while the tray below scrolls, so a drag from the tray always has the ground in view.
@@ -887,15 +922,15 @@ h2 {
 .replay__strip > li {
   padding: 0.05rem 0;
 }
+/* Final play-test review S4: the end card is a sheet BELOW the field, never over it, so the
+   decisive moment (the raider at the core, the last attacker falling) stays in view. */
 .replay__end {
-  position: absolute;
-  left: 0.5rem;
-  right: 0.5rem;
-  bottom: 0.5rem;
-  z-index: 6;
+  position: static;
+  margin: 0.5rem 0 0;
   border-left-color: var(--accent);
-  max-height: calc(100% - 1rem);
-  overflow-y: auto;
+}
+.replay__end h3 {
+  margin-top: 0;
 }
 .replay__summary > summary {
   font-weight: 600;

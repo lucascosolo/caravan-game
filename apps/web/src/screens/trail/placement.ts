@@ -409,3 +409,111 @@ export function pickerOptions(m: Manifest, f: Formation, ref: string): ReadonlyM
   }
   return out;
 }
+
+// ── fast arranging (final play-test review S3) ───────────────────────────────────────
+
+/** Ring positions on one side, in ring order. */
+export function sidePositions(edge: EntryEdge): readonly number[] {
+  return RING_SEGMENTS.filter((s) => s.edge === edge).map((s) => s.index);
+}
+
+/** How many of a side's positions are still open (no fence on them). */
+export function openOnSide(f: Formation, edge: EntryEdge): number {
+  return sidePositions(edge).filter((s) => fenceAtSegment(f, s) === null).length;
+}
+
+/**
+ * "Fence this side": every open position on `edge` gets the next intact segment (healthiest
+ * first, the same order as "next segment"), until the side is closed or the wagon is empty.
+ * Every drop goes through `dropRefusal`, so it places exactly what a hand drop would.
+ */
+export function fenceSide(m: Manifest, f: Formation, edge: EntryEdge): Formation {
+  let out = f;
+  for (const s of sidePositions(edge)) {
+    if (fenceAtSegment(out, s) !== null) continue;
+    const ref = nextFenceRef(m, out);
+    if (!ref) break;
+    if (dropRefusal(m, out, ref, ringSegment(s).cell) === null) out = placeFence(out, ref, s);
+  }
+  return out;
+}
+
+/**
+ * The next thing of the same kind still in the wagon, after `ref` was just placed (the
+ * picker's and the tap-to-place loop's auto-advance): the next intact segment, the next
+ * unposted living unit (in manifest order after `ref`, wrapping), or the next unlaid trap.
+ * Null when nothing of that kind is left.
+ */
+export function nextUnplacedOfKind(m: Manifest, f: Formation, ref: string): string | null {
+  const kind = kindOfRef(m, ref);
+  if (kind === "fence") return nextFenceRef(m, f);
+  const pick = <T extends { readonly ref: string }>(all: readonly T[], open: readonly T[]): string | null => {
+    if (open.length === 0) return null;
+    const at = all.findIndex((x) => x.ref === ref);
+    for (let i = 1; i <= all.length; i++) {
+      const cand = all[(at + i) % all.length]!;
+      if (open.some((o) => o.ref === cand.ref)) return cand.ref;
+    }
+    return open[0]!.ref;
+  };
+  if (kind === "post") return pick(m.units, unpostedUnits(m, f));
+  if (kind === "trap") return pick(m.traps, unplacedTraps(m, f));
+  return null;
+}
+
+/**
+ * A tap meant for the ring (a fence is selected): the ring cell under it, or the nearest ring
+ * cell within `reach` cells (Chebyshev) — the ring cells are small on a phone, and only a ring
+ * position can take a fence. Null when the tap is not near the ring.
+ */
+export function snapToRing(cell: Cell, reach = 1): Cell | null {
+  if (ringIndexAt(cell) !== null) return cell;
+  let best: Cell | null = null;
+  let bestD = Infinity;
+  for (const s of RING_SEGMENTS) {
+    const dx = Math.abs(s.cell.x - cell.x);
+    const dy = Math.abs(s.cell.y - cell.y);
+    if (Math.max(dx, dy) > reach) continue;
+    const d = dx * dx + dy * dy;
+    if (d < bestD) {
+      best = s.cell;
+      bestD = d;
+    }
+  }
+  return best;
+}
+
+/**
+ * "Start from my last arrangement": the previous encounter's committed formation, kept to
+ * what survives now — a destroyed segment, a spent trap and a dead unit drop out — and
+ * re-applied through `dropRefusal` one item at a time (fences, then traps, then posts), so
+ * the result is exactly what hand drops could have made. Stances carry over.
+ */
+export function carryForward(m: Manifest, previous: Formation): Formation {
+  let out: Formation = clearAll();
+  for (const p of previous.fences) {
+    const x = m.fences.find((q) => q.ref === p.ref);
+    if (!x || !isFenceIntact(x)) continue;
+    if (dropRefusal(m, out, p.ref, ringSegment(p.segment).cell) === null) out = placeFence(out, p.ref, p.segment);
+  }
+  for (const p of previous.traps) {
+    const t = m.traps.find((q) => q.ref === p.ref);
+    if (!t || t.spent) continue;
+    if (dropRefusal(m, out, p.ref, p.cell) === null) out = placeTrap(out, p.ref, p.cell);
+  }
+  for (const p of previous.posts) {
+    const u = m.units.find((q) => q.ref === p.ref);
+    if (!u || !isUnitAlive(u)) continue;
+    if (dropRefusal(m, out, p.ref, p.cell) === null) out = placePost(out, p.ref, p.cell, p.stance);
+  }
+  return out;
+}
+
+/** The commit summary's fence line by side (N14): "north 7, east 7, west 6". */
+export function fencesBySide(f: Formation): readonly { readonly edge: EntryEdge; readonly placed: number; readonly open: number }[] {
+  return ENTRY_EDGES.map((edge) => {
+    const side = sidePositions(edge);
+    const placed = side.filter((s) => fenceAtSegment(f, s) !== null).length;
+    return { edge, placed, open: side.length - placed };
+  });
+}

@@ -248,7 +248,14 @@ test("claim a refugee, merge by drag with confirm, set up the party, outfit and 
   // ── QA-17 D1: the layout is kept per account + caravan, and signing out forgets it ──
   const keys = await page.evaluate(() => Object.keys(window.localStorage));
   expect(keys).toContain(`caravan.viewer.town.board.${meNow.account.id}.${caravanId}`);
-  await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(page.getByLabel("Username")).toBeVisible();
+  // Final play-test review N13: sign-out lives on the Account screen.
+  await page.getByRole("button", { name: "Account" }).click();
+  await expect(page.getByText(/^Signed in as /)).toBeVisible();
+  // The Account screen's cards load and re-lay out under the button; retry the tap until it lands.
+  await expect(async () => {
+    const out = page.getByRole("button", { name: "Sign out" });
+    if (await out.count()) await out.first().click({ timeout: 2_000 });
+    await expect(page.getByLabel("Username")).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
   expect((await page.evaluate(() => Object.keys(window.localStorage))).filter((k) => k.startsWith("caravan.viewer."))).toEqual([]);
 });

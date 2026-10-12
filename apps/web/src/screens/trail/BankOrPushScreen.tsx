@@ -135,6 +135,9 @@ export function Stakes({ preview }: { readonly preview: StakesPreview }): JSX.El
 
       <section className="card" data-testid="stake-overrun">
         <h2>{T.overrunHeading}</h2>
+        <p className="hint" data-testid="stakes-line">
+          {STRINGS.outfit.stakesLine}
+        </p>
         <p>
           <strong>{T.overrunCoin(p.ifOverrun.coinLost)}</strong>
         </p>

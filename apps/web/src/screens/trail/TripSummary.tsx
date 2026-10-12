@@ -23,9 +23,11 @@ export interface TripSummaryProps {
   readonly balance?: number | null;
   /** True when this is the last trip, shown later on the Trail tab. */
   readonly past?: boolean;
+  /** S4: the trip's last fight was just committed (an overrun ended it): its replay opens playing. */
+  readonly autoplayLast?: boolean;
 }
 
-export function TripSummary({ trip, bank = null, balance = null, past = false }: TripSummaryProps): JSX.Element {
+export function TripSummary({ trip, bank = null, balance = null, past = false, autoplayLast = false }: TripSummaryProps): JSX.Element {
   const e = trip.ending;
   const balanceNow = bank && bank.balanceAfter !== null ? bank.balanceAfter : balance;
   return (
@@ -117,7 +119,7 @@ export function TripSummary({ trip, bank = null, balance = null, past = false }:
       <ul className="cards">
         {trip.encounters.map((enc) => (
           <li key={enc.index}>
-            <EncounterResult encounter={enc} headingLevel={3} />
+            <EncounterResult encounter={enc} headingLevel={3} autoplay={autoplayLast && enc.index === trip.encounters[trip.encounters.length - 1]?.index} />
           </li>
         ))}
       </ul>

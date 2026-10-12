@@ -76,10 +76,17 @@ export interface WatchFightProps {
   readonly testId?: string;
   readonly className?: string;
   readonly describedBy?: string;
+  /**
+   * Final play-test review S4: open at once, already playing at 2×, with "Skip to result" as
+   * the dialog's action (the fight just committed; the itemized result is under the dialog).
+   */
+  readonly autoOpen?: boolean;
 }
 
-export function WatchFight({ jobId, encounterIndex, label, api, settled = null, testId = "watch-fight", className = "btn btn--block", describedBy }: WatchFightProps): JSX.Element {
-  const [open, setOpen] = useState(false);
+export function WatchFight({ jobId, encounterIndex, label, api, settled = null, testId = "watch-fight", className = "btn btn--block", describedBy, autoOpen = false }: WatchFightProps): JSX.Element {
+  const [open, setOpen] = useState(autoOpen);
+  // Only the first opening plays by itself; a later "Watch the fight" opens paused as before.
+  const [auto, setAuto] = useState(autoOpen);
   // A new lazy component per attempt: React would otherwise replay the cached rejection.
   const [attempt, setAttempt] = useState(0);
   const ReplayPlayer = useMemo(() => lazy(() => loadReplayPlayer().then((m) => ({ default: m.ReplayPlayer }))), [attempt]);
@@ -89,6 +96,7 @@ export function WatchFight({ jobId, encounterIndex, label, api, settled = null, 
           // A fresh lazy component per opening: a chunk that failed before is imported again (the
           // module promise is kept once it loads, so a loaded player opens at once).
           setAttempt((n) => n + 1);
+          setAuto(false);
           setOpen(true);
         }}>
         {label}
@@ -101,8 +109,8 @@ export function WatchFight({ jobId, encounterIndex, label, api, settled = null, 
           testId="replay-dialog"
           onCancel={() => setOpen(false)}
           actions={
-            <button type="button" className="btn" data-testid="replay-close" onClick={() => setOpen(false)}>
-              {T.close}
+            <button type="button" className={auto ? "btn btn--primary" : "btn"} data-testid="replay-close" onClick={() => setOpen(false)}>
+              {auto ? T.skipToResult : T.close}
             </button>
           }
         >
@@ -114,7 +122,7 @@ export function WatchFight({ jobId, encounterIndex, label, api, settled = null, 
                 </p>
               }
             >
-              <ReplayPlayer jobId={jobId} encounterIndex={encounterIndex} settled={settled} {...(api ? { api } : {})} />
+              <ReplayPlayer jobId={jobId} encounterIndex={encounterIndex} settled={settled} {...(auto ? { autoPlay: true, initialSpeed: 2 as const } : {})} {...(api ? { api } : {})} />
             </Suspense>
           </ReplayChunkBoundary>
         </Modal>

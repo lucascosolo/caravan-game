@@ -53,8 +53,8 @@ type Loaded =
   | { kind: "ready"; caravanId: string; trip: ManifestView; encounterIndex: number; initial: FormationView | null; scout: ScoutedEncounter }
   | { kind: "resolving"; caravanId: string; encounterIndex: number }
   | { kind: "unavailable"; encounterIndex: number }
-  | { kind: "decide"; caravanId: string; tripId: string; encounter: TripEncounterView }
-  | { kind: "ended"; trip: TripView; past: boolean; balance: number | null };
+  | { kind: "decide"; caravanId: string; tripId: string; encounter: TripEncounterView; autoplay: boolean }
+  | { kind: "ended"; trip: TripView; past: boolean; balance: number | null; autoplay: boolean };
 
 function is404(err: unknown, code: string): boolean {
   return err instanceof ApiError && err.status === 404 && err.code === code;
@@ -107,6 +107,8 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
   const [notice, setNotice] = useState<string | null>(null);
   /** The open trip this screen has seen: its end is "this trip", any other ended trip is "your last trip". */
   const openSeen = useRef<string | null>(null);
+  /** Final play-test review S4: a commit just went through; the next result read opens its replay playing. */
+  const committedJustNow = useRef(false);
 
   const asApiError = (err: unknown): ApiError => (err instanceof ApiError ? err : new ApiError(0, "unknown", STRINGS.app.genericError));
 
@@ -129,7 +131,9 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
           const balance = await Promise.resolve()
             .then(() => api.economy())
             .then((e) => e.balance, () => null);
-          setState({ kind: "ended", trip, past: openSeen.current !== trip.id, balance });
+          const autoplay = committedJustNow.current && trip.endReason !== "banked";
+          committedJustNow.current = false;
+          setState({ kind: "ended", trip, past: openSeen.current !== trip.id, balance, autoplay });
         }
         else setState({ kind: "in_town" });
         return;
@@ -146,7 +150,9 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
       if (trip.phase === "decide") {
         const encounter = trip.encounters.find((e) => e.index === trip.decisionFor);
         if (!encounter) throw new ApiError(0, "bad_payload", STRINGS.app.badPayload, `GET trip: no encounter ${String(trip.decisionFor)} to decide`);
-        setState({ kind: "decide", caravanId: caravan.id, tripId: trip.id, encounter });
+        const autoplay = committedJustNow.current;
+        committedJustNow.current = false;
+        setState({ kind: "decide", caravanId: caravan.id, tripId: trip.id, encounter, autoplay });
         return;
       }
       // arranging
@@ -297,7 +303,7 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
       return (
         <>
           {noticeLine}
-          <TripSummary trip={state.trip} bank={lastBank} balance={state.balance} past={state.past} />
+          <TripSummary trip={state.trip} bank={lastBank} balance={state.balance} past={state.past} autoplayLast={state.autoplay} />
           {/* Chunk 22 QA D2: any fight within retention, not only this trip's. */}
           <RecentFights api={api} />
         </>
@@ -359,7 +365,10 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
             encounterIndex={state.encounterIndex}
             initial={state.initial}
             scout={state.scout}
-            onCommitted={() => void load()}
+            onCommitted={() => {
+              committedJustNow.current = true;
+              void load();
+            }}
             {...(guiding && isFirst
               ? { guide: (g: FormationGuideContext) => <ArrangeGuide {...g} scout={state.scout.scout} /> }
               : {})}
@@ -397,7 +406,7 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
           <h1>{T.encounter(state.encounter.index)}</h1>
           {noticeLine}
           {guiding && <ResultGuide encounter={state.encounter} deciding={false} />}
-          <EncounterResult encounter={state.encounter} />
+          <EncounterResult encounter={state.encounter} autoplay={state.autoplay} />
           <div className="actions">
             <button type="button" className="btn btn--primary btn--block" onClick={() => setDeciding(true)} data-testid="to-decision">
               {P.toDecision}
