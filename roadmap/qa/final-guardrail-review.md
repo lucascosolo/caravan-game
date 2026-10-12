@@ -1,0 +1,295 @@
+# Final whole-game guardrail and technical readiness review (reviewed at roadmap/phase-2-spec @ f4db20b)
+
+**Verdict: NOT READY for an external play test, but close.** All six guardrails held under every
+probe I ran across the whole codebase:
+- the resolver is deterministic across processes and against the goldens;
+- nothing on the resolution or matchmaking path reads billing or Coin state;
+- every acquisition path goes through the unlock web, and every pack, place and party boundary
+  re-checks it;
+- the outcomes shown equal the recorded ones;
+- the ledger and replay guards held against `caravan_app`, including the temp-table shadow trick;
+- erasure leaves nothing behind.
+
+The CI sequence, the e2e on a freshly seeded database, a production-mode server running the real
+resolver, a `kill -9` with a job leased, migrations down and up, and `db:reset` with guests all
+passed. Two should-fix items still stop me from putting this in front of outside testers:
+- **S1.** `pnpm db:seed` is the only way to load the authored parties that matchmaking needs. It
+  also creates a login `dev` / `devpassword` on any database it runs against, with units that sit
+  outside the web and have no ledger events.
+- **S2.** The repo has no way to serve the built client and API together, and no runbook covering
+  TLS, the app role's password, `TRUST_PROXY` or the seed.
+
+The sandbox store also needs a decision (D1): as built, it gives every outside tester 60 000 free
+Coin a week. Each item takes one session. Once S1 and S2 are closed and D1 is decided, I would call
+it READY.
+
+Severity: **S** should-fix, **D** design-level (needs an orchestrator decision), **N** nit.
+
+## What I ran (all observed, this session)
+
+Ports and databases: `caravan_test_final2`, `caravan_dev_final2`, server on 3959, preview on 4259.
+Runs were sequential. I did not touch the play-test reviewer's server on 3961.
+
+- **`pnpm ci` → `ERR_PNPM_CI_NOT_IMPLEMENTED`** (see N1). `pnpm run ci` against
+  `caravan_test_final2` exited 0:
+  - content 82, resolver 587, circle 108, web 440, server 767 (+1 skipped);
+  - golden-gate self-test, then determinism: 72 fights × 100 in-process, then 3 processes × 3 runs
+    agreeing with each other and the 72 goldens;
+  - `perf:resolver`: work counters pinned; slowest fight 88.0 ms (100 ms budget, MET);
+  - build, then `check-bundle: ok — resolver modules in the client: battlefield.ts, fixed.ts,
+    replay.ts`.
+- **`DETERMINISM_BASE_REF=HEAD~40 pnpm determinism`** passed: "73 golden file(s) changed … accepted
+  — RESOLVER_VERSION 7 → 8, every changed golden carries v8".
+- **`pnpm e2e`** on `caravan_test_final2` after `DELETE FROM account` + `pnpm db:reset`: **11
+  passed (2.8 m)**. My first attempt failed because my own server was still on 3959 (see N6).
+- **Fresh copy** (`git archive HEAD` into the scratchpad), following AGENTS.md literally with
+  `MIGRATE_DATABASE_URL` and `DATABASE_URL` pointed at `caravan_dev_final2`. `pnpm install`,
+  `pnpm typecheck`, `pnpm db:migrate` (25 migrations + roles.sql), `pnpm db:status` and
+  `pnpm db:seed` all worked. The steps that fail or are missing are in N1–N3.
+- **Production-mode server.** The built `node apps/server/dist/index.js` ran as `caravan_app` with
+  `NODE_ENV=production` and no test flag. It logged "encounters resolve in-process with the real
+  resolver". Over HTTP:
+  - a full trip: held → push → overrun;
+  - a second account: held → push → held → bank 1 658 Coin;
+  - a third trip in which B chose A's live standing party, then banked.
+- **Restart mid-trip.** I committed encounter 2 and ran `kill -9` on the server while the job was
+  `leased|1|server:vm:19200`. After a restart, the new process re-leased it when the 30 s lease
+  expired (`completed|2|server:vm:19602`), and the trip went on to decide and bank.
+- **Route fuzz.** 30 897 requests over all 56 routes: malformed JSON, wrong types, NUL bytes,
+  1e300, 100 kB passwords, proto keys, bad UUIDs and path params, text/plain bodies. **0 responses
+  in the 5xx range.** The server log had no level-50 lines.
+- **IDOR.** B's token on 15 of A's caravan, trip, merge, replay and bank routes: every one returned
+  404 or 400.
+- **Privacy scan.** I collected every GET response for both players, including the export, the
+  ledger, the feed, the inbox, the replays and the candidate menus. Then I searched them for every
+  account id and caravan id in the database. No foreign account id appeared anywhere; the one
+  foreign caravan id is N4.
+- **DB guards as `caravan_app`.** The probe SQL is in the scratchpad.
+  - Refused: CREATE TEMP; TRUNCATE; DISABLE TRIGGER; `SET session_replication_role`; UPDATE of
+    `account.coin_balance` and `pool_progress.ladder_level`; DELETE of `account`; INSERT into
+    `account_admin` and `account_erasure_active`; CREATE FUNCTION; CREATE EXTENSION; direct DML on
+    `encounter_log` and `encounter_log_summary`; INSERT into `session`; any access to
+    `schema_migrations`.
+  - No schema grants the app role CREATE.
+  - The SECURITY DEFINER functions the app can execute are exactly the 12 that roles.sql intends.
+    `encounter_log_compact_rows` and `account_erasure_core` are not executable by the app.
+  - One thing went through: `ALTER ROLE caravan_app SET …` (N7). I reverted it at once.
+- **Erasure.** I exported the account (65 kB, no hash or token material), then called `POST
+  /me/account/delete`. The old token and a re-login both returned 401. A `::text LIKE` scan of
+  every public table found no row containing the account id, the caravan id or the username.
+- **Admin.** The built CLI ran with `node apps/server/dist/admin.js grant <user> --by reviewer`,
+  then `list`. The admin got 200 on `/admin/dashboard` and 400 on a bad `days` / `week`. A player
+  and an anonymous caller both got Fastify's 404 body byte for byte. No player id or username
+  appears in the dashboard.
+- **Logs.** I searched four server logs and the e2e log for `password|bearer|caravan_device=|token`.
+  Nothing matched except the seed script's own "Log in with … devpassword" lines (part of S1).
+- **Migrations.** I ran `db:rollback` three times on a seeded database (025, 024, 023), then
+  `db:migrate` re-applied all three. `db:reset` with a guest present was refused with "020 down:
+  guest or tombstone accounts exist … nothing was rolled back". After the documented `DELETE FROM
+  account WHERE is_system OR username IS NULL` (97 rows), `db:reset` and `db:seed` succeeded.
+
+## Guardrail probes: checked and fine
+
+- **Determinism.** The lint rules plus a manual grep of `packages/resolver/src` found only `Math.floor`,
+  `Math.trunc` and `Math.abs` on integers. There is no clock, RNG or I/O. The client bundle check
+  passes, and the web imports only `@caravan/resolver/replay`. The golden gate refuses an unbumped
+  change. The work counters are pinned. The cross-process run agrees.
+- **No pay-to-win.**
+  - The only readers of `pack_purchase`, `cosmetic_*` and `coin_purchased` are `src/store/**`,
+    `src/analytics/queries.ts` and `ledger/events.ts`.
+  - A grep of `jobs/`, `trip/`, `matchmaking/`, `party/`, `packages/resolver` and `packages/circle`
+    for cosmetic, coin-balance and admin reads came back empty.
+  - Content enforces `WEEKLY_PAY_CEILING = Σ PACK_COIN_BY_TIER` (`packages/content/src/packs.ts:159`).
+- **The unlock web as the only gate.**
+  - Unit rows are inserted in three places: `acquisition/grant.ts:177` (behind `hasAccess`),
+    `economy/merge.ts:412` (same type) and `repo/unitInstances.ts`. The last is used only by
+    `seed.ts` and by authored system parties.
+  - The starting roster is the region's tier-0 starting nodes, and goes through `grantUnit`.
+  - The pack (`circle/service.ts:163`), place (`:207`, `:236`) and party (`party/service.ts:171`)
+    boundaries each re-check access. With the seed's off-web units, the server refused the party
+    (`type_locked`) and the pack (`type_locked`).
+  - Onboarding, the store and admin grant no unit types.
+- **Legibility.** For both encounters of the first trip, three records agreed:
+  - the trip view's `outcome` and `deaths`;
+  - the replay body's `outcome.kind` and units' `hp`;
+  - `settled` and `ending`: the itemized de-merges with the L1 floor, and `coinLost` 600 (destroyed,
+    because the owner is a system account).
+- **Bounded stakes.** On the overrun, all six packed units died and were de-merged with the floor at
+  L1 (none was alive at the wipe). `unitsLostOutright` was `[]`, and the roster still held 6. Only
+  the 600 unbanked Coin was lost. Ladder points went up (+10), not down.
+- **Account vs caravan split.** The ledger, `pool_progress` and erasure counts land on the
+  documented side of the split. Earlier QA rounds covered this, and nothing I touched contradicts
+  it.
+
+## Should-fix
+
+S1. **`pnpm db:seed` creates a known-password account with units outside the web and outside the
+ledger, on any database, including production.**
+- `apps/server/src/seed.ts:23-24` defaults to `dev` / `devpassword`.
+- `:29-34` lists `desert.sand_sharpshooter` at L2 and `desert.canteen_carrier`. Neither is a
+  desert starting node; the starting nodes are `desert.dust_rider` and `desert.well_digger`.
+- `:59-60` inserts them with `createUnitInstance`, bypassing `grantUnit`.
+- No `NODE_ENV` guard exists, and seeding is the only way to load the authored parties that
+  matchmaking needs (`:46`).
+
+Observed on the `NODE_ENV=production` server:
+- `POST /auth/login {"username":"dev","password":"devpassword"}` returned 200 with a token.
+- The dev caravan holds 10 units but has only 6 `unit_acquired` events. The 4 seeded rows have no
+  ledger record, which breaks the provably-fair ledger story.
+- The off-web units are inert: the party and the pack both refuse them with `type_locked`.
+
+Even so, any outside tester can sign in as `dev`. Its standing party is served to everyone, and its
+roster contradicts GUARDRAILS §3 on paper.
+
+Fix: split the seed.
+- `db:seed` (or `db:seed:authored`) loads only the authored set.
+- The dev and e2e accounts move behind an explicit `SEED_DEV_ACCOUNT=1`, refused under
+  `NODE_ENV=production`, the same pattern as `CARAVAN_TEST_RESOLVER`.
+- The dev roster is granted through `grantUnit` (starting types plus refugee-style grants), with an
+  explicit `mergeLevel` written by the merge path or a ledgered fixture event.
+- `scripts/e2e.mjs` passes the flag, and AGENTS.md's `db:seed` line is updated.
+
+Test: `NODE_ENV=production SEED_DEV_ACCOUNT=1 node dist/seed.js` exits non-zero. A plain `db:seed`
+creates 96 system accounts and no login account.
+
+S2. **There is no way to run the built game for outside testers, and no runbook for doing so.**
+- The client calls `API_BASE = "/api"` (`apps/web/src/api/client.ts:100`). Only Vite dev and
+  preview strip that prefix (`apps/web/vite.config.ts:10-12`).
+- The built server serves neither `apps/web/dist` nor `/api/*`; there is no static route in
+  `apps/server/src/app.ts`.
+- The device cookie is `Secure` whenever `NODE_ENV=production` (`account/device.ts:70-77`). Observed:
+  `set-cookie: caravan_device=…; HttpOnly; SameSite=Strict; Max-Age=15552000; Secure` over plain
+  http. A guest served over http therefore loses the account on reload.
+- `caravan_app`'s password defaults to `caravan_app` (`db/roles.sql:22-25`).
+- `TRUST_PROXY` is off by default. The `.js.map` files are emitted into `dist/assets`
+  (`vite.config.ts:19`) and would be publicly served by a naive static host.
+- AGENTS.md:231 says "no hosting target is chosen". `vite preview` is not a production server.
+
+Fix, in one session: add `scripts/playtest/` (or a `docs/PLAYTEST-DEPLOY.md` section in AGENTS.md)
+with:
+- a reverse-proxy config, for example a Caddyfile that serves `apps/web/dist` (excluding `*.map`)
+  and reverse-proxies `/api/*` to `:3000` with the prefix stripped, over TLS;
+- the env block: `NODE_ENV=production`, `TRUST_PROXY=1`, a real `caravan_app` password via `ALTER
+  ROLE`, and no `CARAVAN_RATE_LIMITS` or `CARAVAN_TEST_RESOLVER`;
+- the bootstrap: migrate, then the S1 authored-only seed, then `admin grant`;
+- a backup line.
+
+A `pnpm smoke`-style script should then boot that stack and fetch `/` and `/api/health` through the
+proxy.
+
+## Design-level
+
+D1. **The sandbox store is free Coin for outside testers.**
+- `PURCHASE_BACKEND: "sandbox_stub"` (`packages/content/src/tunables.ts:773`) accepts every
+  purchase at $0.
+- The UI labels it honestly (`apps/web/src/strings.ts:900-957`, "Buy Pack N ($…, sandbox)").
+- Each tester can therefore take all three tiers every week: 60 000 Coin, about 1.09× the free
+  weekly earn.
+- Pace and grind-wall telemetry is exactly what chunk 37 left for the play test to measure
+  (BALANCE-LOG.md). Free packs confound it, even with the dashboard's `allBuyers` split.
+
+Decide one of the following:
+- (a) hide the Packs tab and 404 `POST /me/store/purchase` behind a `STORE_ENABLED` env (off for
+  the play test);
+- (b) keep it, and have the dashboard exclude every account that ever bought from the pace and
+  grind-wall panels;
+- (c) keep it as a deliberate probe of the paid path.
+
+I recommend (a). Testing guardrail §2 needs no external buyers, and the server tests already cover
+it.
+
+D2. **The per-username login limit is a lockout anyone can trigger.**
+- `routes/auth.ts:58` counts every attempt against `loginPerUsername` (10 per 15 min), whatever
+  the address.
+- Usernames are public: they are the party's display name in every defender's menu
+  (`matchmaking/service.ts:151`).
+- Observed: 10 wrong passwords from 10 different `X-Forwarded-For` values, then the owner's correct
+  password returned 429.
+- Mitigation that exists: a player on a device that already holds the cookie still gets in through
+  `/auth/resume`.
+
+For a small play test this is acceptable. Record the decision, or make the username key count
+failures only and exempt a request carrying a valid device cookie for that account.
+
+## Nits
+
+N1. **`pnpm ci` does not run.** pnpm 10 has a built-in `ci` command, and it answers
+`ERR_PNPM_CI_NOT_IMPLEMENTED`. Only `pnpm run ci` works. The doc is also out of step with the
+script and the workflow:
+- AGENTS.md:158 says `pnpm ci` and lists its steps without `perf:resolver`, which is in the script.
+- AGENTS.md:227 and `.github/workflows/ci.yml:3` both say CI is `pnpm ci` "step for step", yet CI
+  also migrates, smokes, installs Chromium and runs e2e.
+
+Fix: write `pnpm run ci` everywhere, list the real steps, and either add `ci:full` (ci + migrate +
+smoke + e2e) or say plainly that CI is a superset.
+
+N2. **AGENTS.md cannot bring up a fresh clone on its own.**
+- It never says how to create the `caravan` role or the two databases. The setup assumes they
+  exist.
+- Nothing loads `.env`, so new database names must be exported by hand. The doc implies `.env.example`
+  is used.
+- It does not say that a local `pnpm e2e` needs `pnpm --filter @caravan/web exec playwright install
+  chromium` first.
+
+Fix: add a 6-line "first time" block covering `createuser`, `createdb ×2`, the exports or
+`node --env-file`, and the Playwright install.
+
+N3. **Stale numbers and names in the docs.**
+- AGENTS.md:153 says "576 tests"; the observed count is 587.
+- `db:roles` is cited as a command at AGENTS.md:103 and in roles.sql's header, but no such script
+  exists (AGENTS.md:124 admits it).
+- PHASE-2.md:657-658 gives the old auth limits (10/h registration). The tunables now say 100/h
+  (`packages/content/src/tunables.ts:991-999`).
+
+N4. **A party owner sees the defender's caravan id.**
+- `/me/party/feed` → `entries[].defender.caravanId` (`apps/server/src/party/feed.ts:146-158`).
+- `/me/ledger` → `party_served_as_encounter.payload.defenderCaravanId`. `redactForeignAccountIds`
+  (`routes/ledger.ts:23-33`) matches only `…AccountId` keys.
+
+In v1 a caravan id is a stable per-player key (one caravan per account). The account export already
+treats it as identifying: it replaces foreign `*CaravanId` values with `"other_player"`
+(`account/service.ts:152-153`).
+
+Fix: redact foreign `…CaravanId` keys in the ledger read model, and drop `caravanId` from the
+feed's defender. Extend the chunk 19 S1 test to plant a defender caravan id.
+
+N5. **The off-web seed roster also breaks ledger rebuild parity.** The 4 seeded unit rows have no
+`unit_acquired` event. This closes with S1.
+
+N6. **`scripts/e2e.mjs` trusts whatever already answers on `E2E_PORT`.**
+- `:63-75` polls `/health` and stops at the first 200. If another server already holds the port,
+  the spawned one dies with EADDRINUSE, but the poll can reach the old server first.
+- Observed: "e2e: login for e2e_formation_… failed: 401" against my leftover server on another
+  database.
+
+Fix: refuse to start if the port answers before the spawn. Or confirm the database by having
+`/health` return the database name in test mode, or the spawned PID.
+
+N7. **The app role can set its own role-level settings.** As `caravan_app`, `ALTER ROLE caravan_app
+SET search_path = pg_temp, public` succeeded (I reverted it immediately).
+- It is harmless to the guards: every function pins its path, there are no TEMP rights and no
+  CREATE anywhere.
+- It does persist across connections and could DoS the server, for example with
+  `statement_timeout = 1`.
+
+PostgreSQL does not allow revoking that ability from a role on itself. Record it, and have the
+runbook (S2) check `pg_db_role_setting` is empty at boot, or have the pool set `search_path`
+explicitly on connect.
+
+N8. **CI's smoke and e2e run the built server as the owner role.** `ci.yml`'s
+`SMOKE_DATABASE_URL` / `E2E_DATABASE_URL` both use `TEST_DATABASE_URL` (`caravan`). So CI never
+proves the shipped server works as `caravan_app`. I proved it by hand in this review.
+
+Fix: point both at a `caravan_app` URL on the test database, after `db:migrate` has applied
+roles.sql.
+
+## Accepted, not findings (for the record)
+
+- `account_erase` can be reached for any account by a fully compromised server role (mint with
+  `session_issue`, then erase). This is documented and corrected in PHASE-2 §30 (QA-30 S1).
+- Lease recovery after a crash takes up to `JOB_VISIBILITY_TIMEOUT_MS` (30 s) of "resolving".
+  Observed about 23 s. Fine for a play test.
+- Device push was deferred to chunk 34, and art and audio are cut (ORCHESTRATION "play-test
+  scope"). I see no technical reason to challenge either for an app-open web play test.
+- I did not observe the telemetry opt-out by hand. The suite covers it (`telemetry.test.ts`, passed
+  in this run).
