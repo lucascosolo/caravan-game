@@ -131,7 +131,11 @@ pushed-trip hold rate falls with encounter index.
 | b6 | 50 / 25 / 25 % | 57 / 31 / 30 % |
 | b7 | 54 / 17 / 29 % | 83 / 45 / 40 % |
 
-The skilled-minus-naive gap on this diagonal now averages 25 points (was 20).
+The skilled-minus-naive gap on this diagonal now averages 25 points (was 20). For a like-for-like
+comparison, the quick corpus after the pass gives, skilled / guided / naive: b0 92/67/67, b1
+83/63/71, b2 96/75/79, b3 75/58/54, b4 83/54/54, b5 58/29/29, b6 54/38/42, b7 83/38/42 %. Fight-length
+median is 22.6 s, 59 % of fights are in 20–90 s, and the equilibrium bands are fresh 3, L1 3–4, L2
+4, L3 5, L4 7, L5 7.
 
 Hold rate at encounter j on pushed trips (band-typical roster from its band centre; skilled picks
 the best of the served menu; full corpus, 4 seeds × 4 regions):
