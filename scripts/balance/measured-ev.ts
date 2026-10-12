@@ -30,7 +30,14 @@ if (!file) throw new Error("usage: measured-ev.ts <sweep.json> [--final share]")
 const j = JSON.parse(readFileSync(file, "utf8")) as SweepJson;
 const fi = process.argv.indexOf("--final");
 const final = fi >= 0 ? Number(process.argv[fi + 1]) : (j.finalFightDeathShare ?? 0.5);
-const breakEven = -TUNABLES.REPUTATION_CARAVAN_OVERRUN / (TUNABLES.REPUTATION_CARAVAN_HELD - TUNABLES.REPUTATION_CARAVAN_OVERRUN);
+// --held / --overrun: evaluate another caravan Reputation split against the same measured curves
+// (the split only moves WHICH band a circle settles at; the fights themselves do not read it).
+const hi = process.argv.indexOf("--held");
+const oi = process.argv.indexOf("--overrun");
+const held = hi >= 0 ? Number(process.argv[hi + 1]) : TUNABLES.REPUTATION_CARAVAN_HELD;
+const overrun = oi >= 0 ? Number(process.argv[oi + 1]) : TUNABLES.REPUTATION_CARAVAN_OVERRUN;
+const breakEven = -overrun / (held - overrun);
+console.log(`caravan Reputation split +${held} / ${overrun}`);
 const SLOTS = TUNABLES.DEPLOYMENT_SLOT_CAP;
 const clean = (xs: number[]) => {
   const out: number[] = [];

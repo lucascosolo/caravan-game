@@ -903,8 +903,14 @@ export const TUNABLES = {
   REPUTATION_WIN_ATTACKER: 25,
   /** TUNABLE (chunk 04). Reputation lost by the party's owner when their party is wiped or withdraws (stalemate), before gap scaling. */
   REPUTATION_LOSS_ATTACKER: -15,
-  /** TUNABLE (chunk 04). Reputation gained by the caravan when it holds (party wiped) or the party withdraws (stalemate), before gap scaling. */
-  REPUTATION_CARAVAN_HELD: 15,
+  /**
+   * TUNABLE (chunk 04; chunk 37 balance pass 15 → 10, BALANCE-LOG.md). Reputation gained by the
+   * caravan when it holds (party wiped) or the party withdraws (stalemate), before gap scaling.
+   * With REPUTATION_CARAVAN_OVERRUN −20 a caravan settles where it holds 20 / (10 + 20) ≈ 67 % of
+   * encounters (was 57 % at +15): one band lower, where 8 × L3 circles have a positive best bank
+   * point (k = 4) at measured hold rates.
+   */
+  REPUTATION_CARAVAN_HELD: 10,
   /** TUNABLE (chunk 04). Reputation lost by the caravan when it is overrun, before gap scaling. */
   REPUTATION_CARAVAN_OVERRUN: -20,
   /** TUNABLE (chunk 04). Reputation cannot fall below this; a loss that would cross it is clamped (and recorded as clamped). */
