@@ -293,3 +293,19 @@ N7. **Client lazy loading is untested.**
 - Add a Playwright loop to trip.spec's real-log section: open and close 10 times, then assert one
   canvas and a bounded `performance.memory` or context count.
 - The atlas and memory-ceiling items are honestly deferred to chunk 26. Fine for the play test.
+
+## Orchestrator decisions (2026-10-12)
+
+- **S1:** serialize compaction and erasure. Both take the same transaction-scoped advisory lock keyed on the fight's job before touching its log or summary, and the compactor locks the logs it compacts (`FOR UPDATE SKIP LOCKED` in the sweep). A test runs the two in parallel connections, in both orders, and checks both outcomes: no fight loses its summary, and no summary keeps an erased id.
+- **S2:** the hourly loop calls `account_erase_expired_guests` with a bounded limit per run, and a test covers it.
+- **S3: adopt the proposal.**
+  - The blocking check is pinned integer work counters per golden fight (for example ticks × units, path expansions), compared exactly, with a version bump required to change them.
+  - Add a relative time check against a reference workload in the same process, with a generous ratio.
+  - The absolute 100 ms bound becomes a report only.
+  - Drop the duplicate best-of-5 measurement.
+- **S4:** a failed lazy chunk shows an error inside the replay dialog with a Retry that really re-imports. Do not cache a rejected import, and never replace the app screen. Add a test.
+- **D1: no change before the play test.** Record the finding and the correct target (the owner lock at settle) in §36 for launch.
+- **D2:** fix the scoping and add Coin balance and cap checks after the burst. The throughput target becomes a reported number with a `--strict` flag for a dedicated host, so a shared host does not "fail".
+- **D3, D5:** no change before the play test. Record them for launch.
+- **D4:** wrap the post-completion prune in a savepoint, so a compaction error never fails a fight.
+- **Nits:** N2, N4, N5 and N7 in scope. N1, N3 and N6 may stay open with a reason.
