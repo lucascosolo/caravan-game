@@ -101,6 +101,9 @@ export interface ReplayModel {
   readonly hasStances: boolean;
   /** QA S2: the camera opens on the ring and the ground the raiders cross, not the whole field. */
   readonly frameRect: FrameRect;
+  /** r2 N14: the ring and the ground the raiders cross; the camera moves in to it at `closeTick`. */
+  readonly closeRect: FrameRect;
+  readonly closeTick: number;
   /** Positions and HP after `tick` (cached). */
   frame(tick: number): ReplayFrame;
   /**
@@ -129,6 +132,10 @@ export const END_HOLD_SECONDS = 1.0;
 const APPROACH_CELLS = 4;
 /** QA S2: a lattice cell is never narrower than this on screen at the opening zoom (CSS px). Presentation. */
 export const REPLAY_MIN_CELL_PX = 32;
+/** r2 N14: at the opening (every raider's start cell in view) a cell may be this narrow (CSS px). Presentation. */
+export const REPLAY_OPENING_MIN_CELL_PX = 12;
+/** r2 N14: the camera moves in this long (fight seconds) before the first engagement. Presentation. */
+export const CLOSE_LEAD_SECONDS = 1;
 
 /** The wagon circle's lattice and fixed features, from the resolver's geometry (the same source the trail's circle uses). */
 export const REPLAY_GEOMETRY: SceneGeometry = {
@@ -377,7 +384,30 @@ function buildModel(view: ReplayView, replay: Replay): ReplayModel {
   y0 = Math.max(0, y0);
   x1 = Math.min(GRID_WIDTH, x1);
   y1 = Math.min(GRID_HEIGHT, y1);
-  const frameRect: FrameRect = { x: x0, y: y0, w: x1 - x0, h: y1 - y0, minCellPx: REPLAY_MIN_CELL_PX };
+  // Final play-test review r2 N14: the close frame (the ring and the ground just outside it) is
+  // where the fight is decided; the OPENING frame also takes in every raider's start cell, so no
+  // raider is off-canvas when the fight begins. The player follows to the close frame (`closeTick`).
+  const closeRect: FrameRect = { x: x0, y: y0, w: x1 - x0, h: y1 - y0, minCellPx: REPLAY_MIN_CELL_PX };
+  let ox0 = x0;
+  let oy0 = y0;
+  let ox1 = x1;
+  let oy1 = y1;
+  for (const e of replay.events) {
+    if (e.k !== "spawn" || !isRaider(e.u)) continue;
+    const p = fixedToWorld(e);
+    ox0 = Math.min(ox0, Math.floor(p.x) - 1);
+    oy0 = Math.min(oy0, Math.floor(p.y) - 1);
+    ox1 = Math.max(ox1, Math.floor(p.x) + 2);
+    oy1 = Math.max(oy1, Math.floor(p.y) + 2);
+  }
+  ox0 = Math.max(0, ox0);
+  oy0 = Math.max(0, oy0);
+  ox1 = Math.min(GRID_WIDTH, ox1);
+  oy1 = Math.min(GRID_HEIGHT, oy1);
+  const frameRect: FrameRect = { x: ox0, y: oy0, w: ox1 - ox0, h: oy1 - oy0, minCellPx: REPLAY_OPENING_MIN_CELL_PX };
+  // The first engagement (a hit, a fence hit, a trap, an ability), a beat early: the camera moves in then.
+  const firstEngagement = replay.events.find((e) => ["hit", "fence_hit", "trap_fired", "trap_nullified", "ability", "unit_died", "core_reached"].includes(e.k));
+  const closeTick = Math.max(0, (firstEngagement?.t ?? 0) - Math.round(CLOSE_LEAD_SECONDS * log.tickRate));
 
   const cache = new Map<number, ReplayFrame>();
   const frame = (tick: number): ReplayFrame => {
@@ -499,6 +529,8 @@ function buildModel(view: ReplayView, replay: Replay): ReplayModel {
     siegeNames,
     hasStances: L.units.some((u) => u.stance !== null),
     frameRect,
+    closeRect,
+    closeTick,
     frame,
     scene,
   };

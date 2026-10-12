@@ -8,6 +8,7 @@
  * between reads. When the countdown reaches zero the screen RE-READS the menu (GET never
  * writes) and shows the server's `freeRefreshDue`; it never decides that by itself.
  */
+import { formatSeconds } from "../../shell/countdown.ts";
 import type { RefugeeOfferView, RefugeeView } from "../../api/types.ts";
 
 export interface CollapsedOffer {
@@ -41,14 +42,9 @@ export type RefugeeTimerState =
   /** The server says the next free menu is owed; the current menu is still claimable. */
   | { readonly kind: "due"; readonly claimed: boolean };
 
-/** mm:ss (h:mm:ss past an hour), rounding UP so "0:00" never shows while time remains. */
+/** The wait in words (`formatSeconds`), rounding UP so "0 s" never shows while time remains. */
 export function formatCountdown(ms: number): string {
-  const total = Math.max(0, Math.ceil(ms / 1000));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  const pad = (n: number): string => (n < 10 ? `0${n}` : String(n));
-  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+  return formatSeconds(Math.ceil(Math.max(0, ms) / 1000));
 }
 
 /** The timer as of `elapsedMs` after the view was read. */

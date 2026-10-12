@@ -709,6 +709,16 @@ h2 {
   padding: 0.75rem;
   margin: 0.75rem 0;
 }
+/* Final play-test review r2 N9: the pinned map used to cover the panel's heading and its
+   "Take back" / "Done" buttons. The heading row now pins itself just below the map, so while
+   any of the panel is on screen its actions are too. */
+.formation .selection .sheet__head {
+  position: sticky;
+  top: var(--iso-h);
+  z-index: 4;
+  background: var(--bg-raised);
+  padding: 0.25rem 0;
+}
 .issues {
   margin: 0.25rem 0 0;
   padding-left: 1.25rem;

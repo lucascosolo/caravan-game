@@ -13,7 +13,7 @@
  * is replaced by the game.
  */
 import { REGIONS, getUnitType, unlockWebFor, type RegionId } from "@caravan/content";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { ApiError } from "../../api/client.ts";
 import { useSession } from "../../auth/session.tsx";
 import { STRINGS } from "../../strings.ts";
@@ -75,6 +75,16 @@ type Pending = { kind: "guest" } | { kind: "signIn" } | { kind: "register" };
 export function LoginScreen(): JSX.Element {
   const { api, signIn, resuming, resumeError, retryResume, notice } = useSession();
   const [pending, setPending] = useState<Pending | null>(null);
+  /**
+   * Final play-test review r2 S1: "Continue the guest caravan" was asked for. If the resume it
+   * starts finds no device after all, say so on its own card instead of silently dropping back to
+   * the start screen (the loop that left "Delete it…" as the only button that did anything).
+   */
+  const [continuing, setContinuing] = useState(false);
+  const [continueStarted, setContinueStarted] = useState(false);
+  useEffect(() => {
+    if (continuing && resuming) setContinueStarted(true);
+  }, [continuing, resuming]);
   const [mode, setMode] = useState<Mode>("signIn");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -112,6 +122,13 @@ export function LoginScreen(): JSX.Element {
     }
   }
 
+  function continueGuest(): void {
+    setPending(null);
+    setContinuing(true);
+    setContinueStarted(false);
+    retryResume();
+  }
+
   async function submit(e: FormEvent): Promise<void> {
     e.preventDefault();
     await run(mode === "signIn" ? "signIn" : "register", false);
@@ -140,6 +157,24 @@ export function LoginScreen(): JSX.Element {
     );
   }
 
+  if (continuing && continueStarted && !resuming && !pending) {
+    return (
+      <section>
+        <h1>{STRINGS.app.title}</h1>
+        <div className="card" role="alert" data-testid="continue-failed">
+          <h2>{s.continueFailedTitle}</h2>
+          <p>{s.continueFailedBody}</p>
+          <button type="button" className="btn btn--primary btn--block" onClick={retryResume}>
+            {STRINGS.app.retry}
+          </button>
+          <button type="button" className="btn btn--block" onClick={() => { setContinuing(false); setContinueStarted(false); }}>
+            {STRINGS.account.back}
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   if (pending) {
     return (
       <section>
@@ -147,7 +182,7 @@ export function LoginScreen(): JSX.Element {
         <div className="card card--danger" role="alertdialog" aria-labelledby="guest-on-device-title" data-testid="guest-on-device">
           <h2 id="guest-on-device-title">{s.guestOnDeviceTitle}</h2>
           <p>{s.guestOnDeviceBody}</p>
-          <button type="button" className="btn btn--primary btn--block" disabled={busy} onClick={() => { setPending(null); retryResume(); }}>
+          <button type="button" className="btn btn--primary btn--block" disabled={busy} onClick={continueGuest}>
             {s.continueGuest}
           </button>
           <button type="button" className="btn btn--block btn--danger" disabled={busy} onClick={() => void run(pending.kind, true)}>

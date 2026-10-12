@@ -55,10 +55,14 @@ export const STRINGS = {
     resuming: "Finding your caravan…",
     // QA-30 S4
     resumeFailedTitle: "Could not reach your caravan",
-    resumeFailedBody: "The server did not answer. Your caravan is safe; try again in a moment.",
+    resumeFailedBody: "Your caravan could not be opened just now. It is safe on this device: nothing was deleted. Try again in a moment.",
+    /** Final play-test review r2 S1: the device cookie answers but its sessions keep dying. */
+    sessionLost: "Signing this device back in did not hold. Try again; your caravan is still here.",
     guestOnDeviceTitle: "This device has a guest caravan",
     guestOnDeviceBody: "A guest caravan with no username or password is saved on this device. Continuing here replaces it, and the guest caravan, its roster and its Coin are deleted for good.",
     continueGuest: "Continue the guest caravan",
+    continueFailedTitle: "The guest caravan did not open",
+    continueFailedBody: "This device still answers for a guest caravan, but it could not be opened just now. Nothing was deleted. Try again in a moment.",
     replaceGuestStart: "Delete it and start a new caravan",
     replaceGuestSignIn: "Delete it and sign in",
   },
@@ -345,6 +349,9 @@ export const STRINGS = {
     quickHint: "Each side button fences that side's open positions with the next segments in the wagon. Then pick a unit and tap where it stands: the next unit is picked for you.",
     fenceSide: (edge: string, raiders: number): string => `Fence ${edge}${raiders > 0 ? ` (${raiders} raider${raiders === 1 ? "" : "s"})` : ""}`,
     lastButton: "Start from my last arrangement",
+    /** Final play-test review r2 N11: the last arrangement was shaped against raiders from other sides. */
+    lastButtonOtherSides: (was: string, now: string): string => `Start from my last arrangement (it faced ${was}; this party comes from ${now})`,
+    lastAppliedOtherSides: (was: string, now: string): string => `Careful: that arrangement was shaped against raiders from ${was}. This party comes from ${now}: move the gap and the posts to face it.`,
     lastLoading: "Loading the last arrangement…",
     lastApplied: (fences: number, traps: number, posts: number): string =>
       `Your last arrangement is back, minus what broke, was spent or died: ${fences} segment${fences === 1 ? "" : "s"}, ${traps} trap${traps === 1 ? "" : "s"}, ${posts} post${posts === 1 ? "" : "s"}. Adjust it for this party.`,
@@ -628,6 +635,16 @@ export const STRINGS = {
    * gained. The mine VISUALIZES the trickle: no string may offer to improve it.
    */
   town: {
+    // Final play-test review r2 D2: the standing party is down.
+    mineMore: "How the mine works",
+    recruitLockedSummary: (n: number): string => `Locked types (${n}): what the Webs would open`,
+    partyDownTitle: "Your standing party is down",
+    partyDownBody: "It has no units left, so it is not served into anyone's trips and earns nothing while you are away. Raise it again from your roster: it is a template and never loses a unit.",
+    partyDownNoUnits: "It has no units left, so it is not served into anyone's trips. It can go back up as soon as your roster has a unit.",
+    partyDownRaise: (n: number): string => `Raise from my roster (${n} unit${n === 1 ? "" : "s"})`,
+    partyDownOpen: "Open the party",
+    partyRaising: "Raising…",
+    partyRaised: (n: number): string => `Your standing party is up again: ${n} unit${n === 1 ? "" : "s"}, ready to be served.`,
     title: "Town",
     intro: "The home town. It is never attacked: your roster, your merge board, the mine and your banked Coin are safe here.",
     loadFailed: "Could not load the town.",
@@ -797,6 +814,10 @@ export const STRINGS = {
    * locked for the whole trip; what is packed is all that is ever at risk.
    */
   outfit: {
+    // Final play-test review r2 N5
+    sameAsLast: (units: number, traps: number, fence: number): string =>
+      `Pack the same as last trip: ${units} unit${units === 1 ? "" : "s"}, ${traps} trap${traps === 1 ? "" : "s"}, ${fence} fence segment${fence === 1 ? "" : "s"}`,
+    sameAsLastLost: (n: number): string => `${n} unit${n === 1 ? "" : "s"} from last trip ${n === 1 ? "is" : "are"} no longer in the roster.`,
     title: "Outfit the caravan",
     intro: "What rides out is all that can be lost. The roster left in town and your banked Coin are never at risk. Packing locks the manifest for the whole trip; nothing is repaired or resupplied on the trail.",
     back: "Back to town",
@@ -1375,8 +1396,11 @@ export const STRINGS = {
     searchBody: "Search to be served three raiding parties. Each one is another player's standing party (or, early on, a labelled authored outfit); its owner is not there.",
     scoutTitle: "Scout before you choose",
     scoutBody: "Each party below leads with a summary: its raiders by stance, their total HP, its siege and the sides they come from. Tap Full scouting report for every unit, its HP, its ability and its start cell. Nothing is hidden. Compare the three, then choose the one you will face.",
-    scoutPick: (name: string, raiders: number, hp: number, siege: number): string =>
-      `For a first fight, ${name} is the smallest of the three: ${hp} HP in all, ${siege === 0 ? "no siege" : siege === 1 ? "1 siege piece" : `${siege} siege pieces`}, ${raiders === 1 ? "1 raider" : `${raiders} raiders`}. That is a reading of the scout, not a promise.`,
+    scoutPick: (name: string, raiders: number, hp: number, siege: number, passedOverRanged = false): string =>
+      `For a first fight, ${name} is the smallest of the ${passedOverRanged ? "parties that fight up close" : "three"}: ${hp} HP in all, ${siege === 0 ? "no siege" : siege === 1 ? "1 siege piece" : `${siege} siege pieces`}, ${raiders === 1 ? "1 raider" : `${raiders} raiders`}. That is a reading of the scout, not a promise.`,
+    /** Final play-test review r2 S2: why a smaller, all-ranged party was not the guide's pick. */
+    scoutRangedNote: (names: string): string =>
+      `It passes over ${names}: every raider there shoots from range, and can stand outside your fence where posted units do not reach. Check "Range (cells)" in the full report.`,
     // ── trail: the guided arrangement ──
     arrangeTitle: "Arrange the wagon circle",
     arrangeBody: (edge: string, n: number, of: number): string =>
@@ -1439,7 +1463,7 @@ export const STRINGS = {
     decide2Title: "Bank the trip",
     decide2Body: "Banking now makes the Coin you carried safe in town for good and brings your units home; that ends the first trip. Pushing on is allowed too, at the stakes shown below.",
     // ── after the trip: the passive side ──
-    partyTitle: "While you were out, someone else's party met a caravan",
+    partyTitle: "Whose parties you just fought",
     partyBody:
       "The parties you just faced were standing parties: other players' (or labelled authored outfits). Their owners were not there and lost nothing. Yours works the same way: it is served into other players' trips while you are away, and you read afterwards how it did.",
     partyOverrun: "Your first trip was overrun. That happens, and the stakes were itemized before you chose to push. Ride out again when you have a unit and a trip available.",

@@ -90,3 +90,47 @@ export function outfitMeters(d: OutfitDraft): OutfitMeters {
 export function packRequest(d: OutfitDraft): PackManifestRequest {
   return { units: [...d.units], traps: [...d.traps], fence: d.fence && d.fence.count > 0 ? { tierId: d.fence.tierId, count: d.fence.count } : null };
 }
+
+// ── Final play-test review r2 N5: the last trip's outfit, remembered on this device ─────────
+//
+// A per-viewer convenience (like the board layout): kept under the viewer prefix, cleared on
+// sign-out, never read by the server. What packs is still the server's answer.
+
+const LAST_OUTFIT_PREFIX = "caravan.viewer.outfit.last.";
+
+export function saveLastOutfit(caravanId: string, d: OutfitDraft): void {
+  try {
+    window.localStorage.setItem(LAST_OUTFIT_PREFIX + caravanId, JSON.stringify({ units: d.units, traps: d.traps, fence: d.fence }));
+  } catch {
+    // Storage blocked: nothing is remembered, and nothing breaks.
+  }
+}
+
+export function loadLastOutfit(caravanId: string): OutfitDraft | null {
+  try {
+    const raw = window.localStorage.getItem(LAST_OUTFIT_PREFIX + caravanId);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as { units?: unknown; traps?: unknown; fence?: unknown };
+    const strings = (x: unknown): string[] => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : []);
+    const f = v.fence as { tierId?: unknown; count?: unknown } | null | undefined;
+    const fence = f && typeof f.tierId === "string" && typeof f.count === "number" && Number.isInteger(f.count) && f.count >= 0 ? { tierId: f.tierId, count: f.count } : null;
+    return { units: strings(v.units), traps: strings(v.traps), fence };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The last outfit, re-read against what exists now: units still in the roster, traps and a
+ * fence tier still unlocked. `units: false` keeps only the traps and the fence (the default a
+ * returning player opens with); the button applies the units too. Pure.
+ */
+export function reapplyOutfit(last: OutfitDraft, now: { readonly units: readonly string[]; readonly traps: readonly string[]; readonly fences: readonly string[] }, withUnits: boolean): OutfitDraft {
+  const roster = new Set(now.units);
+  const traps = new Set(now.traps);
+  return {
+    units: withUnits ? last.units.filter((u) => roster.has(u)).slice(0, UNIT_CAP) : [],
+    traps: last.traps.filter((t) => traps.has(t)).slice(0, TRAP_CAP),
+    fence: last.fence && now.fences.includes(last.fence.tierId) ? { tierId: last.fence.tierId, count: Math.min(last.fence.count, FENCE_BUDGET) } : null,
+  };
+}

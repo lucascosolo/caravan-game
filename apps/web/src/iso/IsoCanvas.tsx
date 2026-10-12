@@ -72,14 +72,16 @@ export interface IsoCanvasProps {
   /** Which entities may be picked up and moved. */
   readonly canDrag?: (hit: HitResult) => boolean;
   readonly onTapCell?: (cell: CellLike) => void;
-  readonly onTapEntity?: (hit: HitResult) => void;
+  /** `cell`: the cell under the press (r2 N7), so a screen can treat a near-miss on an entity as a tap on the cell. */
+  readonly onTapEntity?: (hit: HitResult, cell?: CellLike | null) => void;
   readonly onDragBegin?: (hit: HitResult) => void;
   readonly onDragMove?: (cell: CellLike | null) => void;
   readonly onDragEnd?: (cell: CellLike | null) => void;
   /** The drag was abandoned (a second finger, a cancelled pointer): nothing moves. Defaults to `onDragEnd(null)`. */
   readonly onDragCancel?: () => void;
   /** Frame these cells (zoom in only) whenever `key` changes to a new non-null value. */
-  readonly focus?: { readonly key: string; readonly rect: CellRect } | null;
+  /** `minCellPx` (r2 N14): a zoom floor, as the opening frame has, so a focused close-up is never too small to read. */
+  readonly focus?: { readonly key: string; readonly rect: CellRect; readonly minCellPx?: number } | null;
   /** Called once if the renderer cannot start (no WebGL); the screen shows its text alternative. */
   readonly onUnavailable?: (reason: string) => void;
   /**
@@ -280,7 +282,7 @@ export const IsoCanvas = forwardRef<IsoCanvasHandle, IsoCanvasProps>(function Is
     if (!focus) return;
     const { w, h } = sizeRef.current;
     if (w <= 1 || h <= 1) return;
-    applyCamera(focusCamera(camRef.current, w, h, focus.rect));
+    applyCamera(focusCamera(camRef.current, w, h, focus.rect, 12, (focus.minCellPx ?? 0) / TILE_W));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusKey]);
 
@@ -336,7 +338,7 @@ export const IsoCanvas = forwardRef<IsoCanvasHandle, IsoCanvasProps>(function Is
           break;
         }
         case "tapEntity":
-          p.onTapEntity?.(fx.hit);
+          p.onTapEntity?.(fx.hit, canvasToCell(fx.at.x, fx.at.y));
           break;
       }
     }

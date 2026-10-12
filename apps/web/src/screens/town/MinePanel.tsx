@@ -20,7 +20,6 @@ export function MinePanel({ economy, forecast }: { economy: EconomyView; forecas
   return (
     <section aria-labelledby="mine-heading" data-testid="mine-panel" data-at-cap={economy.atCap ? "true" : "false"}>
       <h2 id="mine-heading">{T.mineHeading}</h2>
-      <p className="hint">{T.mineIntro}</p>
       <p data-testid="mine-balance">
         <strong>{T.mineBalance(economy.balance, economy.cap)}</strong>
       </p>
@@ -28,17 +27,22 @@ export function MinePanel({ economy, forecast }: { economy: EconomyView; forecas
         <span className="meter__fill" style={{ width: `${fill}%` }} />
       </span>
       <p data-testid="mine-rate">{T.mineRate(economy.trickle.ratePerHour)}</p>
-      {economy.trickle.pending > 0 && <p className="hint">{T.minePending(economy.trickle.pending)}</p>}
-      <p data-testid="mine-room">{T.mineRoom(economy.room)}</p>
       {warn && (
         <p className="error" role="alert" data-testid="mine-warn">
           {economy.atCap ? T.mineAtCap : forecast ? T.mineNearCap(forecast.message) : null}
         </p>
       )}
-      <p className="hint" data-testid="mine-accrued">
-        {T.mineAccrued(formatWhen(economy.trickle.accruedThroughMs))}
-      </p>
-      <p className="hint">{T.mineNoUpgrade}</p>
+      {/* Final play-test review r2 N13: the explanation is one tap away, not a screenful. */}
+      <details className="disclosure" data-testid="mine-details">
+        <summary>{T.mineMore}</summary>
+        <p className="hint">{T.mineIntro}</p>
+        {economy.trickle.pending > 0 && <p className="hint">{T.minePending(economy.trickle.pending)}</p>}
+        <p data-testid="mine-room">{T.mineRoom(economy.room)}</p>
+        <p className="hint" data-testid="mine-accrued">
+          {T.mineAccrued(formatWhen(economy.trickle.accruedThroughMs))}
+        </p>
+        <p className="hint">{T.mineNoUpgrade}</p>
+      </details>
     </section>
   );
 }
