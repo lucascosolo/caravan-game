@@ -42,10 +42,17 @@ overrun costs −20.
 ## Pass 2 — 2026-10-12 (final play-test review: S1, D6, D8; D3/D4 recorded). RESOLVER_VERSION unchanged at 8.
 
 No resolver code, content stat or resolver tunable changed, so RESOLUTION_CONTENT_HASH and the golden
-corpus are unchanged. Before change #22 (the floor band's outfits), the quick sweep reproduced pass
-1's quick-corpus diagonal exactly (skilled / guided / naive: b0 92/67/67, b1 83/63/71, b2 96/75/79,
-b3 75/58/54, b4 83/54/54, b5 58/29/29, b6 54/38/42, b7 83/38/42 %). After it, only the band-0 column
-moves (below). `first-trip.ts` gained `--reserve` (default GUIDE_RESERVE). New tools:
+corpus are unchanged. Before #17 and #22, the quick sweep reproduced pass 1's quick-corpus diagonal
+exactly (skilled / guided / naive: b0 92/67/67, b1 83/63/71, b2 96/75/79, b3 75/58/54, b4 83/54/54,
+b5 58/29/29, b6 54/38/42, b7 83/38/42 %). After them, the quick sweep (`--quick --no-trips`, 1,728
+matchups) moves in two columns only:
+
+- **Band 0, from #22.** Guided holds at b0 went from 67–92 % to 79–92 % across the rosters, and naive
+  holds rose too. Skilled holds are unchanged, at 92–100 %.
+- **Band 7, from #17.** The authored outfits pick their living types greedily within a capped
+  ladder's 30 points, and a cheaper tier 2 changes which types the top band can afford. Skilled
+  holds at b7 moved by −4 to +12 points depending on the roster; the b7 diagonal is now 88 / 42 /
+  38 % (was 83 / 38 / 42). No other band's outfits changed. `first-trip.ts` gained `--reserve` (default GUIDE_RESERVE). New tools:
 `unlock-pace.ts` (D8), `party-rating.ts` (D6) and `cold-start.ts` (S1's raider cap).
 
 ### What changed
@@ -93,7 +100,7 @@ At 15 trips a week, banked after 2 holds, it takes 3.3 / 6.1 days (was 9.4 / 13.
 week it takes 1.2 / 2.2 days (was 3.4 / 4.7). Target met at the mid: about 2–3 days. The play-test
 reviewer's h8 (six holds: 150 points, rung 1) is consistent with the model.
 
-### D6: the equilibrium check (`party-rating.ts` on a `--quick --no-trips` sweep, 1,728 matchups)
+### D6: the equilibrium check (`party-rating.ts` on the `--quick --no-trips` sweep after #17 and #22, 1,728 matchups)
 
 **Caravans, unchanged.** D6 does not touch the defender's side and no fight changed. Quick corpus,
 break-even 67 %. Equilibrium band by roster: fresh 3, b0-typical 3, b1-typical 3, b2-typical 3,
@@ -113,7 +120,7 @@ Under the new rule its rating never falls, and it climbs ever more slowly until 
 | b4 | b3 | above b7 | ≈ 360 to b7 |
 | b5 | b5 | above b7 | ≈ 130 to b7 |
 | b6 | b7 | above b7 | ≈ 60 to b7 |
-| b7 | b5 | above b7 | ≈ 70 to b7 |
+| b7 | b5 | above b7 | ≈ 100 to b7 |
 
 What this means: a weak party (b0–b2 strength) used to sink to the floor and be served only to fresh
 caravans. Now it stays where it climbed to and drifts up only slowly (≈ 1–4 Reputation a strike). A
