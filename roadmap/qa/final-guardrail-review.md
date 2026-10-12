@@ -436,6 +436,11 @@ now holds and the test that pins it.
 - e2e: 11 passed (4.0 m); e2e:hosting: 13 passed (5.0 m);
 - "all 11 steps passed in 24.0 min".
 
+After `git merge roadmap/phase-2-spec` (def081a, the play-test review record), the same command
+gave the same counts (content 82, resolver 587, circle 108, web 441, server 786 + 1 skipped;
+determinism 366; perf 15; e2e 11 passed in 3.8 m; e2e:hosting 13 passed in 4.6 m) and "all 11 steps
+passed in 21.6 min".
+
 ### docs/PLAYTEST-HOSTING.md followed literally (database `caravan_playtest_final2`, port 3959)
 
 | Step | Result |
