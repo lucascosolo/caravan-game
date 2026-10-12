@@ -13,7 +13,9 @@
     "db:rollback": "tsx src/db/migrate.ts down",
     "db:reset": "tsx src/db/migrate.ts reset",
     "db:status": "tsx src/db/migrate.ts status",
+    "db:roles": "tsx src/db/migrate.ts roles",
     "db:seed": "tsx src/seed.ts",
+    "db:seed:dev": "tsx src/seed.ts --dev",
     "ledger:rebuild": "tsx src/ledger/rebuild.ts",
     "admin": "tsx src/admin.ts",
     "explain:analytics": "WRITE_EXPLAIN=1 vitest run test/telemetry-scale.test.ts"

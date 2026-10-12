@@ -986,10 +986,18 @@ export const TUNABLES = {
    * TUNABLE (chunk 30 QA D3). `limit` requests per `windowMs` per key. Play-test-friendly: a play
    * test at one venue is one NAT address, so per-address limits are generous; the per-username
    * and per-device login limits are what stop guessing.
+   *
+   * Final review D2: password FAILURES are counted per (username, address), so one address cannot
+   * lock a player out from everywhere else (usernames are public: they name standing parties). A
+   * generous per-username ceiling on failures stays as the backstop against a distributed guess. A
+   * login carrying a live device cookie of that same account is exempt from both (it already proves
+   * the device), and so is POST /auth/resume (counted per address only). A success resets the
+   * (username, address) count.
    */
   ACCOUNT_RATE_LIMITS: {
     loginPerIp: { limit: 200, windowMs: 15 * 60_000 },
-    loginPerUsername: { limit: 10, windowMs: 15 * 60_000 },
+    loginFailuresPerUsernameAddress: { limit: 10, windowMs: 15 * 60_000 },
+    loginFailuresPerUsername: { limit: 100, windowMs: 15 * 60_000 },
     loginPerDevice: { limit: 20, windowMs: 15 * 60_000 },
     registerPerIp: { limit: 100, windowMs: 60 * 60_000 },
     guestPerIp: { limit: 100, windowMs: 60 * 60_000 },

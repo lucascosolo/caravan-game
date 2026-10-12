@@ -24,10 +24,11 @@ export interface PartyFeedEntry {
   /** Which encounter of the defender's trip this was: how deep into the trail the party struck. */
   encounterIndex: number | null;
   /**
-   * Who the party struck: the username (a public handle) and the caravan. Never an account id
+   * Who the party struck: the username (a public handle) and the caravan's name and region. Never an account
+   * or caravan id (final review N4: in v1 a caravan id is a stable per-player key)
    * (chunk 19 QA S1, chunk 14 QA N4: account ids are not public).
    */
-  defender: { username: string | null; caravanId: string | null; caravanName: string | null; regionId: string | null };
+  defender: { username: string | null; caravanName: string | null; regionId: string | null };
   /** The party version that fought (standing_party.updated_at at snapshot time). */
   partySavedAt: string | null;
   resolverVersion: number | null;
@@ -155,7 +156,6 @@ export async function partyFeedEntries(db: Queryable, accountId: string, served:
       encounterIndex: int(p["encounterIndex"]),
       defender: {
         username: c?.username ?? null,
-        caravanId,
         caravanName: c?.name ?? null,
         regionId: c?.region_id ?? null,
       },

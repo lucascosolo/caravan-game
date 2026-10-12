@@ -16,7 +16,9 @@ export type Queryable = pg.Pool | pg.PoolClient;
 pg.types.setTypeParser(20, (v) => Number(v));
 
 export function createPool(connectionString: string = databaseUrl()): pg.Pool {
-  return new pg.Pool({ connectionString, max: 10 });
+  // Final review N7: pin search_path per connection, so a role-level `ALTER ROLE … SET search_path`
+  // (which any role may set on itself) never changes what the server's unqualified names mean.
+  return new pg.Pool({ connectionString, max: 10, options: "-c search_path=public" });
 }
 
 /** Run `fn` inside a transaction; commits on success, rolls back on throw. */

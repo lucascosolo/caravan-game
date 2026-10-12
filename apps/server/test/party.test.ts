@@ -439,7 +439,9 @@ describe("THE GUARANTEE: a party is never consumed, never loses a unit, never de
       const i = e.encounterIndex - 1;
       const d = defenders[i]!;
       expect(e.tripId).toBe(`trail-${i}`);
-      expect(e.defender).toMatchObject({ caravanId: d.caravanId, regionId: i % 2 ? "mountain" : "badlands" });
+      expect(e.defender).toMatchObject({ regionId: i % 2 ? "mountain" : "badlands" });
+      expect(e.defender).not.toHaveProperty("caravanId"); // final review N4: nor caravan ids
+      expect(JSON.stringify(e)).not.toContain(d.caravanId);
       expect(e.defender).not.toHaveProperty("accountId"); // chunk 19 QA S1: account ids are not public
       expect(typeof e.defender["caravanName"]).toBe("string");
       expect(typeof e.defender["username"]).toBe("string");

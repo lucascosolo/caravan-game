@@ -264,6 +264,8 @@ export interface DashboardOptions {
   days: number;
   /** Grind-wall week (pack rotation week index); defaults to the last complete week. */
   week?: number;
+  /** Final review D1: the server's STORE_MODE; "off" reports the pack funnel as not counted. Default "sandbox". */
+  storeMode?: "sandbox" | "off";
 }
 
 /** QA N7, shown on the panel. */
@@ -332,7 +334,7 @@ async function buildPanels(db: Queryable, opts: DashboardOptions): Promise<Dashb
         note: GRIND_WALL_NOTE,
         deciles: await q.grindWall(db, week),
       },
-      packFunnel: await q.packFunnel(db, win),
+      packFunnel: await q.packFunnel(db, win, opts.storeMode ?? "sandbox"),
       sessionLength: await q.sessionLength(db, win),
       retention: { cohortFrom: cohort.from.toISOString(), cohortTo: cohort.to.toISOString(), days: await q.retention(db, cohort) },
       screens: await q.screens(db, win),

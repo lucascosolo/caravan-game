@@ -1,4 +1,8 @@
 import { defineConfig } from "vitest/config";
+import { loadDotEnv } from "./src/config.js";
+
+// Final review N2: TEST_DATABASE_URL (and TEST_APP_DB_PASSWORD) may come from the repo's .env; the real environment wins.
+loadDotEnv();
 
 export default defineConfig({
   test: {

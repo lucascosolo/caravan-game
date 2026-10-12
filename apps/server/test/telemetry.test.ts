@@ -392,7 +392,7 @@ describe("chunk 32: every panel against the seeded history", () => {
   });
 
   it("pack purchase funnel: one population (QA D4) — the opted-out buyer counts only in allBuyers, outside the funnel", () => {
-    expect(dash.panels.packFunnel).toEqual({ viewers: 1, storeViewers: 1, buyers: 1, allBuyers: 2, tiers: [{ tier: 1, reserved: 1, settled: 1, buyers: 1, cents: TUNABLES.PACK_TIER_PRICES_CENTS[0] }] });
+    expect(dash.panels.packFunnel).toEqual({ viewers: 1, storeViewers: 1, buyers: 1, allBuyers: 2, tiers: [{ tier: 1, reserved: 1, settled: 1, buyers: 1, cents: TUNABLES.PACK_TIER_PRICES_CENTS[0] }], storeMode: "sandbox", counted: true });
     expect(dash.panels.packFunnel.buyers).toBeLessThanOrEqual(dash.panels.packFunnel.storeViewers);
   });
 

@@ -21,6 +21,10 @@
  * Replay (chunk 22): `replayUnits` and `marks` in the state. Entity positions are world points, not cells. A replay feeds interpolated
  * positions straight in (`fixedToWorld` on the log's fixed-point coordinates).
  */
+// Final review S2: the hosted client runs under a CSP without 'unsafe-eval' (apps/server/src/web/static.ts).
+// PixiJS compiles its uniform / shader sync functions with `new Function` unless this module swaps in
+// the eval-free implementations; it must load before any renderer is created.
+import "pixi.js/unsafe-eval";
 import { Application, Container, Graphics, Text, UPDATE_PRIORITY } from "pixi.js";
 import { TUNABLES } from "@caravan/content";
 import {

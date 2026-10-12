@@ -21,6 +21,7 @@ import { toAccountPublic, type AccountRow } from "../db/types.js";
 import { clearDeviceCookie, deleteDevice, deleteOtherDevices, deviceIdOfSession, deviceLabel, findLiveDevice, hashDeviceToken, readDeviceCookie, setDeviceCookie, touchLiveDevice } from "../account/device.js";
 import { checkDeletionRequest, createGuest, deletionTerms, deviceViews, eraseAccount, exportAccount, linkAccount } from "../account/service.js";
 import { findAccountById } from "../repo/accounts.js";
+import { passwordFailureLimits } from "../account/rateLimit.js";
 import { AppError, badRequest, conflict, unauthorized } from "../services/errors.js";
 import { requireAuth } from "./require-auth.js";
 
@@ -156,10 +157,17 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: { confirm?: unknown; password?: unknown } }>("/me/account/delete", { preHandler: requireAuth }, async (req, reply) => {
     const account = req.auth!.account;
     app.rateLimiter.hit("deletePerAccount", account.id);
-    // QA-30 N3: the password check here shares the login's per-username counter, so a stolen
-    // bearer token is not a second, separately-limited password-guessing channel.
-    if (account.username !== null) app.rateLimiter.hit("loginPerUsername", account.username);
-    await checkDeletionRequest(account, req.body ?? {});
+    // QA-30 N3: the password check here shares the login's failure counters (final review D2: per
+    // username and address, plus the per-username backstop), so a stolen bearer token is not a
+    // second, separately-limited password-guessing channel.
+    const failures = account.username !== null ? passwordFailureLimits(app.rateLimiter, account.username, req.ip) : null;
+    failures?.check();
+    try {
+      await checkDeletionRequest(account, req.body ?? {});
+    } catch (err) {
+      if (err instanceof AppError && err.code === "wrong_password") failures?.fail();
+      throw err;
+    }
     // The raw bearer token is account_erase's proof of the caller (migration 020); requireAuth has already matched it.
     const token = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? "")?.[1] ?? "";
     const counts = await eraseAccount(app.db, account.id, token);

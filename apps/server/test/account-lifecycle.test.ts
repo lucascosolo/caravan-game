@@ -327,7 +327,16 @@ describe("devices and sign-out", () => {
 });
 
 describe("rate limits", () => {
-  const small: RateLimitConfig = { ...RATE_LIMITS, loginPerIp: { limit: 6, windowMs: 60_000 }, loginPerUsername: { limit: 3, windowMs: 60_000 }, registerPerIp: { limit: 2, windowMs: 60_000 }, guestPerIp: { limit: 2, windowMs: 60_000 }, linkPerAccount: { limit: 2, windowMs: 60_000 }, exportPerAccount: { limit: 1, windowMs: 60_000 } };
+  const small: RateLimitConfig = {
+    ...RATE_LIMITS,
+    loginPerIp: { limit: 6, windowMs: 60_000 },
+    loginFailuresPerUsernameAddress: { limit: 3, windowMs: 60_000 },
+    loginFailuresPerUsername: { limit: 5, windowMs: 60_000 },
+    registerPerIp: { limit: 2, windowMs: 60_000 },
+    guestPerIp: { limit: 2, windowMs: 60_000 },
+    linkPerAccount: { limit: 2, windowMs: 60_000 },
+    exportPerAccount: { limit: 1, windowMs: 60_000 },
+  };
   let limited: FastifyInstance;
   let clock = 1_000_000;
   beforeAll(async () => {
@@ -335,17 +344,46 @@ describe("rate limits", () => {
   });
   afterAll(async () => limited.close());
 
-  const login = (username: string, password: string, ip = "10.0.0.1") => limited.inject({ method: "POST", url: "/auth/login", payload: { username, password }, remoteAddress: ip });
+  const login = (username: string, password: string, ip = "10.0.0.1", headers: Record<string, string> = {}) =>
+    limited.inject({ method: "POST", url: "/auth/login", payload: { username, password }, remoteAddress: ip, headers });
 
-  it("login: per username across addresses, per address across usernames, 429 with Retry-After and retryAfterMs, and the window resets", async () => {
+  it("final review D2: failures lock out one (username, address) only — another address still signs in; 429 with Retry-After and retryAfterMs; the window resets", async () => {
     const p = await register();
-    for (let i = 0; i < 3; i++) expect((await login(p.username!, "wrong password", `10.1.0.${i}`)).statusCode).toBe(401);
-    const over = await login(p.username!, "correct horse battery", "10.1.0.9");
+    for (let i = 0; i < 3; i++) expect((await login(p.username!, "wrong password", "10.1.0.1")).statusCode).toBe(401);
+    const over = await login(p.username!, "correct horse battery", "10.1.0.1");
     expect(over.statusCode).toBe(429);
     expect(over.json()).toMatchObject({ error: "rate_limited", retryAfterMs: expect.any(Number) });
     expect(Number(over.headers["retry-after"])).toBeGreaterThan(0);
+    // The attacker's address cannot lock the player out from theirs.
+    expect((await login(p.username!, "correct horse battery", "10.1.0.2")).statusCode).toBe(200);
     clock += 60_000;
-    expect((await login(p.username!, "correct horse battery", "10.1.0.9")).statusCode).toBe(200);
+    expect((await login(p.username!, "correct horse battery", "10.1.0.1")).statusCode).toBe(200);
+  });
+
+  it("final review D2: a success clears that address's failures; the per-username backstop still stops a guess spread over many addresses", async () => {
+    const p = await register();
+    for (let i = 0; i < 2; i++) expect((await login(p.username!, "wrong password", "10.5.0.1")).statusCode).toBe(401);
+    expect((await login(p.username!, "correct horse battery", "10.5.0.1")).statusCode).toBe(200);
+    for (let i = 0; i < 2; i++) expect((await login(p.username!, "wrong password", "10.5.0.1")).statusCode).toBe(401);
+    expect((await login(p.username!, "correct horse battery", "10.5.0.1")).statusCode).toBe(200);
+    // 4 failures so far in this window (the backstop is 5): one more from a fresh address, then the ceiling holds everywhere.
+    expect((await login(p.username!, "wrong password", "10.5.1.1")).statusCode).toBe(401);
+    expect((await login(p.username!, "correct horse battery", "10.5.2.1")).statusCode).toBe(429);
+    clock += 60_000;
+  });
+
+  it("final review D2: a browser holding a live device cookie of the account is exempt from the failure limits", async () => {
+    const p = await register();
+    for (let i = 0; i < 3; i++) expect((await login(p.username!, "wrong password", "10.6.0.1")).statusCode).toBe(401);
+    expect((await login(p.username!, "correct horse battery", "10.6.0.1")).statusCode).toBe(429);
+    // Another account's cookie proves nothing about this one.
+    const q = await register();
+    expect((await login(p.username!, "correct horse battery", "10.6.0.1", { cookie: q.cookie })).statusCode).toBe(429);
+    expect((await login(p.username!, "correct horse battery", "10.6.0.1", { cookie: p.cookie })).statusCode).toBe(200);
+    clock += 60_000;
+  });
+
+  it("login: per address across usernames", async () => {
     // Per address: six attempts at six different usernames, then the seventh is refused before any hash runs.
     for (let i = 0; i < 6; i++) expect((await login(`nobody_${i}`, "whatever pass", "10.2.0.1")).statusCode).toBe(401);
     expect((await login("nobody_7", "whatever pass", "10.2.0.1")).statusCode).toBe(429);

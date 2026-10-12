@@ -134,6 +134,9 @@ export interface DashboardView {
       readonly buyers: number;
       readonly allBuyers: number;
       readonly tiers: readonly { readonly tier: number; readonly reserved: number; readonly settled: number; readonly buyers: number; readonly cents: number }[];
+      /** Final review D1: with the store off (the play test) the funnel is not counted: counted false, every number 0. */
+      readonly storeMode: "sandbox" | "off";
+      readonly counted: boolean;
     };
     readonly sessionLength: {
       readonly sessions: number;
