@@ -350,3 +350,36 @@ It lists every fence segment line by line (`shots/13-commit-dialog.png`). **Fix:
 6. Guide copy that disagrees about pushing (N1). 7. Encounter 2 by hand: tiny ring cells and a
 picker that moves segments (S3). 8. A real chance of losing every unit on trip 2 or 3 (S1), and
 then a party that quietly stops working (S2). 9. A free $0 store that "fixes" it (S5).
+
+## Orchestrator decisions (2026-10-12)
+
+The anchor is PROJECT.md §13: a wipe is meant to cost "a slot's worth of units, never a whole collection", and the person playing is the one with something at risk. The raid party's owner "risks nothing" (§10, line 115).
+
+- **S1: restore the bounded blast radius without softening the overrun rule.** The §13 rule stays: units still alive at an overrun are lost.
+  - **Packing.**
+    - The guide packs at most `roster − GUIDE_RESERVE` (tunable, default 2), so it always leaves a reserve in town.
+    - The Pack screen warns, without blocking, whenever the whole roster is being packed: "everything you pack can be lost".
+  - **Recovery.**
+    - While a caravan in town has fewer than `REFUGEE_ROSTER_FLOOR` units (tunable, default 3), its refugee menu is ready at once instead of waiting for the drip timer.
+    - This is a tuning of §15's free timer, not a new source: it still offers 3 unlocked types and grants nothing locked.
+    - Record it as a PROJECT.md §15 amendment line, with a reason.
+  - **Matchmaking.** In band 0 only, never serve a party with more raiders than the caravan packed units. This is a cold-start fairness rule in the same family as the nearest-N authored fill. It is a tunable that the balance harness re-checks.
+- **S2: the standing party repairs itself.**
+  - A merge re-points the party's reference to the merged unit. A destroyed unit is dropped.
+  - Either change posts an inbox notice, "your standing party changed", saying what changed. An empty party gets a notice too.
+  - The party is never silently `valid: false`.
+- **S3: arranging is fast.**
+  - Fix the picker's auto-advance bug.
+  - Add "Fence this side" and "Start from my last arrangement", which pre-fills from the previous encounter's formation filtered to the survivors.
+  - Frame the camera on the ring by default.
+  - Target: a sensible arrangement in about 10 taps.
+- **S4:** after a commit, the result screen opens the replay already playing at 2×, with "Skip to result" one tap away. The end card is a bottom sheet that never covers the decisive moment.
+- **S5:** closed by the guardrail fix round, which sets `STORE_MODE=off` in production.
+- **D1: no change.** It is the deliberate §13 tension. Add one line of copy on the bank-or-push and pack screens: "units that die lose a level; units still standing when the caravan falls are lost".
+- **D2:** while the roster is below the slot cap, the merge preview says merging lowers the count of units you can pack. Copy only.
+- **D3, D4: no change before the play test.** Add them to BALANCE-LOG.md as telemetry questions.
+- **D5:** "Raise my party" includes the owner's unlocked siege, so the siege ladder can grow.
+- **D6: fix, per PROJECT.md §10.** A raid party that is held or stalemated never lowers its owner's Reputation; only a success raises it. The defender's Reputation rules are unchanged. Re-run the balance harness's equilibrium check afterwards and record it.
+- **D7:** "Refugees ready" and "Trip cap refilled" become on by default. Mine-near-cap and packs stay off.
+- **D8:** tune unlock-web costs so that the first tier-2 unlock arrives in about 2–3 days of normal play, measured with the balance harness's week model. Record it in BALANCE-LOG.md.
+- **Every N item is in scope.**
