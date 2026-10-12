@@ -85,8 +85,11 @@ async function fitsPortrait(page: Page): Promise<void> {
   expect(r.small).toEqual([]);
 }
 
-/** Chunk 29 QA S3: the longest valid caravan name (CARAVAN_NAME_MAX = 40) with no space to break at. */
-const LONG_NAME = "W".repeat(40);
+/**
+ * Chunk 29 QA S3: the longest valid caravan name (CARAVAN_NAME_MAX = 40) with no space to break at.
+ * Unique per run (play-test review r2 N4: a name another caravan already carries gets an ordinal).
+ */
+const LONG_NAME = ("W".repeat(32) + Date.now().toString(36).toUpperCase()).slice(0, 40).padEnd(40, "W");
 
 test("a party owner learns of their strikes from the badge, reads them, and watches one", async ({ page, request }) => {
   const owner = await register(request, "Owner Wagons");

@@ -564,6 +564,8 @@ on the formation read. Migration **028** (`028_caravan_names`).
   - Migration 028 adds an index on `lower(name)`.
   - Test: 40 unnamed caravans get 40 distinct names, and three requests for the same name come back
     as base, II and III.
+  - The inbox e2e's fixed 40-character name became unique per run. It had collided with itself on
+    the second e2e pass of `pnpm check` and was shown with "II".
 - **N10, server: closed, additively.** `GET …/formation?ifNone=null` answers 200
   `{ formation: null, encounterIndex }` when no draft exists. Without the parameter it is still the
   404 that current clients expect. The cold-load 401s were the client's (fixed on main); the reload
