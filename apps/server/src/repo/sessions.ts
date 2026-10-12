@@ -1,16 +1,22 @@
 import type { Queryable } from "../db/pool.js";
 import type { SessionRow } from "../db/types.js";
 
+/**
+ * QA-30 S1: the one way a session is created — session_issue() (SECURITY DEFINER, migration 023)
+ * hashes the RAW token inside the database; the app role has no INSERT on `session`. Without a
+ * device id the database gives the session a device of its own (migration 020).
+ */
 export async function insertSession(
   db: Queryable,
-  input: { accountId: string; tokenHash: string; expiresAt: Date; deviceId?: string },
+  input: { accountId: string; token: string; expiresAt: Date; deviceId?: string },
 ): Promise<SessionRow> {
-  // Chunk 30: without a device id the database gives the session a device of its own (migration 020).
-  const res = await db.query<SessionRow>(
-    `INSERT INTO session (account_id, token_hash, expires_at, device_id) VALUES ($1, $2, $3, $4) RETURNING *`,
-    [input.accountId, input.tokenHash, input.expiresAt, input.deviceId ?? null],
-  );
+  const res = await db.query<SessionRow>("SELECT * FROM session_issue($1, $2, $3, $4)", [input.accountId, input.deviceId ?? null, input.token, input.expiresAt]);
   return res.rows[0]!;
+}
+
+/** QA-30 S4: mark a session used (at most once per SESSION_TOUCH_INTERVAL_MS), so eviction is least-recently-used. */
+export async function touchSession(db: Queryable, sessionId: string, intervalMs: number): Promise<void> {
+  await db.query("UPDATE session SET last_used_at = now() WHERE id = $1 AND (last_used_at <= created_at OR last_used_at < now() - ($2::bigint * interval '1 millisecond'))", [sessionId, intervalMs]);
 }
 
 /** Returns the session only if it exists and has not expired. */
@@ -38,7 +44,8 @@ export async function evictSessionsBeyondCap(db: Queryable, accountId: string, c
   const res = await db.query(
     `DELETE FROM session WHERE id IN (
        SELECT id FROM session WHERE account_id = $1
-       ORDER BY created_at DESC, id DESC OFFSET $2
+       -- QA-30 S4: keep sessions in use (authenticated in the last 5 minutes) first, then the most recently used / issued.
+       ORDER BY (last_used_at > created_at AND last_used_at > now() - interval '5 minutes') DESC, last_used_at DESC, created_at DESC, id DESC OFFSET $2
      )`,
     [accountId, cap],
   );
@@ -51,7 +58,8 @@ export async function evictDeviceSessionsBeyondCap(db: Queryable, deviceId: stri
   const res = await db.query(
     `DELETE FROM session WHERE id IN (
        SELECT id FROM session WHERE device_id = $1
-       ORDER BY created_at DESC, id DESC OFFSET $2
+       -- QA-30 S4: keep sessions in use (authenticated in the last 5 minutes) first, then the most recently used / issued.
+       ORDER BY (last_used_at > created_at AND last_used_at > now() - interval '5 minutes') DESC, last_used_at DESC, created_at DESC, id DESC OFFSET $2
      )`,
     [deviceId, cap],
   );

@@ -8,22 +8,38 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Queryable } from "../db/pool.js";
 import { authenticate } from "../auth/sessions.js";
 import { AppError } from "../services/errors.js";
+import { TelemetryRateLimiter } from "./clientEvents.js";
+import { ADMIN_REQUESTS_PER_MINUTE } from "./tunables.js";
 
 export async function isAdmin(db: Queryable, accountId: string): Promise<boolean> {
   const res = await db.query("SELECT 1 FROM account_admin WHERE account_id = $1", [accountId]);
   return (res.rowCount ?? 0) > 0;
 }
 
-/** The answer every non-admin gets from /admin/*: the same 404 an unknown route gives, so the surface is not advertised. */
-export const ADMIN_NOT_FOUND = new AppError(404, "not_found", "not found");
+/**
+ * QA N1: the answer every non-admin gets from /admin/* is byte-for-byte the body Fastify's own
+ * not-found handler sends for an unknown route (`Route <METHOD>:<url> not found`), so the admin
+ * surface cannot be told apart from a path that does not exist.
+ */
+export function sendNotFound(req: FastifyRequest, reply: FastifyReply): FastifyReply {
+  return reply.code(404).send({ message: `Route ${req.method}:${req.url} not found`, error: "Not Found", statusCode: 404 });
+}
+
+/** QA D6: admin requests per admin account per minute (after the admin check, so a non-admin only ever sees the 404). */
+const adminLimiter = new TelemetryRateLimiter(ADMIN_REQUESTS_PER_MINUTE, 60_000);
 
 /**
  * Fastify preHandler for /admin/*: a missing or bad token, a non-admin account and an admin
  * all look the same from outside until the last one gets a body. Never 401/403.
  */
-export async function requireAdmin(req: FastifyRequest, _reply: FastifyReply): Promise<void> {
+export async function requireAdmin(req: FastifyRequest, reply: FastifyReply): Promise<FastifyReply | void> {
   const ctx = await authenticate(req.server.db, req.headers.authorization);
-  if (!ctx || !(await isAdmin(req.server.db, ctx.account.id))) throw ADMIN_NOT_FOUND;
+  if (!ctx || !(await isAdmin(req.server.db, ctx.account.id))) return sendNotFound(req, reply);
+  const take = adminLimiter.take(ctx.account.id, Date.now());
+  if (!take.ok) {
+    void reply.header("Retry-After", String(Math.max(1, Math.ceil(take.retryAfterMs / 1000))));
+    throw new AppError(429, "admin_rate_limited", "too many dashboard requests; try again shortly");
+  }
   req.auth = ctx;
 }
 

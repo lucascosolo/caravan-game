@@ -2,7 +2,7 @@
   "route": "POST /me/cosmetics/unequip",
   "status": 200,
   "body": {
-    "slot": "fence_style",
+    "slot": "wagon_skin",
     "cleared": true,
     "equipped": {}
   }

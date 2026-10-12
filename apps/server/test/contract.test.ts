@@ -511,7 +511,7 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     const guestRes = await app.inject({ method: "POST", url: "/auth/guest", payload: { region: "desert" } });
     const guestBody = (await record("auth-guest", "POST /auth/guest", guestRes, 201)) as { token: string };
     const guestCookie = String(([] as unknown[]).concat(guestRes.headers["set-cookie"])[0]).split(";")[0]!;
-    await record("auth-resume", "POST /auth/resume", await app.inject({ method: "POST", url: "/auth/resume", headers: { cookie: guestCookie } }), 200);
+    await record("auth-resume", "POST /auth/resume", await app.inject({ method: "POST", url: "/auth/resume", payload: {}, headers: { cookie: guestCookie } }), 200);
     const g: Player = { token: guestBody.token, accountId: "", caravanId: "", units: [] };
     await record("account-guest", "GET /me/account", await call(g, "GET", "/me/account"), 200);
     await record("account-link", "POST /me/account/link", await call(g, "POST", "/me/account/link", { username: "contract_guest", password: "correct horse battery" }), 200);

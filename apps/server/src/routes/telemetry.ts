@@ -16,7 +16,8 @@
  * and only to date telemetry and bound the dashboard window — never an outcome.
  */
 import type { FastifyInstance } from "fastify";
-import { requireAdmin } from "../analytics/admin.js";
+import { weekIndexAt } from "@caravan/content";
+import { requireAdmin, sendNotFound } from "../analytics/admin.js";
 import { ingest, parseBatch, readSettings, saveSettings, TelemetryRateLimiter } from "../analytics/clientEvents.js";
 import { buildDashboard } from "../analytics/dashboard.js";
 import { ANALYTICS_DEFAULT_WINDOW_DAYS, ANALYTICS_MAX_WINDOW_DAYS, TELEMETRY_BODY_LIMIT_BYTES } from "../analytics/tunables.js";
@@ -49,26 +50,29 @@ export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoute
       },
     },
     async (req, reply) => {
-      const events = parseBatch(req.body ?? null);
-      const result = await ingest(app.db, req.auth!.account.id, events, Date.now());
+      const batch = parseBatch(req.body ?? null);
+      const result = await ingest(app.db, req.auth!.account.id, batch, Date.now());
       return reply.code(202).send(result);
     },
   );
 
   app.get("/admin/dashboard", { preHandler: requireAdmin }, async (req) => {
     const query = req.query as Record<string, string | undefined>;
-    const days = query["days"] === undefined ? ANALYTICS_DEFAULT_WINDOW_DAYS : Number(query["days"]);
-    if (!Number.isInteger(days) || days < 1 || days > ANALYTICS_MAX_WINDOW_DAYS) throw badRequest("invalid_window", `days must be an integer 1..${ANALYTICS_MAX_WINDOW_DAYS}`);
+    // QA N2: plain decimal digits only (no 1e308, 0x10 or a sign), then bounded.
+    const DIGITS = /^\d{1,6}$/;
+    const rawDays = query["days"];
+    if (rawDays !== undefined && !DIGITS.test(rawDays)) throw badRequest("invalid_window", `days must be an integer 1..${ANALYTICS_MAX_WINDOW_DAYS}`);
+    const days = rawDays === undefined ? ANALYTICS_DEFAULT_WINDOW_DAYS : Number(rawDays);
+    if (days < 1 || days > ANALYTICS_MAX_WINDOW_DAYS) throw badRequest("invalid_window", `days must be an integer 1..${ANALYTICS_MAX_WINDOW_DAYS}`);
     let week: number | undefined;
     if (query["week"] !== undefined) {
+      const current = weekIndexAt(Date.now());
+      if (!DIGITS.test(query["week"]) || Number(query["week"]) > current) throw badRequest("invalid_week", `week must be a pack-rotation week index 0..${current}`);
       week = Number(query["week"]);
-      if (!Number.isInteger(week)) throw badRequest("invalid_week", "week must be an integer pack-rotation week index");
     }
     return buildDashboard(app.db, { nowMs: Date.now(), days, ...(week === undefined ? {} : { week }) });
   });
 
-  // Any other /admin/* path answers exactly like a non-admin request: 404.
-  app.all("/admin/*", async () => {
-    throw new AppError(404, "not_found", "not found");
-  });
+  // Any other /admin/* path answers exactly like an unknown route (QA N1).
+  app.all("/admin/*", async (req, reply) => sendNotFound(req, reply));
 }

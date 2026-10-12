@@ -5,7 +5,7 @@
     "purchases": [
       {
         "id": "00000000-0000-4000-8000-000000000001",
-        "weekIndex": 39,
+        "weekIndex": 40,
         "tier": 1,
         "backend": "sandbox_stub",
         "sandboxReceipt": "sandbox:00000000-0000-4000-8000-000000000002",
@@ -17,7 +17,7 @@
           },
           {
             "kind": "cosmetic",
-            "cosmeticId": "fence_style.weathered_grey"
+            "cosmeticId": "wagon.conestoga_white"
           }
         ],
         "coin": {
@@ -25,7 +25,7 @@
           "credited": 6000,
           "discarded": 0
         },
-        "causationId": "pack:00000000-0000-4000-8000-000000000003:w39:t1",
+        "causationId": "pack:00000000-0000-4000-8000-000000000003:w40:t1",
         "purchasedAt": "2026-10-11T12:00:00.000Z",
         "settled": true,
         "settledAt": "2026-10-11T12:00:00.000Z"

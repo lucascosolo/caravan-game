@@ -1,0 +1,34 @@
+-- chunk 32: tick-cap over the synthetic history in test/telemetry-scale.test.ts (120-day window)
+GroupAggregate
+  Group Key: e.outcome_kind
+  CTE enc
+    ->  Nested Loop
+          ->  Hash Anti Join
+                Hash Cond: (te.trip_id = st.id)
+                ->  Bitmap Heap Scan on trip_encounter te
+                      Recheck Cond: ((settled_at >= '2026-06-13 23:35:31.636+00'::timestamp with time zone) AND (settled_at < '2026-10-11 23:35:31.636+00'::timestamp with time zone))
+                      ->  Bitmap Index Scan on trip_encounter_settled_at_idx
+                            Index Cond: ((settled_at >= '2026-06-13 23:35:31.636+00'::timestamp with time zone) AND (settled_at < '2026-10-11 23:35:31.636+00'::timestamp with time zone))
+                ->  Hash
+                      ->  Nested Loop
+                            ->  Nested Loop
+                                  ->  Index Only Scan using account_system_idx on account sa
+                                        Filter: (id <> '00000000-0000-4000-8000-0000000000d0'::uuid)
+                                  ->  Index Scan using caravan_account_idx on caravan sc
+                                        Index Cond: (account_id = sa.id)
+                            ->  Index Scan using trip_caravan_idx on trip st
+                                  Index Cond: (caravan_id = sc.id)
+          ->  Limit
+                ->  Index Scan using resolution_job_pkey on resolution_job
+                      Index Cond: (id = te.job_id)
+          SubPlan 1
+            ->  Limit
+                  ->  Nested Loop
+                        ->  Index Scan using encounter_candidates_chosen_recent_idx on encounter_candidates ec
+                              Index Cond: ((trip_id = te.trip_id) AND (encounter_index = te.encounter_index))
+                        ->  Function Scan on jsonb_array_elements c
+                              Filter: ((value ->> 'candidateId'::text) = ec.chosen_candidate_id)
+  ->  Sort
+        Sort Key: e.outcome_kind
+        ->  CTE Scan on enc e
+              Filter: (jsonb_typeof(((result -> 'outcome'::text) -> 'endTick'::text)) = 'number'::text)

@@ -11,6 +11,7 @@ import { STRINGS } from "../../strings.ts";
 import { EncounterResult } from "./EncounterResult.tsx";
 import { DeMergedList } from "./BankOrPushScreen.tsx";
 import { unitLabel, unitTypeName } from "./tripNames.ts";
+import { GuestSavePrompt } from "../account/GuestSavePrompt.tsx";
 
 const T = STRINGS.trip;
 
@@ -32,6 +33,8 @@ export function TripSummary({ trip, bank = null, balance = null, past = false }:
       <h1 id="trip-summary-heading" tabIndex={-1}>
         {past ? T.lastTrip : T.summaryTitle}
       </h1>
+      {/* QA-30 D1: the end of a trip is a moment of value — a guest is asked to save it (never blocking). */}
+      {!past && <GuestSavePrompt place="trip_end" />}
       {e?.kind === "banked" && (
         <div className="notice" data-testid="summary-banked">
           <p>

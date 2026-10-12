@@ -52,7 +52,7 @@ import { bankResultShape, encounterCommitShape, pushResultShape, stakesPreviewSh
 import { recentFightsShape, replayShape } from "./replayShapes.ts";
 import { inboxMarkResultShape, inboxShape, inboxStrikeLinesShape, inboxUnreadShape } from "./inboxShapes.ts";
 import { analyticsSettingsShape, dashboardShape, telemetryIngestShape } from "./telemetryShapes.ts";
-import type { AnalyticsSettings, DashboardView, TelemetryEvent, TelemetryIngestResult } from "./telemetryTypes.ts";
+import type { AnalyticsSettings, DashboardView, TelemetryBatch, TelemetryIngestResult } from "./telemetryTypes.ts";
 import type { InboxCategoryView, InboxMarkRequest, InboxMarkResult, InboxStrikeLinesView, InboxUnreadView, InboxView } from "./inboxTypes.ts";
 import { onboardingChangeShape, onboardingShape, type OnboardingChange, type OnboardingResponse } from "../onboarding/shapes.ts";
 import type { OnboardingStep } from "../onboarding/steps.ts";
@@ -137,13 +137,14 @@ export interface RegisterInput {
 }
 
 export interface Api {
-  register(input: RegisterInput): Promise<AuthResponse>;
-  login(username: string, password: string): Promise<AuthResponse>;
+  /** QA-30 S4: 409 `guest_on_device` when this device holds a guest; `replaceGuest` erases that guest once the new sign-in succeeds. */
+  register(input: RegisterInput, replaceGuest?: boolean): Promise<AuthResponse>;
+  login(username: string, password: string, replaceGuest?: boolean): Promise<AuthResponse>;
   /** Chunk 30: a guest's sign-out needs `abandon` (409 `guest_sign_out` otherwise — it would lose the account). */
   logout(abandon?: boolean): Promise<void>;
   // Account lifecycle (chunk 30 routes).
   /** First launch: a guest account (no username or password) with its first caravan in `region`. */
-  guest(region: string, caravanName?: string): Promise<AuthResponse>;
+  guest(region: string, caravanName?: string, replaceGuest?: boolean): Promise<AuthResponse>;
   /** A reload: the server's device cookie for a fresh session. 401 `no_device` when there is none (never drops a session). */
   resume(): Promise<AuthResponse>;
   account(): Promise<AccountView>;
@@ -229,7 +230,7 @@ export interface Api {
   // the opt-out is an account setting the server honours (an opted-out batch is dropped).
   analyticsSettings(): Promise<AnalyticsSettings>;
   setAnalyticsOptOut(optedOut: boolean): Promise<AnalyticsSettings>;
-  sendTelemetry(events: readonly TelemetryEvent[]): Promise<TelemetryIngestResult>;
+  sendTelemetry(batch: TelemetryBatch): Promise<TelemetryIngestResult>;
   // The admin dashboard (404 for anyone who is not an admin).
   adminDashboard(days?: number): Promise<DashboardView>;
 }
@@ -294,11 +295,13 @@ export function createApi(opts: ApiOptions): Api {
   const caravans = (caravanId: string): string => `/caravans/${encodeURIComponent(caravanId)}`;
 
   return {
-    register: (input) => request("POST", "/auth/register", authShape, input),
-    login: (username, password) => request("POST", "/auth/login", authShape, { username, password }),
+    register: (input, replaceGuest) => request("POST", "/auth/register", authShape, replaceGuest ? { ...input, replaceGuest: true } : input),
+    login: (username, password, replaceGuest) => request("POST", "/auth/login", authShape, replaceGuest ? { username, password, replaceGuest: true } : { username, password }),
     logout: (abandon) => request("POST", "/auth/logout", null, abandon ? { abandon: true } : undefined),
-    guest: (region, caravanName) => request("POST", "/auth/guest", authShape, caravanName ? { region, caravanName } : { region }),
-    resume: () => request("POST", "/auth/resume", authShape, undefined, { quiet401: true }),
+    guest: (region, caravanName, replaceGuest) =>
+      request("POST", "/auth/guest", authShape, { region, ...(caravanName ? { caravanName } : {}), ...(replaceGuest ? { replaceGuest: true } : {}) }),
+    // QA-30 N7: a JSON body, so the request is never a "simple" cross-site POST.
+    resume: () => request("POST", "/auth/resume", authShape, {}, { quiet401: true }),
     account: () => request("GET", "/me/account", accountViewShape),
     linkAccount: (username, password) => request("POST", "/me/account/link", linkResultShape, { username, password }),
     devices: () => request("GET", "/me/devices", devicesShape),
@@ -354,7 +357,7 @@ export function createApi(opts: ApiOptions): Api {
     skipOnboarding: () => request("POST", "/me/onboarding/skip", onboardingChangeShape),
     analyticsSettings: () => request("GET", "/me/analytics", analyticsSettingsShape),
     setAnalyticsOptOut: (optedOut) => request("PUT", "/me/analytics", analyticsSettingsShape, { optedOut }),
-    sendTelemetry: (events) => request("POST", "/me/telemetry", telemetryIngestShape, { events }),
+    sendTelemetry: (batch) => request("POST", "/me/telemetry", telemetryIngestShape, { session: batch.session, seq: batch.seq, events: batch.events }),
     adminDashboard: (days) => request("GET", days === undefined ? "/admin/dashboard" : `/admin/dashboard?days=${Math.trunc(days)}`, dashboardShape),
   };
 }

@@ -9,8 +9,15 @@ export interface AnalyticsSettings {
 }
 
 export type TelemetryEvent =
-  | { readonly kind: "screen"; readonly screen: TelemetryScreen; readonly agoMs: number }
+  | { readonly kind: "screen" | "heartbeat"; readonly screen: TelemetryScreen; readonly agoMs: number }
   | { readonly kind: "crash"; readonly screen: TelemetryScreen; readonly errorName: TelemetryErrorName; readonly stackHash: string; readonly agoMs: number };
+
+/** QA D2: a batch carries this page load's random session id and its sequence number in it. */
+export interface TelemetryBatch {
+  readonly session: number;
+  readonly seq: number;
+  readonly events: readonly TelemetryEvent[];
+}
 
 export interface TelemetryIngestResult {
   readonly accepted: number;
@@ -51,7 +58,8 @@ export interface PoolBandView {
   readonly servedAuthored: number;
   readonly liveShareBp: number | null;
   readonly servedAuthoredShareBp: number | null;
-  readonly alarm: "ok" | "empty" | "no_live" | "authored_over_share";
+  readonly matchmakerWindow: { readonly served: number; readonly authored: number; readonly shareBp: number | null };
+  readonly alarm: "ok" | "empty" | "thin" | "no_live" | "authored_over_share";
 }
 
 export interface DashboardView {
@@ -76,6 +84,9 @@ export interface DashboardView {
     readonly overrunByBand: readonly { readonly band: number; readonly encounters: number; readonly held: number; readonly overrun: number; readonly stalemate: number; readonly overrunRateBp: number | null }[];
     readonly defenderUnits: TypedPanel;
     readonly attackerUnits: TypedPanel;
+    readonly matchups: readonly { readonly defender: string; readonly attacker: string; readonly encounters: number; readonly held: number; readonly overrun: number; readonly heldRateBp: number | null }[];
+    readonly mergeLevels: readonly { readonly side: string; readonly level: number; readonly encounters: number; readonly held: number; readonly heldRateBp: number | null }[];
+    readonly fences: readonly { readonly tierId: string; readonly placed: number; readonly broken: number; readonly damaged: number; readonly hpLost: number; readonly brokenRateBp: number | null }[];
     readonly traps: TypedPanel;
     readonly siege: TypedPanel;
     readonly stances: readonly { readonly stance: string; readonly posts: number; readonly held: number; readonly heldRateBp: number | null }[];
@@ -105,6 +116,7 @@ export interface DashboardView {
       readonly weekTo: string;
       readonly weeklyPayCeiling: number;
       readonly freeWeeklyEarnEstimate: number;
+      readonly note: string;
       readonly deciles: readonly {
         readonly decile: number;
         readonly players: number;
@@ -120,6 +132,7 @@ export interface DashboardView {
       readonly viewers: number;
       readonly storeViewers: number;
       readonly buyers: number;
+      readonly allBuyers: number;
       readonly tiers: readonly { readonly tier: number; readonly reserved: number; readonly settled: number; readonly buyers: number; readonly cents: number }[];
     };
     readonly sessionLength: {

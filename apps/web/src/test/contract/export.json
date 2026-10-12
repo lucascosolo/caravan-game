@@ -3,7 +3,7 @@
   "status": 200,
   "body": {
     "format": "caravan-vaults-account-export",
-    "version": 1,
+    "version": 2,
     "exportedAt": "2026-10-11T12:00:00.000Z",
     "account": {
       "id": "00000000-0000-4000-8000-000000000001",
@@ -61,10 +61,17 @@
       "completed_at": null,
       "updated_at": "2026-10-11T12:00:01.000Z"
     },
+    "inboxPreferences": [],
+    "inboxRead": [],
+    "tripCap": null,
+    "tripCapUses": [],
     "purchases": [],
     "cosmetics": [],
     "cosmeticsEquipped": [],
-    "inboxPreferences": [],
+    "analytics": {
+      "optedOut": false,
+      "events": []
+    },
     "devices": [
       {
         "id": "00000000-0000-4000-8000-000000000003",
@@ -132,8 +139,12 @@
             "created_at": "2026-10-11T12:00:01.000Z"
           }
         ],
+        "manifests": [],
+        "formations": [],
+        "refugeeMenus": [],
         "trips": [],
-        "tripEncounters": []
+        "tripEncounters": [],
+        "tripMenus": []
       }
     ],
     "encounters": [],

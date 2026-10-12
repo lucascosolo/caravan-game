@@ -49,6 +49,14 @@ export const STRINGS = {
     startIntro: "No sign-up needed. Pick a region and ride out; you can save your progress with a username and password whenever you like.",
     submitStart: "Start playing",
     resuming: "Finding your caravan…",
+    // QA-30 S4
+    resumeFailedTitle: "Could not reach your caravan",
+    resumeFailedBody: "The server did not answer. Your caravan is safe; try again in a moment.",
+    guestOnDeviceTitle: "This device has a guest caravan",
+    guestOnDeviceBody: "A guest caravan with no username or password is saved on this device. Continuing here replaces it, and the guest caravan, its roster and its Coin are deleted for good.",
+    continueGuest: "Continue the guest caravan",
+    replaceGuestStart: "Delete it and start a new caravan",
+    replaceGuestSignIn: "Delete it and sign in",
   },
   // Chunk 30: the Account screen (linking, devices, export, deletion).
   account: {
@@ -85,8 +93,14 @@ export const STRINGS = {
     deleting: "Deleting…",
     deleted: "Your account has been deleted.",
     signOut: "Sign out",
-    signOutGuest: "Leave this guest account",
-    signOutGuestConfirm: "This guest account has no password. If you leave, it is gone for good. Leave anyway?",
+    signOutGuest: "Leave and delete this guest account",
+    signOutGuestConfirm: "This guest account has no password, so leaving deletes it: its caravan, roster, standing party and Coin are erased for good (fights you were part of stay in other players' histories, with no name). Delete it and leave?",
+    guestLeft: "Your guest account has been deleted.",
+    // QA-30 D1: a non-blocking prompt for guests until they link.
+    savePromptTitle: "Save your progress",
+    savePromptBody: "You are playing as a guest: this browser is your only key. Add a username and password to keep your caravan safe.",
+    savePromptAction: "Save my progress",
+    savePromptDismiss: "Not now",
     back: "Back",
   },
   webs: {
@@ -1396,7 +1410,8 @@ export const STRINGS = {
     tuningMetric: "Read",
     empty: "No data in this window.",
     alarms: (n: number): string => (n === 0 ? "No band alarms." : `${n} band alarm${n === 1 ? "" : "s"}.`),
-    alarm: (a: string): string => ({ ok: "OK", empty: "ALARM: fewer than a full menu", no_live: "WARN: authored only", authored_over_share: "WARN: authored over share" })[a] ?? a,
+    alarm: (a: string): string =>
+      ({ ok: "OK", empty: "ALARM: fewer than a full menu", thin: "WARN: thin (a recent-opponent exclusion can break a full menu)", no_live: "WARN: authored only", authored_over_share: "WARN: authored over the matchmaker's share" })[a] ?? a,
     rate: (bp: number | null): string => (bp === null ? "—" : `${(bp / 100).toFixed(2)}%`),
     ms: (ms: number): string => (ms < 60_000 ? `${Math.round(ms / 1000)} s` : `${(ms / 60_000).toFixed(1)} min`),
     panels: {
@@ -1405,6 +1420,9 @@ export const STRINGS = {
       overrunByBand: "Overrun rate by the caravan's Reputation band",
       defenderUnits: "Posted (defending) unit types: pick and win (held) rate",
       attackerUnits: "Raiding unit types in served parties: pick and win (overrun) rate",
+      matchups: "Held rate by affinity matchup (posted × raider)",
+      mergeLevels: "Held rate by merge level, each side",
+      fences: "Fence breakage by tier",
       stances: "Posts by defensive stance: held rate",
       slots: "Slot fill per encounter: posted, raiders, traps, fence segments",
       traps: "Trap usage: pick and held rate",

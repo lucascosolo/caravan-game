@@ -2,10 +2,10 @@
   "route": "POST /me/cosmetics/equip",
   "status": 200,
   "body": {
-    "slot": "fence_style",
-    "cosmeticId": "fence_style.weathered_grey",
+    "slot": "wagon_skin",
+    "cosmeticId": "wagon.conestoga_white",
     "equipped": {
-      "fence_style": "fence_style.weathered_grey"
+      "wagon_skin": "wagon.conestoga_white"
     }
   }
 }

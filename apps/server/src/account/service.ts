@@ -14,6 +14,7 @@
  *   only it owns are deleted; what it shares with other players (replays, their ledgers, their
  *   trips and menus) is anonymized to the tombstone. See the migration's header.
  */
+import { analyticsForExport } from "../analytics/clientEvents.js";
 import type pg from "pg";
 import { hashPassword, verifyPassword } from "../auth/password.js";
 import { withTransaction, type Queryable } from "../db/pool.js";
@@ -23,7 +24,7 @@ import { AppError, badRequest, conflict } from "../services/errors.js";
 import { createAccountHub, normalizeCaravanName, validateCredentials } from "../services/onboarding.js";
 import { listDevices, type DeviceRow } from "./device.js";
 import { storeRecordsForExport } from "../store/export.js";
-import { DELETE_CONFIRM_PHRASE } from "./tunables.js";
+import { DELETE_CONFIRM_PHRASE, EXPORT_MAX_BYTES } from "./tunables.js";
 
 export async function createGuest(pool: pg.Pool, input: { regionId: string; caravanName?: string }): Promise<{ account: AccountRow; caravan: CaravanRow }> {
   const caravanName = input.caravanName !== undefined ? normalizeCaravanName(input.caravanName) : undefined;
@@ -84,11 +85,13 @@ export async function checkDeletionRequest(account: AccountRow, body: { confirm?
 export type ErasureCounts = Record<string, number>;
 
 /** Erase: one transaction through account_erase, retried on a deadlock / serialization failure (a settle racing it). */
-export async function eraseAccount(pool: pg.Pool, accountId: string, bearerToken: string): Promise<ErasureCounts> {
+export type ErasureReason = "player_request" | "guest_left" | "guest_replaced";
+
+export async function eraseAccount(pool: pg.Pool, accountId: string, bearerToken: string, reason: ErasureReason = "player_request"): Promise<ErasureCounts> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await withTransaction(pool, async (client) => {
-        const res = await client.query<{ counts: ErasureCounts }>("SELECT account_erase($1, $2) AS counts", [accountId, bearerToken]);
+        const res = await client.query<{ counts: ErasureCounts }>("SELECT account_erase($1, $2, $3) AS counts", [accountId, bearerToken, reason]);
         return res.rows[0]!.counts;
       });
     } catch (err) {
@@ -103,17 +106,23 @@ export async function eraseAccount(pool: pg.Pool, accountId: string, bearerToken
 
 // ── export ─────────────────────────────────────────────────────────────────────────────
 
-const OTHER_ID_KEY = /(^|_)(account_id|caravan_id)$|(AccountId|CaravanId)$/;
+const UUID_ANYWHERE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+/** What a redacted id becomes: the export is this player's data, not the other participant's. */
+export const EXPORT_OTHER_ID = "other_player";
 
 /**
- * The export is this player's data, not the other participant's: an account or caravan id that
- * is not this player's own (the party owner a caravan met, the caravan a party struck) is
- * replaced by "other_player". Everything else is as stored.
+ * QA-30 D4: redaction by STRUCTURE, not by key name. Every UUID anywhere in the export — a whole
+ * value, an object key, or inside a string such as a job id (`encounter:<trip>:1`) — is kept only
+ * if it is on the allowlist of ids this account itself owns (its account, caravans, units ever
+ * held, trips, manifests, party, devices, purchases, analytics id). Everything else becomes
+ * "other_player": the other participant's trip, party, units and account alike.
  */
-function redactOthers(v: unknown, own: ReadonlySet<string>, key = ""): unknown {
-  if (typeof v === "string") return OTHER_ID_KEY.test(key) && !own.has(v) ? "other_player" : v;
-  if (Array.isArray(v)) return v.map((x) => redactOthers(x, own));
-  if (v && typeof v === "object" && !(v instanceof Date)) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, redactOthers(x, own, k)]));
+export function redactToOwnIds(v: unknown, own: ReadonlySet<string>): unknown {
+  const fix = (s: string): string => s.replace(UUID_ANYWHERE, (m) => (own.has(m.toLowerCase()) ? m : EXPORT_OTHER_ID));
+  if (typeof v === "string") return fix(v);
+  if (v instanceof Date) return v.toISOString();
+  if (Array.isArray(v)) return v.map((x) => redactToOwnIds(x, own));
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [fix(k), redactToOwnIds(x, own)]));
   return v;
 }
 
@@ -121,32 +130,79 @@ async function rows(db: Queryable, sql: string, params: unknown[]): Promise<Reco
   return (await db.query(sql, params)).rows as Record<string, unknown>[];
 }
 
-export async function exportAccount(db: Queryable, accountId: string): Promise<Record<string, unknown>> {
+const UNIT_EVENT_TYPES = ["unit_acquired", "unit_merged", "unit_demerged_on_death", "unit_lost_on_wipe", "unit_retired"];
+
+function collectUuids(v: unknown, into: Set<string>): void {
+  if (typeof v === "string") for (const m of v.match(UUID_ANYWHERE) ?? []) into.add(m.toLowerCase());
+  else if (Array.isArray(v)) for (const x of v) collectUuids(x, into);
+  else if (v && typeof v === "object" && !(v instanceof Date)) for (const [k, x] of Object.entries(v)) {
+    collectUuids(k, into);
+    collectUuids(x, into);
+  }
+}
+
+/**
+ * The account's data as JSON text (QA-30 D4: every table the account owns, plus summaries of
+ * the fights it took part in), redacted to its own ids, refused above EXPORT_MAX_BYTES (413).
+ */
+export async function exportAccount(db: Queryable, accountId: string, maxBytes: number = EXPORT_MAX_BYTES): Promise<string> {
   const account = await findAccountById(db, accountId);
   if (!account) throw new AppError(404, "no_account", "account not found");
   const caravans = await rows(db, "SELECT * FROM caravan WHERE account_id = $1 ORDER BY created_at, id", [accountId]);
   const caravanIds = caravans.map((c) => c["id"] as string);
   const own = new Set<string>([accountId, ...caravanIds]);
-  const perCaravan = await Promise.all(
-    caravans.map(async (c) => ({
+  const ledger = await rows(db, "SELECT seq, event_type, caravan_id, causation_id, causation_seq, resolver_version, payload, occurred_at FROM ledger_event WHERE account_id = $1 ORDER BY seq", [accountId]);
+  // Units this account ever held: every id in its own unit events is one of its own instances.
+  for (const e of ledger) if (UNIT_EVENT_TYPES.includes(e["event_type"] as string)) collectUuids(e["payload"], own);
+
+  const perCaravan = [];
+  for (const c of caravans) {
+    const cid = c["id"] as string;
+    const units = await rows(db, "SELECT id, unit_type_id, merge_level, created_at FROM unit_instance WHERE caravan_id = $1 ORDER BY created_at, id", [cid]);
+    const trips = await rows(db, "SELECT * FROM trip WHERE caravan_id = $1 ORDER BY started_at, id", [cid]);
+    const manifests = await rows(db, "SELECT * FROM wagon_manifest WHERE caravan_id = $1 ORDER BY created_at, id", [cid]);
+    for (const u of units) own.add(u["id"] as string);
+    for (const t of trips) own.add(t["id"] as string);
+    for (const m of manifests) {
+      own.add(m["id"] as string);
+      // A manifest names only this caravan's own units (packed from its roster).
+      collectUuids(m["packed"], own);
+    }
+    perCaravan.push({
       ...c,
-      poolProgress: await rows(db, "SELECT pool, reputation, ladder_level, ladder_points, unlock_points_granted, unlock_points_spent, created_at, updated_at FROM pool_progress WHERE caravan_id = $1", [c["id"]]),
-      units: await rows(db, "SELECT id, unit_type_id, merge_level, created_at FROM unit_instance WHERE caravan_id = $1 ORDER BY created_at, id", [c["id"]]),
-      trips: await rows(db, "SELECT * FROM trip WHERE caravan_id = $1 ORDER BY started_at, id", [c["id"]]),
-      tripEncounters: await rows(db, "SELECT te.* FROM trip_encounter te JOIN trip t ON t.id = te.trip_id WHERE t.caravan_id = $1 ORDER BY te.settled_at, te.trip_id, te.encounter_index", [c["id"]]),
-    })),
-  );
+      poolProgress: await rows(db, "SELECT pool, reputation, ladder_level, ladder_points, unlock_points_granted, unlock_points_spent, created_at, updated_at FROM pool_progress WHERE caravan_id = $1", [cid]),
+      units,
+      manifests,
+      formations: await rows(db, "SELECT f.* FROM wagon_formation f JOIN wagon_manifest m ON m.id = f.manifest_id WHERE m.caravan_id = $1 ORDER BY m.created_at, f.encounter_index", [cid]),
+      refugeeMenus: await rows(db, "SELECT * FROM refugee_menu WHERE caravan_id = $1 ORDER BY sequence", [cid]),
+      trips,
+      tripEncounters: await rows(db, "SELECT te.* FROM trip_encounter te JOIN trip t ON t.id = te.trip_id WHERE t.caravan_id = $1 ORDER BY te.settled_at, te.trip_id, te.encounter_index", [cid]),
+      tripMenus: await rows(db, "SELECT ec.* FROM encounter_candidates ec JOIN trip t ON t.id = ec.trip_id WHERE t.caravan_id = $1 ORDER BY ec.created_at, ec.trip_id, ec.encounter_index, ec.search_seq", [cid]),
+    });
+  }
+  const parties = await rows(db, "SELECT * FROM standing_party WHERE account_id = $1 ORDER BY slot", [accountId]);
+  for (const p of parties) own.add(p["id"] as string);
+  const devices = (await listDevices(db, accountId)).map((d) => ({ id: d.id, label: d.label, createdAt: d.created_at, lastSeenAt: d.last_seen_at, expiresAt: d.expires_at }));
+  for (const d of devices) own.add(d.id);
+  const store = await storeRecordsForExport(db, accountId);
+  for (const p of store.purchases) own.add((p as { id: string }).id);
+
+  // The fights it took part in, either side: the stored outcome and the replay's record (its log
+  // stays on the server; the other participant's side of it is not this player's to export).
   const encounters = await rows(
     db,
-    `SELECT id AS job_id, CASE WHEN account_id = $1 THEN 'caravan' ELSE 'party_owner' END AS role, status, created_at, completed_at, result->'outcome'->>'kind' AS outcome_kind
-       FROM resolution_job
-      WHERE kind = 'encounter_resolution' AND (account_id = $1 OR input->>'partyOwnerAccountId' = $1::text)
-      ORDER BY created_at, id`,
+    `SELECT j.id AS job_id, CASE WHEN j.account_id = $1 THEN 'caravan' ELSE 'party_owner' END AS role, j.status, j.created_at, j.completed_at,
+            j.result->'outcome' AS outcome,
+            l.resolver_version, l.log_format, l.raw_bytes, l.stored_bytes, l.log_sha256, l.created_at AS replay_created_at, (l.job_id IS NOT NULL) AS replay_stored
+       FROM resolution_job j LEFT JOIN encounter_log l ON l.job_id = j.id
+      WHERE j.kind = 'encounter_resolution' AND (j.account_id = $1 OR j.input->>'partyOwnerAccountId' = $1::text)
+      ORDER BY j.created_at, j.id`,
     [accountId],
   );
+
   const body = {
     format: "caravan-vaults-account-export",
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     account: {
       id: account.id,
@@ -159,14 +215,23 @@ export async function exportAccount(db: Queryable, accountId: string): Promise<R
     },
     accountPoolProgress: await rows(db, "SELECT pool, reputation, ladder_level, ladder_points, unlock_points_granted, unlock_points_spent, created_at, updated_at FROM pool_progress WHERE account_id = $1", [accountId]),
     homeTown: (await rows(db, "SELECT * FROM home_town WHERE account_id = $1", [accountId]))[0] ?? null,
-    standingParties: await rows(db, "SELECT * FROM standing_party WHERE account_id = $1 ORDER BY slot", [accountId]),
+    standingParties: parties,
     onboarding: (await rows(db, "SELECT step, skipped_at, completed_at, updated_at FROM account_onboarding WHERE account_id = $1", [accountId]))[0] ?? null,
-    ...(await storeRecordsForExport(db, accountId)),
     inboxPreferences: await rows(db, "SELECT category, enabled FROM inbox_preference WHERE account_id = $1 ORDER BY category", [accountId]),
-    devices: (await listDevices(db, accountId)).map((d) => ({ id: d.id, label: d.label, createdAt: d.created_at, lastSeenAt: d.last_seen_at, expiresAt: d.expires_at })),
+    inboxRead: await rows(db, "SELECT item_key, version, read_at FROM inbox_read WHERE account_id = $1 ORDER BY item_key", [accountId]),
+    tripCap: (await rows(db, "SELECT * FROM trip_cap WHERE account_id = $1", [accountId]))[0] ?? null,
+    tripCapUses: await rows(db, "SELECT * FROM trip_cap_use WHERE account_id = $1 ORDER BY trip_id", [accountId]),
+    ...store,
+    // Chunk 32 QA D5: the usage-data setting and this account's own client events (no analytics id).
+    analytics: await analyticsForExport(db, accountId),
+    devices,
     caravans: perCaravan,
     encounters,
-    ledger: await rows(db, "SELECT seq, event_type, caravan_id, causation_id, causation_seq, resolver_version, payload, occurred_at FROM ledger_event WHERE account_id = $1 ORDER BY seq", [accountId]),
+    ledger,
   };
-  return redactOthers(body, own) as Record<string, unknown>;
+  const text = JSON.stringify(redactToOwnIds(body, own));
+  if (Buffer.byteLength(text, "utf8") > maxBytes) {
+    throw new AppError(413, "export_too_large", `this account's export is larger than ${maxBytes} bytes; ask an operator for it`);
+  }
+  return text;
 }

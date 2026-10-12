@@ -124,7 +124,8 @@ describe("item 3: the server's DB role cannot switch the guards off", () => {
     // Since QA-02 S1 the app role cannot write ladder_level at all (42501); the permanence trigger (23514) is behind that.
     expect(["23514", "42501"]).toContain(dec?.code);
     const del = await expectDbError(appDb, "DELETE FROM caravan WHERE id = $1", [caravanId]);
-    expect(del?.code).toBe("23514");
+    // Since QA-30 S3 the app role has no DELETE on caravan at all (42501); the permanence trigger (23514) is behind that.
+    expect(["23514", "42501"]).toContain(del?.code);
   });
 
   it("default privileges cover tables the owner creates later", async () => {

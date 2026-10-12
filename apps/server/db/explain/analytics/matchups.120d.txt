@@ -1,0 +1,54 @@
+-- chunk 32: matchups over the synthetic history in test/telemetry-scale.test.ts (120-day window)
+GroupAggregate
+  Group Key: (COALESCE(d.aff, 'unknown'::text)), (COALESCE(a.aff, 'unknown'::text))
+  CTE enc
+    ->  Nested Loop
+          ->  Hash Anti Join
+                Hash Cond: (te.trip_id = st.id)
+                ->  Bitmap Heap Scan on trip_encounter te
+                      Recheck Cond: ((settled_at >= '2026-06-13 23:35:31.636+00'::timestamp with time zone) AND (settled_at < '2026-10-11 23:35:31.636+00'::timestamp with time zone))
+                      ->  Bitmap Index Scan on trip_encounter_settled_at_idx
+                            Index Cond: ((settled_at >= '2026-06-13 23:35:31.636+00'::timestamp with time zone) AND (settled_at < '2026-10-11 23:35:31.636+00'::timestamp with time zone))
+                ->  Hash
+                      ->  Nested Loop
+                            ->  Nested Loop
+                                  ->  Index Only Scan using account_system_idx on account sa
+                                        Filter: (id <> '00000000-0000-4000-8000-0000000000d0'::uuid)
+                                  ->  Index Scan using caravan_account_idx on caravan sc
+                                        Index Cond: (account_id = sa.id)
+                            ->  Index Scan using trip_caravan_idx on trip st
+                                  Index Cond: (caravan_id = sc.id)
+          ->  Limit
+                ->  Index Scan using resolution_job_pkey on resolution_job
+                      Index Cond: (id = te.job_id)
+          SubPlan 1
+            ->  Limit
+                  ->  Nested Loop
+                        ->  Index Scan using encounter_candidates_chosen_recent_idx on encounter_candidates ec
+                              Index Cond: ((trip_id = te.trip_id) AND (encounter_index = te.encounter_index))
+                        ->  Function Scan on jsonb_array_elements c
+                              Filter: ((value ->> 'candidateId'::text) = ec.chosen_candidate_id)
+  ->  Sort
+        Sort Key: (COALESCE(d.aff, 'unknown'::text)), (COALESCE(a.aff, 'unknown'::text))
+        ->  Merge Join
+              Merge Cond: ((d.trip_id = a.trip_id) AND (d.encounter_index = a.encounter_index))
+              ->  Sort
+                    Sort Key: d.trip_id, d.encounter_index
+                    ->  Subquery Scan on d
+                          ->  HashAggregate
+                                Group Key: e.trip_id, e.encounter_index, e.outcome_kind, ('{"desert.vaquero": "grit", "mountain.grizzly": "beast", "mountain.trapper": "powder", "desert.dust_rider": "beast", "badlands.rail_bull": "grit", "desert.coyote_pack": "beast", "desert.well_digger": "grit", "high_plains.drover": "grit", "badlands.gunslinger": "powder", "mountain.apothecary": "grit", "mountain.lumberjack": "grit", "desert.longhorn_bull": "beast", "desert.powder_monkey": "powder", "badlands.claim_jumper": "grit", "badlands.powder_thief": "powder", "badlands.bounty_hunter": "powder", "badlands.vulture_flock": "beast", "desert.canteen_carrier": "grit", "mountain.blasting_crew": "powder", "mountain.mountain_lion": "beast", "high_plains.homesteader": "grit", "mountain.hardrock_miner": "grit", "badlands.rattlesnake_den": "beast", "desert.sand_sharpshooter": "powder", "high_plains.buffalo_bull": "beast", "high_plains.prairie_wolf": "beast", "mountain.pack_mule_train": "beast", "high_plains.railroad_gang": "grit", "badlands.snake_oil_peddler": "powder", "high_plains.buffalo_hunter": "powder", "high_plains.prairie_doctor": "beast", "high_plains.shotgun_messenger": "powder"}'::jsonb ->> (u.value ->> 'typeId'::text))
+                                ->  Nested Loop
+                                      ->  CTE Scan on enc e
+                                      ->  Hash Join
+                                            Hash Cond: ((p.value ->> 'ref'::text) = (u.value ->> 'ref'::text))
+                                            ->  Function Scan on jsonb_array_elements p
+                                            ->  Hash
+                                                  ->  Function Scan on jsonb_array_elements u
+              ->  Sort
+                    Sort Key: a.trip_id, a.encounter_index
+                    ->  Subquery Scan on a
+                          ->  HashAggregate
+                                Group Key: e_1.trip_id, e_1.encounter_index, ('{"desert.vaquero": "grit", "mountain.grizzly": "beast", "mountain.trapper": "powder", "desert.dust_rider": "beast", "badlands.rail_bull": "grit", "desert.coyote_pack": "beast", "desert.well_digger": "grit", "high_plains.drover": "grit", "badlands.gunslinger": "powder", "mountain.apothecary": "grit", "mountain.lumberjack": "grit", "desert.longhorn_bull": "beast", "desert.powder_monkey": "powder", "badlands.claim_jumper": "grit", "badlands.powder_thief": "powder", "badlands.bounty_hunter": "powder", "badlands.vulture_flock": "beast", "desert.canteen_carrier": "grit", "mountain.blasting_crew": "powder", "mountain.mountain_lion": "beast", "high_plains.homesteader": "grit", "mountain.hardrock_miner": "grit", "badlands.rattlesnake_den": "beast", "desert.sand_sharpshooter": "powder", "high_plains.buffalo_bull": "beast", "high_plains.prairie_wolf": "beast", "mountain.pack_mule_train": "beast", "high_plains.railroad_gang": "grit", "badlands.snake_oil_peddler": "powder", "high_plains.buffalo_hunter": "powder", "high_plains.prairie_doctor": "beast", "high_plains.shotgun_messenger": "powder"}'::jsonb ->> (u_1.value ->> 'typeId'::text))
+                                ->  Nested Loop
+                                      ->  CTE Scan on enc e_1
+                                      ->  Function Scan on jsonb_array_elements u_1

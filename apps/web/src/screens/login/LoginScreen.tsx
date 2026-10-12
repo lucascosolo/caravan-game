@@ -47,8 +47,12 @@ function ErrorLine({ error }: { error: ApiError | null }): JSX.Element | null {
   );
 }
 
+/** QA-30 S4: the sign-in that was asked about (a guest is on this device), to re-send with replaceGuest. */
+type Pending = { kind: "guest" } | { kind: "signIn" } | { kind: "register" };
+
 export function LoginScreen(): JSX.Element {
-  const { api, signIn, resuming } = useSession();
+  const { api, signIn, resuming, resumeError, retryResume, notice } = useSession();
+  const [pending, setPending] = useState<Pending | null>(null);
   const [mode, setMode] = useState<Mode>("signIn");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -62,34 +66,77 @@ export function LoginScreen(): JSX.Element {
 
   const asApiError = (err: unknown): ApiError => (err instanceof ApiError ? err : new ApiError(0, "unknown", STRINGS.app.genericError));
 
-  async function submit(e: FormEvent): Promise<void> {
-    e.preventDefault();
+  async function run(kind: Pending["kind"], replaceGuest: boolean): Promise<void> {
     setBusy(true);
     setError(null);
+    setGuestError(null);
     try {
       const auth =
-        mode === "signIn"
-          ? await api.login(username, password)
-          : await api.register({ username, password, region, ...(caravanName.trim() ? { caravanName: caravanName.trim() } : {}) });
+        kind === "guest"
+          ? await api.guest(guestRegion, undefined, replaceGuest)
+          : kind === "signIn"
+            ? await api.login(username, password, replaceGuest)
+            : await api.register({ username, password, region, ...(caravanName.trim() ? { caravanName: caravanName.trim() } : {}) }, replaceGuest);
+      setPending(null);
       signIn(auth);
     } catch (err) {
-      setError(asApiError(err));
+      const e = asApiError(err);
+      // QA-30 S4: this device holds a guest caravan — ask before anything replaces it.
+      if (e.status === 409 && e.code === "guest_on_device") setPending({ kind });
+      else if (kind === "guest") setGuestError(e);
+      else setError(e);
     } finally {
       setBusy(false);
     }
   }
 
+  async function submit(e: FormEvent): Promise<void> {
+    e.preventDefault();
+    await run(mode === "signIn" ? "signIn" : "register", false);
+  }
+
   async function startAsGuest(e: FormEvent): Promise<void> {
     e.preventDefault();
-    setBusy(true);
-    setGuestError(null);
-    try {
-      signIn(await api.guest(guestRegion));
-    } catch (err) {
-      setGuestError(asApiError(err));
-    } finally {
-      setBusy(false);
-    }
+    await run("guest", false);
+  }
+
+  // QA-30 S4: a resume that failed for any reason but "no device here" is a retry, never the start
+  // screen (a guest pressing "Start playing" there would lose the caravan).
+  if (resumeError && !resuming) {
+    return (
+      <section>
+        <h1>{STRINGS.app.title}</h1>
+        <div className="card" role="alert" data-testid="resume-failed">
+          <h2>{s.resumeFailedTitle}</h2>
+          <p>{s.resumeFailedBody}</p>
+          <ErrorLine error={resumeError} />
+          <button type="button" className="btn btn--primary btn--block" onClick={retryResume}>
+            {STRINGS.app.retry}
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  if (pending) {
+    return (
+      <section>
+        <h1>{STRINGS.app.title}</h1>
+        <div className="card card--danger" role="alertdialog" aria-labelledby="guest-on-device-title" data-testid="guest-on-device">
+          <h2 id="guest-on-device-title">{s.guestOnDeviceTitle}</h2>
+          <p>{s.guestOnDeviceBody}</p>
+          <button type="button" className="btn btn--primary btn--block" disabled={busy} onClick={() => { setPending(null); retryResume(); }}>
+            {s.continueGuest}
+          </button>
+          <button type="button" className="btn btn--block btn--danger" disabled={busy} onClick={() => void run(pending.kind, true)}>
+            {pending.kind === "guest" ? s.replaceGuestStart : s.replaceGuestSignIn}
+          </button>
+          <button type="button" className="btn btn--block" disabled={busy} onClick={() => setPending(null)}>
+            {STRINGS.account.back}
+          </button>
+        </div>
+      </section>
+    );
   }
 
   return (
@@ -98,6 +145,11 @@ export function LoginScreen(): JSX.Element {
       {resuming && (
         <p className="hint" role="status">
           {s.resuming}
+        </p>
+      )}
+      {notice && (
+        <p className="notice" role="status" data-testid="start-notice">
+          {notice}
         </p>
       )}
       {mode === "signIn" && (

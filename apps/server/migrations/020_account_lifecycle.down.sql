@@ -5,7 +5,7 @@
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM account WHERE username IS NULL) THEN
-    RAISE EXCEPTION '019 down: guest or tombstone accounts exist (username IS NULL); delete them first' USING ERRCODE = 'check_violation';
+    RAISE EXCEPTION '020 down: guest or tombstone accounts exist (username IS NULL); delete them first' USING ERRCODE = 'check_violation';
   END IF;
 END
 $$;

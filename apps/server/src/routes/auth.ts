@@ -1,21 +1,24 @@
 import type { FastifyInstance } from "fastify";
 import { verifyPassword } from "../auth/password.js";
 import { PASSWORD_MAX } from "../config.js";
-import { clearDeviceCookie, deleteDevice, deviceIdOfSession } from "../account/device.js";
+import { clearDeviceCookie, deleteDevice, deviceIdOfSession, hashDeviceToken, readDeviceCookie } from "../account/device.js";
 import { revokeSession } from "../auth/sessions.js";
 import { findAccountByUsername } from "../repo/accounts.js";
 import { badRequest, unauthorized } from "../services/errors.js";
 import { normalizeUsername, registerAccount } from "../services/onboarding.js";
-import { guestSignOutRefused, sendSignedIn } from "./account.js";
+import { eraseReplacedGuest, guestOnDevice, guestSignOutRefused, refuseGuestReplacement, sendSignedIn } from "./account.js";
+import { eraseAccount } from "../account/service.js";
 import { requireAuth } from "./require-auth.js";
 
 interface RegisterBody {
+  replaceGuest?: unknown;
   username?: unknown;
   password?: unknown;
   region?: unknown;
   caravanName?: unknown;
 }
 interface LoginBody {
+  replaceGuest?: unknown;
   username?: unknown;
   password?: unknown;
 }
@@ -42,7 +45,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       regionId: str(body.region, "region"),
     };
     if (body.caravanName !== undefined) input.caravanName = str(body.caravanName, "caravanName");
+    const guest = await guestOnDevice(req);
+    refuseGuestReplacement(guest, body);
     const { account, caravan } = await registerAccount(app.db, input);
+    await eraseReplacedGuest(req, guest, account.id);
     return sendSignedIn(req, reply, account, { code: 201, extra: { caravan } });
   });
 
@@ -50,6 +56,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     app.rateLimiter.hit("loginPerIp", req.ip);
     const body = req.body ?? {};
     if (typeof body.username === "string") app.rateLimiter.hit("loginPerUsername", body.username.trim().toLowerCase().slice(0, 64));
+    // QA-30 D3: a per-device limit too (the device cookie, hashed, when the browser has one).
+    const deviceCookie = readDeviceCookie(req);
+    if (deviceCookie) app.rateLimiter.hit("loginPerDevice", hashDeviceToken(deviceCookie));
     let username: string;
     try {
       username = normalizeUsername(str(body.username, "username"));
@@ -66,14 +75,26 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!account || !ok || account.is_system) {
       throw unauthorized("invalid credentials");
     }
+    // QA-30 S4: only once the credentials are right does the device's guest question arise.
+    const guest = await guestOnDevice(req);
+    if (guest && guest.accountId !== account.id) refuseGuestReplacement(guest, body);
+    await eraseReplacedGuest(req, guest, account.id);
     return sendSignedIn(req, reply, account);
   });
 
   // Chunk 30: signing out forgets this DEVICE (its cookie and every session it issued). A guest
-  // has nothing else to get back in with, so a guest's sign-out needs `{ abandon: true }`.
+  // has nothing else to get back in with, so a guest's sign-out needs `{ abandon: true }` — and
+  // (QA-30 D2) then ERASES the guest account through account_erase, so nothing is left behind
+  // being served into other players' trips with no one able to reach, export or delete it.
   app.post<{ Body: { abandon?: unknown } | null }>("/auth/logout", { preHandler: requireAuth }, async (req, reply) => {
     const { account, sessionId } = req.auth!;
-    if (account.username === null && req.body?.abandon !== true) throw guestSignOutRefused();
+    if (account.username === null) {
+      if (req.body?.abandon !== true) throw guestSignOutRefused();
+      const token = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? "")?.[1] ?? "";
+      await eraseAccount(app.db, account.id, token, "guest_left");
+      clearDeviceCookie(req, reply);
+      return reply.code(204).send();
+    }
     const deviceId = await deviceIdOfSession(app.db, sessionId);
     if (deviceId) await deleteDevice(app.db, account.id, deviceId);
     else await revokeSession(app.db, sessionId);

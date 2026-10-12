@@ -686,11 +686,15 @@ link, no Sign in with Apple / Google until chunk 34). Migration **020** (`020_ac
   the rewrite of the old one (whole-row jsonb compare). Otherwise the original body runs unchanged; even
   the owner role cannot edit outside an erasure, and inside one only the exact rewrite passes. The app
   role still has no UPDATE/DELETE on `encounter_log`.
-- **Proof of the caller (QA ask).** `account_erase` takes the caller's RAW bearer token and checks a live
-  session of that account with `token_hash = sha256(token)`. The database stores only hashes, so nothing
-  the app role can read builds the argument: a compromised server process can erase only an account whose
-  live token it is handed in a request, not an arbitrary id. Tested: the stored hash, another account's
-  token, NULL and an expired token are refused (42501).
+- **What the caller proof does and does not do (corrected in the QA-30 fix round, S1).** `account_erase`
+  takes the caller's RAW bearer token and checks a live session of that account with `token_hash =
+  sha256(token)`. The server role ISSUES sessions, so no database check can stop a fully compromised
+  server from minting a session and erasing with it; the earlier claim that it could was wrong. What the
+  check does guarantee: a BUG that passes the wrong account id is refused, because that call carries no
+  live token of that account. Since 024 sessions come from one audited path, `session_issue()` (SECURITY
+  DEFINER, hashes inside the database); the app role has no INSERT or UPDATE on `session` (UPDATE of
+  `last_used_at` only), and no DELETE on `account` / `caravan` (S3), so `account_erase` is the only way an
+  account leaves.
 - **Decision — the account's own ledger rows are deleted**, by the cascade the append-only guard already
   allows (the owner is gone). Exception: its *non-projecting* record of a shared fight (`encounter_resolved`
   / `party_served_as_encounter` / `stop_resolved` under the kept job's causation) moves to the tombstone,
@@ -726,6 +730,41 @@ link, no Sign in with Apple / Google until chunk 34). Migration **020** (`020_ac
   through `src/store/export.ts` (store-guards: only src/store reads the store's tables). The identity
   guard keeps `account.id` immutable only (tests backdate `created_at`).
 
+**QA fix round** (2026-10-11, roadmap/qa/30-punchlist.md; migration **024** `023_account_lifecycle_hardening`,
+provisional number):
+- **S2 temp-table shadowing (project-wide).** `db/roles.sql` revokes TEMPORARY on the database from PUBLIC and
+  `caravan_app`. 024 pins `search_path = pg_catalog, public, pg_temp` on EVERY function in schema public by a
+  catalog loop (guards, SECURITY DEFINER writers of 002/016/020/022, helpers), and the two invoker functions
+  the guards call read `public.account_erasure_active`. Deviation from "schema-qualify every table each
+  reads": with the path pinned and pg_temp last, an unqualified name resolves to `public` before any temp
+  object, which is exactly what qualification would buy (the PostgreSQL-documented fix for definers);
+  rewriting the bodies of ~50 functions across six migrations would add risk and merge conflicts for no
+  further protection. The test enumerates `pg_proc` and fails on any function, present or future, without
+  that exact setting, and a behavioural test shadows `account_erasure_active` and `session` (as the owner,
+  who can still create temp tables) against the guards, `account_erasure_permits` and `account_erase`.
+- **S4 multi-tab / failed resume.** `DEVICE_SESSIONS_MAX` 3 → 10, evicting least recently USED
+  (`session.last_used_at`, refreshed at most once a minute; a session used in the last 5 minutes is kept
+  first). The client counts parallel 401s on one token once and re-resumes at most 3 times per rolling
+  minute; a resume that fails with anything but 401 shows a retry card, never the start screen.
+  `/auth/guest`, `/auth/register` and `/auth/login` answer 409 `guest_on_device` when the request carries
+  a live guest's device cookie; the client asks ("continue the guest caravan" / "delete it and …"), and
+  `replaceGuest: true` ERASES the old guest (reason `guest_replaced`) once the new sign-in succeeded.
+- **D1** a non-blocking "Save your progress" card for guests in town and on the end-of-trip summary.
+- **D2** "Leave and delete this guest account" erases through `account_erase` (reason `guest_left`), the
+  copy says so; `account_erase_expired_guests(limit)` erases guests with no live device or session for
+  180 days (reason `guest_expired`; hand-off: chunk 36's scheduled sweep should call it).
+- **D3** `TRUST_PROXY` (off; a hop count or proxy addresses/CIDRs; "true" refused); the limits moved to
+  `TUNABLES.ACCOUNT_RATE_LIMITS` (100 guest starts and 100 registrations per address per hour, 200 logins per
+  address and 10 per username per 15 min, plus 20 per device); limits are per process (AGENTS.md).
+- **D4** the export covers every account-owned table (analytics id and client events, manifests,
+  formations, refugee menus, trip cap and uses, inbox marks, its own trip menus, replay summaries), redacts
+  by an allowlist of the account's own ids (any other UUID, even inside a job id, becomes "other_player"),
+  and is refused above `EXPORT_MAX_BYTES` (20 MB, 413 `export_too_large`).
+- **D5** the all-tables scan also gunzips every stored replay; the e2e runs guest → linked → deleted; the
+  deleted notice is shown; client tests for failed resume, parallel 401s and five tabs.
+- Nits: N1 (the dashboard no longer counts the tombstone as authored), N2 (menus narrowed by a GIN index;
+  the ledger scan stays — see the punch list), N3, N4, N5, N7 closed; N6, N8, N9 recorded as accepted / hand-offs.
+
 ## 31. Integrity and anti-abuse — **M**, after 14, 19
 
 **Goal.** The economy transfers Coin between accounts on an overrun. That is the
@@ -756,7 +795,7 @@ anything about matchmaking or earnings? It must not.
 
 ## 32. Telemetry and balance instrumentation — **M**, before any external playtest
 
-**Status: built** (2026-10-11, chunk 32 Maker). Build notes:
+**Status: QA'd — fix round 1 closed** (2026-10-11; `roadmap/qa/32-punchlist.md` S1, S2, D1–D6 and N1–N9 closed as the orchestrator decided; migration `024_telemetry_sessions`, renumber on merge). Build notes (chunk 32 Maker), then the fix round's:
 
 - **Migration 021** (`021_telemetry`; renumbered 018 → 020 → 021 on merges, since main's 018–020 are
   taken — renumber again on merge if needed): `account_admin (account_id, granted_by, granted_at)` — the admin flag, one row or none per
@@ -847,10 +886,10 @@ anything about matchmaking or earnings? It must not.
 
 | # | §20 number | Registry keys | Panel(s) | What to read |
 |---|---|---|---|---|
-| 1 | Damage formula coefficients and the type/affinity matrix | DAMAGE_FORMULA, AFFINITY_ADVANTAGE_MULT, AFFINITY_DISADVANTAGE_MULT, MERGE_MULT_PER_LEVEL | defenderUnits, attackerUnits, overrunByBand | win rate per type on each side; overrun level across bands |
+| 1 | Damage formula coefficients and the type/affinity matrix | DAMAGE_FORMULA, AFFINITY_ADVANTAGE_MULT, AFFINITY_DISADVANTAGE_MULT, MERGE_MULT_PER_LEVEL | matchups, mergeLevels, defenderUnits, attackerUnits, overrunByBand | held rate per affinity matchup and per merge level; win rate per type; overrun across bands |
 | 2 | Garrison aggro radius and leash | AGGRO_RADIUS_DEFAULT, LEASH_DISTANCE_DEFAULT, LEASH_HYSTERESIS_MULT | stances, defenderUnits | held rate per defensive stance |
 | 3 | Deployment slot count | DEPLOYMENT_SLOT_CAP, PARTY_SLOT_CAP, SIEGE_SLOT_CAP | slots | posted / raiders per encounter vs held rate |
-| 4 | Fence segment HP and unlock cost | FENCE_SEGMENT_HP_DEFAULT, FENCE_HIT_SEGMENT_CAP, FENCE_MATERIAL_BUDGET | slots (fences), unlockPurchases | segments placed vs held rate; fence nodes bought |
+| 4 | Fence segment HP and unlock cost | FENCE_SEGMENT_HP_DEFAULT, FENCE_HIT_SEGMENT_CAP, FENCE_MATERIAL_BUDGET | fences, slots (fences), unlockPurchases | segments broken / placed per tier; segments placed vs held rate; fence nodes bought |
 | 5 | Trap values and unlock costs | TRAP_DAMAGE_MIN/MAX, TRAP_SLOW_MAGNITUDE_DEFAULT, TRAP_ROOT_DURATION_DEFAULT, TRAP_SLOT_CAP | traps, unlockPurchases | pick and held rate per trap; trap nodes bought |
 | 6 | Siege values and unlock costs | SIEGE_FENCE_DAMAGE_MULT, SIEGE_TRAP_NULLIFY, STRUCTURE_BREAKER_MULT_DEFAULT | siege, unlockPurchases | pick and overrun rate per siege; siege nodes bought |
 | 7 | Ladder point curves | LADDER_* | ladder | owners per rung now; rungs crossed |
@@ -903,6 +942,18 @@ from data or they never get tuned.
 
 **Definition of done.** Every §20 number has a dashboard panel that shows the metric it
 should be tuned against.
+
+
+**Fix round 1 (chunk 32 QA, 2026-10-11)** — every item is closed in the punch list with a one-line note. In short:
+- **Authored outfits are out of every panel (S1).** A keyed `NOT EXISTS` probe on the account, caravan or trip leaves out system accounts other than chunk 30's erasure tombstone (whose rows are erased PLAYERS' history). The test seeds the 96 cold-start parties.
+- **Opt-out and ingest serialize (S2)** on `SELECT … FOR UPDATE` of the account's analytics row, each in one transaction; the toggle empties the client queue before its PUT.
+- **Sessions are receipt-timed (D2, migration 024):** batches carry `{session, seq}` and are de-duplicated on (analytics id, session, seq, index); `agoMs` is clamped to the 15 s flush window; a `heartbeat` kind about once a minute while the page is visible; a flush when the page goes hidden.
+- **New panels (D3):** `matchups` (held rate per posted × raider affinity, from the stored snapshots and `UNIT_AFFINITY`), `mergeLevels`, `fences` (breakage per tier from `result.outcome.fences`). §20 #1 now reads matchups / mergeLevels first and #4 reads fences first; `PANEL_SUBSYSTEMS` and the test require every number's primary panel to read its own subsystem.
+- **Funnel (D4):** one population (opted-in accounts with screen flow), nested stages, every buyer only as `allBuyers` outside the funnel.
+- **Export (D5):** `analytics: {optedOut, events}` without the analytics id.
+- **Bounded (D6):** one READ ONLY transaction with `statement_timeout` (`ANALYTICS_STATEMENT_TIMEOUT_MS` 5000); /admin/* limited to 30 requests a minute per admin, checked after the admin test so a non-admin only sees the 404. The EXPLAIN gate runs at 30 and at 120 days and compares each live plan's scan skeleton (sequential vs keyed scan of each event-shaped table) with the checked-in `*.txt` / `*.120d.txt`. 120 days passes, so `ANALYTICS_MAX_WINDOW_DAYS` stays 120.
+- **Nits.** N1: a non-admin's 404 is Fastify's unknown-route body byte for byte. N2: digits-only, bounded `days` / `week`. N3: the over-share alarm uses the matchmaker's own query and window. N4: a `thin` alarm below a menu + self + RECENT_OPPONENT_EXCLUSION. N5: unbought nodes are 0 rows. N6: authored = the served candidate's stored flag. N7: trickle apportioned by its accrual span, with a note on the panel. N8: the client reads the opt-out before its first flush. N9: real merge and unlock routes in the test, recursive package walk.
+- **Guard-test exemptions (unchanged, still narrow):** exactly `src/analytics/queries.ts` in `store-guards` (×2) and `economy-guards` (×1); that file has no write verb (asserted).
 
 ## 33. Live-ops and admin tooling — **M**, after 03, 20, 32
 

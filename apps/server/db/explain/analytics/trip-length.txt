@@ -4,11 +4,19 @@ GroupAggregate
   ->  Sort
         Sort Key: t.end_reason, ((count(*))::integer)
         ->  Nested Loop
-              ->  Bitmap Heap Scan on trip t
-                    Recheck Cond: ((ended_at >= '2026-09-11 22:01:49.946+00'::timestamp with time zone) AND (ended_at < '2026-10-11 22:01:49.946+00'::timestamp with time zone))
-                    Filter: (end_reason IS NOT NULL)
-                    ->  Bitmap Index Scan on trip_ended_at_idx
-                          Index Cond: ((ended_at >= '2026-09-11 22:01:49.946+00'::timestamp with time zone) AND (ended_at < '2026-10-11 22:01:49.946+00'::timestamp with time zone))
+              ->  Nested Loop Anti Join
+                    Join Filter: (sc.id = t.caravan_id)
+                    ->  Bitmap Heap Scan on trip t
+                          Recheck Cond: ((ended_at >= '2026-09-11 23:35:31.392+00'::timestamp with time zone) AND (ended_at < '2026-10-11 23:35:31.392+00'::timestamp with time zone))
+                          Filter: (end_reason IS NOT NULL)
+                          ->  Bitmap Index Scan on trip_ended_at_idx
+                                Index Cond: ((ended_at >= '2026-09-11 23:35:31.392+00'::timestamp with time zone) AND (ended_at < '2026-10-11 23:35:31.392+00'::timestamp with time zone))
+                    ->  Materialize
+                          ->  Nested Loop
+                                ->  Index Only Scan using account_system_idx on account sa
+                                      Filter: (id <> '00000000-0000-4000-8000-0000000000d0'::uuid)
+                                ->  Index Scan using caravan_account_idx on caravan sc
+                                      Index Cond: (account_id = sa.id)
               ->  Aggregate
                     ->  Index Only Scan using trip_encounter_pkey on trip_encounter te
                           Index Cond: (trip_id = t.id)

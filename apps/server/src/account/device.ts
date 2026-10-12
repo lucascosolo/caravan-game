@@ -91,6 +91,12 @@ export async function insertDevice(db: Queryable, input: { accountId: string; to
   return res.rows[0]!;
 }
 
+/** A live device by its cookie's hash, read only. */
+export async function findLiveDevice(db: Queryable, tokenHash: string): Promise<DeviceRow | null> {
+  const res = await db.query<DeviceRow>("SELECT * FROM device WHERE token_hash = $1 AND expires_at > now()", [tokenHash]);
+  return res.rows[0] ?? null;
+}
+
 /** A live device by its cookie's hash; slides its expiry and marks it seen. */
 export async function touchLiveDevice(db: Queryable, tokenHash: string): Promise<DeviceRow | null> {
   const res = await db.query<DeviceRow>(

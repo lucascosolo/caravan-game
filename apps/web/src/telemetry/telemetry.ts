@@ -10,19 +10,34 @@
  *
  * Batching: events queue and are flushed a few seconds after the first one (one request per
  * burst), at most TELEMETRY_BATCH_MAX per request; a failed send is dropped, never retried in
- * a loop. Telemetry must never break or slow the game.
+ * a loop. Telemetry must never break or slow the game. Each batch carries this page load's
+ * random session id and a sequence number, so the server can de-duplicate a replay; the server
+ * times events by receipt (an age is clamped to the flush window), and a heartbeat about once a
+ * minute while the page is visible measures a long stay on one screen (QA D2). Nothing is sent
+ * until the account's opt-out has been read from the server (QA N8).
  */
-import type { TelemetryEvent, TelemetryIngestResult } from "../api/telemetryTypes.ts";
+import type { AnalyticsSettings, TelemetryBatch, TelemetryEvent, TelemetryIngestResult } from "../api/telemetryTypes.ts";
 import { TELEMETRY_ERROR_NAMES, type TelemetryErrorName, type TelemetryScreen } from "./screens.ts";
 
 export interface TelemetrySink {
-  sendTelemetry(events: readonly TelemetryEvent[]): Promise<TelemetryIngestResult>;
+  sendTelemetry(batch: TelemetryBatch): Promise<TelemetryIngestResult>;
+  /** QA N8: the account's setting, read before anything is sent. */
+  analyticsSettings(): Promise<AnalyticsSettings>;
 }
 
-/** Matches the server's TELEMETRY_MAX_EVENTS_PER_BATCH and TELEMETRY_MAX_AGO_MS. */
+/** Matches the server's TELEMETRY_MAX_EVENTS_PER_BATCH and TELEMETRY_FLUSH_WINDOW_MS (QA D2). */
 export const TELEMETRY_BATCH_MAX = 25;
-export const TELEMETRY_MAX_AGO_MS = 3_600_000;
+export const TELEMETRY_MAX_AGO_MS = 15_000;
 export const TELEMETRY_FLUSH_DELAY_MS = 5000;
+/** QA D2: a heartbeat about once a minute while the page is visible (the server's TELEMETRY_HEARTBEAT_MS). */
+export const TELEMETRY_HEARTBEAT_MS = 60_000;
+
+/** A random positive int31 per page load (never stored): the batch envelope's session id (QA D2). */
+export function newPageSession(): number {
+  const a = new Uint32Array(1);
+  globalThis.crypto.getRandomValues(a);
+  return (a[0]! % 2_147_483_647) + 1;
+}
 /** Most events held while waiting to flush; older ones are dropped first. */
 export const TELEMETRY_QUEUE_MAX = 100;
 
@@ -70,6 +85,7 @@ interface Queued {
 export interface ReporterOptions {
   readonly now?: () => number;
   readonly flushDelayMs?: number;
+  readonly session?: number;
 }
 
 export class TelemetryReporter {
@@ -78,6 +94,11 @@ export class TelemetryReporter {
   private lastScreen: TelemetryScreen | null = null;
   private stopped = false;
   private optedOut = false;
+  /** QA N8: nothing is sent until the account's setting has been read from the server. */
+  private settingKnown = false;
+  private settingRead: Promise<void> | null = null;
+  private seq = 0;
+  private readonly session: number;
   private readonly now: () => number;
   private readonly flushDelayMs: number;
 
@@ -87,6 +108,32 @@ export class TelemetryReporter {
   ) {
     this.now = opts.now ?? (() => Date.now());
     this.flushDelayMs = opts.flushDelayMs ?? TELEMETRY_FLUSH_DELAY_MS;
+    this.session = opts.session ?? newPageSession();
+  }
+
+  /** Read the opt-out from the server (QA N8). A failure leaves it unknown: the queue is held and the next flush asks again. */
+  readSetting(): Promise<void> {
+    if (this.settingKnown) return Promise.resolve();
+    if (this.settingRead === null) {
+      this.settingRead = (async () => {
+        try {
+          const s = await this.sink.analyticsSettings();
+          this.settingKnown = true;
+          this.setOptedOut(s.optedOut);
+        } catch {
+          // Unknown: hold; try again on the next flush.
+        } finally {
+          this.settingRead = null;
+        }
+      })();
+    }
+    return this.settingRead;
+  }
+
+  /** QA D2: "still here" — the current screen, sent about once a minute while the page is visible. */
+  heartbeat(): void {
+    if (this.lastScreen === null) return;
+    this.push({ kind: "heartbeat", screen: this.lastScreen, agoMs: 0 });
   }
 
   get isOptedOut(): boolean {
@@ -106,6 +153,7 @@ export class TelemetryReporter {
 
   setOptedOut(optedOut: boolean): void {
     this.optedOut = optedOut;
+    this.settingKnown = true;
     if (optedOut) this.clear();
   }
 
@@ -116,6 +164,14 @@ export class TelemetryReporter {
       this.timer = null;
     }
     if (this.stopped || this.optedOut || this.queue.length === 0) return;
+    if (!this.settingKnown) {
+      await this.readSetting();
+      if (!this.settingKnown) {
+        this.schedule();
+        return;
+      }
+      if (this.stopped || this.optedOut) return;
+    }
     const now = this.now();
     const fresh = this.queue.filter((q) => now - q.at <= TELEMETRY_MAX_AGO_MS);
     const batch = fresh.slice(0, TELEMETRY_BATCH_MAX);
@@ -123,7 +179,8 @@ export class TelemetryReporter {
     if (this.queue.length > 0) this.schedule();
     if (batch.length === 0) return;
     try {
-      const res = await this.sink.sendTelemetry(batch.map((q) => ({ ...q.event, agoMs: Math.max(0, Math.min(TELEMETRY_MAX_AGO_MS, now - q.at)) })));
+      const seq = this.seq++;
+      const res = await this.sink.sendTelemetry({ session: this.session, seq, events: batch.map((q) => ({ ...q.event, agoMs: Math.max(0, Math.min(TELEMETRY_MAX_AGO_MS, now - q.at)) })) });
       if (res.optedOut) this.setOptedOut(true);
     } catch {
       // Dropped. Telemetry never retries in a loop and never surfaces an error to the player.

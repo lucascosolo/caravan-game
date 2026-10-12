@@ -24,6 +24,9 @@ import { verifyProjection } from "../src/ledger/projection.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
 import { DELETE_CONFIRM_PHRASE, DEVICE_COOKIE, RATE_LIMITS, type RateLimitConfig } from "../src/account/tunables.js";
 import { deviceLabel } from "../src/account/device.js";
+import { EXPORT_OTHER_ID, exportAccount, redactToOwnIds } from "../src/account/service.js";
+import { trustProxyFromEnv } from "../src/config.js";
+import { gunzipSync } from "node:zlib";
 import { appRolePool, expectDbError, testPool, truncateAll, unique } from "./helpers.js";
 
 const pool = testPool();
@@ -174,7 +177,7 @@ describe("guest-first", () => {
 
   it("the device cookie survives a reload: /auth/resume answers a fresh bearer session on the same account; no cookie, a forged or an expired one is 401 no_device", async () => {
     const g = await guest();
-    const r = await app.inject({ method: "POST", url: "/auth/resume", headers: { cookie: `other=1; ${g.cookie}` } });
+    const r = await app.inject({ method: "POST", url: "/auth/resume", payload: {}, headers: { cookie: `other=1; ${g.cookie}` } });
     expect(r.statusCode, r.body).toBe(200);
     const body = r.json();
     expect(body.account.id).toBe(g.accountId);
@@ -184,20 +187,28 @@ describe("guest-first", () => {
     expect((await call(g, "GET", "/me")).statusCode).toBe(200);
     expect(cookieOf(r)).toBe(g.cookie);
 
-    expect((await app.inject({ method: "POST", url: "/auth/resume" })).json().error).toBe("no_device");
-    const forged = await app.inject({ method: "POST", url: "/auth/resume", headers: { cookie: `${DEVICE_COOKIE}=${"A".repeat(43)}` } });
+    expect((await app.inject({ method: "POST", url: "/auth/resume", payload: {} })).json().error).toBe("no_device");
+    const forged = await app.inject({ method: "POST", url: "/auth/resume", payload: {}, headers: { cookie: `${DEVICE_COOKIE}=${"A".repeat(43)}` } });
     expect([forged.statusCode, forged.json().error]).toEqual([401, "no_device"]);
     expect(String(forged.headers["set-cookie"])).toMatch(/Max-Age=0/);
     await pool.query("UPDATE device SET expires_at = now() - interval '1 second' WHERE account_id = $1", [g.accountId]);
-    expect((await app.inject({ method: "POST", url: "/auth/resume", headers: { cookie: g.cookie } })).statusCode).toBe(401);
+    expect((await app.inject({ method: "POST", url: "/auth/resume", payload: {}, headers: { cookie: g.cookie } })).statusCode).toBe(401);
   });
 
-  it("a device keeps at most DEVICE_SESSIONS_MAX sessions; registration and login are devices too", async () => {
+  it("QA-30 S4: a device keeps DEVICE_SESSIONS_MAX (10) sessions, evicting the least recently USED — a tab in use survives eleven more resumes", async () => {
     const p = await register();
     const tokens: string[] = [p.token];
-    for (let i = 0; i < 4; i++) tokens.push((await app.inject({ method: "POST", url: "/auth/resume", headers: { cookie: p.cookie } })).json().token);
-    const live = await Promise.all(tokens.map(async (t) => (await call({ token: t }, "GET", "/me")).statusCode));
-    expect(live).toEqual([401, 401, 200, 200, 200]);
+    for (let i = 0; i < 4; i++) tokens.push((await app.inject({ method: "POST", url: "/auth/resume", payload: {}, headers: { cookie: p.cookie } })).json().token);
+    expect(await Promise.all(tokens.map(async (t) => (await call({ token: t }, "GET", "/me")).statusCode))).toEqual([200, 200, 200, 200, 200]);
+    // The first tab keeps working; every other session of the device is older in USE.
+    await pool.query("UPDATE session SET last_used_at = now() - interval '1 hour' WHERE account_id = $1", [p.accountId]);
+    await pool.query("UPDATE session SET last_used_at = now() WHERE token_hash = encode(sha256(convert_to($1, 'UTF8')), 'hex')", [p.token]);
+    for (let i = 0; i < 11; i++) await app.inject({ method: "POST", url: "/auth/resume", payload: {}, headers: { cookie: p.cookie } });
+    expect((await call(p, "GET", "/me")).statusCode).toBe(200);
+    expect((await pool.query("SELECT count(*)::int AS n FROM session WHERE account_id = $1", [p.accountId])).rows[0].n).toBe(10);
+    // N7: a resume must be a JSON request (a CORS preflight); a cookie-only simple POST is refused and spends nothing.
+    const plain = await app.inject({ method: "POST", url: "/auth/resume", payload: "x", headers: { cookie: p.cookie, "content-type": "text/plain" } });
+    expect([plain.statusCode, plain.json().error]).toEqual([415, "json_required"]);
     const login = await app.inject({ method: "POST", url: "/auth/login", payload: { username: p.username, password: "correct horse battery" } });
     expect(cookieOf(login)).not.toBe(p.cookie);
     expect((await pool.query("SELECT count(*)::int AS n FROM device WHERE account_id = $1", [p.accountId])).rows[0].n).toBe(2);
@@ -256,7 +267,7 @@ describe("devices and sign-out", () => {
     expect((await call(p, "DELETE", "/me/devices/not-a-uuid")).statusCode).toBe(404);
     expect((await call(p, "DELETE", `/me/devices/${otherId}`)).statusCode).toBe(204);
     expect((await call(other, "GET", "/me")).statusCode).toBe(401);
-    expect((await app.inject({ method: "POST", url: "/auth/resume", headers: { cookie: cookieOf(second) } })).statusCode).toBe(401);
+    expect((await app.inject({ method: "POST", url: "/auth/resume", payload: {}, headers: { cookie: cookieOf(second) } })).statusCode).toBe(401);
     // revoke-others
     for (let i = 0; i < 2; i++) await app.inject({ method: "POST", url: "/auth/login", payload: { username: p.username, password: "correct horse battery" } });
     expect((await call(p, "POST", "/me/devices/revoke-others")).json()).toEqual({ revoked: 2 });
@@ -273,15 +284,38 @@ describe("devices and sign-out", () => {
     const out = await call(g, "POST", "/auth/logout", { abandon: true });
     expect(out.statusCode).toBe(204);
     expect(String(out.headers["set-cookie"])).toMatch(/Max-Age=0/);
-    expect((await app.inject({ method: "POST", url: "/auth/resume", headers: { cookie: g.cookie } })).statusCode).toBe(401);
+    expect((await app.inject({ method: "POST", url: "/auth/resume", payload: {}, headers: { cookie: g.cookie } })).statusCode).toBe(401);
+    // QA-30 D2: leaving ERASES the guest (it is not left behind, served into other trips, unreachable).
+    expect((await pool.query("SELECT 1 FROM account WHERE id = $1", [g.accountId])).rowCount).toBe(0);
+    expect((await pool.query("SELECT reason, was_guest FROM account_erasure_audit ORDER BY erased_at DESC LIMIT 1")).rows[0]).toEqual({ reason: "guest_left", was_guest: true });
+  });
+
+  it("QA-30 S4: a new sign-in on a device holding a guest asks first (409 guest_on_device); replacing ERASES the guest; a linked device is not asked", async () => {
+    const g = await guest();
+    const other = await register();
+    const asked = await app.inject({ method: "POST", url: "/auth/guest", payload: { region: "desert" }, headers: { cookie: g.cookie } });
+    expect([asked.statusCode, asked.json().error]).toEqual([409, "guest_on_device"]);
+    const reg = await app.inject({ method: "POST", url: "/auth/register", payload: { username: unique("rg"), password: "correct horse battery", region: "desert" }, headers: { cookie: g.cookie } });
+    expect(reg.json().error).toBe("guest_on_device");
+    // A wrong password is a 401 and never touches the guest.
+    expect((await app.inject({ method: "POST", url: "/auth/login", payload: { username: other.username, password: "wrong password" }, headers: { cookie: g.cookie } })).statusCode).toBe(401);
+    expect((await app.inject({ method: "POST", url: "/auth/login", payload: { username: other.username, password: "correct horse battery" }, headers: { cookie: g.cookie } })).json().error).toBe("guest_on_device");
+    expect((await pool.query("SELECT 1 FROM account WHERE id = $1", [g.accountId])).rowCount).toBe(1);
+    const replaced = await app.inject({ method: "POST", url: "/auth/login", payload: { username: other.username, password: "correct horse battery", replaceGuest: true }, headers: { cookie: g.cookie } });
+    expect(replaced.statusCode, replaced.body).toBe(200);
+    expect((await pool.query("SELECT 1 FROM account WHERE id = $1", [g.accountId])).rowCount).toBe(0);
+    expect((await pool.query("SELECT reason FROM account_erasure_audit ORDER BY erased_at DESC LIMIT 1")).rows[0].reason).toBe("guest_replaced");
+    // A linked account's device: nothing would be lost, nothing is asked.
+    const fresh = await app.inject({ method: "POST", url: "/auth/guest", payload: { region: "desert" }, headers: { cookie: cookieOf(replaced) } });
+    expect(fresh.statusCode).toBe(201);
   });
 
   it("a linked sign-out forgets the device: its sessions and its cookie", async () => {
     const p = await register();
-    const tab2 = (await app.inject({ method: "POST", url: "/auth/resume", headers: { cookie: p.cookie } })).json().token as string;
+    const tab2 = (await app.inject({ method: "POST", url: "/auth/resume", payload: {}, headers: { cookie: p.cookie } })).json().token as string;
     expect((await call(p, "POST", "/auth/logout")).statusCode).toBe(204);
     expect((await call({ token: tab2 }, "GET", "/me")).statusCode).toBe(401);
-    expect((await app.inject({ method: "POST", url: "/auth/resume", headers: { cookie: p.cookie } })).statusCode).toBe(401);
+    expect((await app.inject({ method: "POST", url: "/auth/resume", payload: {}, headers: { cookie: p.cookie } })).statusCode).toBe(401);
   });
 
   it("labels say browser and platform, nothing finer", () => {
@@ -335,6 +369,38 @@ describe("rate limits", () => {
     expect((await call(g, "GET", "/me/export", undefined, {}, limited)).statusCode).toBe(429);
   });
 
+  it("QA-30 D3: TRUST_PROXY is off by default (X-Forwarded-For ignored), takes a hop count or proxy addresses, and refuses 'true'", async () => {
+    expect(trustProxyFromEnv({})).toBe(false);
+    expect(trustProxyFromEnv({ TRUST_PROXY: "off" })).toBe(false);
+    expect(trustProxyFromEnv({ TRUST_PROXY: "1" })).toBe(1);
+    expect(trustProxyFromEnv({ TRUST_PROXY: "10.0.0.0/8, 127.0.0.1" })).toBe("10.0.0.0/8,127.0.0.1");
+    expect(() => trustProxyFromEnv({ TRUST_PROXY: "true" })).toThrow(/refused/);
+    expect(() => trustProxyFromEnv({ TRUST_PROXY: "everyone" })).toThrow();
+    const behind = await buildApp({ db: appRole, rateLimits: { ...RATE_LIMITS, guestPerIp: { limit: 1, windowMs: 60_000 } }, trustProxy: 1 });
+    try {
+      const start = (ip: string) => behind.inject({ method: "POST", url: "/auth/guest", payload: { region: "desert" }, remoteAddress: "10.9.9.9", headers: { "x-forwarded-for": ip } });
+      expect((await start("203.0.113.1")).statusCode).toBe(201);
+      expect((await start("203.0.113.1")).statusCode).toBe(429);
+      expect((await start("203.0.113.2")).statusCode).toBe(201); // keyed on the client, not the proxy
+    } finally {
+      await behind.close();
+    }
+  });
+
+  it("QA-30 D3: login is also limited per device (the device cookie), and the play-test defaults allow 100 guest starts per address per hour", async () => {
+    expect(RATE_LIMITS.guestPerIp.limit).toBeGreaterThanOrEqual(100);
+    const g = await guest();
+    const strict = await buildApp({ db: appRole, rateLimits: { ...RATE_LIMITS, loginPerDevice: { limit: 2, windowMs: 60_000 } } });
+    try {
+      const login = (n: number) => strict.inject({ method: "POST", url: "/auth/login", payload: { username: `nobody_${n}`, password: "whatever pass" }, headers: { cookie: g.cookie }, remoteAddress: `10.7.0.${n}` });
+      expect((await login(1)).statusCode).toBe(401);
+      expect((await login(2)).statusCode).toBe(401);
+      expect((await login(3)).statusCode).toBe(429);
+    } finally {
+      await strict.close();
+    }
+  });
+
   it("CARAVAN_RATE_LIMITS=off is refused in production and anything but on/off is refused", async () => {
     const { rateLimitsFromEnv } = await import("../src/account/rateLimit.js");
     expect(rateLimitsFromEnv({})).toBe(RATE_LIMITS);
@@ -349,16 +415,23 @@ describe("export", () => {
     const p = await register();
     const store = (await call(p, "GET", "/me/store")).json();
     expect((await call(p, "POST", "/me/store/purchase", { tier: 1, weekIndex: store.week.index, contentsHash: store.offers[0].contentsHash })).statusCode).toBe(201);
+    // Chunk 32 QA D5: the account's own client telemetry is part of its data.
+    expect((await call(p, "POST", "/me/telemetry", { session: 7, seq: 0, events: [{ kind: "screen", screen: "town" }, { kind: "crash", screen: "town", errorName: "TypeError", stackHash: "0badc0de" }] })).statusCode).toBe(202);
     const res = await call(p, "GET", "/me/export");
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-disposition"]).toMatch(/attachment; filename="caravan-vaults-export-/);
     const x = res.json();
-    expect(x).toMatchObject({ format: "caravan-vaults-account-export", version: 1, account: { id: p.accountId, username: p.username, guest: false } });
+    expect(x).toMatchObject({ format: "caravan-vaults-account-export", version: 2, account: { id: p.accountId, username: p.username, guest: false } });
+    for (const key of ["analytics", "inboxRead", "tripCap", "tripCapUses", "cosmetics"]) expect(x, key).toHaveProperty(key);
+    for (const key of ["manifests", "formations", "refugeeMenus", "trips", "tripEncounters", "tripMenus", "units", "poolProgress"]) expect(x.caravans[0], key).toHaveProperty(key);
     expect(x.caravans).toHaveLength(1);
     expect(x.caravans[0].id).toBe(p.caravanId);
     expect(x.purchases).toHaveLength(1);
     expect(x.ledger.some((e: { event_type: string }) => e.event_type === "coin_purchased")).toBe(true);
     expect(x.devices).toHaveLength(1);
+    expect(x.analytics).toMatchObject({ optedOut: false, events: [{ kind: "screen", screen: "town", errorName: null, stackHash: null }, { kind: "crash", screen: "town", errorName: "TypeError", stackHash: "0badc0de" }] });
+    const analyticsId = (await pool.query<{ analytics_id: string }>("SELECT analytics_id FROM account_analytics WHERE account_id = $1", [p.accountId])).rows[0]!.analytics_id;
+    expect(res.body).not.toContain(analyticsId);
     const text = res.body;
     for (const secret of ["password_hash", "token_hash", "scrypt$"]) expect(text).not.toContain(secret);
     expect(text).not.toContain(p.token);
@@ -418,6 +491,37 @@ describe("deletion (DoD): guest → linked → deleted, and the other participan
     }
   });
 
+  it("QA-30 D4: X's export (fights both ways) names no id but X's own — not the other players' accounts, caravans, trips, parties or units", async () => {
+    const res = await call(x, "GET", "/me/export");
+    expect(res.statusCode).toBe(200);
+    const text = res.body;
+    const zTrip = ((await getJob(pool, jobXStruck))!.input as EncounterJobInput).tripId;
+    const yParty = ((await getJob(pool, jobXDefended))!.input as EncounterJobInput).party.partyId;
+    for (const foreign of [y.accountId, z.accountId, z.caravanId, y.caravanId, zTrip, yParty, ...y.units, ...z.units]) expect(text, foreign).not.toContain(foreign);
+    expect(text).toContain(EXPORT_OTHER_ID);
+    // Every UUID left is one X owns: its account, caravans, units ever held, trips, manifests, party, devices, purchases.
+    const own = new Set<string>([x.accountId, ...xCaravanIds, ...x.units]);
+    for (const q of [
+      ["SELECT id FROM trip WHERE caravan_id = ANY($1::uuid[])", xCaravanIds],
+      ["SELECT id FROM unit_instance WHERE caravan_id = ANY($1::uuid[])", xCaravanIds],
+      ["SELECT id FROM wagon_manifest WHERE caravan_id = ANY($1::uuid[])", xCaravanIds],
+      ["SELECT id FROM standing_party WHERE account_id = $1", x.accountId],
+      ["SELECT id FROM device WHERE account_id = $1", x.accountId],
+      ["SELECT id FROM pack_purchase WHERE account_id = $1", x.accountId],
+      ["SELECT analytics_id AS id FROM account_analytics WHERE account_id = $1", x.accountId],
+    ] as const) for (const r of (await pool.query(q[0], [q[1]])).rows) own.add(r.id as string);
+    const left = [...new Set(text.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi) ?? [])].filter((u) => !own.has(u));
+    expect(left).toEqual([]);
+    const body = res.json();
+    expect(body.encounters.map((e: { role: string }) => e.role).sort()).toEqual(["caravan", "party_owner"]);
+    expect(body.encounters.every((e: { replay_stored: boolean }) => e.replay_stored)).toBe(true);
+  });
+
+  it("QA-30 D4 / N10: an export above the cap is refused with a clear error, never built without bound", async () => {
+    await expect(exportAccount(pool, x.accountId, 100)).rejects.toMatchObject({ statusCode: 413, code: "export_too_large" });
+    expect(redactToOwnIds({ k: "encounter:11111111-1111-4111-8111-111111111111:1", "22222222-2222-4222-8222-222222222222": 1 }, new Set(["22222222-2222-4222-8222-222222222222"]))).toEqual({ k: `encounter:${EXPORT_OTHER_ID}:1`, "22222222-2222-4222-8222-222222222222": 1 });
+  });
+
   it("asks for the typed phrase and (once linked) the password", async () => {
     expect((await call(x, "POST", "/me/account/delete", {})).json().error).toBe("confirm_required");
     expect((await call(x, "POST", "/me/account/delete", { confirm: "yes" })).json().error).toBe("confirm_required");
@@ -434,7 +538,7 @@ describe("deletion (DoD): guest → linked → deleted, and the other participan
     expect(res.json()).toMatchObject({ deleted: true, counts: { fightsDefendedKept: 1, replaysDefendedAnonymized: 1, fightsStruckAnonymized: 1, replaysStruckAnonymized: 1, purchasesDeleted: 1, caravansDeleted: 1 } });
     expect(String(res.headers["set-cookie"])).toMatch(/Max-Age=0/);
     expect((await call(x, "GET", "/me")).statusCode).toBe(401);
-    expect((await app.inject({ method: "POST", url: "/auth/resume", headers: { cookie: x.cookie } })).statusCode).toBe(401);
+    expect((await app.inject({ method: "POST", url: "/auth/resume", payload: {}, headers: { cookie: x.cookie } })).statusCode).toBe(401);
     expect((await app.inject({ method: "POST", url: "/auth/login", payload: { username: x.username, password: "correct horse battery" } })).statusCode).toBe(401);
     for (const [t, col] of [["account", "id"], ["caravan", "account_id"], ["standing_party", "account_id"], ["pack_purchase", "account_id"], ["cosmetic_ownership", "account_id"], ["session", "account_id"], ["device", "account_id"], ["ledger_event", "account_id"], ["home_town", "account_id"], ["pool_progress", "account_id"], ["inbox_read", "account_id"], ["inbox_preference", "account_id"], ["account_onboarding", "account_id"]] as const) {
       expect((await pool.query(`SELECT 1 FROM ${t} WHERE ${col} = $1`, [x.accountId])).rowCount, t).toBe(0);
@@ -487,6 +591,13 @@ describe("deletion (DoD): guest → linked → deleted, and the other participan
     for (const t of tables) {
       const hits = await pool.query(`SELECT count(*)::int AS n FROM ${t} r WHERE ${needles.map((_, i) => `position($${i + 1} in to_jsonb(r)::text) > 0`).join(" OR ")}`, needles);
       expect(hits.rows[0].n, `${t} still names the deleted account`).toBe(0);
+    }
+    // QA-30 D5: to_jsonb shows a bytea as hex, blind to an id inside the gzip — decompress every stored replay too.
+    const logs = (await pool.query<{ job_id: string; log: Buffer }>("SELECT job_id, log FROM encounter_log")).rows;
+    expect(logs.length).toBeGreaterThanOrEqual(2);
+    for (const l of logs) {
+      const plain = gunzipSync(l.log).toString("utf8");
+      for (const n of [x.accountId, ...xCaravanIds, x.username!]) expect(plain.includes(n), `${l.job_id} log names ${n}`).toBe(false);
     }
   });
 
@@ -547,6 +658,91 @@ describe("the anonymization exception, as the app role", () => {
     const row = (await pool.query("SELECT id, input FROM resolution_job WHERE account_id = account_erasure_tombstone_account() LIMIT 1")).rows[0];
     jobId = row.id;
     y = { token: "", accountId: (row.input as EncounterJobInput).partyOwnerAccountId, caravanId: "", cookie: "", username: null, units: [] };
+  });
+
+  it("QA-30 S2: caravan_app cannot create temporary objects at all (the shadowing needs one)", async () => {
+    expect((await expectDbError(appRole, "CREATE TEMP TABLE account_erasure_active (txid bigint, map jsonb, username text)"))?.code).toBe("42501");
+    expect((await expectDbError(appRole, "CREATE TEMP TABLE session (account_id uuid, token_hash text, expires_at timestamptz)"))?.code).toBe("42501");
+  });
+
+  it("QA-30 S2: EVERY function in schema public — guards, definers, helpers, present or future — pins search_path = pg_catalog, public, pg_temp (pg_temp last)", async () => {
+    const fns = (await pool.query<{ sig: string; config: string[] | null }>("SELECT p.oid::regprocedure::text AS sig, p.proconfig AS config FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.prokind = 'f' ORDER BY 1")).rows;
+    expect(fns.length).toBeGreaterThan(40);
+    const bad = fns.filter((f) => !(f.config ?? []).includes("search_path=pg_catalog, public, pg_temp")).map((f) => f.sig);
+    expect(bad).toEqual([]);
+  });
+
+  it("QA-30 S2: even the OWNER's temp tables shadow nothing — a fake account_erasure_active opens no guard, a fake session proves no caller (every guard and definer, behaviourally)", async () => {
+    const victim = await register();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("CREATE TEMP TABLE account_erasure_active (txid bigint, map jsonb, username text) ON COMMIT DROP");
+      await client.query("INSERT INTO pg_temp.account_erasure_active VALUES (txid_current(), $1, NULL)", [JSON.stringify({ [victim.accountId]: "00000000-0000-4000-8000-0000000000d0" })]);
+      await client.query("CREATE TEMP TABLE session (id uuid, account_id uuid, token_hash text, expires_at timestamptz) ON COMMIT DROP");
+      await client.query("INSERT INTO pg_temp.session VALUES (gen_random_uuid(), $1, encode(sha256(convert_to('forged-token', 'UTF8')), 'hex'), now() + interval '1 hour')", [victim.accountId]);
+      // Each guarded table: the exact rewrite the fake map describes is still refused.
+      const guarded: [string, string][] = [
+        ["ledger_event", "UPDATE ledger_event SET payload = payload WHERE account_id = $1"],
+        ["resolution_job", "UPDATE resolution_job SET input = input WHERE account_id = $1"],
+        ["trip_encounter", "UPDATE trip_encounter SET party_owner_account_id = '00000000-0000-4000-8000-0000000000d0' WHERE party_owner_account_id = $1"],
+      ];
+      for (const [t, sql] of guarded) {
+        await client.query("SAVEPOINT g");
+        const err = await client.query(sql, [victim.accountId]).then((r) => (r.rowCount === 0 ? "no rows" : null), (e: { code?: string }) => e.code);
+        await client.query("ROLLBACK TO SAVEPOINT g");
+        expect(err, t).not.toBeNull();
+      }
+      expect(await client.query("SELECT account_erasure_permits('{\"a\":1}', '{\"a\":1}') AS p").then((r) => r.rows[0].p)).toBe(false);
+      await client.query("SAVEPOINT e");
+      const erase = await client.query("SELECT account_erase($1, 'forged-token')", [victim.accountId]).then(() => null, (e: { code?: string }) => e.code);
+      await client.query("ROLLBACK TO SAVEPOINT e");
+      expect(erase).toBe("42501");
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+    }
+    expect((await pool.query("SELECT 1 FROM account WHERE id = $1", [victim.accountId])).rowCount).toBe(1);
+  });
+
+  it("QA-30 S1: the app role cannot write a session (no INSERT, no UPDATE of the hash or expiry): sessions come only from session_issue()", async () => {
+    const victim = await register();
+    expect((await expectDbError(appRole, "INSERT INTO session (account_id, token_hash, expires_at) VALUES ($1, encode(sha256(convert_to('attacker-chosen-token', 'UTF8')), 'hex'), now() + interval '1 hour')", [victim.accountId]))?.code).toBe("42501");
+    expect((await expectDbError(appRole, "UPDATE session SET token_hash = 'x', expires_at = now() + interval '1 year' WHERE account_id = $1", [victim.accountId]))?.code).toBe("42501");
+    expect((await expectDbError(appRole, "UPDATE session SET last_used_at = now() WHERE account_id = $1", [victim.accountId]))).toBeNull();
+    expect((await expectDbError(appRole, "SELECT account_erase($1, 'attacker-chosen-token')", [victim.accountId]))?.code).toBe("42501");
+    // session_issue refuses a system account and a device of another account.
+    const tomb = (await pool.query("SELECT account_erasure_tombstone_account() AS t")).rows[0].t as string;
+    expect((await expectDbError(appRole, "SELECT * FROM session_issue($1, NULL, $2, now() + interval '1 hour')", [tomb, "x".repeat(40)]))?.code).toBe("23514");
+    const otherDevice = (await pool.query("SELECT id FROM device LIMIT 1 OFFSET 0")).rows.find(Boolean)!.id as string;
+    const err = await expectDbError(appRole, "SELECT * FROM session_issue($1, $2, $3, now() + interval '1 hour')", [victim.accountId, otherDevice, "y".repeat(40)]);
+    expect(err === null ? "ok" : err.code).toMatch(/^(ok|23514)$/);
+    // Threat model (build notes): the server role ISSUES sessions, so a fully compromised server can
+    // still mint one and erase with it. What the token check guarantees is that a bug passing the
+    // wrong account id is refused — that call has no live token of that account.
+  });
+
+  it("QA-30 S3: the app role cannot DELETE an account or a caravan — account_erase is the only way out", async () => {
+    const victim = await register();
+    expect((await expectDbError(appRole, "DELETE FROM account WHERE id = $1", [victim.accountId]))?.code).toBe("42501");
+    expect((await expectDbError(appRole, "DELETE FROM caravan WHERE id = $1", [victim.caravanId]))?.code).toBe("42501");
+    expect((await pool.query("SELECT 1 FROM account WHERE id = $1", [victim.accountId])).rowCount).toBe(1);
+  });
+
+  it("QA-30 D2: account_erase_expired_guests erases only guests nobody can reach (no live device or session, older than 180 days)", async () => {
+    const stale = await guest();
+    const fresh = await guest();
+    const linked = await register();
+    for (const a of [stale, fresh, linked]) await pool.query("UPDATE account SET created_at = now() - interval '200 days' WHERE id = $1", [a.accountId]);
+    for (const a of [stale, linked]) {
+      await pool.query("UPDATE device SET expires_at = now() - interval '1 second' WHERE account_id = $1", [a.accountId]);
+      await pool.query("UPDATE session SET expires_at = now() - interval '1 second' WHERE account_id = $1", [a.accountId]);
+    }
+    expect((await appRole.query("SELECT account_erase_expired_guests(100) AS n")).rows[0].n).toBe(1);
+    expect((await pool.query("SELECT id FROM account WHERE id = ANY($1::uuid[]) ORDER BY id", [[stale.accountId, fresh.accountId, linked.accountId]])).rows.map((r) => r.id).sort()).toEqual([fresh.accountId, linked.accountId].sort());
+    expect((await pool.query("SELECT reason FROM account_erasure_audit ORDER BY erased_at DESC LIMIT 1")).rows[0].reason).toBe("guest_expired");
+    // The core erasure itself is not callable by the app role.
+    expect((await expectDbError(appRole, "SELECT account_erasure_core($1, 'player_request')", [fresh.accountId]))?.code).toBe("42501");
   });
 
   it("cannot open it: account_erasure_active and the audit are not writable", async () => {

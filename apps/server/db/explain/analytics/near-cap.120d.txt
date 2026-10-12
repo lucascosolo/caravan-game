@@ -1,0 +1,4 @@
+-- chunk 32: near-cap over the synthetic history in test/telemetry-scale.test.ts (120-day window)
+Aggregate
+  ->  Seq Scan on account a
+        Filter: (NOT is_system)
