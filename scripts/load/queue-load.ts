@@ -273,7 +273,8 @@ try {
   await migrateReset(owner);
   await applyRoles(owner);
   await seedAuthoredParties(owner);
-  const app = await buildApp({ db: appRole });
+  // Chunk 30's auth rate limits are off here: hundreds of registrations from one address are the setup, not the load under test.
+  const app = await buildApp({ db: appRole, rateLimits: null });
   type Player = { token: string; accountId: string; caravanId: string; units: string[] };
   const inject = async (p: Player | null, method: "GET" | "POST" | "PUT", url: string, payload?: unknown) => {
     const res = await app.inject({ method, url, headers: p ? { authorization: `Bearer ${p.token}` } : {}, ...(payload === undefined ? {} : { payload: payload as never }) });
@@ -424,7 +425,7 @@ try {
   check(Number(sb.completed) === BURST && Number(sb.parked) === 0, `phase B: ${sb.completed}/${BURST} completed, ${sb.parked} parked`);
   check(Number(sb.attempts) === BURST, `phase B: every job leased exactly once (${sb.attempts} leases)`);
   check(Number(sb.events) === 2 * BURST, `phase B: exactly two ledger events per job (${sb.events})`);
-  check(Number(sb.logs) === BURST && Number(sb.distinct_logs) === BURST, `phase B: exactly one log or summary per job (${sb.logs}; ${sb.compacted} compacted under load, ${swept} of them by the concurrent sweep)`);
+  check(Number(sb.logs) === BURST && Number(sb.distinct_logs) === BURST, `phase B: exactly one log or summary per job (${sb.logs}; ${sb.compacted} compacted under load; the concurrent sweep compacted ${swept} logs, phase A's included)`);
   check(Number(sb.compacted) > 0, `phase B: compaction ran concurrently with completions (${sb.compacted} summaries)`);
   check(sweepErrors.length === 0, `phase B: the concurrent sweep raised nothing${sweepErrors.length ? ` (${sweepErrors.length}: ${sweepErrors.slice(0, 2).join(" | ")})` : ""}`);
   check(before === after, `phase B: the standing party row${stars.length > 1 ? "s are" : " is"} byte-identical after being served into every encounter`);

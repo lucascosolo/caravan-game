@@ -7,13 +7,13 @@
         "key": "refugees:1",
         "category": "refugees_arrived",
         "version": 1,
-        "occurredAtMs": 1790000180000,
+        "occurredAtMs": 1790000120000,
         "occurredAt": "2026-10-11T12:00:00.000Z",
         "detail": {
           "caravanId": "00000000-0000-4000-8000-000000000001",
           "caravanName": "Caravan",
           "regionId": "desert",
-          "arrivedAtMs": 1790000180000,
+          "arrivedAtMs": 1790000120000,
           "currentMenuUnclaimed": true
         },
         "unread": true
@@ -22,34 +22,21 @@
         "key": "trip_cap:2",
         "category": "trip_cap_refilled",
         "version": 2,
-        "occurredAtMs": 1790000120000,
+        "occurredAtMs": 1790000060000,
         "occurredAt": "2026-10-11T12:00:01.000Z",
         "detail": {
           "available": 3,
           "cap": 3,
-          "fullAtMs": 1790000120000
+          "fullAtMs": 1790000060000
         },
         "unread": true
       },
       {
-        "key": "packs:3",
-        "category": "packs_rotated",
-        "version": 3,
-        "occurredAtMs": 1790000060000,
-        "occurredAt": "2026-10-11T12:00:02.000Z",
-        "detail": {
-          "weekIndex": 40,
-          "startsAtMs": 1790000060000,
-          "endsAtMs": 1790000240000
-        },
-        "unread": true
-      },
-      {
-        "key": "mine:4",
+        "key": "mine:3",
         "category": "mine_near_cap",
-        "version": 4,
+        "version": 3,
         "occurredAtMs": 1790000000000,
-        "occurredAt": "2026-10-11T12:00:03.000Z",
+        "occurredAt": "2026-10-11T12:00:02.000Z",
         "detail": {
           "balance": 50000,
           "cap": 50000,
@@ -61,7 +48,7 @@
         "unread": true
       }
     ],
-    "unreadCount": 4,
+    "unreadCount": 3,
     "preferences": [
       {
         "category": "party_strike",
