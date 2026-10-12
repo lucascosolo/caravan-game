@@ -475,3 +475,22 @@ Tags: **S**: blocks the external play test. **D**: design question for the orche
     wrong_password", N1). The right one gives "Your account has been deleted".
   - Afterwards, g1's six and g5's one strike entries against g4 read "**vs someone (someone)**",
     so the name is removed, but the copy is clumsy (N15). The fights stay in their history.
+
+## Orchestrator decisions (2026-10-12)
+
+- **S1 (sign-outs):**
+  - Never evict the session being issued.
+  - A resume revokes the session it replaces instead of minting an extra one. The client reuses its live session while it is valid.
+  - Any resume failure other than a definite "no such device" shows the existing retry screen, never the start screen.
+  - Add a test that reloads 50 times in a minute and stays signed in.
+  - "Continue the guest caravan" must work from every state that offers it.
+- **S2 (ranged first fights): first-trip fairness without simulating anything differently.**
+  - Matchmaking serves only authored parties for every encounter of a caravan's first trip. This is a cold-start rule in the same family as the nearest-N authored fill.
+  - The guide's pick also avoids ranged-only parties whenever another candidate exists.
+  - `first-trip.ts` and its CI slice add raised starter parties for every region, ranged pairs included, as a second gate for the second trip. Target: the guided layout holds at least 60 % against them, and the best skilled layout at least 70 %.
+  - If ranged kiting still blocks that target, the balance lever is a tunable only. Content stats, or a post's engagement range if it is already a tunable, are allowed. A resolver behaviour change is not, before the play test. Record the outcome in BALANCE-LOG.md.
+- **D1 (fast runners take everything): no rule change, per PROJECT.md §13.** Look for a content-only lever on core-stance runners: trap trigger, the low-band authored mix, runner speed per unit type. Accept one only if targets 1–3 in BALANCE-LOG hold. Otherwise record it as the top telemetry question.
+- **D2 (a party that goes down stays down):** no automatic refill, because the template is the owner's choice. Add a Town banner, "Your standing party is down", with one-tap "Raise from my roster" using the server's suggested party, plus the existing inbox notice.
+- **D3:** already closed. The round-2 guardrail fixes (S1) owe one free menu at a time and rate-limit the refugee routes. Re-verify it.
+- **D4 (Coin with nothing to buy): no change before the play test.** Record it in BALANCE-LOG as a telemetry question, with the observation.
+- **Every N item is in scope.** N for the linked player's party served under their username: show the caravan name, as for guests.
