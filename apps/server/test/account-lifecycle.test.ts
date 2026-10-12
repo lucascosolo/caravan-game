@@ -12,6 +12,7 @@
  *   app-role guards  the anonymization exception cannot be opened or used by the server's role
  */
 import { entryBand, RING_SEGMENTS, type Formation, type PartyConfig } from "@caravan/circle";
+import { TUNABLES } from "@caravan/content";
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
 import type pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -90,13 +91,13 @@ async function raiseParty(p: Player): Promise<void> {
   const party: PartyConfig = { v: 1, units: refs.map((ref, i) => ({ ref, stance: "nearest" as const, edge: EDGES[i % 4]!, cell: entryBand(EDGES[i % 4]!)[i]! })), siege: ["siege.battering_wagon"] };
   const res = await call(p, "PUT", "/me/party", party);
   expect(res.statusCode, res.body).toBe(200);
-  await pool.query("UPDATE pool_progress SET reputation = 1000 WHERE account_id = $1 AND pool = 'siege'", [p.accountId]);
+  await pool.query("UPDATE pool_progress SET reputation = $2 WHERE account_id = $1 AND pool = 'siege'", [p.accountId, TUNABLES.REPUTATION_START]);
 }
 
 /** A strong circle packed from units of its own (not the party's). */
 async function packStrong(p: Player): Promise<void> {
   const units = [...(await giveUnits(p, 2, "desert.dust_rider", 5)), ...(await giveUnits(p, 2, "desert.well_digger", 5))];
-  await pool.query("UPDATE pool_progress SET reputation = 1000 WHERE caravan_id = $1 AND pool = 'living'", [p.caravanId]);
+  await pool.query("UPDATE pool_progress SET reputation = $2 WHERE caravan_id = $1 AND pool = 'living'", [p.caravanId, TUNABLES.REPUTATION_START]);
   const res = await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 12 } });
   expect(res.statusCode, res.body).toBe(201);
   expect((await call(p, "POST", `/me/caravans/${p.caravanId}/trip/start`)).statusCode).toBe(201);

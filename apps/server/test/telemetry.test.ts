@@ -262,8 +262,8 @@ describe("chunk 32: every panel against the seeded history", () => {
     ]);
   });
 
-  it("overrun rate by the caravan's Reputation band (every caravan starts at 1000: band 3)", () => {
-    expect(dash.panels.overrunByBand).toEqual([{ band: 3, encounters: 4, held: 2, overrun: 1, stalemate: 1, overrunRateBp: 2500 }]);
+  it("overrun rate by the caravan's Reputation band (every caravan starts at REPUTATION_START, 400 since the chunk 37 balance pass: band 1)", () => {
+    expect(dash.panels.overrunByBand).toEqual([{ band: 1, encounters: 4, held: 2, overrun: 1, stalemate: 1, overrunRateBp: 2500 }]);
   });
 
   it("unit pick and win rates on both sides; trap and siege usage; stances and slot fill", () => {
@@ -425,12 +425,12 @@ describe("chunk 32: every panel against the seeded history", () => {
     const bands = dash.panels.poolHealth.bands;
     expect(bands.map((b) => b.band)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
     for (const b of bands) expect(b.authoredParties, `band ${b.band}`).toBe(12);
-    expect(bands[3]).toMatchObject({ low: 1000, high: 1299 });
+    expect(bands[1]).toMatchObject({ low: 400, high: 699 }); // REPUTATION_START's band since the chunk 37 balance pass (was band 3)
     expect(bands.reduce((s, b) => s + b.liveParties, 0)).toBe(4);
     expect(bands.reduce((s, b) => s + b.caravans, 0)).toBe(10);
-    // Encounter 1 searches 150 below the caravan (band 2); encounter 2 searches above it (band 3).
-    expect(bands[2]).toMatchObject({ served: 3, servedAuthored: 0, servedAuthoredShareBp: 0, matchmakerWindow: { served: 3, authored: 0, shareBp: 0 } });
-    expect(bands[3]).toMatchObject({ served: 1, servedAuthored: 0, servedAuthoredShareBp: 0, matchmakerWindow: { served: 1, authored: 0, shareBp: 0 } });
+    // Encounter 1 searches 150 below the caravan (band 0); encounter 2 searches above it (band 1).
+    expect(bands[0]).toMatchObject({ served: 3, servedAuthored: 0, servedAuthoredShareBp: 0, matchmakerWindow: { served: 3, authored: 0, shareBp: 0 } });
+    expect(bands[1]).toMatchObject({ served: 1, servedAuthored: 0, servedAuthoredShareBp: 0, matchmakerWindow: { served: 1, authored: 0, shareBp: 0 } });
     expect(THIN_BAND_PARTIES).toBe(TUNABLES.CANDIDATES_PER_SEARCH + 1 + TUNABLES.RECENT_OPPONENT_EXCLUSION);
     for (const b of bands) {
       const total = b.liveParties + b.authoredParties;

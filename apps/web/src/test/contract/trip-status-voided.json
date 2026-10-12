@@ -34,7 +34,7 @@
           "deaths": [
             "00000000-0000-4000-8000-000000000004"
           ],
-          "coinAccrued": 1000,
+          "coinAccrued": 600,
           "decision": "pushed",
           "result": {
             "jobId": "encounter:00000000-0000-4000-8000-000000000002:1",
@@ -83,10 +83,10 @@
         "voidedEncounter": 2,
         "reason": "NonRetryableJobError: encounter encounter:00000000-0000-4000-8000-000000000002:2: encounter outcome refused: unit '00000000-0000-4000-8000-000000000005' hp would rise 520 → 521; there is no healing mid-trip",
         "encountersSurvived": 1,
-        "unbankedCoin": 1000,
+        "unbankedCoin": 600,
         "deliveryBonus": 125,
-        "requested": 1125,
-        "credited": 1125,
+        "requested": 725,
+        "credited": 725,
         "discarded": 0,
         "restored": {
           "deMerged": [

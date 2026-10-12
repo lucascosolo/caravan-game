@@ -60,11 +60,12 @@ describe("band math is integer-only and matches the tunables", () => {
     expect(() => escalationFor(0)).toThrow(RangeError);
   });
 
-  it("display bands start at the floor and are SPAN wide; REPUTATION_START sits in band 3", () => {
+  it("display bands start at the floor and are SPAN wide; REPUTATION_START sits in band 1 and a new caravan's encounter 1 is searched in band 0", () => {
     expect(bandOf(100)).toEqual({ index: 0, low: 100, high: 399 });
     expect(bandOf(399).index).toBe(0);
     expect(bandOf(400).index).toBe(1);
-    expect(bandOf(TUNABLES.REPUTATION_START)).toEqual({ index: 3, low: 1000, high: 1299 });
+    expect(bandOf(TUNABLES.REPUTATION_START)).toEqual({ index: 1, low: 400, high: 699 });
+    expect(bandOf(escalatedCentre(TUNABLES.REPUTATION_START, 1)).index).toBe(0);
     expect(bandOf(0).index).toBe(0);
     expect(bandCentre(3)).toBe(1150);
     expect(() => bandOf(1.5)).toThrow(RangeError);
@@ -457,12 +458,18 @@ describe("the authored set (chunk 25)", () => {
     }
     expect(maxLivingTier(0)).toBe(0);
     expect(maxLivingTier(bands.length - 1)).toBe(TUNABLES.UNLOCK_WEB_TIERS);
-    // QA N5: no two adjacent bands field the same (max living tier, base merge level), and neither ever falls.
+    // QA N5, as re-stated by the chunk 37 balance pass: every band reads as a step up — (max living
+    // tier, base merge level, raiders in the band) never falls, and at least one of them rises (the
+    // floor bands share tier 0 and merge level 1 and differ by party size).
+    const raiders = (b: number) => specs.filter((s) => s.band === b).reduce((n, s) => n + s.units.length, 0);
     for (let o = 1; o < bands.length; o++) {
-      expect([maxLivingTier(o), baseMergeLevel(o)], `bands ${o - 1}/${o}`).not.toEqual([maxLivingTier(o - 1), baseMergeLevel(o - 1)]);
-      expect(maxLivingTier(o)).toBeGreaterThanOrEqual(maxLivingTier(o - 1));
-      expect(baseMergeLevel(o)).toBeGreaterThanOrEqual(baseMergeLevel(o - 1));
+      const prev = [maxLivingTier(o - 1), baseMergeLevel(o - 1), raiders(bands[o - 1]!)];
+      const cur = [maxLivingTier(o), baseMergeLevel(o), raiders(bands[o]!)];
+      expect(cur, `bands ${o - 1}/${o}`).not.toEqual(prev);
+      for (let k = 0; k < 3; k++) expect(cur[k]!, `bands ${o - 1}/${o} [${k}]`).toBeGreaterThanOrEqual(prev[k]!);
     }
+    // Chunk 37: the floor band is unmerged three-raider starter outfits (what a fresh caravan meets first).
+    for (const s of specs.filter((x) => x.band === bands[0])) for (const u of s.units) expect(u.mergeLevel).toBe(TUNABLES.MERGE_LEVEL_MIN);
     expect(baseMergeLevel(0)).toBe(TUNABLES.MERGE_LEVEL_MIN);
     expect(baseMergeLevel(bands.length - 1)).toBe(TUNABLES.MERGE_LEVEL_MAX);
     expect(rungsForPoints(0)).toBe(0);

@@ -30,7 +30,7 @@ describe("the replay model on the server's recorded fight (contract fixture)", (
     expect(text).toMatch(/^Your Well Digger/m);
     expect(text).toMatch(/the raiders' (Dust Rider|Well Digger)/);
     // QA S7: a death names the row that took the unit to 0 HP.
-    expect(text).toMatch(/^Your Well Digger 1 fell to the raiders' Dust Rider\.$/m);
+    expect(text).toMatch(/^The raiders' Dust Rider fell to your Well Digger 1\.$/m); // chunk 37 balance pass: the contract fixture's fight re-recorded under the tuned content (defense ×1.5, traps ×1.5, speed ×0.7) — no posted unit falls now
     expect(text).toMatch(/Spike Pit sprang on/);
     expect(text).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/);
     // Tally from the rows: three units fell in this fight.
@@ -223,13 +223,13 @@ describe("chunk 22 QA fixes in the model", () => {
   it("S7: how each fighter fared, from the rows, for both viewers", () => {
     const c = open(replayCaravan()).fates.map((f) => f.text);
     expect(c).toEqual([
-      "Your Well Digger 1: fell to the raiders' Dust Rider at 0:21.",
+      "Your Well Digger 1: still standing at the end.",
       "Your Well Digger 2: still standing at the end.",
-      "The raiders' Dust Rider: fell to your Well Digger 2 at 0:26.",
-      "The raiders' Well Digger: fell to your Well Digger 2 at 0:39.",
+      "The raiders' Dust Rider: fell to your Well Digger 1 at 0:19.",
+      "The raiders' Well Digger: fell to your Well Digger 2 at 0:30.",
     ]);
     const o = open(replayOwner()).fates.map((f) => f.text);
-    expect(o.slice(0, 2)).toEqual(["Your Dust Rider: fell to the caravan's Well Digger 2 at 0:26.", "Your Well Digger: fell to the caravan's Well Digger 2 at 0:39."]);
+    expect(o.slice(0, 2)).toEqual(["Your Dust Rider: fell to the caravan's Well Digger 1 at 0:19.", "Your Well Digger: fell to the caravan's Well Digger 2 at 0:30."]);
     const full = open(goldenView("combat-full-load-16v8v28")).fates.map((f) => f.text);
     expect(full).toContain("The raiders' Dust Rider 16: reached the core at 0:06.");
     expect(full).toContain("Your Well Digger 1: still standing when the core was overrun.");

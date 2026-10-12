@@ -553,7 +553,10 @@ describe("authored fallback (PHASE-2 §25 seam)", () => {
     const second = await seedAuthoredParties(appRole);
     expect(second.created).toEqual([]);
     expect(second.existing.length).toBe(first.created.length);
-    // A caravan in band 0, where no live party exists in this suite: the three authored band-0 parties.
+    // A caravan in band 0: the three authored band-0 parties. Since the chunk 37 balance pass
+    // REPUTATION_START (400) is within the widest pass of band 0, so any live party this suite
+    // left at the starting siege rating is parked far away first (the owner role sets ratings).
+    await pool.query("UPDATE pool_progress SET reputation = 20000 WHERE pool = 'siege' AND reputation = $1 AND account_id IN (SELECT id FROM account WHERE NOT is_system)", [TUNABLES.REPUTATION_START]);
     const d = await makeDefender("high_plains", 250);
     const m = await search(d);
     expect(m.candidates.length).toBe(3);

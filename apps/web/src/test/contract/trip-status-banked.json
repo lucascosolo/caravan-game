@@ -32,7 +32,7 @@
           "outcome": "caravan_held",
           "depth": 512,
           "deaths": [],
-          "coinAccrued": 1000,
+          "coinAccrued": 600,
           "decision": "pushed",
           "result": {
             "jobId": "encounter:00000000-0000-4000-8000-000000000002:1",
@@ -88,7 +88,7 @@
           "deaths": [
             "00000000-0000-4000-8000-000000000006"
           ],
-          "coinAccrued": 1347,
+          "coinAccrued": 808,
           "decision": "banked",
           "result": {
             "jobId": "encounter:00000000-0000-4000-8000-000000000002:2",
@@ -130,10 +130,10 @@
       "ending": {
         "kind": "banked",
         "encountersSurvived": 2,
-        "unbankedCoin": 2347,
+        "unbankedCoin": 1408,
         "deliveryBonus": 250,
-        "requested": 2597,
-        "credited": 2597,
+        "requested": 1658,
+        "credited": 1658,
         "discarded": 0,
         "restored": {
           "deMerged": [

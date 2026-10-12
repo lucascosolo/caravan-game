@@ -122,7 +122,7 @@ describe("the replay player, the caravan's side (the server's recorded fight)", 
     expect(within(summary).getByTestId("replay-loot")).toHaveTextContent(`Loot reported for the raiding party's owner: ${view.outcome!.loot} Coin.`);
     const tally = within(summary).getByTestId("replay-tally");
     expect(tally).toHaveTextContent("Raiders down: 2 of 2");
-    expect(tally).toHaveTextContent("Your posted units down: 1 of 2");
+    expect(tally).toHaveTextContent("Your posted units down: 0 of 2"); // chunk 37 balance pass: the contract fixture's fight re-recorded under the tuned content (defense ×1.5, traps ×1.5, speed ×0.7) — no posted unit falls now
     expect(tally).toHaveTextContent("Traps sprung: 1 of 1");
     // The canvas: every unit at tick 0, the lattice off, stances and siege from the server's labels, framed on the action, vertical swipes scroll.
     expect(screen.queryByTestId("replay-end-card")).toBeNull();
@@ -142,8 +142,8 @@ describe("the replay player, the caravan's side (the server's recorded fight)", 
     await renderPlayer(replayCaravan());
     const settled = screen.getByTestId("replay-settled");
     expect(settled).toHaveAttribute("data-applied", "true");
-    expect(settled).toHaveTextContent("1000 Coin earned here, not banked yet: it is at risk until the trip banks.");
-    expect(settled).toHaveTextContent("Reputation (caravan): +14.");
+    expect(settled).toHaveTextContent("600 Coin earned here, not banked yet: it is at risk until the trip banks.");
+    expect(settled).toHaveTextContent("Reputation (caravan): +9."); // REPUTATION_CARAVAN_HELD 15 → 10 (chunk 37), gap-scaled
     expect(settled).toHaveTextContent("Ladder (caravan): +25 points.");
     expect(settled).toHaveTextContent("Ladder (trap): +25 points.");
     expect(settled).toHaveTextContent("Units that fell here are de-merged one level when the trip ends; that is not written yet.");
@@ -152,8 +152,9 @@ describe("the replay player, the caravan's side (the server's recorded fight)", 
   it("S7: how each fighter fared, from the rows", async () => {
     await renderPlayer(replayCaravan());
     const fates = screen.getByTestId("replay-fates");
-    expect(fates).toHaveTextContent("Your Well Digger 1: fell to the raiders' Dust Rider at 0:21.");
-    expect(fates).toHaveTextContent("The raiders' Well Digger: fell to your Well Digger 2 at 0:39.");
+    expect(fates).toHaveTextContent("Your Well Digger 1: still standing at the end.");
+    expect(fates).toHaveTextContent("The raiders' Dust Rider: fell to your Well Digger 1 at 0:19.");
+    expect(fates).toHaveTextContent("The raiders' Well Digger: fell to your Well Digger 2 at 0:30.");
   });
 
   it("S1: at the end the last frame is held, the deciding kill's mark plays out, then the end card shows — and can be dismissed", async () => {
@@ -161,10 +162,10 @@ describe("the replay player, the caravan's side (the server's recorded fight)", 
     const view = replayCaravan();
     await renderPlayer(view);
     const ticks = (view.log as { ticks: number }).ticks;
-    scrubTo(369);
+    scrubTo(519);
     const feed = screen.getByTestId("replay-feed");
-    expect(feed).toHaveTextContent("Your Spike Pit sprang on the raiders' Well Digger: 250 damage.");
-    expect(feed).not.toHaveTextContent("fell");
+    expect(feed).toHaveTextContent("Your Spike Pit sprang on the raiders' Well Digger: 375 damage.");
+    expect(feed).not.toHaveTextContent("Well Digger fell");
     expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-spent", "1");
     scrubTo(ticks - 1);
     // On the final tick: the stage is NOT covered, and the last raider's death is marked on it.
@@ -179,14 +180,14 @@ describe("the replay player, the caravan's side (the server's recorded fight)", 
     expect(end).toHaveAttribute("data-outcome", view.outcome!.kind);
     expect(end).toHaveTextContent("End of the fight");
     expect(end).toHaveTextContent("Your caravan held.");
-    expect(feed).toHaveTextContent("Your Well Digger 1 fell to the raiders' Dust Rider.");
-    expect(feed).toHaveTextContent("The raiders' Dust Rider used Spur On: dashed");
-    expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-units", "1");
+    expect(feed).toHaveTextContent("The raiders' Dust Rider fell to your Well Digger 1.");
+    expect(feed).toHaveTextContent("The raiders' Well Digger fell to your Well Digger 2.");
+    expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-units", "2");
     expect(screen.getByTestId("replay-play")).toHaveTextContent("Watch again");
-    expect(screen.getByTestId("replay-time")).toHaveTextContent(/^0:39 \/ 0:39$/);
+    expect(screen.getByTestId("replay-time")).toHaveTextContent(/^0:30 \/ 0:30$/);
     await userEvent.click(within(end).getByTestId("replay-end-dismiss"));
     expect(screen.queryByTestId("replay-end-card")).toBeNull();
-    expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-units", "1");
+    expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-units", "2");
   });
 
   it("the feed defaults to key moments (QA S3); everything shows the hits, fence hits included", async () => {
@@ -203,8 +204,8 @@ describe("the replay player, the caravan's side (the server's recorded fight)", 
 
   it("N5: tapping a feed line highlights its units on the field", async () => {
     await renderPlayer(replayCaravan());
-    scrubTo(430);
-    const line = screen.getByRole("button", { name: /Your Spike Pit sprang on the raiders' Well Digger: 250 damage\. Show on the field\./ });
+    scrubTo(560);
+    const line = screen.getByRole("button", { name: /Your Spike Pit sprang on the raiders' Well Digger: 375 damage\. Show on the field\./ });
     await userEvent.click(line);
     expect(line).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("iso-canvas").getAttribute("data-highlighted")).toBe("1");
@@ -226,7 +227,7 @@ describe("the replay player, the caravan's side (the server's recorded fight)", 
     expect(Number(scrub.value)).toBe(2 * interval - 1);
     await userEvent.click(screen.getByTestId("replay-prev-keyframe"));
     expect(Number(scrub.value)).toBe(interval - 1);
-    expect(scrub).toHaveAttribute("aria-valuetext", "0:04 of 0:39");
+    expect(scrub).toHaveAttribute("aria-valuetext", "0:04 of 0:30");
     await userEvent.click(screen.getByTestId("replay-to-end"));
     expect(screen.queryByTestId("replay-end-card")).toBeNull();
     clockStub.flush(100, 15);
@@ -303,7 +304,7 @@ describe("the replay player, the party owner's side", () => {
     expect(settled).not.toHaveTextContent("Credited:");
     expect(screen.getByTestId("replay-tally")).toHaveTextContent("Your raiders down: 2 of 2");
     expect(screen.getByText("What stopped your party")).toBeInTheDocument();
-    expect(screen.getByTestId("replay-fates")).toHaveTextContent("Your Dust Rider: fell to the caravan's Well Digger 2 at 0:26.");
+    expect(screen.getByTestId("replay-fates")).toHaveTextContent("Your Dust Rider: fell to the caravan's Well Digger 1 at 0:19.");
     toEndAndHold(clockStub, (view.log as { ticks: number }).ticks);
     expect(screen.getByTestId("replay-feed")).toHaveTextContent("The caravan's Spike Pit sprang on your Well Digger");
     expect(screen.getByTestId("replay-end-card")).toHaveTextContent("Your party was stopped: the caravan held.");
@@ -365,7 +366,7 @@ describe("states that cannot play", () => {
     expect(screen.getByTestId("replay-reason")).toHaveTextContent("Reason: no replay log was recorded for this fight");
     expect(screen.getByTestId("replay-outcome")).toHaveTextContent("Your caravan held.");
     // The ledger's itemization still shows: this double-resolved fight's trip was banked.
-    expect(screen.getByTestId("replay-settled")).toHaveTextContent("+1000 Coin banked for this encounter.");
+    expect(screen.getByTestId("replay-settled")).toHaveTextContent("+600 Coin banked for this encounter.");
     expect(screen.queryByTestId("iso-canvas")).toBeNull();
   });
 

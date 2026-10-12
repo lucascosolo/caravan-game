@@ -114,8 +114,13 @@ export const TUNABLES = {
    */
   MAX_CARAVANS_PER_ACCOUNT: 1,
 
-  /** TUNABLE (chunk 04). Neutral starting Reputation for every pool. A rating, never spent. */
-  REPUTATION_START: 1000,
+  /**
+   * TUNABLE (chunk 04; chunk 37 balance pass 1000 → 400, BALANCE-LOG.md). Neutral starting
+   * Reputation for every pool. A rating, never spent. 400 is the bottom of display band 1, so a
+   * new caravan's encounter 1 (this + FIRST_ENCOUNTER_CENTRE_OFFSET = 250) is searched in band 0,
+   * the unmerged starter outfits, and everything above is room to climb.
+   */
+  REPUTATION_START: 400,
 
   /** Merge cap is level 5 for everyone (GUARDRAILS §2). Fixed by design, not a balance knob. */
   MERGE_LEVEL_MIN: 1,
@@ -196,8 +201,8 @@ export const TUNABLES = {
   BASE_OFFENSE_MIN: 40,
   BASE_OFFENSE_MAX: 120,
   /** Same spread for defense, authored INDEPENDENTLY per type — a test asserts no fixed ratio. TUNABLE. */
-  BASE_DEFENSE_MIN: 40,
-  BASE_DEFENSE_MAX: 120,
+  BASE_DEFENSE_MIN: 60,
+  BASE_DEFENSE_MAX: 160,
   /** TUNABLE. Max HP spread; needed because damage is cooldown-paced, not per-tick. */
   UNIT_HP_MIN: 300,
   UNIT_HP_MAX: 1400,
@@ -220,9 +225,9 @@ export const TUNABLES = {
    */
   LEASH_HYSTERESIS_MULT: fpMilli(800),
   /** TUNABLE. 1.5 cells/second. Roster range below. Driven by fight pacing vs. the tick cap. */
-  MOVE_SPEED_DEFAULT: fpMilli(1500),
-  MOVE_SPEED_MIN: fpMilli(800),
-  MOVE_SPEED_MAX: fp(3),
+  MOVE_SPEED_DEFAULT: fpMilli(1050),
+  MOVE_SPEED_MIN: fpMilli(560),
+  MOVE_SPEED_MAX: fpMilli(2100),
   /** TUNABLE. Range is the only thing that makes a unit melee or ranged — no separate flag. */
   ATTACK_RANGE_MELEE_DEFAULT: fp(1),
   ATTACK_RANGE_RANGED_DEFAULT: fp(4),
@@ -284,10 +289,10 @@ export const TUNABLES = {
   // ────────────────────────────────────────────────────────────────────────────────────
 
   /** TUNABLE. Flat, single-trigger trap damage spread; a test asserts every trap is inside it. */
-  TRAP_DAMAGE_MIN: 60,
-  TRAP_DAMAGE_MAX: 250,
+  TRAP_DAMAGE_MIN: 90,
+  TRAP_DAMAGE_MAX: 375,
   /** TUNABLE (chunk 11). Swept-path trigger radius around a trap's cell centre. 0.75 cells. */
-  TRAP_TRIGGER_RADIUS: fpMilli(750),
+  TRAP_TRIGGER_RADIUS: fpMilli(1250),
   /** TUNABLE (chunk 11). Slow effect: −0.40 move speed for 3 s. */
   TRAP_SLOW_MAGNITUDE_DEFAULT: fpMilli(400),
   TRAP_SLOW_DURATION_DEFAULT: seconds(3),
@@ -535,6 +540,20 @@ export const TUNABLES = {
   /** TUNABLE (chunk 25). Authored parties per display band. PHASE-2 §25 asks for at least 12. */
   AUTHORED_PARTIES_PER_BAND: 12,
   /**
+   * TUNABLE (chunk 37 balance pass, BALANCE-LOG.md). The authored difficulty curve's party size:
+   * AUTHORED_PARTY_SIZE_FLOOR raiders in the floor band, rising by AUTHORED_PARTY_SIZE_RISE over the
+   * set (capped at PARTY_SLOT_CAP), and party leaders one merge level up only from band ordinal
+   * AUTHORED_LEADER_FROM_BAND_ORDINAL — so the bands a fresh caravan meets first are unmerged
+   * three-raider starter outfits and difficulty rises monotonically from there.
+   */
+  AUTHORED_PARTY_SIZE_FLOOR: 3,
+  /** TUNABLE (chunk 37): the band ordinals over which the outfits' living tier and merge level climb from the floor to the top (from ordinal 1). */
+  AUTHORED_CLIMB_BANDS: 6,
+  AUTHORED_PARTY_SIZE_RISE: 6,
+  AUTHORED_LEADER_FROM_BAND_ORDINAL: 2,
+  /** TUNABLE (chunk 37): from this band ordinal every raider fields the band's base merge level (below it, every second raider is one level lower). */
+  AUTHORED_FULL_LEVEL_FROM_BAND_ORDINAL: 2,
+  /**
    * TUNABLE (chunk 25). Retire-by-ratio, second stage: the most recent N SERVED encounters
    * (chosen candidates in encounter_candidates) whose band centre fell in a display band
    * are the rolling window over which that band's authored served share is measured
@@ -705,7 +724,9 @@ export const TUNABLES = {
    * `scripts/balance/trip-ev.ts` (model.ts `weeklyFreeEarn`): the full-week trickle
    * (200/h × 168 h = 33,600) plus N trips, each worth its gross Coin banked at the best-EV
    * point for an 8 × L1 circle (the cheapest to lose, so the most pushed), at display band 3
-   * (REPUTATION_START), hold rate p1 − 0.05 per encounter after the first:
+   * (REPUTATION_START's band until the chunk 37 balance pass; since it, the band the matchup
+   * sweep measures an 8 × L1 circle settling at — model.ts L1_EQUILIBRIUM_BAND — still 3), hold
+   * rate p1 − 0.05 per encounter after the first:
    *   - LOW  — 3 trips/h for ~5 h (15 trips), p1 0.60: 33,600 + 15 × 675 ≈ 43,700.
    *   - MID  — 5 × 1 h sessions opening with the regen burst (30 trips), p1 0.65:
    *            33,600 + 30 × 731 ≈ 55,500.
@@ -817,7 +838,7 @@ export const TUNABLES = {
    * (GUARDRAILS §3), grants no Coin and no unlock point, and is the same rule for every
    * caravan (not a tutorial gift). 0 turns it off. An integer, never negative.
    */
-  STARTING_ROSTER: { copiesPerStarterType: 1 },
+  STARTING_ROSTER: { copiesPerStarterType: 3 },
   // ── END STARTING_ROSTER ──
 
   // ────────────────────────────────────────────────────────────────────────────────────
@@ -882,8 +903,14 @@ export const TUNABLES = {
   REPUTATION_WIN_ATTACKER: 25,
   /** TUNABLE (chunk 04). Reputation lost by the party's owner when their party is wiped or withdraws (stalemate), before gap scaling. */
   REPUTATION_LOSS_ATTACKER: -15,
-  /** TUNABLE (chunk 04). Reputation gained by the caravan when it holds (party wiped) or the party withdraws (stalemate), before gap scaling. */
-  REPUTATION_CARAVAN_HELD: 15,
+  /**
+   * TUNABLE (chunk 04; chunk 37 balance pass 15 → 10, BALANCE-LOG.md). Reputation gained by the
+   * caravan when it holds (party wiped) or the party withdraws (stalemate), before gap scaling.
+   * With REPUTATION_CARAVAN_OVERRUN −20 a caravan settles where it holds 20 / (10 + 20) ≈ 67 % of
+   * encounters (was 57 % at +15): one band lower, where 8 × L3 circles have a positive best bank
+   * point (k = 4) at measured hold rates.
+   */
+  REPUTATION_CARAVAN_HELD: 10,
   /** TUNABLE (chunk 04). Reputation lost by the caravan when it is overrun, before gap scaling. */
   REPUTATION_CARAVAN_OVERRUN: -20,
   /** TUNABLE (chunk 04). Reputation cannot fall below this; a loss that would cross it is clamped (and recorded as clamped). */

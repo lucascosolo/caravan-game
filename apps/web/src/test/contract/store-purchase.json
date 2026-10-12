@@ -35,7 +35,7 @@
       "requested": 6000,
       "credited": 6000,
       "discarded": 0,
-      "balanceAfter": 9597,
+      "balanceAfter": 8658,
       "cap": 50000
     },
     "trickle": {
@@ -44,7 +44,7 @@
       "materialized": false,
       "accruedFromMs": 1790000000000,
       "accruedThroughMs": 1790000000000,
-      "balanceBeforeCredit": 3597
+      "balanceBeforeCredit": 2658
     },
     "cosmeticsGranted": [
       "wagon.conestoga_white"

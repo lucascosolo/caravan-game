@@ -284,7 +284,7 @@ describe("the resolver's mirrored content shapes agree with @caravan/content (ch
         beast: { grit: "advantage", powder: "disadvantage", beast: "neutral" },
       },
       mergeStatMultByLevel: [0, 1024, 1280, 1600, 2000, 2500],
-      trapTriggerRadius: 768,
+      trapTriggerRadius: 1280,
       siegeFenceDamageMult: 4096,
       leashHysteresisMult: 819,
       abilityFirstUseDelayMult: 1024,

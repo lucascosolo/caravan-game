@@ -8,7 +8,7 @@
         "scope": "caravan",
         "accountId": null,
         "caravanId": "00000000-0000-4000-8000-000000000001",
-        "reputation": 1000,
+        "reputation": 400,
         "ladder": {
           "level": 0,
           "points": 0,
@@ -29,7 +29,7 @@
         "scope": "account",
         "accountId": "00000000-0000-4000-8000-000000000002",
         "caravanId": null,
-        "reputation": 1000,
+        "reputation": 400,
         "ladder": {
           "level": 0,
           "points": 0,
@@ -50,7 +50,7 @@
         "scope": "account",
         "accountId": "00000000-0000-4000-8000-000000000002",
         "caravanId": null,
-        "reputation": 1000,
+        "reputation": 400,
         "ladder": {
           "level": 0,
           "points": 0,

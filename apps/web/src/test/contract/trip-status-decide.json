@@ -25,14 +25,14 @@
       "currentEncounter": null,
       "job": null,
       "decisionFor": 1,
-      "unbankedCoin": 1000,
+      "unbankedCoin": 600,
       "encounters": [
         {
           "index": 1,
           "outcome": "caravan_held",
           "depth": 512,
           "deaths": [],
-          "coinAccrued": 1000,
+          "coinAccrued": 600,
           "decision": null,
           "result": {
             "jobId": "encounter:00000000-0000-4000-8000-000000000002:1",

@@ -90,9 +90,9 @@
     "balance": 1000,
     "pendingTrickle": 0,
     "inventory": {
-      "count": 5,
+      "count": 9,
       "cap": 200,
-      "room": 195,
+      "room": 191,
       "full": false
     },
     "availability": {

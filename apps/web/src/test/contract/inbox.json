@@ -15,7 +15,7 @@
           "overran": 0,
           "stalemate": 0,
           "other": 0,
-          "coinEarned": 1077,
+          "coinEarned": 596,
           "coinTransferred": 0,
           "coinDiscardedAtCap": 0,
           "reputationDelta": -42,
@@ -35,7 +35,7 @@
                 "caravanName": "Caravan",
                 "regionId": "desert"
               },
-              "coinEarned": 353,
+              "coinEarned": 212,
               "coinTransferred": 0,
               "coinDiscardedAtCap": 0,
               "reputationDelta": -13,
@@ -52,7 +52,7 @@
                 "caravanName": "Caravan",
                 "regionId": "desert"
               },
-              "coinEarned": 371,
+              "coinEarned": 172,
               "coinTransferred": 0,
               "coinDiscardedAtCap": 0,
               "reputationDelta": -14,
@@ -69,7 +69,7 @@
                 "caravanName": "Caravan",
                 "regionId": "desert"
               },
-              "coinEarned": 353,
+              "coinEarned": 212,
               "coinTransferred": 0,
               "coinDiscardedAtCap": 0,
               "reputationDelta": -15,

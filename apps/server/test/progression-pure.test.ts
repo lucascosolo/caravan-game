@@ -263,7 +263,9 @@ describe("sandbagging shape (chunk 04 QA D2) and -0 hygiene (N4)", () => {
       rep = reputationDelta("party", "caravan_overrun", rep, TUNABLES.REPUTATION_START).after;
       wins++;
     }
-    expect(losses).toBeGreaterThan(100);
+    // Chunk 37 balance pass: REPUTATION_START 1000 → 400 shortens the road to the floor (was > 100
+    // losses); the shape — tanking far slower than climbing back — is what this pins.
+    expect(losses).toBeGreaterThan(20);
     expect(losses).toBeGreaterThan(3 * wins);
   });
 

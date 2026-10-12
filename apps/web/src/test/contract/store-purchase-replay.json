@@ -35,7 +35,7 @@
       "requested": 6000,
       "credited": 6000,
       "discarded": 0,
-      "balanceAfter": 9597,
+      "balanceAfter": 8658,
       "cap": 50000
     },
     "trickle": null,

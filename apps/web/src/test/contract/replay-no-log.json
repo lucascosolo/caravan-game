@@ -9,7 +9,7 @@
     "currentResolverVersion": 8,
     "outcome": {
       "kind": "caravan_held",
-      "loot": 353,
+      "loot": 212,
       "depth": 512,
       "units": [
         {
@@ -54,7 +54,7 @@
       "coin": [
         {
           "reason": "encounter_survived",
-          "amount": 1000,
+          "amount": 600,
           "discarded": 0
         }
       ],
@@ -62,7 +62,7 @@
       "reputation": [
         {
           "pool": "living",
-          "delta": 15
+          "delta": 10
         }
       ],
       "ladder": [
