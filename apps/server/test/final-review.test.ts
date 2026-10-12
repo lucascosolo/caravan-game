@@ -18,7 +18,8 @@ import type pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { assertProductionDatabaseUrl, loadDotEnv, ProductionConfigError, serveWebFromEnv, storeModeFromEnv } from "../src/config.js";
-import { checkRoleSettings } from "../src/db/roleSettings.js";
+import { RoleSettingsCheckError, checkRoleSettings, readRoleSettings } from "../src/db/roleSettings.js";
+import { appRoleUrl, resolveTestDatabaseUrl } from "./db-url.js";
 import { DevSeedRefusedError, devSeedRequested, seedDevAccount } from "../src/dev/devAccount.js";
 import { verifyProjection } from "../src/ledger/projection.js";
 import { liveRoster, rebuildAuthoredRoster } from "../src/matchmaking/authored.js";
@@ -263,6 +264,20 @@ describe("S2: single-process hosting (SERVE_WEB)", () => {
 });
 
 describe("N7: role-level settings on the app role", () => {
+  it("round-2 N4: a role-level statement_timeout = 1 is REPORTED by the boot check (its own connection overrides it), not a crash; an unreachable database is a plain RoleSettingsCheckError", async () => {
+    const name = (await pool.query<{ d: string }>("SELECT current_database() AS d")).rows[0]!.d;
+    await pool.query(`ALTER ROLE caravan_app IN DATABASE "${name}" SET statement_timeout = 1`);
+    try {
+      const settings = await readRoleSettings(appRoleUrl(resolveTestDatabaseUrl()));
+      expect(settings).toEqual(["statement_timeout=1 (this database)"]);
+    } finally {
+      await pool.query(`ALTER ROLE caravan_app IN DATABASE "${name}" RESET ALL`);
+    }
+    const bad = new URL(appRoleUrl(resolveTestDatabaseUrl()));
+    bad.password = "not-the-password";
+    await expect(readRoleSettings(bad.toString())).rejects.toBeInstanceOf(RoleSettingsCheckError);
+    expect(await readRoleSettings(appRoleUrl(resolveTestDatabaseUrl()))).toEqual([]);
+  });
 
   it("are reported at boot, and a role-level search_path never reaches the pool's connections", async () => {
     // Scoped to THIS database only (IN DATABASE), so no other database's server sees it.

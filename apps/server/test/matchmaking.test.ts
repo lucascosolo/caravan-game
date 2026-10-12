@@ -21,7 +21,7 @@ import { getJob } from "../src/jobs/queue.js";
 import { snapshotStandingParty } from "../src/jobs/snapshots.js";
 import { canonicalJson, type Json } from "../src/ledger/events.js";
 import { AUTHORED_BANDS, AUTHORED_PARTIES_PER_BAND, AUTHORED_USERNAME_PREFIX, seedAuthoredParties } from "../src/matchmaking/authored.js";
-import { CANDIDATES_PER_SEARCH, ESCALATION_PER_ENCOUNTER, RECENT_OPPONENT_EXCLUSION, REPUTATION_BAND_WIDTH_MAX, REROLL_COOLDOWN_SECONDS, bandOf, sandbagEarnMultiplier } from "../src/matchmaking/band.js";
+import { CANDIDATES_PER_SEARCH, ESCALATION_PER_ENCOUNTER, RECENT_OPPONENT_EXCLUSION, REPUTATION_BAND_WIDTH_MAX, REROLL_COOLDOWN_SECONDS, bandCentre, bandOf, sandbagEarnMultiplier } from "../src/matchmaking/band.js";
 import { chooseCandidate, enqueueChosenEncounter, readCandidates, replaySearch, searchCandidates, type Candidate, type CandidateMenuView, type CandidateView, type EncounterCandidatesRow } from "../src/matchmaking/service.js";
 import { createTrip, endTrip } from "../src/matchmaking/trips.js";
 import { findCaravanById } from "../src/repo/caravans.js";
@@ -640,6 +640,38 @@ describe("authored fallback (PHASE-2 §25 seam)", () => {
 });
 
 describe("DB guards hold against the app role", () => {
+  it("final guardrail review r2 S2: EVERY column of encounter_candidates but the choice is refused (enumerated from the catalogue, so a new column cannot slip past)", async () => {
+    // A defender whose roster is small enough that the cold-start raider cap runs, so raider_cap is not NULL.
+    for (const n of [1, 2, 2, 5]) await makeOwner("mountain", 300, n);
+    const p = await registerPlayer("desert");
+    await pool.query("DELETE FROM unit_instance WHERE caravan_id = $1", [p.caravanId]);
+    await giveUnits(p, 2, "desert.dust_rider");
+    await setLivingRep(p.caravanId, 450);
+    expect((await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: p.units, traps: [], fence: null })).statusCode).toBe(201);
+    const trip = await withTransaction(pool, (c) => createTrip(c, p.caravanId));
+    await search(p);
+    const row = await menuRow(trip.id, 1, 1);
+    expect(row.raider_cap).not.toBeNull();
+    const MUTABLE = ["chosen_candidate_id", "chosen_at"]; // documented: set once from NULL (the choice)
+    const cols = (
+      await pool.query<{ column_name: string; data_type: string }>(
+        "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'encounter_candidates' ORDER BY ordinal_position",
+      )
+    ).rows.filter((c) => !MUTABLE.includes(c.column_name));
+    expect(cols.map((c) => c.column_name)).toContain("raider_cap");
+    for (const c of cols) {
+      const v =
+        c.data_type === "integer" || c.data_type === "bigint" ? `${c.column_name} + 1`
+        : c.data_type === "uuid" ? "gen_random_uuid()"
+        : c.data_type === "jsonb" ? `CASE WHEN ${c.column_name} = '"zz"'::jsonb THEN '"yy"'::jsonb ELSE '"zz"'::jsonb END`
+        : c.data_type === "boolean" ? `NOT coalesce(${c.column_name}, false)`
+        : c.data_type.startsWith("timestamp") ? `coalesce(${c.column_name}, now()) + interval '1 second'`
+        : `coalesce(${c.column_name}::text, '') || 'x'`;
+      const err = await expectDbError(appRole, `UPDATE encounter_candidates SET ${c.column_name} = ${v} WHERE trip_id = $1`, [trip.id]);
+      expect(err?.message, c.column_name).toMatch(/is a stored menu and is immutable/);
+    }
+  });
+
   it("a stored menu is immutable, a chosen candidate is frozen, and trips / menus are history", async () => {
     const d = await makeDefender("desert", 1150);
     const m = await search(d);
@@ -686,6 +718,8 @@ describe("final play-test review: the band-0 raider cap (S1), the centre's basis
   /** A defender who packed `units` living units, at a living rating whose encounter-1 centre is `centre`. */
   async function packedDefender(units: number, centre: number): Promise<Player & { caravan: CaravanRow; tripId: string }> {
     const p = await registerPlayer("desert");
+    // Only the given units: a caravan rebuilding from a wipe (the raider cap runs on a small roster, r2 D1).
+    await pool.query("DELETE FROM unit_instance WHERE caravan_id = $1", [p.caravanId]);
     await giveUnits(p, units, "desert.dust_rider");
     await setLivingRep(p.caravanId, centre - TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET);
     expect((await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: p.units, traps: [], fence: null })).statusCode).toBe(201);
@@ -693,31 +727,41 @@ describe("final play-test review: the band-0 raider cap (S1), the centre's basis
     return { ...p, caravan: (await findCaravanById(pool, p.caravanId))!, tripId: trip.id };
   }
 
-  it("S1: in band 0 no party with more raiders than the caravan packed units is offered; the cap is stored with the menu and the menu replays", async () => {
-    const centre = 250; // band 0
-    expect(bandOf(centre).index).toBe(0);
+  it("S1 / r2 D1: while the roster is small, no party with more raiders than the caravan packed units is offered; the cap is stored with the menu and the menu replays", async () => {
+    const centre = 250;
     for (const n of [1, 1, 2, 2, 2, 5, 5, 6, 6]) await makeOwner("mountain", centre, n);
-    const d = await packedDefender(2, centre);
+    const d = await packedDefender(2, centre); // the starting roster gone, 2 units: a rebuilding caravan
     for (let t = 0; t < 4; t++) {
       const m = await searchAt(d, 1, Date.now() + t * COOLDOWN_MS);
       expect(m.raiderCap).toMatchObject({ packedUnits: 2, cap: 2, relaxed: false });
       expect(m.raiderCap!.excluded).toBeGreaterThanOrEqual(4);
       for (const c of m.candidates) expect(c.scout.units.length, c.owner.displayName).toBeLessThanOrEqual(2);
       const row = await menuRow(d.tripId, 1, m.searchSeq);
-      expect(row.raider_cap).toMatchObject({ band: 0, packedUnits: 2, cap: 2, relaxed: false });
+      expect(row.raider_cap).toMatchObject({ rosterSize: 2, rosterMax: TUNABLES.COLD_START_ROSTER_MAX, packedUnits: 2, cap: 2, relaxed: false });
       expect(row.pool.every((e) => !row.raider_cap!.excludedPartyIds.includes(e.partyId))).toBe(true);
       expect(replaySearch(row).partyIds).toEqual(row.candidates.map((c) => c.partyId));
     }
   });
 
-  it("S1: outside band 0 the rule does not run (raiderCap null, nothing stored)", async () => {
-    const centre = 1600;
-    expect(bandOf(centre).index).toBeGreaterThan(0);
-    for (const n of [5, 6, 7]) await makeOwner("badlands", centre, n);
-    const d = await packedDefender(1, centre);
-    const m = await searchAt(d, 1, Date.now());
-    expect(m.raiderCap).toBeNull();
-    expect((await menuRow(d.tripId, 1, m.searchSeq)).raider_cap).toBeNull();
+  it("r2 D1: the rule follows the roster, not the band — a small roster is capped in band 1, and a large or merged-down roster is not capped in band 0", async () => {
+    const low = 250; // band 0
+    const mid = bandCentre(1); // band 1
+    for (const n of [5, 6, 7]) await makeOwner("badlands", low, n);
+    for (const n of [5, 6, 7, 1, 1, 1]) await makeOwner("badlands", mid, n);
+    // A rebuilding caravan searching in band 1: capped (relaxed as far as a full menu needs).
+    const small = await packedDefender(1, mid);
+    const m1 = await searchAt(small, 1, Date.now());
+    expect(m1.raiderCap).toMatchObject({ packedUnits: 1 });
+    // One L5 unit: 16 starting-unit equivalents, never a rebuilding caravan, even in band 0.
+    const strong = await registerPlayer("desert");
+    await pool.query("DELETE FROM unit_instance WHERE caravan_id = $1", [strong.caravanId]);
+    await giveUnits(strong, 1, "desert.dust_rider", 5);
+    await setLivingRep(strong.caravanId, low - TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET);
+    expect((await call(strong, "POST", `/caravans/${strong.caravanId}/manifest`, { units: strong.units, traps: [], fence: null })).statusCode).toBe(201);
+    const trip = await withTransaction(pool, (c) => createTrip(c, strong.caravanId));
+    const m2 = await searchAt({ ...strong, caravan: (await findCaravanById(pool, strong.caravanId))! }, 1, Date.now());
+    expect(m2.raiderCap).toBeNull();
+    expect((await menuRow(trip.id, 1, m2.searchSeq)).raider_cap).toBeNull();
   });
 
   it("N6: the menu says where its centre is and why — encounter 1 is searched below the caravan, not 'within its band'", async () => {

@@ -144,6 +144,19 @@ describe("lease, complete, retry, park", () => {
     expect(await drain(pool, { workerId: "w1", handlers, retryBackoffMs })).toEqual([]);
   });
 
+  it("final guardrail review r2 N4: drain asks shouldStop before every lease — a job it holds completes, no new one is leased (graceful shutdown)", async () => {
+    const a = await enqueueEncounter("trip-stop-a");
+    const b = await enqueueEncounter("trip-stop-b");
+    let leased = 0;
+    const outcomes = await drain(pool, { workerId: "w-stop", handlers, retryBackoffMs, beforeComplete: async () => void leased++ }, undefined, () => leased >= 1);
+    expect(outcomes.map((o) => o.kind)).toEqual(["completed"]);
+    const statuses = [(await getJob(pool, a.job.id))!.status, (await getJob(pool, b.job.id))!.status].sort();
+    expect(statuses).toEqual(["completed", "queued"]);
+    // Stopped before it started: nothing at all is leased.
+    expect(await drain(pool, { workerId: "w-stop", handlers, retryBackoffMs }, undefined, () => true)).toEqual([]);
+    await drain(pool, { workerId: "w-stop", handlers, retryBackoffMs });
+  });
+
   it("replaying a completed job commits nothing new", async () => {
     const { job } = await enqueueEncounter("trip-replay");
     await drain(pool, { workerId: "w1", handlers, retryBackoffMs });

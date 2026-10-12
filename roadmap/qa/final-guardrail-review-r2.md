@@ -201,7 +201,7 @@ sequential. I did not touch the play-test reviewer's server.
 
 ## Should-fix
 
-S1. **While roster relief is on, `POST /me/caravans/:id/refugees/refresh` is an unlimited free
+S1. **[closed: fixr2g]** **While roster relief is on, `POST /me/caravans/:id/refugees/refresh` is an unlimited free
 re-draw.** It is a free exact pick and an unthrottled row writer.
 
 - `apps/server/src/acquisition/refugees.ts:156-157` returns `relief.active ||
@@ -227,7 +227,7 @@ re-draw.** It is a free exact pick and an unthrottled row writer.
   - Test: with relief active, a second `refresh` without a claim → 409, and three claims bring the
     roster to the floor with exactly three menus written.
 
-S2. **`encounter_candidates.raider_cap` is outside the stored-menu immutability guard.**
+S2. **[closed: fixr2g]** **`encounter_candidates.raider_cap` is outside the stored-menu immutability guard.**
 
 - Migration 026 adds the column (`026_playtest_fixes.up.sql:40-48`) and says it is stored "like
   draw_rules so a menu replays". The guard function `encounter_candidates_guard_update`
@@ -247,7 +247,7 @@ S2. **`encounter_candidates.raider_cap` is outside the stored-menu immutability 
 
 ## Design-level
 
-D1. **The band-0 raider cap counts units and keys on the search centre, so a band-1 caravan can game
+D1. **[closed: fixr2g]** **The band-0 raider cap counts units and keys on the search centre, so a band-1 caravan can game
 it.**
 
 - `matchmaking/band.ts:446-451`: the cap starts at the packed unit count, whatever their merge levels.
@@ -278,14 +278,14 @@ it.**
 
 ## Nits
 
-N1. **The AGENTS.md reset recipe misses migration 026.** AGENTS.md:223 says to run `DELETE FROM
+N1. **[closed: fixr2g]** **The AGENTS.md reset recipe misses migration 026.** AGENTS.md:223 says to run `DELETE FROM
 account WHERE is_system OR username IS NULL` before `db:reset`, falling back to `DELETE FROM account`
 only for 022. Migration 026's down also refuses while any `standing_party_repaired` event exists, and
 any registered player who merged a party unit has one. Observed: after the documented DELETE (97
 rows), `db:reset` → "Migration 26_playtest_fixes (down) failed: … standing_party_repaired events
 exist". Fix: name 026 alongside 022 ("…or repaired party events exist — then `DELETE FROM account`").
 
-N2. **The hosting runbook drifts in four places.**
+N2. **[closed: fixr2g]** **The hosting runbook drifts in four places.**
 - Step 5 expects "(set v4)". The seed prints "(set v5)" (PLAYTEST-HOSTING.md:131).
 - Steps 10–11 hard-code `-U caravan` and `postgres://caravan:$PT_OWNER_PW` (`:259`, `:270-271`,
   `:281`). In the documented shared-instance mode the owner login is `caravan_pt_owner`; I had to
@@ -296,13 +296,13 @@ N2. **The hosting runbook drifts in four places.**
   there anyway.
 - The systemd unit runs `User=caravan`, but no step creates that OS user.
 
-N3. **The per-username backstop is still a lockout, by decision.** Observed: 100 wrong passwords from
+N3. **[documented: fixr2g]** **The per-username backstop is still a lockout, by decision.** Observed: 100 wrong passwords from
 10 addresses, then the owner's correct password from a fresh address → 429 for 15 minutes. The device
 cookie still gets in. Usernames are public, and IPv6 makes 10 addresses free. If it stays, key
 IPv6 failures by /64 for `loginFailuresPerUsernameAddress`, and say in the Account screen's error that
 an already-signed-in device still works.
 
-N4. **There is no graceful shutdown.** `apps/server/src/index.ts` installs no SIGTERM handler, so
+N4. **[closed: fixr2g]** **There is no graceful shutdown.** `apps/server/src/index.ts` installs no SIGTERM handler, so
 `systemctl stop` or `restart` (runbook steps 6, 11 and 12) kills the process mid-request: exit 143, with
 no "closing" line. A fight being resolved waits out the 30 s lease. That is safe, as the runbook says,
 but every upgrade makes testers see "resolving" for up to 30 s. Fix: on SIGTERM, `app.close()`, stop
@@ -313,7 +313,7 @@ with a raw "canceling statement due to statement timeout" stack trace from `chec
 does not reach its own clear refusal. Read `pg_db_role_setting` before any other query, or `SET
 statement_timeout = 0` on that one connection first.
 
-N5. **`refugee_menu` has no guard at all.** It is not new, but no review has listed it. As
+N5. **[closed: fixr2g]** **`refugee_menu` has no guard at all.** It is not new, but no review has listed it. As
 `caravan_app`, `UPDATE refugee_menu SET offered_type_ids = '[…sand_sharpshooter…]'` → `UPDATE 34`
 (rolled back), and DELETE is granted. Access still holds, because the claim re-checks through
 `grantUnit` (`refugees.ts:417-421`). But the "offers are seeded and reproducible" record (`seed`,
@@ -321,7 +321,7 @@ N5. **`refugee_menu` has no guard at all.** It is not new, but no review has lis
 trigger that freezes every column except `claimed_*` (only while it is NULL) and allows the account
 cascade, in the same migration as S2.
 
-N6. **The fuzz found nothing.** Recorded for completeness: neither run produced a 5xx. The new routes
+N6. **[no action, as decided]** **The fuzz found nothing.** Recorded for completeness: neither run produced a 5xx. The new routes
 (`DELETE …/manifest`, the empty-state reads) were in both runs.
 
 ## Accepted, not findings
@@ -370,3 +370,108 @@ Clean-up:
   - N4: graceful shutdown on SIGTERM. Stop leasing, finish or release leased jobs, then close. The boot check fails with its own clear message.
   - N5: an immutability guard on `refugee_menu` for the columns that must not change after creation.
 - **N3:** keep the per-username backstop as decided, and document it in the runbook. **N6:** no action.
+
+## Fix round (branch `fixr2g`, 2026-10-12): every item closed as decided
+
+Migration **027** (`027_menu_guards`) carries the new guards; renumber it if another 027 lands first.
+
+- **S1, closed.**
+  - `acquisition/refugees.ts` `freeMenuOwed`: relief owes a free menu only when the current menu is
+    **claimed** (one menu at a time). An unclaimed menu under relief is not re-drawn for free:
+    `refresh` answers 409 `free_refresh_not_due` ("roster relief owes one free menu at a time: claim
+    one of menu N's offers …"), and `reroll` is no longer refused for it, so another menu before
+    claiming is the ordinary paid reroll. A claim still brings the next free menu in the same
+    request while below the floor.
+  - `ACCOUNT_RATE_LIMITS.refugeeActionsPerAccount` (new tunable, 30 a minute per account) covers
+    `claim`, `refresh` and `reroll` together (`routes/acquisition.ts`).
+  - PROJECT.md §15's amendment says "one menu at a time"; AGENTS.md names the new limit.
+  - Tests (`acquisition.test.ts`): "500 refreshes below the floor yield ONE free menu" (499 ×
+    `free_refresh_not_due`, 2 menu rows; the unclaimed relief menu rerolls for 150 Coin; the claim
+    brings the next free one); the route limit (the 31st call is 429, another account is
+    unaffected); the existing relief test now claims before it is owed a menu.
+  - Live, against the built server with limits on (the review's reproduction: 4 of 6 units deleted
+    as the owner): 40 refreshes → `{"409 free_refresh_not_due":30,"429 rate_limited":10}`, 0 menus
+    written, `refugee_menu` still 1 row.
+- **S2, closed.**
+  - Migration 027 replaces `encounter_candidates_guard_update` with `raider_cap IS DISTINCT FROM`
+    added, and patches erasure step 5 of `account_erasure_core` in place to rewrite `raider_cap`
+    with the menu's other jsonb columns (the patch refuses a body it does not recognise; the down
+    reverses it and restores 020's guard).
+  - Test (`matchmaking.test.ts`): as `caravan_app`, EVERY column of `encounter_candidates` read from
+    `information_schema.columns` except the documented mutable `chosen_candidate_id` / `chosen_at`
+    is set to a type-correct different value on a menu whose `raider_cap` is not NULL, and each is
+    refused with "is a stored menu and is immutable". A future column fails it until it is guarded.
+  - Live as `caravan_app`: `UPDATE encounter_candidates SET raider_cap = NULL …` → "is a stored
+    menu and is immutable" (it was `UPDATE 4`).
+- **D1, closed as decided** (`COLD_START_RAIDER_CAP_BANDS` → `COLD_START_ROSTER_MAX`, default 6 = the
+  starting roster, pinned against `STARTING_ROSTER × STARTING_NODES.living` by a test).
+  - `matchmaking/band.ts` `coldStartRaiderCap(entries, centre, packedUnits, rosterSize)` runs while
+    the caravan's whole roster (in town plus packed) is at most the max, at any band; the stored
+    `raider_cap` records `rosterSize` and `rosterMax` instead of the band.
+  - **One interpretation, flagged for the orchestrator:** the roster is counted in starting-unit
+    equivalents (`rosterEquivalents`: Σ 2^(level − 1), a merged unit counts as the units it took).
+    Counting units alone would have reopened D1 from the other side: a player who merges down to
+    one L5 unit is a 1-unit roster. Switching to a plain count is one line in `searchCandidates`.
+  - Tests: pure (`matchmaking-pure.test.ts`: the default equals the starting roster; band 1 is
+    capped for a small roster; one L5 = 16 is never capped; two L2 = 4 is) and over the service
+    (`matchmaking.test.ts`: a 1-unit rebuild in band 1 is capped; one L5 unit in band 0 is not).
+  - Live: a fresh 6-unit caravan at 549 packing 1 → `raiderCap {"packedUnits":1,"cap":2,…}`; the
+    same after claiming its first refugee (7) → `raiderCap null`, offered 3-, 3- and 4-raider parties.
+  - Balance (BALANCE-LOG pass 3): `first-trip.ts --reserve 2` → guided encounter 1 **146 / 200 =
+    73 %** (unchanged; target ≥ 70 %), encounter 2 74 % / 77 %, first trip completed 54 %.
+    `cold-start.ts` at 400: identical to pass 2 (cap on and off). New at `--rating 700` (band 1),
+    where the cap now runs: packed 1 → 11 % → 42 % guided, 2 → 41 % → 46 %, 4 unchanged, and one cell
+    lower (3 packed: 49 % → 31 % guided, skilled 53 % → 57 %), recorded, not tuned.
+  - The server contract fixtures (`candidates`, `search`, `choose`) now carry `raiderCap: null`:
+    the contract caravan holds more than 6 units.
+- **N1, closed.** AGENTS.md's reset recipe names migration 026 next to 022: `DELETE FROM account`
+  when the database holds compacted summaries or `standing_party_repaired` events.
+- **N2, closed** (docs/PLAYTEST-HOSTING.md):
+  - step 5 expects "(set v5)";
+  - `PT_OWNER_ROLE` / `PT_APP_ROLE` in step 0, used by the env file and by steps 10–11
+    (`-U "$PT_OWNER_ROLE"`), and set to the login roles in the shared-instance mode;
+  - backups: `sudo install -d -m 700 -o "$USER" /var/backups/caravan`, `umask 077` on the dump and in
+    the cron line, and an `ls -l` check for `-rw-------`;
+  - step 6 creates the `caravan` OS user (`useradd --system … --shell /usr/sbin/nologin`) before the
+    unit that runs as it.
+- **N3, documented.** Step 3 explains the login limits as decided: 10 failures per (username,
+  address), the 100-per-username backstop, that a username can be locked out of password sign-in
+  for 15 minutes by someone with 10+ addresses, and that the tester's own signed-in device is never
+  locked out.
+- **N4, closed.**
+  - `index.ts`: on SIGTERM / SIGINT it logs "SIGTERM: shutting down (no new leases; finishing
+    requests and the fight in progress)", `app.close()`s and exits 0 ("shut down cleanly"), or 1
+    after a 20 s grace.
+  - `jobs/worker.ts` `drain(…, shouldStop)` asks before every lease; the in-process loop passes
+    `() => this.stopped`, so a fight already leased completes and no new one is taken (test in
+    `jobs.test.ts`).
+  - `app.ts` now closes in ONE ordered `onClose` hook: worker, retention, then the pool. The first
+    live SIGTERM showed why: with three separate hooks the pool closed first ("Cannot use a pool
+    after calling end on the pool"), and the fight stayed `leased` until another process took it.
+    After the fix: SIGTERM 0 ms after a commit's 202 → "shut down cleanly" 150 ms later, exit 0,
+    and the job `completed|1|server:vm:8357:resolver` (by the stopping process).
+  - The boot check reads the role's settings first, over its own connection whose startup options
+    override `statement_timeout` / `lock_timeout` (`db/roleSettings.ts` `readRoleSettings`), and
+    refuses with its own message. Live, a login role with `statement_timeout = 1` under production:
+    "refusing to start: the database role has role-level settings (statement_timeout=1 (this
+    database)); clear them with ALTER ROLE … RESET ALL (docs/PLAYTEST-HOSTING.md, step 6)", exit 1.
+    Test in `final-review.test.ts` (and an unreachable database is a plain `RoleSettingsCheckError`).
+- **N5, closed.** Migration 027's `refugee_menu_guard_update` freezes every column but the claim,
+  which may go from all-NULL to set once and is then final; `refugee_menu_guard_delete` refuses
+  while the caravan exists (the account cascade and erasure still remove menus); TRUNCATE is
+  refused. Test (`acquisition.test.ts`): as `caravan_app`, every column but the claim, read from the
+  catalogue, is refused; the claim, once set, is final; DELETE and TRUNCATE are refused. The tests
+  that age or corrupt menus as the owner now do it with the guard disabled for that one statement
+  (`rewriteMenus`). Live as `caravan_app`: the review's `UPDATE refugee_menu SET offered_type_ids …`
+  → "is a drawn menu and is immutable" (it was `UPDATE 34`).
+- **Migrations down and up** (`caravan_dev_r2g`): "Applied: 27_menu_guards", "Rolled back:
+  27_menu_guards", "Applied: 27_menu_guards"; 3 `refugee_menu_guard*` triggers and the patched
+  erasure body afterwards.
+
+### Gates (observed)
+
+`TEST_DATABASE_URL=…/caravan_test_r2g E2E_PORT=3953 SMOKE_PORT=3953 E2E_WEB_PORT=4253 pnpm check`
+on the fix (before the ordered-`onClose` change): content 82, resolver 587, circle 108, web 459,
+server 808 (+1 skipped); determinism 366; perf 15; e2e 11 passed (4.4 m); e2e:hosting 13 passed
+(3.9 m); "all 11 steps passed in 20.7 min".
+

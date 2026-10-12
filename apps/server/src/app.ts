@@ -124,7 +124,6 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   app.decorate("encounterWorker", loop);
   if (loop) {
     app.addHook("onReady", async () => loop.start());
-    app.addHook("onClose", async () => loop.stop());
   }
   const retention =
     opts.retentionJob === undefined || opts.retentionJob === false
@@ -137,9 +136,15 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   app.decorate("retentionJob", retention);
   if (retention) {
     app.addHook("onReady", async () => retention.start());
-    app.addHook("onClose", async () => retention.stop());
   }
-  if (!opts.db) app.addHook("onClose", async () => db.end());
+  // Final guardrail review r2 N4: ONE onClose hook, so the order is explicit (Fastify does not run
+  // separate onClose hooks in registration order): the encounter worker stops leasing and finishes
+  // the fight it holds, the retention sweep stops, and only then is the pool this app created closed.
+  app.addHook("onClose", async () => {
+    if (loop) await loop.stop();
+    if (retention) await retention.stop();
+    if (!opts.db) await db.end();
+  });
 
   app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
     if (err instanceof RateLimitedError) return sendRateLimited(reply, err);

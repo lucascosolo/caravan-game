@@ -235,7 +235,7 @@ export const STRINGS = {
     summarySiegeVsYours: (n: number, kind: string): string =>
       n === 0 ? `— none of your packed ${kind === "fence" ? "fence" : "traps"} is of that kind` : `— counters ${n} of your packed ${kind === "fence" ? `fence segment${n === 1 ? "" : "s"}` : `trap${n === 1 ? "" : "s"}`}`,
     scoutFullReport: "Full scouting report",
-    /** S1: the band-0 cold-start raider cap. */
+    /** S1: the cold-start raider cap (a caravan rebuilding a small roster; r2 D1). */
     raiderCap: (cap: number, packed: number, relaxed: boolean): string =>
       relaxed
         ? `None fields more than ${cap} raiders: too few parties as small as your ${packed} packed ${packed === 1 ? "unit" : "units"} were near.`

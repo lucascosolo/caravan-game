@@ -17,7 +17,7 @@ what the server would resolve.
 | `trip-ev.ts` | The EV model with hand-entered rates (chunk 19). Unchanged apart from the weekly-earn band. |
 | `unlock-pace.ts` | The week model read for ladder points: the days of play until the first tier-2 living unlock, at 15 / 30 / 42 trips a week and bank points 1–3 (`--costs` evaluates another cost curve). Pass 2, D8. |
 | `party-rating.ts` | The Reputation equilibrium check on a sweep's `--json` matrix: each caravan roster's equilibrium band, and a standing party's siege-Reputation drift per strike by strength and band, under the current and the old party-loss rule. Pass 2, D6. |
-| `cold-start.ts` | The band-0 raider cap (S1) re-checked: rebuilt 1–4 unit caravans at REPUTATION_START, with the cap on and off, against the authored pool. Pass 2. |
+| `cold-start.ts` | The cold-start raider cap (S1; keyed on the roster since pass 3) re-checked: rebuilt 1–4 unit caravans, with the cap on and off, against the authored pool. `--rating` sets the caravan's living Reputation (default REPUTATION_START). Passes 2 and 3. |
 | `apps/server/test/balance-sweep.test.ts` | The CI slice, with a time budget of 150 s. It checks that encounter 1 is searched in band 0, that the guided layout holds ≥ 70 %, that encounter 2 is held more often than not, that skill beats naive, and that the sweep is deterministic. |
 
 **The corpus and its assumptions.** Each region gets a fresh caravan and eight "band-typical"
@@ -36,6 +36,64 @@ upper bound on what one reading of the scout gets. "Naive" layouts ignore the sc
 A roster's **equilibrium band** is the highest band whose skilled encounter-1 hold rate is at least
 the Reputation break-even. The break-even is 20 / (10 + 20) ≈ 67 % since change #16 (it was 20 / (15 + 20) = 57 %), because a hold earns +10 and an
 overrun costs −20.
+
+---
+
+## Pass 3 — 2026-10-12 (final guardrail review round 2: D1, S1). RESOLVER_VERSION unchanged at 8.
+
+No resolver code, content stat or resolver tunable changed (RESOLUTION_CONTENT_HASH and the goldens
+are unchanged). Two matchmaking / acquisition rules moved; nothing a fight reads.
+
+### What changed
+
+| # | number | from → to | why |
+|---|---|---|---|
+| 23 | `COLD_START_RAIDER_CAP_BANDS` → **`COLD_START_ROSTER_MAX`** | "band 0 of the search centre" → **the caravan's whole roster (in town plus packed) is at most 6 starting-unit equivalents** (Σ 2^(level − 1); 6 = the starting roster, 3 copies × 2 starter types, pinned by a test) | Round-2 D1. Keyed on the search centre, the cap ran for every caravan rated 400–549 (encounter 1 is searched 150 below), so a band-1 caravan (×1.5 encounter Coin) packing one strong unit was offered only 2-raider parties; at 550 it met 5-, 3- and 4-raider ones. The rule is for a caravan **rebuilding**, so it now follows the roster, at any encounter and any Reputation. A merged unit counts as the units it took, so merging a roster down to a few strong units never turns it on (one L5 unit = 16). A fresh caravan that has taken its first refugee (7) is already past it. |
+| 24 | `ACCOUNT_RATE_LIMITS.refugeeActionsPerAccount` (new) | 30 a minute per account, claim / refresh / reroll together | Round-2 S1 (operational). With relief owing one menu at a time (below), a person needs a handful of refugee calls an hour; this bounds a script. |
+
+Not a number, recorded here because it changes the rebuild path that pass 2 measured: **roster
+relief owes one menu at a time** (round-2 S1). Below `REFUGEE_ROSTER_FLOOR` the next free menu comes
+only once the current one is claimed; another menu before claiming is the ordinary paid reroll. Pass
+2's rebuild (a wiped caravan takes three free refugees, one per claim) is unchanged; what is gone is
+the unlimited free re-draw of an unclaimed menu.
+
+### The guided first fight (`first-trip.ts --reserve 2`, 200 caravans) — unchanged, 73 %
+
+```
+roster: STARTING_ROSTER model + one refugee, 2 left in town (GUIDE_RESERVE 2); 200 fresh caravans (4 regions × each refugee type × 25 seeds)
+encounter 1 (guided):   bands searched {"0":200}   held 146/200 = 73% (stalemates 2)
+encounter 2 (free):     bands searched {"1":146}   guided shape held 108/146 = 74%   skilled best held 113/146 = 77%
+first trip completed (two holds, then bank): 108/200 = 54%
+guide's pick at encounter 1: Bounty Board Riders 60/81, Gunslinger's Dozen 53/79, Prairie Wolf Pack 22/29, Salt Flat Drifters 11/11
+```
+
+Identical to pass 2 (target ≥ 70 % met). The guided caravan holds 7 (6 starters plus the guide's
+refugee), so under #23 the cap does not run for it — and against the authored pool it never changed
+these fights anyway (pass 2: cap on and off gave identical rows).
+
+### The cap re-checked (`cold-start.ts`, 4 regions × 25 seeds; rebuilt rosters of 1–4 unmerged starters)
+
+At REPUTATION_START (encounter 1 searched at 250, band 0) the table is identical to pass 2's
+after-#22 column, cap on and off: packed 1 → 42 % guided / 50 % skilled, 2 → 46 / 85, 3 → 57 / 89,
+4 → 66 / 79, every pick a 2-raider outfit.
+
+New in this pass: the same rebuilt caravans at living Reputation 700 (`--rating 700`, encounter 1 at
+550, band 1), where the old rule never ran and #23 now does:
+
+| packed | cap off: raiders faced, guided / skilled held | cap on (#23): raiders faced, guided / skilled held |
+|---|---|---|
+| 1 | 3–4 (mean 3.2): 11 % / 11 % | 2: 42 % / 50 % |
+| 2 | 3–4 (mean 3.2): 41 % / 41 % | 2: 46 % / 85 % |
+| 3 | 3–4 (mean 3.2): 49 % / 53 % | 2–3 (mean 2.1): 31 % / 57 % |
+| 4 | 3–4 (mean 3.2): 57 % / 63 % | 3–4 (mean 3.2): 57 % / 63 % |
+
+So a band-1 caravan rebuilding with 1–2 units now gets the band-0 rebuild path's odds instead of
+11–41 %. One cell moves the other way: with 3 packed, the cap offers 2- and 3-raider outfits whose
+guide-picked fights hold 31 % guided (49 % without it) while the skilled best rises to 57 %; the
+smaller outfits it leaves are the ranged ones the guided layout handles worst (the same gap pass 2
+names for the badlands outfits). Recorded, not tuned: it touches only a wiped caravan above band 0
+with exactly 3 units, and the lever, if telemetry item 8 shows it, is the floor band's ranged
+outfits, not the cap.
 
 ---
 

@@ -29,7 +29,7 @@ import { setCaravanState } from "../src/repo/caravans.js";
 import { createUnitInstance, listUnitInstancesForCaravan } from "../src/repo/unitInstances.js";
 import { AppError } from "../src/services/errors.js";
 import { reachedNodeIds } from "../src/unlocks/access.js";
-import { testPool, truncateAll, unique } from "./helpers.js";
+import { appRolePool, expectDbError, testPool, truncateAll, unique } from "./helpers.js";
 
 const pool: pg.Pool = testPool();
 let app: FastifyInstance;
@@ -91,9 +91,31 @@ async function setBalance(accountId: string, target: number): Promise<void> {
   });
 }
 
+/**
+ * TEST FIXTURE: rewrite refugee_menu rows as the OWNER role with the table's guards off for this one
+ * statement (round-2 N5 froze the drawn menu: nothing in the app, nor the app role, can do this).
+ */
+async function rewriteMenus(sql: string, params: unknown[]): Promise<void> {
+  const c = await pool.connect();
+  try {
+    await c.query("BEGIN");
+    await c.query("ALTER TABLE refugee_menu DISABLE TRIGGER refugee_menu_guard_update");
+    await c.query("ALTER TABLE refugee_menu DISABLE TRIGGER refugee_menu_guard_delete");
+    await c.query(sql, params);
+    await c.query("ALTER TABLE refugee_menu ENABLE TRIGGER refugee_menu_guard_update");
+    await c.query("ALTER TABLE refugee_menu ENABLE TRIGGER refugee_menu_guard_delete");
+    await c.query("COMMIT");
+  } catch (err) {
+    await c.query("ROLLBACK");
+    throw err;
+  } finally {
+    c.release();
+  }
+}
+
 /** Pretend every menu so far was generated `ms` earlier (the free-timer grid moves with it; it is the only clock the drip reads). */
 async function backdateWindow(caravanId: string, ms: number): Promise<void> {
-  await pool.query("UPDATE refugee_menu SET generated_at_ms = generated_at_ms - $2, window_opened_at_ms = window_opened_at_ms - $2 WHERE caravan_id = $1", [caravanId, ms]);
+  await rewriteMenus("UPDATE refugee_menu SET generated_at_ms = generated_at_ms - $2, window_opened_at_ms = window_opened_at_ms - $2 WHERE caravan_id = $1", [caravanId, ms]);
 }
 
 async function menuRows(caravanId: string): Promise<RefugeeMenuRow[]> {
@@ -670,7 +692,7 @@ describe("the unlock web is the only access gate (GUARDRAILS §3) — the centra
     const p = await registerPlayer();
     await viewRefugees(pool, owner(p));
     // Simulate a corrupted / stale row (the owner role can write what the app never would).
-    await pool.query("UPDATE refugee_menu SET offered_type_ids = $2::jsonb WHERE caravan_id = $1 AND sequence = 1", [
+    await rewriteMenus("UPDATE refugee_menu SET offered_type_ids = $2::jsonb WHERE caravan_id = $1 AND sequence = 1", [
       p.caravanId,
       JSON.stringify([DESERT_LOCKED_T1, "desert.dust_rider", "desert.dust_rider"]),
     ]);
@@ -998,7 +1020,7 @@ describe("QA round 1 punch list (roadmap/qa/18-punchlist.md): the reviewer's pro
     const p = await registerPlayer();
     await viewRefugees(pool, { ...owner(p), nowMs: t0 });
     for (const offers of [["desert.dust_rider", "desert.nobody", "desert.dust_rider"], []]) {
-      await pool.query("UPDATE refugee_menu SET offered_type_ids = $2::jsonb WHERE caravan_id = $1 AND sequence = 1", [p.caravanId, JSON.stringify(offers)]);
+      await rewriteMenus("UPDATE refugee_menu SET offered_type_ids = $2::jsonb WHERE caravan_id = $1 AND sequence = 1", [p.caravanId, JSON.stringify(offers)]);
       const get = await call(p, "GET", `/me/caravans/${p.caravanId}/refugees`);
       expect(get.statusCode, JSON.stringify(offers)).toBe(409);
       expect(get.json().error).toBe("menu_corrupt");
@@ -1018,7 +1040,7 @@ describe("QA round 1 punch list (roadmap/qa/18-punchlist.md): the reviewer's pro
     await setBalance(p.accountId, 1_000);
     await viewRefugees(pool, { ...owner(p), nowMs: t0 });
     await rerollRefugees(pool, { ...owner(p), fromSequence: 1, nowMs: t0 + 1 });
-    await pool.query("DELETE FROM refugee_menu WHERE caravan_id = $1 AND sequence = 2", [p.caravanId]);
+    await rewriteMenus("DELETE FROM refugee_menu WHERE caravan_id = $1 AND sequence = 2", [p.caravanId]);
     const err = await appErr(rerollRefugees(pool, { ...owner(p), fromSequence: 1, nowMs: t0 + 2 }));
     expect(err.code).toBe("menu_corrupt");
     expect(err.message).toContain(p.caravanId);
@@ -1083,14 +1105,16 @@ describe("S1 (final play-test review): roster relief — a caravan in town below
     const t0 = Date.now();
     const v1 = await viewRefugees(pool, { ...owner(p), nowMs: t0 });
     expect(v1.relief).toEqual({ active: true, rosterFloor: FLOOR, rosterSize: 0, inTown: true });
-    expect(v1.timer.freeRefreshDue).toBe(true);
-    expect(v1.reroll.blockedByFreeRefresh).toBe(true);
+    // Round-2 S1: the current menu is still unclaimed, so relief owes nothing new yet: claim it first
+    // (a different menu before claiming is the ordinary paid reroll).
+    expect(v1.timer.freeRefreshDue).toBe(false);
+    expect(v1.reroll.blockedByFreeRefresh).toBe(false);
     const unlocked = [...(await reachedNodeIds(pool, "living", owner(p)))].sort();
     let seq = v1.menu.sequence;
     let offer = v1.menu.offers[0]!.unitTypeId;
     for (let k = 1; k <= FLOOR; k++) {
-      // A reroll is refused (never charged) while relief owes the free menu.
-      if (k === 1) expect((await appErr(rerollRefugees(pool, { ...owner(p), fromSequence: seq, nowMs: t0 + k }))).code).toBe("free_refresh_due");
+      // Round-2 S1: an unclaimed relief menu is never re-drawn for free.
+      if (k === 1) expect((await appErr(refreshRefugees(pool, { ...owner(p), fromSequence: seq, nowMs: t0 + k }))).code).toBe("free_refresh_not_due");
       const c = await claimRefugee(pool, { ...owner(p), unitTypeId: offer, sequence: seq, nowMs: t0 + k });
       expect(c.instance!.merge_level).toBe(1);
       expect(c.acquired.coinCost).toBe(0);
@@ -1118,6 +1142,67 @@ describe("S1 (final play-test review): roster relief — a caravan in town below
     expect((await listEventsForAccount(pool, p.accountId, { limit: 500 })).filter((e) => e.event_type === "coin_spent")).toEqual([]);
   });
 
+  it("round-2 S1: below the floor, 500 refreshes yield ONE free menu (one menu at a time); a reroll is never refused for it and is charged as usual", async () => {
+    const p = await registerPlayer();
+    const t0 = Date.now();
+    const first = await viewRefugees(pool, { ...owner(p), nowMs: t0 });
+    await claimRefugee(pool, { ...owner(p), unitTypeId: first.menu.offers[0]!.unitTypeId, sequence: 1, nowMs: t0 + 1 });
+    await pool.query("DELETE FROM unit_instance WHERE caravan_id = $1", [p.caravanId]);
+    let produced = 0;
+    const codes = new Map<string, number>();
+    for (let i = 0; i < 500; i++) {
+      const cur = await viewRefugees(pool, { ...owner(p), nowMs: t0 + 2 + i });
+      try {
+        await refreshRefugees(pool, { ...owner(p), fromSequence: cur.menu.sequence, nowMs: t0 + 2 + i });
+        produced++;
+      } catch (err) {
+        const code = (err as AppError).code;
+        codes.set(code, (codes.get(code) ?? 0) + 1);
+      }
+    }
+    expect(produced).toBe(1);
+    expect(Object.fromEntries(codes)).toEqual({ free_refresh_not_due: 499 });
+    const rows = await pool.query<{ n: number }>("SELECT count(*)::int AS n FROM refugee_menu WHERE caravan_id = $1", [p.caravanId]);
+    expect(rows.rows[0]!.n).toBe(2);
+    // The unclaimed relief menu: another one before claiming is the ordinary paid reroll.
+    const v = await viewRefugees(pool, { ...owner(p), nowMs: t0 + 600 });
+    expect(v.relief.active).toBe(true);
+    expect(v.timer.freeRefreshDue).toBe(false);
+    expect(v.reroll.blockedByFreeRefresh).toBe(false);
+    await setBalance(p.accountId, SCHEDULE[0]!);
+    const rr = await rerollRefugees(pool, { ...owner(p), fromSequence: v.menu.sequence, nowMs: t0 + 601 });
+    expect(rr.coinCost).toBe(SCHEDULE[0]);
+    expect(rr.produced.origin).toBe("reroll");
+    // Claiming brings the next free menu at once (still below the floor).
+    const c = await claimRefugee(pool, { ...owner(p), unitTypeId: rr.produced.offers[0]!.unitTypeId, sequence: rr.produced.sequence, nowMs: t0 + 602 });
+    expect(c.view.timer.refreshedNow).toBe(true);
+    expect(c.view.menu.origin).toBe("free");
+  });
+
+  it("round-2 S1: the refugee routes share a per-account limit (TUNABLES.ACCOUNT_RATE_LIMITS.refugeeActionsPerAccount)", async () => {
+    const rule = TUNABLES.ACCOUNT_RATE_LIMITS.refugeeActionsPerAccount;
+    const limited = await buildApp({ db: pool, rateLimits: TUNABLES.ACCOUNT_RATE_LIMITS });
+    try {
+      const p = await registerPlayer();
+      const statuses: number[] = [];
+      for (let i = 0; i < rule.limit + 1; i++) {
+        const path = ["refresh", "reroll", "claim"][i % 3]!;
+        const res = await limited.inject({ method: "POST", url: `/me/caravans/${p.caravanId}/refugees/${path}`, headers: { authorization: `Bearer ${p.token}` }, payload: { fromSequence: 999, sequence: 999, unitTypeId: "desert.dust_rider" } });
+        statuses.push(res.statusCode);
+      }
+      expect(statuses.slice(0, rule.limit).every((s) => s !== 429)).toBe(true);
+      expect(statuses[rule.limit]).toBe(429);
+      // Another account is unaffected.
+      const q = await registerPlayer();
+      const other = await limited.inject({ method: "GET", url: `/me/caravans/${q.caravanId}/refugees`, headers: { authorization: `Bearer ${q.token}` } });
+      expect(other.statusCode).toBe(200);
+      const res = await limited.inject({ method: "POST", url: `/me/caravans/${q.caravanId}/refugees/refresh`, headers: { authorization: `Bearer ${q.token}` }, payload: { fromSequence: 1 } });
+      expect(res.statusCode).not.toBe(429);
+    } finally {
+      await limited.close();
+    }
+  });
+
   it("below the floor, a claimed menu can be refreshed for free at once; on a trip the grid alone decides", async () => {
     const p = await registerPlayer();
     const t0 = Date.now();
@@ -1140,3 +1225,55 @@ describe("S1 (final play-test review): roster relief — a caravan in town below
     expect(r.view.timer.windowOpenedAtMs).toBe(t0 + 4);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+describe("final guardrail review r2 N5: a drawn refugee menu is immutable against the app role; the claim is set once", () => {
+  it("every column of refugee_menu but the claim is refused (enumerated from the catalogue); the claim goes NULL → set once; a menu leaves only with its caravan", async () => {
+    const appRole = appRolePool();
+    try {
+      const p = await registerPlayer();
+      const v = await viewRefugees(pool, owner(p));
+      const cols = (
+        await pool.query<{ column_name: string; data_type: string }>(
+          "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'refugee_menu' ORDER BY ordinal_position",
+        )
+      ).rows;
+      const CLAIM = ["claimed_type_id", "claimed_instance_id", "claimed_at_ms"];
+      const frozen = cols.filter((c) => !CLAIM.includes(c.column_name));
+      expect(frozen.length).toBeGreaterThanOrEqual(10);
+      for (const c of frozen) {
+        const err = await expectDbError(appRole, `UPDATE refugee_menu SET ${c.column_name} = ${differentValue(c.column_name, c.data_type)} WHERE caravan_id = $1 AND sequence = 1`, [p.caravanId]);
+        expect(err?.message, c.column_name).toMatch(/is a drawn menu and is immutable/);
+      }
+      // The claim: set once, through the module (as the app role would), then final.
+      await claimRefugee(pool, { ...owner(p), unitTypeId: v.menu.offers[0]!.unitTypeId, sequence: 1 });
+      for (const c of CLAIM) {
+        const err = await expectDbError(appRole, `UPDATE refugee_menu SET ${c} = NULL WHERE caravan_id = $1 AND sequence = 1`, [p.caravanId]);
+        expect(err?.message, c).toMatch(/the claim is final/);
+      }
+      expect((await expectDbError(appRole, "DELETE FROM refugee_menu WHERE caravan_id = $1", [p.caravanId]))?.message).toMatch(/may not be deleted while its caravan exists/);
+      expect((await expectDbError(appRole, "TRUNCATE refugee_menu"))?.code).toMatch(/42501|23514/);
+    } finally {
+      await appRole.end();
+    }
+  });
+});
+
+/** A value of the column's type that is certainly different from the stored one (the guard runs before any CHECK). */
+function differentValue(col: string, type: string): string {
+  switch (type) {
+    case "integer":
+    case "bigint":
+      return `${col} + 1`;
+    case "uuid":
+      return "gen_random_uuid()";
+    case "jsonb":
+      return `CASE WHEN ${col} = '"zz"'::jsonb THEN '"yy"'::jsonb ELSE '"zz"'::jsonb END`;
+    case "boolean":
+      return `NOT coalesce(${col}, false)`;
+    case "timestamp with time zone":
+      return `coalesce(${col}, now()) + interval '1 second'`;
+    default:
+      return `coalesce(${col}::text, '') || 'x'`;
+  }
+}

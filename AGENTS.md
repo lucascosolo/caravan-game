@@ -188,7 +188,7 @@ stores nothing), `GET /me/account`, `POST /me/account/link`, `GET|DELETE /me/dev
 routes are rate-limited (`TUNABLES.ACCOUNT_RATE_LIMITS`; counted IN MEMORY PER PROCESS, so N server
 processes give N× the limits; password FAILURES are counted per (username, address) with a generous
 per-username backstop, and a login carrying a live device cookie of that account is exempt — final
-review D2); `CARAVAN_RATE_LIMITS=off` (set by the server vitest env and `pnpm e2e`) is
+review D2); the refugee routes (claim / refresh / reroll) share a per-account limit too (`refugeeActionsPerAccount`, final guardrail review r2 S1); `CARAVAN_RATE_LIMITS=off` (set by the server vitest env and `pnpm e2e`) is
 refused in production. Behind a reverse proxy set `TRUST_PROXY` to the hop count or the proxy addresses /
 CIDRs (off by default; `true` is refused), or every client shares the proxy's per-address limit. Every
 function in schema public must pin `search_path = pg_catalog, public, pg_temp` (a test enumerates pg_proc), and
@@ -220,7 +220,7 @@ serves three scoutable candidates at every band from the first search. Migration
 refuse to roll back while system accounts exist, and a multi-step `db:rollback N` or
 `db:reset` runs every down step in ONE transaction, so a refusal rolls back nothing. Before
 a `db:reset` (or a rollback past 011) of a seeded database, run
-`DELETE FROM account WHERE is_system OR username IS NULL` as the owner role (migration 020 down refuses while guests or the erasure tombstone exist; migration 022 down refuses while compacted replay summaries exist — if the database has any, `DELETE FROM account` instead), then `pnpm db:reset && pnpm db:seed:dev`
+`DELETE FROM account WHERE is_system OR username IS NULL` as the owner role (migration 020 down refuses while guests or the erasure tombstone exist; migration 022 down refuses while compacted replay summaries exist, and migration 026 down while any `standing_party_repaired` event exists — a registered player who merged or lost a unit of their standing party has one; if the database has either, `DELETE FROM account` instead), then `pnpm db:reset && pnpm db:seed:dev`
 (the test suite empties `account` itself before its reset).
 
 **Encounters resolve in the server process (chunk 13 QA S1).** `apps/server/src/index.ts` builds

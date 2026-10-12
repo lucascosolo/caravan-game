@@ -97,7 +97,7 @@ export class EncounterWorkerLoop {
             ...(this.opts.hooks ?? {}),
             onHookError: (err) => this.opts.onError(err),
             ...(this.opts.onLogOverBudget ? { onLogOverBudget: this.opts.onLogOverBudget } : {}),
-          });
+          }, undefined, () => this.stopped);
           if (this.opts.onOutcome) for (const o of outcomes) this.opts.onOutcome(o);
         } while (this.again && !this.stopped);
       } catch (err) {
@@ -109,7 +109,11 @@ export class EncounterWorkerLoop {
     return this.running;
   }
 
-  /** Stop polling and kicking; waits for a drain in progress to finish. */
+  /**
+   * Stop polling and kicking; a drain in progress takes no new lease (r2 N4) and finishes the job
+   * it holds, and this waits for it. A job leased by a process that died anyway is re-leased by
+   * any worker once its lease expires (JOB_VISIBILITY_TIMEOUT_MS).
+   */
   async stop(): Promise<void> {
     this.stopped = true;
     if (this.poll) clearInterval(this.poll);
