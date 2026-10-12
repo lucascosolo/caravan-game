@@ -293,3 +293,30 @@ roles.sql.
   scope"). I see no technical reason to challenge either for an app-open web play test.
 - I did not observe the telemetry opt-out by hand. The suite covers it (`telemetry.test.ts`, passed
   in this run).
+
+## Orchestrator decisions (2026-10-12)
+
+- **S1:** split the seed.
+  - `pnpm db:seed` loads only the authored cold-start parties, through the normal grant paths, so they appear in the ledger.
+  - The dev and e2e accounts move behind an explicit `--dev` flag, refused when `NODE_ENV=production`.
+  - Pre-equipped dev units go through `grantUnit` and the unlock web, or are removed. Nothing is inserted around the ledger. Ledger rebuild parity must hold (N5).
+- **S2:** the built server can host the play test as one process.
+  - With `SERVE_WEB=1`, it serves `apps/web/dist` and mounts every API route under `/api`.
+  - Source maps are not served in production.
+  - The cookie stays `Secure` in production, and the runbook requires HTTPS.
+  - Add `docs/PLAYTEST-HOSTING.md`, a runbook covering:
+    - creating the roles and databases with strong passwords (the defaults are refused in production);
+    - the environment variables, including `TRUST_PROXY` and HTTPS through a reverse proxy, with a Caddy example;
+    - migrating and seeding;
+    - granting admin;
+    - backups;
+    - reading the dashboard;
+    - resetting between play-test cohorts.
+  - Add an e2e that runs against the built server in this single-process mode.
+- **D1: switch the store off for the play test with a setting, `STORE_MODE=off`.** This becomes the default whenever `NODE_ENV=production`, and dev keeps `sandbox`. With it off, the Packs screen previews contents but shows "Not available during the play test" instead of a buy button, and the purchase route answers 409. No other part of the economy changes. Telemetry must not count the store funnel while it is off.
+- **D2:** login failures are limited per (username, address), not per username alone. A generous per-username ceiling stays as a backstop. The device cookie path stays exempt. Add a test that one address cannot lock out another.
+- **Every nit is in scope.**
+  - N1: rename the root `ci` script to `check`, and make `.github/workflows/ci.yml` run exactly `pnpm check` plus the service and browser setup. Update AGENTS.md.
+  - N2/N3: AGENTS.md is enough to set up a fresh clone (the roles and databases, `.env` loading, Playwright).
+  - N4: redact the defender's caravan id from the party feed and ledger payloads seen by the party owner.
+  - N8: CI's smoke and e2e run as `caravan_app`.
