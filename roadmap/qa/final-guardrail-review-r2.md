@@ -475,3 +475,26 @@ on the fix (before the ordered-`onClose` change): content 82, resolver 587, circ
 server 808 (+1 skipped); determinism 366; perf 15; e2e 11 passed (4.4 m); e2e:hosting 13 passed
 (3.9 m); "all 11 steps passed in 20.7 min".
 
+After the ordered-`onClose` change and `git merge roadmap/phase-2-spec` ("Already up to date": nothing
+new on it), on the same databases and ports:
+
+- `pnpm check` ran four more times. Each time every test passed (content 82, resolver 587,
+  circle 108, web 459, server 808 + 1 skipped), but the `test` step exited 1 on one vitest
+  infrastructure error: `Error: [vitest-worker]: Timeout calling "onTaskUpdate"` (one run also had a
+  web test flake that passed 3/3 alone). The host was saturated by the parallel play-test reviewer's
+  headless Chromium (about 31–35 processes, load average 8–14 on 4 cores), and the server's
+  `balance-sweep.test.ts` stretched from 39–48 s to 71–99 s. **The baseline does the same:** `pnpm
+  test` at `5cb0d91` (before this fix round) on a fresh scratch database, under the same load →
+  server 801 passed + 1 skipped, then the same `Timeout calling "onTaskUpdate"`, exit 1. It is load,
+  not this change.
+- Under that load, the parts on their own:
+  - `pnpm --filter @caravan/server test` → 808 passed + 1 skipped, exit 0, no error
+    (balance-sweep 44.5 s);
+  - `pnpm check -- --from determinism` → "all 7 steps passed in 10.6 min" (determinism 366, perf 15,
+    build, migrate, smoke with the production refusal and the SERVE_WEB answers, e2e 11 passed in
+    4.1 m, e2e:hosting 13 passed in 4.1 m);
+  - typecheck, lint and test:boundary passed in every run.
+- The one green end-to-end `pnpm check` of this branch is the first run above (20.7 min, before
+  the `onClose` change, at lower load). A clean rerun on a quiet host is still owed. CI's runner is
+  not shared, so it is the place to see it.
+
