@@ -29,7 +29,7 @@ import { readTripCap } from "../src/trip/cap.js";
 import { partyLoot } from "../src/trip/loot.js";
 import { TRIP_SETTLE_HOOKS, encounterResolverAvailable, startTrip, type StakesPreview, type TripStatusView } from "../src/trip/service.js";
 import { chosenEncounterTerms, transferCausationId } from "../src/trip/stakes.js";
-import { appRolePool, expectDbError, testPool, truncateAll, unique } from "./helpers.js";
+import { appRolePool, expectDbError, testPool, truncateAll, unique, seasonCaravan } from "./helpers.js";
 import { doubleHandlers, type EncounterPlan } from "../src/dev/tripDouble.js";
 
 
@@ -48,6 +48,7 @@ async function registerPlayer(region = "desert"): Promise<Player> {
   const res = await app.inject({ method: "POST", url: "/auth/register", payload: { username: unique("p"), password: "correct horse battery", region } });
   expect(res.statusCode).toBe(201);
   const body = res.json();
+  await seasonCaravan(pool, body.caravan.id); // r2 S2: the trips a test starts are not the caravan's first
   return { token: body.token, accountId: body.account.id, caravanId: body.caravan.id, units: [] };
 }
 
@@ -427,7 +428,7 @@ describe("D3: the void path", () => {
     const caravan = (await findCaravanById(pool, d.caravanId)) as CaravanRow;
     await expect(withTransaction(appRole, (c) => startTrip(c, caravan, 1_000_000, { resolverAvailable: false }))).rejects.toMatchObject({ statusCode: 409, code: "resolver_unavailable" });
     expect(await readTripCap(pool, d.accountId, 1_000_000)).toEqual(capBefore);
-    expect((await pool.query("SELECT 1 FROM trip WHERE caravan_id = $1", [d.caravanId])).rowCount).toBe(0);
+    expect((await pool.query("SELECT 1 FROM trip WHERE caravan_id = $1 AND ended_at IS NULL", [d.caravanId])).rowCount).toBe(0);
     // A running app with the test double installed starts trips.
     const withDouble = await buildApp({ db: appRole, inlineEncounterWorker: { name: "test-double", handlers: doubleHandlers({}), delayMs: 60_000 } });
     try {

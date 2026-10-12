@@ -15,7 +15,9 @@
  *     levels and breaks ties by instance id, which is random in production: here the units left
  *     home are rotated by the seed, so every starter mix is sampled;
  *   - encounter 1 is searched at REPUTATION_START + FIRST_ENCOUNTER_CENTRE_OFFSET over the
- *     authored pool (a cold start: no live parties), through the server's own selectCandidates;
+ *     authored pool, through the server's own selectCandidates — exactly what a first trip meets
+ *     since the play-test review round 2 (TUNABLES.AUTHORED_ONLY_FIRST_TRIPS: live parties are
+ *     left out of a caravan's first trip); `--raised` is the second trip's gate against them;
  *   - the guide's pick (fewest raiders, least HP) is fought with the guided arrangement;
  *   - on a hold, encounter 2 is searched at the rating the fight left, the player picks the
  *     same way, and arranges it FREELY: reported both for the guide's shape again (a sensible
@@ -26,7 +28,7 @@ import { REGION_IDS, TUNABLES } from "../../packages/content/src/index.js";
 import { bandOf, escalatedCentre } from "../../apps/server/src/matchmaking/band.js";
 import { reputationDelta } from "../../apps/server/src/progression/reputation.js";
 import { runParallel, serveIfChild } from "./parallel.js";
-import { GUIDED, SKILLED, bestFight, freshRoster, guidePick, manifestOf, oneFight, pct, servedMenu, share, starterTypes, type Kind } from "./sweep.js";
+import { GUIDED, SKILLED, authoredParties, bestFight, freshRoster, guidePick, isRangedOnly, manifestOf, oneFight, pct, raisedStarterParty, servedMenu, share, starterTypes, type Kind, type Layout } from "./sweep.js";
 
 export interface FirstTripTask {
   readonly region: (typeof REGION_IDS)[number];
@@ -75,6 +77,88 @@ export function firstTripTasks(seeds: number, traps: number, reserve: number = T
   return tasks;
 }
 
+// ── Final play-test review r2 S2: the second trip's gate — raised starter parties ─────────────
+//
+// A caravan's first trip meets authored outfits only (TUNABLES.AUTHORED_ONLY_FIRST_TRIPS), which is
+// what firstTrip above measures. From the second trip on, testers' own standing parties are served,
+// and a fresh tester's party is what the guide raises: their starters at L1, north edge, `nearest`,
+// the free siege. Mountain's and Badlands' starters include ranged units (Trapper, Gunslinger,
+// Bounty Hunter). This gate fights each region's raised parties — every pair of its starters (ranged
+// pairs included) and the whole starting roster raised — against every fresh guided roster (each
+// region × each refugee type, GUIDE_RESERVE left home), the guided layout and the best skilled one.
+// Targets (orchestrator, r2 S2): guided ≥ 60 %, best skilled ≥ 70 %, over every region's raised
+// parties.
+
+export interface RaisedGateTask {
+  readonly raiderRegion: (typeof REGION_IDS)[number];
+  readonly label: string;
+  readonly typeIds: readonly string[];
+  readonly defRegion: (typeof REGION_IDS)[number];
+  readonly refugee: string;
+  readonly reserve: number;
+  /** How many of SKILLED to search (all by default; the CI slice takes fewer). */
+  readonly skilled: number;
+}
+export interface RaisedGateResult {
+  readonly raiderRegion: string;
+  readonly label: string;
+  readonly rangedOnly: boolean;
+  readonly guided: Kind;
+  readonly best: Kind;
+}
+
+/** The raised parties of a region: each pair of its starter types, and the whole starting roster. */
+export function raisedParties(region: (typeof REGION_IDS)[number]): { label: string; typeIds: string[] }[] {
+  const [a, b] = starterTypes(region) as [string, string];
+  const short = (t: string) => t.split(".")[1]!;
+  const whole = freshRoster(region, null, 0).units.map((u) => u.typeId);
+  return [
+    { label: `${region}: ${short(a)} + ${short(a)}`, typeIds: [a, a] },
+    { label: `${region}: ${short(a)} + ${short(b)}`, typeIds: [a, b] },
+    { label: `${region}: ${short(b)} + ${short(b)}`, typeIds: [b, b] },
+    { label: `${region}: the whole starting roster (${whole.length})`, typeIds: whole },
+  ];
+}
+
+export function raisedGateTasks(reserve: number = TUNABLES.GUIDE_RESERVE, skilled: number = SKILLED.length, defenders?: readonly { region: (typeof REGION_IDS)[number]; refugee: string }[]): RaisedGateTask[] {
+  const defs = defenders ?? REGION_IDS.flatMap((region) => starterTypes(region).map((refugee) => ({ region, refugee })));
+  const tasks: RaisedGateTask[] = [];
+  for (const raiderRegion of REGION_IDS) for (const p of raisedParties(raiderRegion)) for (const d of defs) tasks.push({ raiderRegion, label: p.label, typeIds: p.typeIds, defRegion: d.region, refugee: d.refugee, reserve, skilled });
+  return tasks;
+}
+
+let templateParty: ReturnType<typeof authoredParties>[number] | undefined;
+export function raisedGate(t: RaisedGateTask): RaisedGateResult {
+  templateParty ??= authoredParties().find((p) => p.spec.band === 0)!;
+  const sp = raisedStarterParty(t.typeIds, t.label, templateParty);
+  const full = freshRoster(t.defRegion, t.refugee, 1);
+  const keep = Math.max(1, Math.min(TUNABLES.DEPLOYMENT_SLOT_CAP, full.units.length - t.reserve));
+  const m = manifestOf({ ...full, units: full.units.slice(0, keep) });
+  const g = oneFight(m, sp, GUIDED);
+  const layouts: readonly Layout[] = SKILLED.slice(0, t.skilled);
+  const b = bestFight(m, sp, layouts);
+  if (!g || !b) throw new Error(`a layout was refused for ${t.label} vs ${t.defRegion}`);
+  return { raiderRegion: t.raiderRegion, label: t.label, rangedOnly: isRangedOnly(sp.party), guided: g.kind, best: b.kind };
+}
+
+export interface RaisedGateSummary {
+  readonly fights: number;
+  readonly guidedHeld: number;
+  readonly bestHeld: number;
+  readonly byParty: Record<string, { fights: number; guidedHeld: number; bestHeld: number; rangedOnly: boolean }>;
+}
+export function summarizeRaised(rs: readonly RaisedGateResult[]): RaisedGateSummary {
+  const held = (k: Kind) => k !== "caravan_overrun";
+  const byParty: RaisedGateSummary["byParty"] = {};
+  for (const r of rs) {
+    const e = (byParty[r.label] ??= { fights: 0, guidedHeld: 0, bestHeld: 0, rangedOnly: r.rangedOnly });
+    e.fights++;
+    if (held(r.guided)) e.guidedHeld++;
+    if (held(r.best)) e.bestHeld++;
+  }
+  return { fights: rs.length, guidedHeld: rs.filter((r) => held(r.guided)).length, bestHeld: rs.filter((r) => held(r.best)).length, byParty };
+}
+
 export interface FirstTripSummary {
   readonly fights1: number;
   readonly held1: number;
@@ -104,7 +188,20 @@ export function summarize(rs: readonly FirstTripResult[]): FirstTripSummary {
 }
 
 const isMain = process.argv[1]?.endsWith("first-trip.ts") ?? false;
-if (isMain && !serveIfChild(firstTrip)) {
+const raisedMode = process.argv.includes("--raised");
+if (isMain && raisedMode && !serveIfChild(raisedGate)) {
+  const ji = process.argv.indexOf("--jobs");
+  const jobs = ji >= 0 ? Number(process.argv[ji + 1]) : 4;
+  const ri = process.argv.indexOf("--reserve");
+  const reserve = ri >= 0 ? Number(process.argv[ri + 1]) : TUNABLES.GUIDE_RESERVE;
+  const tasks = raisedGateTasks(reserve);
+  const rs = await runParallel(process.argv[1]!, tasks, raisedGate, jobs);
+  const s = summarizeRaised(rs);
+  console.log(`Second-trip gate (r2 S2) — raised starter parties (L1, north, nearest, Battering Wagon) vs every fresh guided roster (reserve ${reserve}); best of ${SKILLED.length} skilled layouts`);
+  for (const [label, e] of Object.entries(s.byParty)) console.log(`  ${label.padEnd(48)}${e.rangedOnly ? " ranged" : "       "}  guided ${pct(share(e.guidedHeld, e.fights)).padStart(5)}   best skilled ${pct(share(e.bestHeld, e.fights)).padStart(5)}   (${e.fights})`);
+  console.log(`ALL raised parties: guided held ${s.guidedHeld}/${s.fights} = ${pct(share(s.guidedHeld, s.fights))} (target ≥ 60 %)   best skilled held ${s.bestHeld}/${s.fights} = ${pct(share(s.bestHeld, s.fights))} (target ≥ 70 %)`);
+}
+if (isMain && !raisedMode && !serveIfChild(firstTrip)) {
   const arg = (n: string, d: number) => {
     const i = process.argv.indexOf(`--${n}`);
     return i >= 0 ? Number(process.argv[i + 1]) : d;

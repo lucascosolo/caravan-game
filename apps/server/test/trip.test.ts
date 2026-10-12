@@ -35,7 +35,7 @@ import { TRIP_CAP_REGEN_MS, TRIPS_PER_HOUR_CAP, capAvailable, capConsume, capVie
 import { ENCOUNTER_OUTCOME_KINDS, EncounterOutcomeError, assertTripEncounterOutcome } from "../src/trip/outcome.js";
 import { ENCOUNTER_OUTCOME_KINDS as PROGRESSION_KINDS } from "../src/progression/outcome.js";
 import { settleEncounter, startTrip, type StakesPreview, type TripStatusView } from "../src/trip/service.js";
-import { appRolePool, expectDbError, testPool, truncateAll, unique } from "./helpers.js";
+import { appRolePool, expectDbError, testPool, truncateAll, unique, seasonCaravan } from "./helpers.js";
 import { doubleHandlers, type EncounterPlan } from "../src/dev/tripDouble.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -54,6 +54,7 @@ async function registerPlayer(region = "desert"): Promise<Player> {
   const res = await app.inject({ method: "POST", url: "/auth/register", payload: { username: unique("p"), password: "correct horse battery", region } });
   expect(res.statusCode).toBe(201);
   const body = res.json();
+  await seasonCaravan(pool, body.caravan.id); // r2 S2: the trips a test starts are not the caravan's first
   return { token: body.token, accountId: body.account.id, caravanId: body.caravan.id, units: [] };
 }
 
@@ -315,7 +316,7 @@ describe("trip start", () => {
     await pack(d);
     const results = await Promise.all(Array.from({ length: 4 }, () => call(d, "POST", `/me/caravans/${d.caravanId}/trip/start`)));
     expect(results.map((r) => r.statusCode).sort()).toEqual([201, 409, 409, 409]);
-    const trips = await pool.query("SELECT id FROM trip WHERE caravan_id = $1", [d.caravanId]);
+    const trips = await pool.query("SELECT id FROM trip WHERE caravan_id = $1 AND ended_at IS NULL", [d.caravanId]);
     expect(trips.rowCount).toBe(1);
     expect((await status(d)).cap.available).toBe(2);
     expect((await eventsOf(d.accountId, "trip_started")).length).toBe(1);

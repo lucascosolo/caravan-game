@@ -27,7 +27,13 @@ export interface InboxStrike {
   /** caravan_held | caravan_overrun | stalemate (chunk 13), or null if the resolution wrote none. */
   outcomeKind: string | null;
   /** Exactly what the results feed shows of the defender: a public username and the caravan's name and region. Never an account id. */
-  defender: { username: string | null; caravanName: string | null; regionId: string | null };
+  defender: {
+    username: string | null;
+    caravanName: string | null;
+    regionId: string | null;
+    /** Final play-test review r2 N15: the defender has since deleted their account (the fight stays; nothing about who it was). */
+    departed: boolean;
+  };
   coinEarned: number;
   coinTransferred: number;
   /** Of what this strike would have credited: the part the owner's storage cap discarded (the feed's `coinDiscardedAtCap`). */

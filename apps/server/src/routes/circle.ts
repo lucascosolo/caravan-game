@@ -27,7 +27,7 @@ import { chosenCandidate } from "../matchmaking/service.js";
 import { findOpenTrip } from "../matchmaking/trips.js";
 import { findOpenManifest } from "../circle/repo.js";
 import { findCaravanById } from "../repo/caravans.js";
-import { badRequest, conflict } from "../services/errors.js";
+import { AppError, badRequest, conflict } from "../services/errors.js";
 import { unpackManifest } from "../trip/service.js";
 import {
   CircleValidationError,
@@ -111,9 +111,22 @@ export async function circleRoutes(app: FastifyInstance): Promise<void> {
     return { formation };
   });
 
-  app.get<{ Params: EncounterParams }>("/caravans/:caravanId/encounters/:n/formation", { preHandler: requireAuth }, async (req) => {
+  app.get<{ Params: EncounterParams; Querystring: { ifNone?: string } }>("/caravans/:caravanId/encounters/:n/formation", { preHandler: requireAuth }, async (req) => {
     const caravan = await ownCaravan(req);
-    return { formation: await getFormation(app.db, caravan, encounterIndex(req.params.n)) };
+    const n = encounterIndex(req.params.n);
+    // Final play-test review r2 N10: "no draft yet" is an empty state. A client that asks for it
+    // (`?ifNone=null`) gets 200 `{ formation: null, encounterIndex }`; without the parameter the
+    // answer stays the 404 `no_formation` that current clients expect (additive, as N10 did for
+    // the manifest and the candidates).
+    if (req.query.ifNone === "null") {
+      try {
+        return { formation: await getFormation(app.db, caravan, n) };
+      } catch (err) {
+        if (err instanceof AppError && err.code === "no_formation") return { formation: null, encounterIndex: n };
+        throw err;
+      }
+    }
+    return { formation: await getFormation(app.db, caravan, n) };
   });
 
   app.post<{ Params: EncounterParams }>("/caravans/:caravanId/encounters/:n/formation/commit", { preHandler: requireAuth }, async (req) => {

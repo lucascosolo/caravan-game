@@ -246,7 +246,7 @@ async function listedStrikes(db: Queryable, accountId: string, windows: readonly
     encounterIndex: e.encounterIndex,
     outcomeKind: e.outcomeKind,
     // Picked field by field: the feed's caravan id and everything else stay out.
-    defender: { username: e.defender.username, caravanName: e.defender.caravanName, regionId: e.defender.regionId },
+    defender: { username: e.defender.username, caravanName: e.defender.caravanName, regionId: e.defender.regionId, departed: e.defender.departed },
     coinEarned: e.coinEarned,
     coinTransferred: e.coinTransferred,
     coinDiscardedAtCap: e.coinDiscardedAtCap,

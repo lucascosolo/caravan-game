@@ -121,3 +121,26 @@ describe("unit instances", () => {
     expect(cols.rows.map((r) => r.column_name)).not.toContain("account_id");
   });
 });
+
+describe("final play-test review r2 N4: caravan names do not collide", () => {
+  it("40 caravans created without a name all get different generated names; a requested name already taken gets an ordinal", async () => {
+    const names: string[] = [];
+    for (let i = 0; i < 40; i++) {
+      const r = await registerAccount(pool, { username: unique("nm"), password: "password123", regionId: "desert" });
+      names.push(r.caravan.name);
+    }
+    expect(new Set(names.map((n) => n.toLowerCase())).size).toBe(40);
+    const a = await registerAccount(pool, { username: unique("nm"), password: "password123", regionId: "desert", caravanName: "Juniper Teamsters" });
+    const b = await registerAccount(pool, { username: unique("nm"), password: "password123", regionId: "desert", caravanName: "juniper teamsters" });
+    const c = await registerAccount(pool, { username: unique("nm"), password: "password123", regionId: "desert", caravanName: "Juniper Teamsters" });
+    expect([a.caravan.name, b.caravan.name, c.caravan.name]).toEqual(["Juniper Teamsters", "juniper teamsters II", "Juniper Teamsters III"]);
+    // Within the length limit: a 40-character name taken already is cut to make room.
+    const long = "A".repeat(40);
+    const l1 = await registerAccount(pool, { username: unique("nm"), password: "password123", regionId: "desert", caravanName: long });
+    const l2 = await registerAccount(pool, { username: unique("nm"), password: "password123", regionId: "desert", caravanName: long });
+    expect(l1.caravan.name).toBe(long);
+    expect(l2.caravan.name).toBe(`${"A".repeat(37)} II`);
+    expect(l2.caravan.name.length).toBeLessThanOrEqual(40);
+  });
+});
+

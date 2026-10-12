@@ -36,7 +36,7 @@ import { appendCoinCredits } from "../src/economy/coin.js";
 import { drain } from "../src/jobs/worker.js";
 import { appendEvents } from "../src/ledger/ledger.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
-import { appRolePool, expectDbError, testPool, truncateAll, unique } from "./helpers.js";
+import { appRolePool, expectDbError, testPool, truncateAll, unique, seasonCaravan, servedNameOf } from "./helpers.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const pool = testPool();
@@ -55,6 +55,7 @@ async function register(prefix: string): Promise<Player> {
   const res = await app.inject({ method: "POST", url: "/auth/register", payload: { username, password: "correct horse battery", region: "desert" } });
   expect(res.statusCode, res.body).toBe(201);
   const b = res.json();
+  await seasonCaravan(pool, b.caravan.id); // r2 S2: the trips a test starts are not the caravan's first
   return { token: b.token, username, accountId: b.account.id, caravanId: b.caravan.id };
 }
 
@@ -80,7 +81,7 @@ async function encounter(d: Player, posts: string[], n: number, plan: EncounterP
   const s = await call(d, "POST", `/me/caravans/${d.caravanId}/encounters/${n}/search`);
   expect(s.statusCode, s.body).toBe(201);
   // The menu is a seeded draw of 3 from 4; at least one of the two same-composition owners is in it.
-  const mains = [owner.username, owner2.username];
+  const mains = [await servedNameOf(pool, owner.username), await servedNameOf(pool, owner2.username)]; // r2 N16
   const cand = (s.json().menu.candidates as { candidateId: string; owner: { displayName: string } }[]).find((c) => mains.includes(c.owner.displayName));
   expect(cand, "a main owner's party is in the menu").toBeDefined();
   expect((await call(d, "POST", `/me/caravans/${d.caravanId}/encounters/${n}/choose`, { candidateId: cand!.candidateId })).statusCode).toBe(200);

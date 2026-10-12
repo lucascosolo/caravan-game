@@ -603,10 +603,42 @@ export function servedMenu(caravanId: string, tripId: string, rating: number, en
   return { centre, menu: r.picks.map((p) => byId.get(p.partyId)!) };
 }
 
-/** The guide's scouting pick (TrailGuide / guideModel): fewest raiders, then least total HP, then menu order. */
+/** Final play-test review r2 S2: a raider is ranged when its attack range exceeds the melee default — the client guide's rule (TrailGuide isRangedRaider). */
+export const RANGED_ATTACK_RANGE_ABOVE: number = TUNABLES.ATTACK_RANGE_MELEE_DEFAULT;
+/** r2 S2: every raider of the party is ranged (it can stand outside the fence and shoot the posts). */
+export function isRangedOnly(party: Party): boolean {
+  return party.units.length > 0 && party.units.every((u) => getUnitType(u.typeId)!.attackRange > RANGED_ATTACK_RANGE_ABOVE);
+}
+
+/**
+ * The guide's scouting pick, as the client's TrailGuide makes it: least total HP, then fewest siege,
+ * then fewest raiders, then menu order — and (final play-test review r2 S2) never a ranged-only
+ * party while the menu holds another one.
+ */
 export function guidePick(menu: readonly ServedParty[]): ServedParty {
   const hp = (p: ServedParty) => p.party.units.reduce((s, u) => s + Math.floor((getUnitType(u.typeId)!.hp * TUNABLES.MERGE_STAT_MULT_BY_LEVEL[u.mergeLevel]!) / 1024), 0);
-  return [...menu].sort((a, b) => a.party.units.length - b.party.units.length || hp(a) - hp(b))[0]!;
+  const notRanged = menu.filter((p) => !isRangedOnly(p.party));
+  const from = notRanged.length > 0 ? notRanged : menu;
+  return from
+    .map((p, i) => ({ p, i }))
+    .sort((a, b) => hp(a.p) - hp(b.p) || a.p.party.siege.length - b.p.party.siege.length || a.p.party.units.length - b.p.party.units.length || a.i - b.i)[0]!.p;
+}
+
+/**
+ * Final play-test review r2 S2: a tester's standing party as the guide's "Raise my party from my
+ * roster" (and the server's `suggested` party) makes it: every unit at L1 on the north edge at
+ * `nearest`, spread along the band (party/service.ts suggestParty's cells), plus the free siege
+ * piece. Served at REPUTATION_START (an owner who has not struck yet). `template` lends the spec
+ * fields a fight reads (rating, a name for the report).
+ */
+export function raisedStarterParty(typeIds: readonly string[], label: string, template: ServedParty): ServedParty {
+  const party: Party = {
+    v: 1,
+    units: typeIds.map((typeId, n) => ({ ref: `raised#${n}`, stance: "nearest" as const, edge: "north" as const, cell: { x: 2 + ((n * 3) % (TUNABLES.GRID_WIDTH - 4)), y: 0 }, typeId, mergeLevel: 1 })),
+    siege: [{ typeId: "siege.battering_wagon" }],
+  };
+  const spec = { ...template.spec, username: `raised:${label}`, rating: TUNABLES.REPUTATION_START, outfit: { ...template.spec.outfit, name: label } };
+  return { spec, party, scout: scoutOf(party), pool: { partyId: `raised:${label}`, ownerAccountId: `raised:${label}`, rating: TUNABLES.REPUTATION_START, authored: false } };
 }
 
 // ── trips ──────────────────────────────────────────────────────────────────────────────

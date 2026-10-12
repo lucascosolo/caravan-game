@@ -12,8 +12,9 @@
         "outcomeKind": "caravan_held",
         "defender": {
           "username": "contract_voider",
-          "caravanName": "Mesquite Teamsters",
-          "regionId": "desert"
+          "caravanName": "Bitter Creek Post",
+          "regionId": "desert",
+          "departed": false
         },
         "coinEarned": 212,
         "coinTransferred": 0,
@@ -29,8 +30,9 @@
         "outcomeKind": "caravan_held",
         "defender": {
           "username": "contract_viewer",
-          "caravanName": "Cottonwood Caravan",
-          "regionId": "desert"
+          "caravanName": "Big Sky Outfit",
+          "regionId": "desert",
+          "departed": false
         },
         "coinEarned": 172,
         "coinTransferred": 0,
@@ -46,8 +48,9 @@
         "outcomeKind": "caravan_held",
         "defender": {
           "username": "contract_player",
-          "caravanName": "Copper Haulers",
-          "regionId": "desert"
+          "caravanName": "Iron Rail Haulers",
+          "regionId": "desert",
+          "departed": false
         },
         "coinEarned": 212,
         "coinTransferred": 0,

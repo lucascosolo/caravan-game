@@ -182,7 +182,7 @@ pnpm check                   # EVERY gate, exactly what CI runs: typecheck, lint
 Migrations are plain SQL pairs in `apps/server/migrations/NNN_name.{up,down}.sql`, run by
 `apps/server/src/db/migrate.ts`. Chunk 30 (account lifecycle, PHASE-2 §30 build notes): guest-first
 `POST /auth/guest`, `POST /auth/resume` (the server's HttpOnly `caravan_device` cookie — the client
-stores nothing), `GET /me/account`, `POST /me/account/link`, `GET|DELETE /me/devices[/:id]`,
+stores nothing), `GET /me/account`, `POST /me/account/link`, (a resume REPLACES the session it is given as `Authorization: Bearer …` or `{ previousToken }`, and the session a resume issues is never evicted — play-test review r2 S1; a caravan's first trip meets authored outfits only, `TUNABLES.AUTHORED_ONLY_FIRST_TRIPS`, r2 S2) `GET|DELETE /me/devices[/:id]`,
 `POST /me/devices/revoke-others`, `GET /me/export`, `POST /me/account/delete` (through the
 `account_erase` SECURITY DEFINER function, which anonymizes shared records to a tombstone). Auth
 routes are rate-limited (`TUNABLES.ACCOUNT_RATE_LIMITS`; counted IN MEMORY PER PROCESS, so N server

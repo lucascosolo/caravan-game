@@ -30,7 +30,7 @@
  *       selection and resolution never affects that fight.
  */
 import { manifestFromJson, partyFromJson, scoutParty, serializeParty, type PartyScoutView } from "@caravan/circle";
-import { getFenceTier, getTrapType } from "@caravan/content";
+import { TUNABLES, getFenceTier, getTrapType } from "@caravan/content";
 import { createHash } from "node:crypto";
 import type pg from "pg";
 import { findOpenManifest } from "../circle/repo.js";
@@ -155,7 +155,10 @@ export function ownerDisplay(username: string | null, authored: boolean, caravan
   // Chunk 30: a guest's party is served like any other. Until they link a username it rides
   // under its caravan's name (final play-test review N8: every caravan is named at creation),
   // or a generic name for a caravan that still carries the old placeholder.
-  if (!authored) return { displayName: username ?? (caravanName && caravanName !== LEGACY_DEFAULT_CARAVAN_NAME ? caravanName : GUEST_OWNER_DISPLAY_NAME), flavor: null };
+  // Final play-test review r2 N16: EVERY player's party rides under its caravan's name — a linked
+  // player's sign-in name is never shown to the strangers it is served to. The username is only the
+  // fallback when no caravan name is known.
+  if (!authored) return { displayName: caravanName && caravanName !== LEGACY_DEFAULT_CARAVAN_NAME ? caravanName : (username ?? GUEST_OWNER_DISPLAY_NAME), flavor: null };
   if (username === null) return { displayName: "Unnamed outfit", flavor: null };
   const outfit = authoredOutfitFor(username);
   return outfit ? { displayName: outfit.name, flavor: outfit.flavor } : { displayName: "Unnamed outfit", flavor: null };
@@ -250,6 +253,8 @@ export interface CandidateMenuView {
    * parties exist (`relaxed`). Null when the rule did not apply.
    */
   raiderCap: { packedUnits: number; cap: number; relaxed: boolean; excluded: number } | null;
+  /** Final play-test review r2 S2: this menu was drawn from authored outfits only (one of the caravan's first trips). */
+  authoredOnlyTrip: boolean;
   /**
    * Final play-test review N5: the caravan's OWN fence and traps as they stand for this encounter
    * (the open manifest's survivors), so the screen can set each party's siege counter against what
@@ -470,6 +475,7 @@ function menuView(row: EncounterCandidatesRow, passes: SelectionPass[], authored
     centre: row.centre,
     centreBasis: centreBasisOf(row.caravan_rating, row.centre, row.encounter_index),
     raiderCap: cap ? { packedUnits: cap.packedUnits, cap: cap.cap, relaxed: cap.relaxed, excluded: cap.excludedPartyIds.length } : null,
+    authoredOnlyTrip: row.draw_rules?.authoredOnlyTrip === true,
     caravanLoadout: null,
     escalation: { applied: row.centre - row.caravan_rating, perEncounter: ESCALATION_PER_ENCOUNTER, nextEncounter: escalationFor(row.encounter_index + 1) },
     bandWidthUsed: row.band_width_used,
@@ -566,20 +572,27 @@ export async function searchCandidates(client: pg.PoolClient, caravan: CaravanRo
   const levels = await client.query<{ merge_level: number }>("SELECT merge_level FROM unit_instance WHERE caravan_id = $1", [caravan.id]);
   const raiderCap = coldStartRaiderCap(counted, centre, packedUnits, rosterEquivalents(levels.rows.map((r) => r.merge_level)));
   const capOut = new Set(raiderCap?.excludedPartyIds ?? []);
-  const pool: PoolEntry[] = counted.filter((e) => !capOut.has(e.partyId)).map(({ raiders: _raiders, ...e }) => e);
-  // N8: a guest owner's party rides under its caravan's name (public: the results feed shows it).
-  const guestNames = await caravanNamesOf(client, rows.filter((r) => !r.is_system && r.username === null).map((r) => r.owner_account_id));
+  // Final play-test review r2 S2: a caravan's first AUTHORED_ONLY_FIRST_TRIPS trip(s) meet authored
+  // outfits only, at every encounter — a cold-start rule in the same family as the nearest-N
+  // authored fill (testers' raised starter parties, ranged pairs included, are not served into a
+  // first trip). Filtered before the draw; the stored pool and `draw_rules.authoredOnlyTrip` replay it.
+  const authoredOnly = await isAuthoredOnlyTrip(client, caravan.id, trip.id);
+  const pool: PoolEntry[] = counted
+    .filter((e) => !capOut.has(e.partyId) && (!authoredOnly || e.authored))
+    .map(({ raiders: _raiders, ...e }) => e);
+  // N8 / r2 N16: every player's party rides under its caravan's name (public: the results feed shows it).
+  const guestNames = await caravanNamesOf(client, rows.filter((r) => !r.is_system).map((r) => r.owner_account_id));
   // A caravan still carrying the legacy "Caravan" placeholder (or none) rides under the name it would be generated today.
   const guestName = (accountId: string): string => {
     const n = guestNames.get(accountId);
     return n && n !== LEGACY_DEFAULT_CARAVAN_NAME ? n : generatedCaravanName(accountId);
   };
-  const names = new Map(rows.map((r) => [r.party_id, ownerDisplay(r.username, r.is_system, !r.is_system && r.username === null ? guestName(r.owner_account_id) : null)]));
+  const names = new Map(rows.map((r) => [r.party_id, ownerDisplay(r.username, r.is_system, !r.is_system ? guestName(r.owner_account_id) : null)]));
   // Chunk 25: the band's authored served share (second stage of retire-by-ratio), and the
   // draw rules in force, both stored with the menu so the draw replays from the row (QA N2).
   const band = bandOf(centre);
   const authoredServed = await authoredServedShare(client, band);
-  const rules = currentDrawRules();
+  const rules: AuthoredDrawRules = authoredOnly ? { ...currentDrawRules(), authoredOnlyTrip: true } : currentDrawRules();
 
   // Draw, snapshotting each pick exactly once; a party that no longer resolves is skipped
   // (recorded) and the draw re-runs without it, so the stored inputs replay to the stored menu.
@@ -622,6 +635,22 @@ export async function searchCandidates(client: pg.PoolClient, caravan: CaravanRo
     [trip.id, encounterIndex, searchSeq, seed, caravanRating, centre, result.bandWidthUsed, JSON.stringify(stored), JSON.stringify(excludedPartyIds), JSON.stringify([...skipped]), canonicalJson(candidates as unknown as Json), opts.nowMs, JSON.stringify(authoredServed), band.index, JSON.stringify(rules), result.authoredWeightedDown, raiderCap === null ? null : JSON.stringify(raiderCap)],
   );
   return { ...viewOf(res.rows[0]!, opts.nowMs), caravanLoadout: await caravanLoadout(client, caravan.id) };
+}
+
+/** TUNABLES.AUTHORED_ONLY_FIRST_TRIPS: how many of a caravan's first trips meet authored outfits only (r2 S2). */
+export const AUTHORED_ONLY_FIRST_TRIPS: number = TUNABLES.AUTHORED_ONLY_FIRST_TRIPS;
+if (!Number.isInteger(AUTHORED_ONLY_FIRST_TRIPS) || AUTHORED_ONLY_FIRST_TRIPS < 0) throw new Error("TUNABLES.AUTHORED_ONLY_FIRST_TRIPS must be a non-negative integer");
+
+/** r2 S2: whether `tripId` is among the caravan's first AUTHORED_ONLY_FIRST_TRIPS trips (counted by start, ties by id). */
+export async function isAuthoredOnlyTrip(db: Queryable, caravanId: string, tripId: string): Promise<boolean> {
+  if (AUTHORED_ONLY_FIRST_TRIPS === 0) return false;
+  const res = await db.query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM trip t, trip cur
+      WHERE cur.id = $2 AND t.caravan_id = $1 AND t.id <> cur.id
+        AND (t.started_at < cur.started_at OR (t.started_at = cur.started_at AND t.id < cur.id))`,
+    [caravanId, tripId],
+  );
+  return (res.rows[0]?.n ?? 0) < AUTHORED_ONLY_FIRST_TRIPS;
 }
 
 /** The current menu for the encounter (the latest search; the chosen one, if any, is always the latest). */

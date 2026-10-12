@@ -601,6 +601,15 @@ export const TUNABLES = {
    * strong unit was offered only 2-raider parties.)
    */
   COLD_START_ROSTER_MAX: 6,
+  /**
+   * TUNABLE (final play-test review r2 S2). Cold-start fairness, same family: a caravan's first
+   * this-many trips meet AUTHORED outfits only, at every encounter (live parties are left out of the
+   * pool before the seeded draw; the menu records `draw_rules.authoredOnlyTrip`). Testers' raised
+   * starter parties — Mountain's and Badlands' are ranged pairs that shoot the guided circle from
+   * outside the fence — are then never a player's first fight, and the guided first trip is exactly
+   * what `scripts/balance/first-trip.ts` measures (an authored-only pool). 0 turns it off.
+   */
+  AUTHORED_ONLY_FIRST_TRIPS: 1,
 
   // ────────────────────────────────────────────────────────────────────────────────────
   // Chunk 16 — Coin economy and merge pricing. Coin buys PACE only (GUARDRAILS §2): nothing

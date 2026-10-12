@@ -11,6 +11,7 @@
       "coinBalance": 0,
       "coinStorageCap": 50000,
       "createdAt": "2026-10-11T12:00:01.000Z"
-    }
+    },
+    "replacedPrevious": false
   }
 }

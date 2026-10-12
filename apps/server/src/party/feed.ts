@@ -28,7 +28,13 @@ export interface PartyFeedEntry {
    * or caravan id (final review N4: in v1 a caravan id is a stable per-player key)
    * (chunk 19 QA S1, chunk 14 QA N4: account ids are not public).
    */
-  defender: { username: string | null; caravanName: string | null; regionId: string | null };
+  defender: {
+    username: string | null;
+    caravanName: string | null;
+    regionId: string | null;
+    /** Final play-test review r2 N15: the defender has since deleted their account (the fight stays; nothing about who it was). */
+    departed: boolean;
+  };
   /** The party version that fought (standing_party.updated_at at snapshot time). */
   partySavedAt: string | null;
   resolverVersion: number | null;
@@ -110,11 +116,12 @@ export async function partyFeedEntries(db: Queryable, accountId: string, served:
 
   const caravanIds = [...new Set(served.map((e) => str(e.payload["defenderCaravanId"])).filter((x): x is string => x !== null))];
   const caravans = caravanIds.length
-    ? await db.query<{ id: string; name: string; region_id: string; username: string | null }>(
+    ? await db.query<{ id: string; name: string; region_id: string; username: string | null; departed: boolean }>(
         // Chunk 30: a caravan whose player deleted their account is the erasure tombstone's (a
         // system account): the strike stays in the feed, with nothing about who it was.
         `SELECT c.id, CASE WHEN a.is_system THEN NULL ELSE c.name END AS name, CASE WHEN a.is_system THEN NULL ELSE c.region_id END AS region_id,
-                CASE WHEN a.is_system THEN NULL ELSE a.username END AS username
+                CASE WHEN a.is_system THEN NULL ELSE a.username END AS username,
+                coalesce(a.is_system, true) AS departed
          FROM caravan c LEFT JOIN account a ON a.id = c.account_id
          WHERE c.id = ANY($1::uuid[])`,
         [caravanIds],
@@ -158,6 +165,8 @@ export async function partyFeedEntries(db: Queryable, accountId: string, served:
         username: c?.username ?? null,
         caravanName: c?.name ?? null,
         regionId: c?.region_id ?? null,
+        // r2 N15: the erasure tombstone's caravan (or none at all): say so instead of "someone (someone)".
+        departed: caravanId !== null && (c === undefined || c.departed),
       },
       partySavedAt: str(p["partySavedAt"]),
       resolverVersion: e.resolver_version,

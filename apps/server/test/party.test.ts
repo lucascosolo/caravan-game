@@ -26,7 +26,8 @@ import { StandingPartyInvalidError, snapshotStandingParty } from "../src/jobs/sn
 import { PARTY_SAVE_RATE_LIMIT_PER_MINUTE } from "../src/jobs/tunables.js";
 import { drain, type HandlerRegistry } from "../src/jobs/worker.js";
 import { LEDGER_EVENT_TYPES, canonicalJson, type Json } from "../src/ledger/events.js";
-import { listEventsForAccount } from "../src/ledger/ledger.js";
+import { listEventsForAccount, lockAccountForAppend } from "../src/ledger/ledger.js";
+import { repairStandingParty } from "../src/party/service.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
 import { partySaveLimiter } from "../src/routes/party.js";
 import { appRolePool, expectDbError, testPool, truncateAll, unique, commitFormationInTown } from "./helpers.js";
@@ -734,6 +735,37 @@ describe("D5 (final play-test review): the server's suggested party brings the o
     expect(saved.statusCode, saved.body).toBe(200);
     expect(saved.json().party.valid).toBe(true);
     expect(saved.json().party.suggested).toBeNull(); // nothing left to add
+  });
+});
+
+describe("final play-test review r2 D2 (server read): a party that went down is raised again from `suggested`, one PUT", () => {
+  it("after a total loss the party is empty and nothing is suggested; once the roster is rebuilt, `suggested` carries the new units and the free siege, and saving it makes the party servable", async () => {
+    const p = await registerPlayer();
+    const first = (await call(p, "GET", "/me/party")).json().party;
+    expect((await call(p, "PUT", "/me/party", first.suggested)).statusCode).toBe(200);
+    const refs = (first.suggested as PartyConfig).units.map((u) => u.ref);
+    // The trip loss: every unit gone, the party repaired in the same transaction (as stakes.ts does).
+    await withTransaction(pool, async (c) => {
+      await lockAccountForAppend(c, p.accountId);
+      await c.query("DELETE FROM unit_instance WHERE caravan_id = $1", [p.caravanId]);
+      await repairStandingParty(c, p.accountId, { reason: "trip_loss", removedRefs: refs });
+    });
+    const down = (await call(p, "GET", "/me/party")).json().party;
+    expect(down.config.units).toEqual([]);
+    expect(down.valid).toBe(true);
+    // Siege only is not a party: the suggestion waits for units (the banner shows "down" until then).
+    expect(down.suggested === null || down.suggested.units.length === 0).toBe(true);
+    // The roster comes back (refugees, mercenaries): the banner's one-tap raise.
+    const back = await giveUnits(p, 3);
+    const view = (await call(p, "GET", "/me/party")).json().party;
+    const suggested = view.suggested as PartyConfig;
+    expect(suggested.units.map((u) => u.ref).sort()).toEqual([...back].sort());
+    expect(suggested.siege.length).toBeGreaterThan(0);
+    const saved = await call(p, "PUT", "/me/party", suggested);
+    expect(saved.statusCode, saved.body).toBe(200);
+    expect(saved.json().party.valid).toBe(true);
+    const row = await pool.query<{ n: number }>("SELECT jsonb_array_length(composition -> 'units')::int AS n FROM standing_party WHERE account_id = $1", [p.accountId]);
+    expect(row.rows[0]!.n).toBe(3); // > 0: POOL_SQL serves it again
   });
 });
 

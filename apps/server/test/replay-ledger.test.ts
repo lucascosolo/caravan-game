@@ -28,7 +28,7 @@ import { drain } from "../src/jobs/worker.js";
 import { bandCentre } from "../src/matchmaking/band.js";
 import { seedAuthoredParties } from "../src/matchmaking/authored.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
-import { appRolePool, testPool, truncateAll, unique } from "./helpers.js";
+import { appRolePool, testPool, truncateAll, unique, seasonCaravan } from "./helpers.js";
 
 const pool = testPool();
 let appRole: pg.Pool;
@@ -51,6 +51,7 @@ async function registerPlayer(): Promise<Player> {
   const res = await app.inject({ method: "POST", url: "/auth/register", payload: { username: unique("rl"), password: "correct horse battery", region: "desert" } });
   expect(res.statusCode, res.body).toBe(201);
   const body = res.json();
+  await seasonCaravan(pool, body.caravan.id); // r2 S2: the trips a test starts are not the caravan's first
   return { token: body.token, accountId: body.account.id, caravanId: body.caravan.id, units: [] };
 }
 

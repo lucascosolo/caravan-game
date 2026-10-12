@@ -17,6 +17,8 @@ what the server would resolve.
 | `trip-ev.ts` | The EV model with hand-entered rates (chunk 19). Unchanged apart from the weekly-earn band. |
 | `unlock-pace.ts` | The week model read for ladder points: the days of play until the first tier-2 living unlock, at 15 / 30 / 42 trips a week and bank points 1–3 (`--costs` evaluates another cost curve). Pass 2, D8. |
 | `party-rating.ts` | The Reputation equilibrium check on a sweep's `--json` matrix: each caravan roster's equilibrium band, and a standing party's siege-Reputation drift per strike by strength and band, under the current and the old party-loss rule. Pass 2, D6. |
+| `first-trip.ts --raised` | The second trip's gate (play-test review round 2, S2): every region's raised starter parties (each pair of its starters, ranged pairs included, and the whole starting roster) against every fresh guided roster, the guided layout and the best skilled one. Pass 4; the CI slice runs a quarter of it. |
+| `fast-runners.ts` | Fast core- and trap-stance runners (round 2, D1): band-0/1 authored outfits with such raiders against fresh rosters; overrun share, overruns within 20 s, units lost per fast overrun. `--explore` tries a lever. Pass 4. |
 | `cold-start.ts` | The cold-start raider cap (S1; keyed on the roster since pass 3) re-checked: rebuilt 1–4 unit caravans, with the cap on and off, against the authored pool. `--rating` sets the caravan's living Reputation (default REPUTATION_START). Passes 2 and 3. |
 | `apps/server/test/balance-sweep.test.ts` | The CI slice, with a time budget of 150 s. It checks that encounter 1 is searched in band 0, that the guided layout holds ≥ 70 %, that encounter 2 is held more often than not, that skill beats naive, and that the sweep is deterministic. |
 
@@ -36,6 +38,97 @@ upper bound on what one reading of the scout gets. "Naive" layouts ignore the sc
 A roster's **equilibrium band** is the highest band whose skilled encounter-1 hold rate is at least
 the Reputation break-even. The break-even is 20 / (10 + 20) ≈ 67 % since change #16 (it was 20 / (15 + 20) = 57 %), because a hold earns +10 and an
 overrun costs −20.
+
+---
+
+## Pass 4 — 2026-10-12 (final play-test review round 2: S2, D1, D4). RESOLVER_VERSION unchanged at 8.
+
+No resolver code, content stat or resolver tunable changed (RESOLUTION_CONTENT_HASH and the goldens
+are unchanged). One matchmaking rule and the harness's model of the guide moved.
+
+### What changed
+
+| # | number | from → to | why |
+|---|---|---|---|
+| 25 | `AUTHORED_ONLY_FIRST_TRIPS` (new) | 1 | Round-2 S2. A caravan's first trip meets **authored outfits only**, at every encounter (live parties are left out of the pool before the seeded draw; the menu records `draw_rules.authoredOnlyTrip`). Testers' raised starter parties — Mountain's and Badlands' are ranged pairs that shoot the guided circle from outside the fence — are never a player's first fight, and the guided first trip is now exactly what `first-trip.ts` measures (an authored-only pool). |
+| — | the harness's guide pick (`sweep.ts guidePick`) | "fewest raiders, then least HP" → the client's rule: least total HP, then fewest siege, then fewest raiders, then menu order, **passing over all-ranged parties** whenever another candidate exists (a raider is ranged when its attack range exceeds `ATTACK_RANGE_MELEE_DEFAULT`, as `TrailGuide.isRangedRaider`) | The harness modelled an older ordering; the client fix round of round 2 added the ranged rule. The numbers below are the guide testers now follow. |
+
+### Target 1 — the guided first trip (`first-trip.ts --reserve 2`, 200 caravans)
+
+```
+encounter 1 (guided):   bands searched {"0":200}   held 179/200 = 90% (stalemates 0)
+encounter 2 (free):     bands searched {"1":179}   guided shape held 112/179 = 63%   skilled best held 131/179 = 73%
+first trip completed (two holds, then bank): 112/200 = 56%
+guide's pick at encounter 1: Alkali Freighters 28/28, Bounty Board Riders 5/5, Gunslinger's Dozen 2/3, Prairie Wolf Pack 90/110, Salt Flat Drifters 54/54
+```
+
+Was 73 % (pass 3). The ranged rule takes the guide off the two badlands ranged outfits that made up
+pass 2's gap (Bounty Board Riders 60 / 81, Gunslinger's Dozen 53 / 79 then; 5 / 5 and 2 / 3 now, only
+where every candidate was ranged). Target ≥ 70 % met; encounter 2's guide shape (63 %) stays above
+its > 50 % target. Because of #25 this is now the whole first trip, live parties or not.
+
+### The second trip's gate (`first-trip.ts --raised`, 128 fights, all 76 skilled layouts)
+
+Every region's raised starter parties (L1, north edge, `nearest`, Battering Wagon — the guide's
+"Raise my party" and the server's `suggested`) against every fresh guided roster (4 regions × each
+refugee type, GUIDE_RESERVE left home, 1 Spike Pit):
+
+| raised party | guided | best skilled |
+|---|---|---|
+| desert, high plains: every pair and the whole roster | 100 % | 100 % |
+| mountain: Grizzly + Grizzly | 100 % | 100 % |
+| mountain: Grizzly + Trapper | 75 % | 100 % |
+| mountain: Trapper + Trapper | 50 % | 75 % |
+| mountain: the whole starting roster (6) | **0 %** | 50 % |
+| badlands: Gunslinger + Gunslinger | 50 % | 50 % |
+| badlands: Gunslinger + Bounty Hunter | 50 % | 50 % |
+| badlands: Bounty Hunter + Bounty Hunter | 50 % | 75 % |
+| badlands: the whole starting roster (6) | **0 %** | **0 %** |
+| **all raised parties** | **94 / 128 = 73 %** (target ≥ 60 %) | **104 / 128 = 81 %** (target ≥ 70 %) |
+
+The decision's targets are met over the raised starter parties as a whole, so no lever was applied.
+**Recorded for the orchestrator, not hidden by the aggregate:** a region's own raised parties are
+far below it for Badlands (guided 37 %, skilled 44 %) and below it guided for Mountain (56 %), and a
+fresh Badlands or Mountain tester's *whole* raised roster (six raiders, all or half ranged) beats a
+five-unit guided circle nearly always. Two mitigations already apply: the guide's pick passes over
+all-ranged parties whenever the menu has another (so a guided player meets these only when all three
+candidates are ranged), and the first trip never meets them (#25). The lever was measured, not taken:
+`--explore aggro=1024` (every post's engagement and leash +1 cell) lifts every ranged *pair* to
+100 % guided and skilled, and the whole-roster parties to 0–25 % / 0–25 %; it changes every fight,
+so it would need content edits to every unit's aggro and leash, a RESOLVER_VERSION bump, regenerated
+goldens and a full re-sweep of targets 1–3. Telemetry: the second trip's hold rate against live
+parties by raider region, and how often a menu is all-ranged.
+
+The CI slice (`balance-sweep.test.ts`) runs a quarter of the gate (one fresh roster per region, the
+first 24 skilled layouts) and asserts the same two targets.
+
+### D1 — fast core and trap runners (`fast-runners.ts`): no content lever accepted
+
+18 band-0/1 authored outfits with a core- or trap-stance raider × 8 fresh rosters (reserve 2):
+
+| | overrun | overruns within 20 s | units standing (lost) per fast overrun |
+|---|---|---|---|
+| guided, as built | 51 % | 81 % | 4.6 |
+| best skilled, as built | 35 % | 64 % | 4.6 |
+| `--explore trapRadius=1536` and `=1792` (trap trigger 1.25 → 1.5 / 1.75 cells), guided / best skilled — identical for both | 51 % / 36 % | 81 % / 62 % | 4.6 / 4.6 |
+| `--explore speed=0.85` (raiders 15 % slower), guided / best skilled | 44 % / 28 % | 53 % / 55 % | 4.8 / 4.6 |
+
+The trap trigger changes nothing. A slower runner turns some fast overruns into slow ones, but every
+fast overrun still costs about 4.6 standing units, which is the experience D1 is about (PROJECT.md
+§13's rule stays, by decision). And it is not a content-only lever for one unit type: `--explore`
+scales every raider, and a per-type speed edit changes resolution (goldens, RESOLVER_VERSION) and needs
+targets 1–3 re-swept. No lever is accepted. **Top telemetry question for the play test:** the share
+of week-1 overruns that end within 20 s with ≥ 3 packed units standing, by band and by raider stance,
+and whether those players come back the next day.
+
+### D4 — Coin with nothing to buy in week 1: no change, a telemetry question
+
+Round 2's returning week (g4, Badlands): 14,353 Coin after seven simulated days (16,371 after one
+more trip, with the mine not aged), 7 L1 units and 4 unlocks, and **no merge ever**, because overruns
+kept the roster under the 8 deployment slots and a merge below them lowers what a caravan can pack
+(the merge dialog says so). The only Coin sink was mercenaries (15 bought, 9,000 Coin, to rebuild).
+So the PROJECT.md §1 merge/loadout hook does not appear in week 1. Telemetry: the merge-spend panel's
+first-merge day, Coin balance by day of play, and the mercenary share of Coin spent.
 
 ---
 

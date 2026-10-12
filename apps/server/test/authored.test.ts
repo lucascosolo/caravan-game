@@ -53,7 +53,7 @@ import { ACCOUNT_POOLS, createAccountPoolProgress, createCaravanPoolProgress } f
 import { createUnitInstance } from "../src/repo/unitInstances.js";
 import { hasAccess } from "../src/unlocks/access.js";
 import { RESERVED_USERNAME_PREFIX, registerAccount } from "../src/services/onboarding.js";
-import { appRolePool, expectDbError, testPool, truncateAll, unique } from "./helpers.js";
+import { appRolePool, expectDbError, testPool, truncateAll, unique, seasonCaravan } from "./helpers.js";
 
 const pool = testPool();
 let appRole: pg.Pool;
@@ -75,6 +75,7 @@ async function registerPlayer(region: string = "desert"): Promise<Player> {
   const res = await app.inject({ method: "POST", url: "/auth/register", payload: { username: unique("p"), password: "correct horse battery", region } });
   expect(res.statusCode).toBe(201);
   const body = res.json();
+  await seasonCaravan(pool, body.caravan.id); // r2 S2: the trips a test starts are not the caravan's first
   return { token: body.token, accountId: body.account.id, caravanId: body.caravan.id, units: [] };
 }
 
@@ -128,6 +129,7 @@ async function fixedPlayer(n: number, region: string): Promise<Player> {
   for (const p of ACCOUNT_POOLS) await createAccountPoolProgress(pool, account.id, p);
   await pool.query("INSERT INTO caravan (id, account_id, region_id, name) VALUES ($1, $2, $3, 'Fixed')", [fixedId(2, n), account.id, region]);
   await createCaravanPoolProgress(pool, fixedId(2, n));
+  await seasonCaravan(pool, fixedId(2, n)); // r2 S2: not the caravan's first trip
   const { token } = await issueSession(pool, account.id);
   return { token, accountId: account.id, caravanId: fixedId(2, n), units: [] };
 }
