@@ -147,6 +147,13 @@ function ReplayBody({ view, expected, settled, autoPlay }: { readonly view: Repl
   return <Playback view={view} model={opened.model} settled={settled} autoPlay={autoPlay} />;
 }
 
+/** The loot sentence (N7: an authored outfit keeps nothing, so its "0 Coin" is never shown as Coin that vanished). */
+function lootLine(view: ReplayView, o: { readonly kind: string; readonly loot: number }): string {
+  if (view.viewer !== "caravan") return T.lootOwner(o.loot);
+  if (view.opponent?.authored === true) return T.lootCaravanAuthored(o.kind === "caravan_overrun", view.settled.coinLost?.amount ?? null);
+  return T.lootCaravan(o.loot);
+}
+
 /** The ledger's itemization of what this encounter settled for the viewer (QA S8 / D3). The client words it and computes nothing. */
 function settledLines(view: ReplayView, fallback: ReplaySettled | null): string[] {
   const s = view.settled;
@@ -158,7 +165,7 @@ function settledLines(view: ReplayView, fallback: ReplaySettled | null): string[
   }
   for (const c of s.coin) out.push(T.settledCoin(c.reason, c.amount) + (c.discarded > 0 ? T.settledDiscarded(c.discarded) : ""));
   if (s.trip?.unbankedCoin !== null && s.trip?.unbankedCoin !== undefined && s.trip.unbankedCoin > 0) out.push(T.settledUnbanked(s.trip.unbankedCoin));
-  if (s.coinLost) out.push(T.settledLost(s.coinLost.amount, s.coinLost.transferred, s.coinLost.destroyed));
+  if (s.coinLost) out.push(T.settledLost(s.coinLost.amount, s.coinLost.transferred, s.coinLost.destroyed, s.coinLost.recipientAuthored === true));
   for (const u of s.deMerged) out.push(T.settledDeMerged(u.displayName, u.fromLevel, u.toLevel));
   for (const u of s.destroyed) out.push(T.settledDestroyed(u.displayName, u.mergeLevel));
   for (const r of s.reputation) out.push(T.settledReputation(T.settledPool(r.pool), r.delta));
@@ -194,7 +201,7 @@ function Summary({ view, model, settled }: { readonly view: ReplayView; readonly
           <p className="hint" data-testid="replay-depth-explained">
             {T.depthExplained}
           </p>
-          <p data-testid="replay-loot">{v === "caravan" ? T.lootCaravan(o.loot) : T.lootOwner(o.loot)}</p>
+          <p data-testid="replay-loot">{lootLine(view, o)}</p>
         </>
       )}
       <div className="h3">{T.settledHeading}</div>
@@ -335,7 +342,7 @@ function Playback({ view, model, settled, autoPlay }: { readonly view: ReplayVie
               {o && (
                 <>
                   <p>{T.depth(pct, view.viewer)}</p>
-                  <p>{view.viewer === "caravan" ? T.lootCaravan(o.loot) : T.lootOwner(o.loot)}</p>
+                  <p>{lootLine(view, o)}</p>
                 </>
               )}
               <div className="replay__row">

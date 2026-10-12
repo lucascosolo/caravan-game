@@ -17,6 +17,22 @@
         }
       },
       "centre": 250,
+      "centreBasis": {
+        "offset": -150,
+        "reason": "first_encounter_offset",
+        "inCaravanBand": false,
+        "centreBand": {
+          "index": 0,
+          "low": 100,
+          "high": 399
+        }
+      },
+      "raiderCap": {
+        "packedUnits": 3,
+        "cap": 3,
+        "relaxed": false,
+        "excluded": 0
+      },
       "escalation": {
         "applied": -150,
         "perEncounter": 15,

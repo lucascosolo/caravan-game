@@ -12,6 +12,8 @@
  *   mine_near_cap      the trickle (chunk 16, read-only peek): the balance is near the storage
  *                      cap, where the trickle stops
  *   packs_rotated      the weekly rotation (chunk 20): a new week began
+ *   party_changed      the ledger: `standing_party_repaired` (final play-test review S2) — a
+ *                      merge or a trip loss changed the standing party, or left it empty
  *
  * so a notification can never disagree with the ledger or the timers it reports. The only
  * stored state is what the player has READ and which categories they want (migration 015) —
@@ -39,6 +41,7 @@ import {
   windowLines,
   mineItem,
   packsItem,
+  partyChangedItem,
   refugeeItem,
   strikeItem,
   tripCapItem,
@@ -53,6 +56,7 @@ import {
   INBOX_HORIZON_MS,
   INBOX_ITEMIZED_BATCHES,
   INBOX_MAX_MARKS_PER_REQUEST,
+  INBOX_MAX_PARTY_CHANGE_ITEMS,
   INBOX_MAX_STRIKE_ITEMS,
   INBOX_MINE_NEAR_CAP_PERCENT,
   INBOX_STRIKES_PER_ITEM,
@@ -63,7 +67,7 @@ import {
 export interface InboxPreferenceView {
   category: InboxCategory;
   enabled: boolean;
-  /** The §29 default: on for party strikes, off for everything else. */
+  /** The default (§29 as amended by the final play-test review D7): on for party strikes, party changes, refugees and the trip cap. */
   defaultEnabled: boolean;
 }
 
@@ -346,6 +350,15 @@ async function draftItems(
     const index = weekIndexAt(nowMs);
     const item = packsItem({ index, ...weekBounds(index) }, await accountCreatedMs());
     if (item) drafts.push(item);
+  }
+  if (enabled.has("party_changed")) {
+    const rows = await db.query<{ seq: string; ms: string; payload: Record<string, unknown> }>(
+      `SELECT seq::text AS seq, (floor(extract(epoch FROM occurred_at) * 1000))::text AS ms, payload FROM ledger_event
+       WHERE account_id = $1 AND event_type = 'standing_party_repaired' AND occurred_at >= to_timestamp($2 / 1000.0)
+       ORDER BY seq DESC LIMIT $3`,
+      [accountId, nowMs - INBOX_HORIZON_MS, INBOX_MAX_PARTY_CHANGE_ITEMS],
+    );
+    for (const r of rows.rows) drafts.push(partyChangedItem({ seq: Number(r.seq), occurredAtMs: Number(r.ms), payload: r.payload }));
   }
   return { drafts, older };
 }

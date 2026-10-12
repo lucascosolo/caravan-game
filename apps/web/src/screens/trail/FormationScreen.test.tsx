@@ -88,6 +88,7 @@ function fakeApi(over: Partial<Api> = {}): Api {
     spendUnlock: notCalled,
     packManifest: notCalled,
     manifest: notCalled,
+    unpackManifest: notCalled,
     saveFormation: notCalled,
     formation: notCalled,
     commitFormation: notCalled,

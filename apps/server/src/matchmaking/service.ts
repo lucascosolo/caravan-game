@@ -29,7 +29,7 @@
  *   (e) the snapshot is a copy: the owner editing, merging or losing units between
  *       selection and resolution never affects that fight.
  */
-import { partyFromJson, scoutParty, serializeParty, type PartyScoutView } from "@caravan/circle";
+import { manifestFromJson, partyFromJson, scoutParty, serializeParty, type PartyScoutView } from "@caravan/circle";
 import { createHash } from "node:crypto";
 import type pg from "pg";
 import { findOpenManifest } from "../circle/repo.js";
@@ -39,6 +39,7 @@ import { enqueueEncounterResolution } from "../jobs/handlers/encounterResolution
 import { StandingPartyInvalidError, snapshotStandingParty, type StandingPartySnapshot } from "../jobs/snapshots.js";
 import { canonicalJson, type Json, type JsonObject } from "../ledger/events.js";
 import { getCaravanPoolProgress } from "../repo/poolProgress.js";
+import { LEGACY_DEFAULT_CARAVAN_NAME } from "../services/caravanNames.js";
 import { AppError, badRequest, conflict } from "../services/errors.js";
 import {
   AUTHORED_PARTY_MAX_SHARE_BP,
@@ -54,6 +55,8 @@ import {
   bandOf,
   bandWidths,
   candidateSeed,
+  coldStartRaiderCap,
+  type RaiderCap,
   currentDrawRules,
   FIRST_ENCOUNTER_CENTRE_OFFSET,
   escalatedCentre,
@@ -146,16 +149,28 @@ export function candidateView(c: Candidate): CandidateView {
  * raw `sys_outfit_*` handle. A system account the current set no longer describes reads as
  * a generic name rather than leaking its handle.
  */
-export function ownerDisplay(username: string | null, authored: boolean): { displayName: string; flavor: string | null } {
-  // Chunk 30: a guest's party is served like any other; until they link a username it rides under a generic name.
-  if (!authored) return { displayName: username ?? GUEST_OWNER_DISPLAY_NAME, flavor: null };
+export function ownerDisplay(username: string | null, authored: boolean, caravanName: string | null = null): { displayName: string; flavor: string | null } {
+  // Chunk 30: a guest's party is served like any other. Until they link a username it rides
+  // under its caravan's name (final play-test review N8: every caravan is named at creation),
+  // or a generic name for a caravan that still carries the old placeholder.
+  if (!authored) return { displayName: username ?? (caravanName && caravanName !== LEGACY_DEFAULT_CARAVAN_NAME ? caravanName : GUEST_OWNER_DISPLAY_NAME), flavor: null };
   if (username === null) return { displayName: "Unnamed outfit", flavor: null };
   const outfit = authoredOutfitFor(username);
   return outfit ? { displayName: outfit.name, flavor: outfit.flavor } : { displayName: "Unnamed outfit", flavor: null };
 }
 
-/** Chunk 30: what a defender sees as the owner of a guest's party (no username yet). */
+/** Chunk 30: what a defender sees as the owner of a guest's party with no username and no caravan name of its own. */
 export const GUEST_OWNER_DISPLAY_NAME = "Unnamed drifter";
+
+/** N8: guest owners' first caravan names, by account id (v1: one caravan per account). */
+async function caravanNamesOf(db: Queryable, accountIds: readonly string[]): Promise<Map<string, string>> {
+  if (accountIds.length === 0) return new Map();
+  const res = await db.query<{ account_id: string; name: string }>(
+    "SELECT DISTINCT ON (account_id) account_id, name FROM caravan WHERE account_id = ANY($1::uuid[]) ORDER BY account_id, created_at, id",
+    [[...new Set(accountIds)]],
+  );
+  return new Map(res.rows.map((r) => [r.account_id, r.name]));
+}
 
 export interface EncounterCandidatesRow {
   trip_id: string;
@@ -178,6 +193,8 @@ export interface EncounterCandidatesRow {
   draw_rules: AuthoredDrawRules | null;
   /** Chunk 25 QA N2/S3: whether the served-share weight changed this draw. */
   authored_weighted_down: boolean | null;
+  /** Final play-test review S1: the cold-start raider cap this draw applied (null outside band 0, and on rows older than migration 027). */
+  raider_cap: RaiderCap | null;
   chosen_candidate_id: string | null;
   chosen_at: Date | null;
   created_at: Date;
@@ -217,6 +234,20 @@ export interface CandidateMenuView {
   caravan: { rating: number; ratingPool: "living"; band: BandInfo };
   /** The band centre the draw used: caravan rating + escalation for this encounter index. */
   centre: number;
+  /**
+   * Final play-test review N6: why the centre is where it is, so the screen never claims the
+   * parties are "within your band" when encounter 1 is searched below it. `offset` = centre −
+   * caravan rating; `reason` names the rule: encounter 1's FIRST_ENCOUNTER_CENTRE_OFFSET, the
+   * escalation of encounters 2+, or none. `inCaravanBand` says whether the centre lies in the
+   * caravan's own display band.
+   */
+  centreBasis: { offset: number; reason: "first_encounter_offset" | "escalation" | "none"; inCaravanBand: boolean; centreBand: BandInfo };
+  /**
+   * Final play-test review S1: the cold-start raider cap (band 0 only): no party offered fields
+   * more raiders than `cap`, which is the caravan's packed living units unless too few such
+   * parties exist (`relaxed`). Null when the rule did not apply.
+   */
+  raiderCap: { packedUnits: number; cap: number; relaxed: boolean; excluded: number } | null;
   escalation: { applied: number; perEncounter: number; nextEncounter: number };
   bandWidthUsed: number;
   widened: boolean;
@@ -249,6 +280,8 @@ interface PoolRow {
   username: string | null;
   is_system: boolean;
   reputation: number;
+  /** Living units in the stored composition (the cold-start raider cap reads it). */
+  raiders: number;
 }
 
 /**
@@ -263,7 +296,8 @@ interface PoolRow {
  * rows by key through LATERAL ... LIMIT 1 lookups (the LIMIT keeps the planner from
  * flattening them into a hash join over a full scan). A test EXPLAINs it over ~10k parties.
  */
-export const POOL_SQL = `SELECT sp.id AS party_id, pp.account_id AS owner_account_id, a.username, false AS is_system, pp.reputation
+export const POOL_SQL = `SELECT sp.id AS party_id, pp.account_id AS owner_account_id, a.username, false AS is_system, pp.reputation,
+            jsonb_array_length(sp.composition -> 'units') AS raiders
        FROM pool_progress pp
        CROSS JOIN LATERAL (SELECT username, is_system FROM account WHERE id = pp.account_id LIMIT 1) a
        CROSS JOIN LATERAL (SELECT id, composition FROM standing_party WHERE account_id = pp.account_id AND slot = 0 LIMIT 1) sp
@@ -273,7 +307,7 @@ export const POOL_SQL = `SELECT sp.id AS party_id, pp.account_id AS owner_accoun
         AND jsonb_array_length(sp.composition -> 'units') > 0
         AND NOT (pp.account_id = ANY($1::uuid[]))
      UNION ALL
-     SELECT sp.id, a.id, a.username, true, pp.reputation
+     SELECT sp.id, a.id, a.username, true, pp.reputation, jsonb_array_length(sp.composition -> 'units')
        FROM account a
        CROSS JOIN LATERAL (SELECT reputation FROM pool_progress WHERE account_id = a.id AND pool = 'siege' LIMIT 1) pp
        CROSS JOIN LATERAL (SELECT id, composition FROM standing_party WHERE account_id = a.id AND slot = 0 LIMIT 1) sp
@@ -375,10 +409,19 @@ export function candidateFromSnapshot(
   };
 }
 
+/** N6: why a search's centre sits where it does, relative to the caravan's rating. Pure. */
+export function centreBasisOf(caravanRating: number, centre: number, encounterIndex: number): CandidateMenuView["centreBasis"] {
+  const offset = centre - caravanRating;
+  const reason = offset === 0 ? "none" : encounterIndex === 1 && FIRST_ENCOUNTER_CENTRE_OFFSET !== 0 ? "first_encounter_offset" : "escalation";
+  const centreBand = bandOf(centre);
+  return { offset, reason, inCaravanBand: centreBand.index === bandOf(caravanRating).index, centreBand };
+}
+
 function menuView(row: EncounterCandidatesRow, passes: SelectionPass[], authoredOutsideBand: boolean, authoredWeightedDown: boolean): CandidateMenuView {
   const availableAtMs = row.searched_at_ms + REROLL_COOLDOWN_SECONDS * 1000;
   const authored = row.candidates.filter((c) => c.owner.authored).length;
   const of = row.candidates.length;
+  const cap = row.raider_cap ?? null;
   return {
     tripId: row.trip_id,
     encounterIndex: row.encounter_index,
@@ -386,6 +429,8 @@ function menuView(row: EncounterCandidatesRow, passes: SelectionPass[], authored
     seed: row.seed,
     caravan: { rating: row.caravan_rating, ratingPool: "living", band: bandOf(row.caravan_rating) },
     centre: row.centre,
+    centreBasis: centreBasisOf(row.caravan_rating, row.centre, row.encounter_index),
+    raiderCap: cap ? { packedUnits: cap.packedUnits, cap: cap.cap, relaxed: cap.relaxed, excluded: cap.excludedPartyIds.length } : null,
     escalation: { applied: row.centre - row.caravan_rating, perEncounter: ESCALATION_PER_ENCOUNTER, nextEncounter: escalationFor(row.encounter_index + 1) },
     bandWidthUsed: row.band_width_used,
     widened: row.band_width_used > REPUTATION_BAND_WIDTH,
@@ -467,13 +512,22 @@ export async function searchCandidates(client: pg.PoolClient, caravan: CaravanRo
   const recent = await recentOpponentPartyIds(client, caravan.account_id);
   const rows = await loadPool(client, centre, excludedAccounts);
   const recentSet = new Set(recent);
-  const pool: PoolEntry[] = [];
+  const counted: (PoolEntry & { raiders: number })[] = [];
   const excludedPartyIds: string[] = [];
   for (const r of rows) {
     if (recentSet.has(r.party_id)) excludedPartyIds.push(r.party_id);
-    else pool.push({ partyId: r.party_id, ownerAccountId: r.owner_account_id, rating: r.reputation, authored: r.is_system });
+    else counted.push({ partyId: r.party_id, ownerAccountId: r.owner_account_id, rating: r.reputation, authored: r.is_system, raiders: Number(r.raiders) });
   }
-  const names = new Map(rows.map((r) => [r.party_id, ownerDisplay(r.username, r.is_system)]));
+  // Final play-test review S1: in band 0, no party with more raiders than the caravan packed
+  // units (raised only as far as it takes to fill a menu). Filtered before the draw; the stored
+  // pool and `raider_cap` replay it.
+  const packedUnits = manifestFromJson((await findOpenManifest(client, caravan.id))!.packed).units.length;
+  const raiderCap = coldStartRaiderCap(counted, centre, packedUnits);
+  const capOut = new Set(raiderCap?.excludedPartyIds ?? []);
+  const pool: PoolEntry[] = counted.filter((e) => !capOut.has(e.partyId)).map(({ raiders: _raiders, ...e }) => e);
+  // N8: a guest owner's party rides under its caravan's name (public: the results feed shows it).
+  const guestNames = await caravanNamesOf(client, rows.filter((r) => !r.is_system && r.username === null).map((r) => r.owner_account_id));
+  const names = new Map(rows.map((r) => [r.party_id, ownerDisplay(r.username, r.is_system, guestNames.get(r.owner_account_id) ?? null)]));
   // Chunk 25: the band's authored served share (second stage of retire-by-ratio), and the
   // draw rules in force, both stored with the menu so the draw replays from the row (QA N2).
   const band = bandOf(centre);
@@ -516,9 +570,9 @@ export async function searchCandidates(client: pg.PoolClient, caravan: CaravanRo
     return candidateFromSnapshot(ids, p, who, caravanRating, result.bandWidthUsed, snapshots.get(p.partyId)!, centre);
   });
   const res = await client.query<EncounterCandidatesRow>(
-    `INSERT INTO encounter_candidates (trip_id, encounter_index, search_seq, seed, caravan_rating, centre, band_width_used, pool, excluded_party_ids, skipped_party_ids, candidates, searched_at_ms, authored_served, band, draw_rules, authored_weighted_down)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::jsonb, $14, $15::jsonb, $16) RETURNING *`,
-    [trip.id, encounterIndex, searchSeq, seed, caravanRating, centre, result.bandWidthUsed, JSON.stringify(stored), JSON.stringify(excludedPartyIds), JSON.stringify([...skipped]), canonicalJson(candidates as unknown as Json), opts.nowMs, JSON.stringify(authoredServed), band.index, JSON.stringify(rules), result.authoredWeightedDown],
+    `INSERT INTO encounter_candidates (trip_id, encounter_index, search_seq, seed, caravan_rating, centre, band_width_used, pool, excluded_party_ids, skipped_party_ids, candidates, searched_at_ms, authored_served, band, draw_rules, authored_weighted_down, raider_cap)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::jsonb, $14, $15::jsonb, $16, $17::jsonb) RETURNING *`,
+    [trip.id, encounterIndex, searchSeq, seed, caravanRating, centre, result.bandWidthUsed, JSON.stringify(stored), JSON.stringify(excludedPartyIds), JSON.stringify([...skipped]), canonicalJson(candidates as unknown as Json), opts.nowMs, JSON.stringify(authoredServed), band.index, JSON.stringify(rules), result.authoredWeightedDown, raiderCap === null ? null : JSON.stringify(raiderCap)],
   );
   return viewOf(res.rows[0]!, opts.nowMs);
 }

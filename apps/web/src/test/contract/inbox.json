@@ -18,7 +18,7 @@
           "coinEarned": 596,
           "coinTransferred": 0,
           "coinDiscardedAtCap": 0,
-          "reputationDelta": -42,
+          "reputationDelta": 0,
           "ladderPointsGained": 30,
           "windowStartMs": 1790000000000,
           "windowEndMs": 1790000120000,
@@ -32,13 +32,13 @@
               "outcomeKind": "caravan_held",
               "defender": {
                 "username": "contract_voider",
-                "caravanName": "Caravan",
+                "caravanName": "Mesquite Teamsters",
                 "regionId": "desert"
               },
               "coinEarned": 212,
               "coinTransferred": 0,
               "coinDiscardedAtCap": 0,
-              "reputationDelta": -13,
+              "reputationDelta": 0,
               "ladderPointsGained": 10
             },
             {
@@ -49,13 +49,13 @@
               "outcomeKind": "caravan_held",
               "defender": {
                 "username": "contract_viewer",
-                "caravanName": "Caravan",
+                "caravanName": "Cottonwood Caravan",
                 "regionId": "desert"
               },
               "coinEarned": 172,
               "coinTransferred": 0,
               "coinDiscardedAtCap": 0,
-              "reputationDelta": -14,
+              "reputationDelta": 0,
               "ladderPointsGained": 10
             },
             {
@@ -66,13 +66,13 @@
               "outcomeKind": "caravan_held",
               "defender": {
                 "username": "contract_player",
-                "caravanName": "Caravan",
+                "caravanName": "Copper Haulers",
                 "regionId": "desert"
               },
               "coinEarned": 212,
               "coinTransferred": 0,
               "coinDiscardedAtCap": 0,
-              "reputationDelta": -15,
+              "reputationDelta": 0,
               "ladderPointsGained": 10
             }
           ],
@@ -90,13 +90,13 @@
       },
       {
         "category": "refugees_arrived",
-        "enabled": false,
-        "defaultEnabled": false
+        "enabled": true,
+        "defaultEnabled": true
       },
       {
         "category": "trip_cap_refilled",
-        "enabled": false,
-        "defaultEnabled": false
+        "enabled": true,
+        "defaultEnabled": true
       },
       {
         "category": "mine_near_cap",
@@ -107,6 +107,11 @@
         "category": "packs_rotated",
         "enabled": false,
         "defaultEnabled": false
+      },
+      {
+        "category": "party_changed",
+        "enabled": true,
+        "defaultEnabled": true
       }
     ],
     "olderStrikes": null,

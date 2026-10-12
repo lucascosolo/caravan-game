@@ -16,10 +16,13 @@
  * writes unit_instance. A trip's attrition lands on the caravan's wagon_manifest and, in
  * chunk 19, on the roster through the caravan's own loss events; being served into a
  * fight never touches a party or its units. If an instance the party names stops existing
- * (lost on the owner's own trip, consumed by a merge), the party resolves as INVALID
- * (`unknown_ref`) at the next read or edit and the edit endpoint says so; it is never
- * silently trimmed, and the roster change is never blocked. A test greps this directory
- * for unit_instance writes.
+ * (lost on the owner's own trip, consumed by a merge), the party REPAIRS ITSELF in the same
+ * transaction (final play-test review S2, `repairStandingParty`): a merge re-points the slot
+ * to the merged unit, a destroyed unit's slot is dropped, and a `standing_party_repaired`
+ * event records exactly what changed — which the inbox turns into a "your standing party
+ * changed" notice, including when the party is left empty. The party is never silently
+ * invalid, and the roster change is never blocked. A test greps this directory for
+ * unit_instance writes: the repair writes only the party's own composition.
  *
  * Scope (GUARDRAILS §5): the party is account-level; the units it references are
  * caravan-level and their living access is read on each unit's caravan; siege access is
@@ -29,6 +32,8 @@ import { TUNABLES, SIEGE_TYPES, getUnitType, mergeStatMult, scaleInt } from "@ca
 import {
   PARTY_EDIT_COOLDOWN_MS,
   PARTY_SLOT_CAP,
+  normalizePartyConfig,
+  GRID_WIDTH,
   ParseError,
   SIEGE_SLOT_CAP,
   MAX_APPROACH_EDGES,
@@ -135,6 +140,14 @@ export interface PartyView {
   roster: RosterEntryView[];
   /** Every siege type with its counter spelled out, and whether this account may field it. */
   siegeCatalog: (ScoutSiege & { unlocked: boolean })[];
+  /**
+   * Final play-test review D5: the server's suggested party — the saved one, plus every unlocked
+   * roster unit not in it yet (up to the unit cap, entering from the north band like the
+   * builder's default), plus the owner's unlocked siege (up to the siege cap), so the passive
+   * side's siege ladder can grow. Null when it would add nothing. A suggestion only: nothing is
+   * saved until the owner PUTs it (or their own edit of it).
+   */
+  suggested: PartyConfig | null;
 }
 
 interface RosterEntry extends RosterUnit {
@@ -226,6 +239,7 @@ async function buildView(db: Queryable, r: ResolvedStandingParty): Promise<Party
     };
   });
   const party = r.result.ok ? r.result.value : null;
+  const suggested = suggestParty(r.config, roster, r.access);
   return {
     id: r.row.id,
     slot: r.row.slot,
@@ -242,7 +256,35 @@ async function buildView(db: Queryable, r: ResolvedStandingParty): Promise<Party
     rules: { template: true, neverConsumed: true, unitsMayAlsoBePackedOnTrips: true, ratingInUse: "offense", stances: TARGETING_STANCES },
     roster,
     siegeCatalog: SIEGE_TYPES.map((s) => ({ ...siegeCounterEntry(s), unlocked: r.access(s.id) })),
+    suggested,
   };
+}
+
+/** The builder's default approach edge for a raised unit (the web builder's partyModel uses the same). */
+export const SUGGESTED_EDGE: EntryEdge = "north";
+
+/**
+ * D5, PURE: the saved config plus every unlocked roster unit not in it (roster order, up to
+ * PARTY_SLOT_CAP; default stance `nearest`, the north band, spread along it as the web builder does) plus every unlocked
+ * siege type not in it (SIEGE_TYPES order, up to SIEGE_SLOT_CAP). Null when nothing is added.
+ */
+export function suggestParty(config: PartyConfig, roster: readonly { instanceId: string; unlocked: boolean }[], access: AccessPredicate): PartyConfig | null {
+  const units = [...config.units];
+  const have = new Set(units.map((u) => u.ref));
+  for (const r of roster) {
+    if (units.length >= PARTY_SLOT_CAP) break;
+    if (!r.unlocked || have.has(r.instanceId)) continue;
+    const n = units.filter((u) => u.edge === SUGGESTED_EDGE).length;
+    units.push({ ref: r.instanceId, stance: "nearest", edge: SUGGESTED_EDGE, cell: { x: 2 + ((n * 3) % (GRID_WIDTH - 4)), y: 0 } });
+    have.add(r.instanceId);
+  }
+  const siege = [...config.siege];
+  for (const s of SIEGE_TYPES) {
+    if (siege.length >= SIEGE_SLOT_CAP) break;
+    if (access(s.id) && !siege.includes(s.id)) siege.push(s.id);
+  }
+  if (units.length === config.units.length && siege.length === config.siege.length) return null;
+  return normalizePartyConfig({ v: config.v, units, siege });
 }
 
 export async function readParty(db: Queryable, accountId: string): Promise<PartyView> {
@@ -300,16 +342,13 @@ export async function saveParty(client: pg.PoolClient, accountId: string, body: 
   return buildView(client, { ...current, row, config, result });
 }
 
-// ── QA S3: a roster change that removes an instance the party names ─────────────────────
+// ── S2: a roster change that removes an instance the party names ──────────────────────
 //
-// The party is never trimmed and the roster change is never blocked (chunk file, build
-// notes); but the owner must not be surprised by an invalid party. So every path that
-// removes an instance (chunk 16's merge now; chunk 19's trip loss later) does two things
-// through the helpers below: it ASKS first, so an endpoint can refuse until the player
-// confirms (merge: 409 `unit_in_party` unless `confirmInParty: true`), and it RECORDS an
-// account-scoped `standing_party_invalidated` event under its own causation id when it
-// goes ahead, carrying the issue list the party now resolves to. Both read under the
-// caller's account append lock, which saveParty also takes before reading the roster.
+// The roster change is never blocked and the party is never left silently invalid (final
+// play-test review S2, superseding chunk 09 QA S3's "invalid until edited"): every path that
+// removes an instance (chunk 16's merge, chunk 19's trip loss) calls `repairStandingParty`
+// inside its own transaction, after its DELETE (and, for a merge, after inserting the merged
+// units), under the account append lock that saveParty also takes before reading the roster.
 
 export interface PartyMembership {
   partyId: string | null;
@@ -325,37 +364,81 @@ export async function partyMembership(db: Queryable, accountId: string, instance
   return { partyId: row.id, inParty: [...new Set(instanceIds.filter((id) => refs.has(id)))].sort() };
 }
 
+export interface PartyRepairChange {
+  reason: "merge" | "trip_loss";
+  /** Instances just removed from the roster. */
+  removedRefs: readonly string[];
+  /** A merge's outputs, in order: a removed slot is re-pointed to the first output the party does not already name. */
+  producedRefs?: readonly string[];
+}
+
+/** PURE. The repaired composition: removed slots re-pointed to free outputs (same stance, edge and cell), else dropped; any other ref no longer in the roster dropped too. */
+export function repairPartyConfig(
+  config: PartyConfig,
+  rosterIds: ReadonlySet<string>,
+  change: PartyRepairChange,
+): { config: PartyConfig; removed: string[]; repointed: { from: string; to: string }[]; dropped: string[] } {
+  const removedSet = new Set(change.removedRefs);
+  const named = new Set(config.units.map((u) => u.ref));
+  const outputs = (change.producedRefs ?? []).filter((id) => !named.has(id) && rosterIds.has(id));
+  const units: PartyConfig["units"][number][] = [];
+  const removed: string[] = [];
+  const repointed: { from: string; to: string }[] = [];
+  const dropped: string[] = [];
+  let next = 0;
+  for (const u of normalizePartyConfig(config).units) {
+    if (removedSet.has(u.ref)) {
+      removed.push(u.ref);
+      const to = outputs[next];
+      if (to !== undefined) {
+        next++;
+        repointed.push({ from: u.ref, to });
+        units.push({ ...u, ref: to });
+      } else dropped.push(u.ref);
+    } else if (!rosterIds.has(u.ref)) {
+      dropped.push(u.ref); // already dangling (a party left invalid before this repair existed)
+    } else units.push(u);
+  }
+  return { config: normalizePartyConfig({ v: config.v, units, siege: config.siege }), removed, repointed, dropped };
+}
+
 /**
- * After `removedRefs` have been removed from the roster (inside the remover's transaction,
- * after its DELETE): the draft of the `standing_party_invalidated` event to append under
- * the remover's causation id, or null when the party named none of them. The payload
- * carries the party's identity (id, slot, saveSeq, hash — the composition itself is NOT
- * changed), why, which refs went, and the full issue list the party resolves to now.
+ * After `change.removedRefs` have left the roster (inside the remover's transaction): repair
+ * the standing party and return the `standing_party_repaired` draft to append under the
+ * remover's causation id, or null when the party named none of them. The composition is
+ * rewritten (save_seq advances, like any save); the payload says what changed, how many units
+ * the party now fields, and whether it is now empty (and so not served until the owner adds
+ * one). The caller holds the account append lock.
  */
-export async function standingPartyInvalidationDraft(
-  db: Queryable,
-  accountId: string,
-  removedRefs: readonly string[],
-  reason: "merge" | "trip_loss",
-): Promise<LedgerEventDraft | null> {
-  const r = await resolveStandingParty(db, accountId, { lock: "share" });
+export async function repairStandingParty(db: Queryable, accountId: string, change: PartyRepairChange): Promise<LedgerEventDraft | null> {
+  const r = await resolveStandingParty(db, accountId, { lock: "update" });
   if (!r) return null;
   const named = new Set(r.config.units.map((u) => u.ref));
-  const removed = [...new Set(removedRefs.filter((id) => named.has(id)))].sort();
-  if (removed.length === 0) return null;
-  const issues = r.result.ok ? [] : r.result.issues.map((i) => (i.subject === undefined ? { code: i.code, message: i.message } : { code: i.code, message: i.message, subject: i.subject }));
+  if (!change.removedRefs.some((id) => named.has(id))) return null;
+  const rosterIds = new Set(r.roster.map((u) => u.instanceId));
+  const fix = repairPartyConfig(r.config, rosterIds, change);
+  const canonical = serializePartyConfig(fix.config);
+  const result = resolveParty(fix.config, r.roster, r.access);
+  const row = canonical === serializePartyConfig(r.config) ? r.row : await updateStandingPartyComposition(db, r.row.id, canonical);
+  const issues = result.ok ? [] : result.issues.map((i) => (i.subject === undefined ? { code: i.code, message: i.message } : { code: i.code, message: i.message, subject: i.subject }));
   return {
-    type: "standing_party_invalidated",
+    type: "standing_party_repaired",
     accountId,
     payload: {
-      partyId: r.row.id,
-      slot: r.row.slot,
-      saveSeq: r.row.save_seq,
-      hash: partyHash(serializePartyConfig(r.config)),
-      reason,
-      removedRefs: removed,
-      valid: r.result.ok,
+      partyId: row.id,
+      slot: row.slot,
+      saveSeq: row.save_seq,
+      hash: partyHash(canonical),
+      reason: change.reason,
+      removedRefs: [...fix.removed].sort(),
+      repointed: fix.repointed,
+      dropped: [...fix.dropped].sort(),
+      units: fix.config.units.length,
+      siege: fix.config.siege.length,
+      empty: fix.config.units.length === 0,
+      valid: result.ok,
       issues,
+      config: JSON.parse(canonical) as JsonObject,
     },
   };
 }

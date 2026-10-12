@@ -492,6 +492,25 @@ describe("Town: the caravan's state from the trip loop, the trip cap and riding 
   });
 });
 
+describe("RideOutPanel: unpack (final play-test review N9)", () => {
+  it("packed with no trip available is never a dead end: Unpack asks the server to close the unused manifest and the town re-reads", async () => {
+    const user = userEvent.setup();
+    const unpackManifest = vi.fn(async () => ({ unpacked: { manifestId: uid(500) } }));
+    const onUnpacked = vi.fn();
+    const s = withCap(statusPacked(), { available: 0, nextRegenAtMs: statusPacked().nowMs + 90_000, fullAtMs: statusPacked().nowMs + 90_000 });
+    render(<RideOutPanel api={fakeApi({ unpackManifest })} caravanId={CARAVAN_ID} status={s} onStarted={() => {}} onUnpacked={onUnpacked} />);
+    expect(screen.getByTestId("ride-out-open-confirm")).toBeDisabled();
+    await user.click(screen.getByTestId("ride-out-unpack"));
+    expect(unpackManifest).toHaveBeenCalledWith(CARAVAN_ID);
+    expect(onUnpacked).toHaveBeenCalled();
+  });
+
+  it("without an onUnpacked handler there is no Unpack button", () => {
+    render(<RideOutPanel api={fakeApi()} caravanId={CARAVAN_ID} status={statusPacked()} onStarted={() => {}} />);
+    expect(screen.queryByTestId("ride-out-unpack")).toBeNull();
+  });
+});
+
 describe("RideOutPanel (chunk 23)", () => {
   it("counts the regen from SERVER time: a device clock 10 minutes fast cannot open it early", async () => {
     const realNow = Date.now;

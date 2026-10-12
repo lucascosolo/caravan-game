@@ -26,6 +26,7 @@ import {
   economyShape,
   formationShape,
   manifestShape,
+  unpackShape,
   meShape,
   menuShape,
   mergePreviewShape,
@@ -163,6 +164,8 @@ export interface Api {
   // Wagon circle (chunk 07 routes). All owner-only; a foreign caravan is a 404.
   packManifest(caravanId: string, req: PackManifestRequest): Promise<ManifestResponse>;
   manifest(caravanId: string): Promise<ManifestResponse>;
+  /** Final play-test review N9: unpack a caravan that is packed but has not ridden out. */
+  unpackManifest(caravanId: string): Promise<{ readonly unpacked: { readonly manifestId: string } }>;
   saveFormation(caravanId: string, encounterIndex: number, formation: FormationBody): Promise<FormationResponse>;
   formation(caravanId: string, encounterIndex: number): Promise<FormationResponse>;
   commitFormation(caravanId: string, encounterIndex: number): Promise<FormationResponse>;
@@ -315,6 +318,7 @@ export function createApi(opts: ApiOptions): Api {
     spendUnlock: (req) => request("POST", "/me/unlocks/spend", spendResultShape, req),
     packManifest: (caravanId, req) => request("POST", `${caravans(caravanId)}/manifest`, manifestShape, req),
     manifest: (caravanId) => request("GET", `${caravans(caravanId)}/manifest`, manifestShape),
+    unpackManifest: (caravanId) => request("DELETE", `${caravans(caravanId)}/manifest`, unpackShape),
     saveFormation: (caravanId, n, formation) => request("PUT", `${caravans(caravanId)}/encounters/${n}/formation`, formationShape, formation),
     formation: (caravanId, n) => request("GET", `${caravans(caravanId)}/encounters/${n}/formation`, formationShape),
     commitFormation: (caravanId, n) => request("POST", `${caravans(caravanId)}/encounters/${n}/formation/commit`, formationShape),

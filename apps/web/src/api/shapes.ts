@@ -329,6 +329,9 @@ export const scoutViewShape: Guard<PartyScoutView> = object({
 
 const band: Guard<BandView> = object({ index: integer(), low: integer(), high: integer() });
 
+/** N9: `DELETE /caravans/:id/manifest` → the manifest that was closed unused. */
+export const unpackShape: Guard<{ readonly unpacked: { readonly manifestId: string } }> = object({ unpacked: object({ manifestId: ID }) });
+
 // The client view carries NO owner account id (chunk 14 QA N4): display name and authored only.
 const candidate: Guard<CandidateView> = object({
   candidateId: ID,
@@ -346,6 +349,9 @@ const menuFields = object({
   searchSeq: integer({ min: 0 }),
   caravan: object({ rating: integer(), ratingPool: literal("living"), band }),
   centre: integer(),
+  // Final play-test review N6 / S1 (optional: older servers omit them).
+  centreBasis: optional(object({ offset: integer(), reason: literal("first_encounter_offset", "escalation", "none"), inCaravanBand: boolean(), centreBand: band })),
+  raiderCap: optional(nullable(object({ packedUnits: integer({ min: 0, max: 64 }), cap: integer({ min: 0, max: 64 }), relaxed: boolean(), excluded: COUNT }))),
   escalation: object({ applied: integer(), perEncounter: integer(), nextEncounter: integer() }),
   bandWidthUsed: integer({ min: 0 }),
   widened: boolean(),
@@ -574,6 +580,8 @@ const partyView: Guard<PartyView> = object({
   }),
   roster: array(rosterEntry, { maxLength: 10_000 }),
   siegeCatalog: array(siegeCatalogEntry, { maxLength: 64 }),
+  // Final play-test review D5: the server's suggested party (units + the owner's unlocked siege); older servers omit it.
+  suggested: optional(nullable(partyConfig)),
 });
 
 export const partyShape: Guard<PartyResponse> = object({ party: partyView });

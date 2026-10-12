@@ -4,7 +4,7 @@
  * existing timers; the client renders it and never decides what is read.
  */
 
-export type InboxCategoryView = "party_strike" | "refugees_arrived" | "trip_cap_refilled" | "mine_near_cap" | "packs_rotated";
+export type InboxCategoryView = "party_strike" | "refugees_arrived" | "trip_cap_refilled" | "mine_near_cap" | "packs_rotated" | "party_changed";
 
 export interface InboxStrikeView {
   readonly seq: number;
@@ -64,6 +64,15 @@ export interface MineDetailView {
   readonly capReachedAtMs: number | null;
 }
 
+/** Final play-test review S2: the standing party repaired itself after a merge or a trip loss. */
+export interface PartyChangedDetailView {
+  readonly reason: "merge" | "trip_loss";
+  readonly carriedOver: number;
+  readonly dropped: number;
+  readonly unitsNow: number;
+  readonly empty: boolean;
+}
+
 export interface PacksDetailView {
   readonly weekIndex: number;
   readonly startsAtMs: number;
@@ -85,7 +94,8 @@ export type InboxItemView =
   | ItemBase<"refugees_arrived", RefugeeDetailView>
   | ItemBase<"trip_cap_refilled", TripCapDetailView>
   | ItemBase<"mine_near_cap", MineDetailView>
-  | ItemBase<"packs_rotated", PacksDetailView>;
+  | ItemBase<"packs_rotated", PacksDetailView>
+  | ItemBase<"party_changed", PartyChangedDetailView>;
 
 export interface InboxPreferenceView {
   readonly category: InboxCategoryView;

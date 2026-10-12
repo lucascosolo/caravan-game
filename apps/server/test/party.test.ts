@@ -628,7 +628,7 @@ async function giveCoin(accountId: string, amount: number): Promise<void> {
   await withTransaction(pool, (c) => appendCoinCredits(c, { causationId: `test:${unique("coin")}`, accountId, credits: [{ amount, reason: "test_setup" }] }));
 }
 
-describe("QA S3: a merge that consumes a unit the standing party names", () => {
+describe("S2 (final play-test review): a merge that consumes a unit the standing party names re-points the party; it never goes invalid", () => {
   let p: Player;
   let inParty: string[];
   let spare: string[];
@@ -640,86 +640,98 @@ describe("QA S3: a merge that consumes a unit the standing party names", () => {
     expect((await call(p, "PUT", "/me/party", fullParty(inParty))).statusCode).toBe(200);
   });
 
-  it("the preview reports which consumed instances ride in the party; the commit is refused with 409 unit_in_party until confirmed; nothing moves", async () => {
+  it("the preview reports which consumed instances ride in the party and what the merge does to it; no confirmation is needed", async () => {
     const pv = await call(p, "POST", `/me/caravans/${p.caravanId}/merge/preview`, { instanceIds: inParty });
     expect(pv.statusCode).toBe(200);
     expect(pv.json().consumed.inParty).toEqual([...inParty].sort());
-    expect(pv.json().requiresConfirmInParty).toBe(true);
-    const rosterBefore = await rosterBytes(p.caravanId);
-    const eventsBefore = (await listEventsForAccount(pool, p.accountId)).length;
-    for (const body of [{ instanceIds: inParty }, { instanceIds: inParty, confirmInParty: "true" }, { instanceIds: inParty, confirmInParty: 1 }]) {
-      const res = await call(p, "POST", `/me/caravans/${p.caravanId}/merge`, body);
-      expect(res.statusCode).toBe(409);
-      expect(res.json()).toMatchObject({ error: "unit_in_party", inParty: [...inParty].sort() });
-    }
-    expect(await rosterBytes(p.caravanId)).toBe(rosterBefore);
-    expect((await listEventsForAccount(pool, p.accountId)).length).toBe(eventsBefore);
-    expect((await call(p, "GET", "/me/party")).json().party.valid).toBe(true);
+    expect(pv.json().requiresConfirmInParty).toBe(false);
+    // 2 → 1: one slot carries over to the merged unit, the other is dropped.
+    expect(pv.json().partyEffect).toEqual({ carriedOver: 1, dropped: 1 });
   });
 
-  it("a merge of units the party does not name needs no confirmation and appends no invalidation event", async () => {
+  it("a merge of units the party does not name leaves the party alone and appends no party event", async () => {
     const pv = await call(p, "POST", `/me/caravans/${p.caravanId}/merge/preview`, { instanceIds: spare });
     expect(pv.json().consumed.inParty).toEqual([]);
-    expect(pv.json().requiresConfirmInParty).toBe(false);
+    expect(pv.json().partyEffect).toEqual({ carriedOver: 0, dropped: 0 });
+    const before = (await call(p, "GET", "/me/party")).json().party;
     const res = await call(p, "POST", `/me/caravans/${p.caravanId}/merge`, { instanceIds: spare });
     expect(res.statusCode).toBe(200);
     expect(res.json().events.map((e: { type: string }) => e.type)).toEqual(["coin_spent", "unit_merged"]);
-    expect((await call(p, "GET", "/me/party")).json().party.valid).toBe(true);
+    const after = (await call(p, "GET", "/me/party")).json().party;
+    expect(after).toMatchObject({ valid: true, hash: before.hash });
   });
 
-  it("confirmed: the merge goes ahead, an account-scoped standing_party_invalidated event lands under the merge's own causation with the issue list, and the party reads invalid until edited", async () => {
+  it("the merge goes ahead without confirmation; the first slot moves to the merged unit (same stance, edge and cell), the second is dropped; one account-scoped standing_party_repaired under the merge's causation; the owner's inbox says so", async () => {
     const view = (await call(p, "GET", "/me/party")).json().party;
-    const res = await call(p, "POST", `/me/caravans/${p.caravanId}/merge`, { instanceIds: inParty, confirmInParty: true });
+    const res = await call(p, "POST", `/me/caravans/${p.caravanId}/merge`, { instanceIds: inParty });
     expect(res.statusCode).toBe(200);
-    expect(res.json().events.map((e: { type: string }) => e.type)).toEqual(["coin_spent", "unit_merged", "standing_party_invalidated"]);
-    const events = await listEventsForAccount(pool, p.accountId, { limit: 500 });
-    const inv = events.filter((e) => e.event_type === "standing_party_invalidated");
-    expect(inv).toHaveLength(1);
-    const merged = events.find((e) => e.event_type === "unit_merged" && JSON.stringify(e.payload["consumedInstanceIds"]) === JSON.stringify([...inParty].sort()))!;
-    expect(merged).toBeDefined();
-    expect(inv[0]!.causation_id).toBe(merged.causation_id);
-    expect(inv[0]!.caravan_id).toBeNull(); // account-scoped: the party is account-level (GUARDRAILS §5)
-    expect(inv[0]!.payload).toMatchObject({ partyId: view.id, slot: 0, hash: view.hash, reason: "merge", removedRefs: [...inParty].sort(), valid: false });
-    const issues = inv[0]!.payload["issues"] as { code: string; subject: string }[];
-    expect(issues.map((i) => i.code)).toEqual(["unknown_ref", "unknown_ref"]);
-    expect(issues.map((i) => i.subject).sort()).toEqual([...inParty].sort());
-    const after = (await call(p, "GET", "/me/party")).json().party;
-    expect(after).toMatchObject({ valid: false, party: null, hash: view.hash }); // the choices are untouched; only the roster moved
-    expect(after.issues).toEqual(issues);
-    // Editing fixes it, as before.
+    expect(res.json().events.map((e: { type: string }) => e.type)).toEqual(["coin_spent", "unit_merged", "standing_party_repaired"]);
     const produced: string = res.json().producedInstanceIds[0];
-    expect((await call(p, "PUT", "/me/party", fullParty([produced]))).statusCode).toBe(200);
-    expect((await call(p, "GET", "/me/party")).json().party.valid).toBe(true);
+    const events = await listEventsForAccount(pool, p.accountId, { limit: 500 });
+    const rep = events.filter((e) => e.event_type === "standing_party_repaired");
+    expect(rep).toHaveLength(1);
+    expect(events.filter((e) => e.event_type === "standing_party_invalidated")).toHaveLength(0);
+    const merged = events.find((e) => e.event_type === "unit_merged" && JSON.stringify(e.payload["consumedInstanceIds"]) === JSON.stringify([...inParty].sort()))!;
+    expect(rep[0]!.causation_id).toBe(merged.causation_id);
+    expect(rep[0]!.caravan_id).toBeNull(); // account-scoped: the party is account-level (GUARDRAILS §5)
+    const [first, second] = [...inParty].sort();
+    expect(rep[0]!.payload).toMatchObject({ partyId: view.id, slot: 0, reason: "merge", removedRefs: [first, second], repointed: [{ from: first, to: produced }], dropped: [second], units: 1, empty: false, valid: true, issues: [] });
+    const after = (await call(p, "GET", "/me/party")).json().party;
+    expect(after.valid).toBe(true);
+    expect(after.party).not.toBeNull();
+    const old = (view.config.units as { ref: string; stance: string; edge: string; cell: unknown }[]).find((u) => u.ref === first)!;
+    expect(after.config.units).toEqual([{ ...old, ref: produced }]);
+    expect(after.config.siege).toEqual(view.config.siege);
+    expect(after.hash).toBe(rep[0]!.payload["hash"]);
+    // The inbox: "your standing party changed" (on by default).
+    const inbox = (await call(p, "GET", "/me/inbox")).json();
+    expect(inbox.items).toEqual(expect.arrayContaining([expect.objectContaining({ category: "party_changed", unread: true, detail: { reason: "merge", carriedOver: 1, dropped: 1, unitsNow: 1, empty: false } })]));
   });
 });
 
 describe("QA S2: a save and a merge on the same account serialize on the account append lock", () => {
-  it("over repeated races, a stored party that names a consumed instance always has its invalidation event: no save ever validates against a roster a merge is removing from", async () => {
+  it("over repeated races, the party never names a consumed instance: either the merge saw the save and repaired it, or the save saw the merge and was refused", async () => {
     for (let round = 0; round < 6; round++) {
       const p = await registerPlayer();
       const [a, b] = await giveUnits(p, 2, "desert.dust_rider");
       await giveCoin(p.accountId, 1000);
-      const [save, merge] = await Promise.all([
-        call(p, "PUT", "/me/party", fullParty([a!])),
-        call(p, "POST", `/me/caravans/${p.caravanId}/merge`, { instanceIds: [a, b], confirmInParty: true }),
-      ]);
+      const [save, merge] = await Promise.all([call(p, "PUT", "/me/party", fullParty([a!])), call(p, "POST", `/me/caravans/${p.caravanId}/merge`, { instanceIds: [a, b] })]);
       expect(merge.statusCode).toBe(200);
       expect([200, 400]).toContain(save.statusCode);
       const view = (await call(p, "GET", "/me/party")).json().party;
       const events = await listEventsForAccount(pool, p.accountId, { limit: 500 });
-      const invalidated = events.filter((e) => e.event_type === "standing_party_invalidated").length;
+      const repaired = events.filter((e) => e.event_type === "standing_party_repaired").length;
+      expect(view.valid).toBe(true);
       if (save.statusCode === 200) {
-        // The save landed first and the merge saw it: the party is invalid AND says so in the ledger.
-        expect(view.valid).toBe(false);
-        expect(invalidated).toBe(1);
+        // The save landed first and the merge saw it: the slot moved to the merged unit, and the ledger says so.
+        expect(view.config.units.map((u: { ref: string }) => u.ref)).toEqual(merge.json().producedInstanceIds);
+        expect(repaired).toBe(1);
       } else {
         // The merge landed first: the save was validated against the post-merge roster and refused.
         expect(save.json()).toMatchObject({ error: "invalid_party" });
-        expect(view.valid).toBe(true);
         expect(view.config.units).toEqual([]);
-        expect(invalidated).toBe(0);
+        expect(repaired).toBe(0);
       }
     }
+  });
+});
+
+describe("D5 (final play-test review): the server's suggested party brings the owner's unlocked siege", () => {
+  it("GET /me/party suggests the saved party plus free unlocked units and every unlocked siege type; saving it is an ordinary save", async () => {
+    const p = await registerPlayer();
+    const view = (await call(p, "GET", "/me/party")).json().party;
+    expect(view.config.units).toEqual([]);
+    const suggested = view.suggested as PartyConfig;
+    expect(suggested).not.toBeNull();
+    const unlockedUnits = (view.roster as { instanceId: string; unlocked: boolean }[]).filter((u) => u.unlocked).map((u) => u.instanceId);
+    expect(suggested.units.map((u) => u.ref).sort()).toEqual(unlockedUnits.slice(0, TUNABLES.PARTY_SLOT_CAP).sort());
+    const unlockedSiege = (view.siegeCatalog as { typeId: string; unlocked: boolean }[]).filter((s) => s.unlocked).map((s) => s.typeId);
+    expect(unlockedSiege.length).toBeGreaterThan(0); // the free tier-0 siege piece
+    expect(suggested.siege).toEqual(unlockedSiege.slice(0, TUNABLES.SIEGE_SLOT_CAP).sort());
+    const saved = await call(p, "PUT", "/me/party", suggested);
+    expect(saved.statusCode, saved.body).toBe(200);
+    expect(saved.json().party.valid).toBe(true);
+    expect(saved.json().party.suggested).toBeNull(); // nothing left to add
   });
 });
 

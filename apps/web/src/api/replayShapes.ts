@@ -89,7 +89,7 @@ const settled: Guard<ReplaySettledView> = object({
   source: literal("ledger"),
   applied: boolean(),
   coin: array(object({ reason: WORD, amount: COIN, discarded: COIN }), ITEMS),
-  coinLost: nullable(object({ amount: COIN, transferred: COIN, destroyed: COIN })),
+  coinLost: nullable(object({ amount: COIN, transferred: COIN, destroyed: COIN, recipientAuthored: optional(boolean()) })),
   reputation: array(object({ pool: WORD, delta: SIGNED }), ITEMS),
   ladder: array(object({ pool: WORD, pointsDelta: SIGNED, levelBefore: LEVEL, levelAfter: LEVEL }), ITEMS),
   unlockPoints: array(object({ pool: WORD, points: SIGNED }), ITEMS),
@@ -137,6 +137,7 @@ export const replayShape: Guard<ReplayView> = object({
   settled,
   log: opaqueLog,
   compacted: optional(nullable(compacted)),
+  opponent: optional(nullable(object({ authored: boolean() }))),
 });
 
 const recentFight: Guard<RecentFightView> = object({

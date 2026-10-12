@@ -713,7 +713,7 @@ describe("unlock rights and ladder progress survive a total collapse", () => {
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
 describe("the defender's own standing party and a lost instance", () => {
-  it("a destroyed unit the defender's party names invalidates it (standing_party_invalidated, trip_loss); a de-merged one is simply reflected", async () => {
+  it("S2: a destroyed unit the defender's party names is dropped from it (standing_party_repaired, trip_loss) and the inbox says so; a de-merged one is simply reflected; a party left empty says it is down", async () => {
     const { owners } = await makeIsland();
     const d = await makeDefender();
     expect((await call(d, "PUT", "/me/party", fullParty([d.a, d.b]))).statusCode).toBe(200);
@@ -723,14 +723,33 @@ describe("the defender's own standing party and a lost instance", () => {
     await push(d, tripId, 1);
     await encounter(d, 2, { kind: "caravan_overrun" }, owners[0]!.accountId);
     const batch = await byCausation(`trip:${tripId}:overrun`);
-    const inv = batch.find((e) => e.event_type === "standing_party_invalidated")!;
-    expect(inv).toBeDefined();
-    expect(inv.caravan_id).toBeNull();
-    expect(inv.payload).toMatchObject({ reason: "trip_loss", removedRefs: [d.a], valid: false });
+    expect(batch.find((e) => e.event_type === "standing_party_invalidated")).toBeUndefined();
+    const rep = batch.find((e) => e.event_type === "standing_party_repaired")!;
+    expect(rep).toBeDefined();
+    expect(rep.caravan_id).toBeNull();
+    expect(rep.payload).toMatchObject({ reason: "trip_loss", removedRefs: [d.a], repointed: [], dropped: [d.a], units: 1, empty: false, valid: true });
     const party = (await call(d, "GET", "/me/party")).json().party;
-    expect(party.valid).toBe(false);
-    expect(JSON.stringify(party.issues)).toMatch(/unknown_ref/);
+    expect(party.valid).toBe(true);
+    expect(party.config.units.map((u: { ref: string }) => u.ref)).toEqual([d.b]);
     expect(await levelOf(d.b)).toBe(1);
+    const inbox = (await call(d, "GET", "/me/inbox")).json();
+    expect(inbox.items).toEqual(expect.arrayContaining([expect.objectContaining({ category: "party_changed", detail: { reason: "trip_loss", carriedOver: 0, dropped: 1, unitsNow: 1, empty: false } })]));
+  });
+
+  it("S2: a party whose every unit is destroyed is left empty (valid, not served) and the inbox says it is down", async () => {
+    const { owners } = await makeIsland();
+    const d = await makeDefender();
+    expect((await call(d, "PUT", "/me/party", fullParty([d.a, d.b]))).statusCode).toBe(200);
+    await pack(d);
+    const tripId = await start(d);
+    await encounter(d, 1, { kind: "caravan_overrun" }, owners[0]!.accountId);
+    const rep = (await byCausation(`trip:${tripId}:overrun`)).find((e) => e.event_type === "standing_party_repaired")!;
+    expect(rep.payload).toMatchObject({ reason: "trip_loss", units: 0, empty: true, valid: true });
+    const party = (await call(d, "GET", "/me/party")).json().party;
+    expect(party).toMatchObject({ valid: true });
+    expect(party.config.units).toEqual([]);
+    const inbox = (await call(d, "GET", "/me/inbox")).json();
+    expect(inbox.items).toEqual(expect.arrayContaining([expect.objectContaining({ category: "party_changed", detail: expect.objectContaining({ empty: true, unitsNow: 0 }) })]));
   });
 });
 

@@ -75,7 +75,8 @@ describe("the webs are complete, fixed data", () => {
   });
 
   it("costs come from the per-pool tier table (QA-05 D1): tier 0 free, first paid node 1 point, strictly increasing", () => {
-    expect(TUNABLES.UNLOCK_NODE_COST_BY_TIER).toEqual({ living: [0, 1, 4, 8, 14], trap: [0, 1, 3, 7, 10], siege: [0, 1, 8, 15, 21] });
+    // Final play-test review D8: living tier 2 costs 2 (was 4) — the first tier-2 unit in ≈ 2–3 days (BALANCE-LOG pass 2).
+    expect(TUNABLES.UNLOCK_NODE_COST_BY_TIER).toEqual({ living: [0, 1, 2, 8, 14], trap: [0, 1, 3, 7, 10], siege: [0, 1, 8, 15, 21] });
     for (const w of UNLOCK_WEBS) for (const n of w.nodes) expect(nodeCost(w, n)).toBe(TUNABLES.UNLOCK_NODE_COST_BY_TIER[w.pool][n.tier]);
     for (const curve of Object.values(TUNABLES.UNLOCK_NODE_COST_BY_TIER)) {
       expect(curve[0]).toBe(0);
@@ -86,16 +87,16 @@ describe("the webs are complete, fixed data", () => {
     expect(nodeCost(SIEGE_UNLOCK_WEB, SIEGE_UNLOCK_WEB.nodes.find((n) => n.tier === 2)!)).not.toBe(nodeCost(TRAP_UNLOCK_WEB, TRAP_UNLOCK_WEB.nodes.find((n) => n.tier === 2)!));
   });
 
-  it("a capped ladder (30 points) reaches most but not all of every web: ~77–79% of the paid total, and every single node is reachable at cap", () => {
+  it("a capped ladder (30 points) reaches most but not all of every web: ~77–86% of the paid total, and every single node is reachable at cap", () => {
     const cap = pointsPerPoolAtLadderCap();
     expect(cap).toBe(30);
-    for (const r of REGION_IDS) expect(paidTotal(LIVING_UNLOCK_WEBS[r])).toBe(39);
+    for (const r of REGION_IDS) expect(paidTotal(LIVING_UNLOCK_WEBS[r])).toBe(35);
     expect(paidTotal(TRAP_UNLOCK_WEB)).toBe(39);
     expect(paidTotal(SIEGE_UNLOCK_WEB)).toBe(38);
     for (const w of UNLOCK_WEBS) {
       const share = (cap * 100) / paidTotal(w);
       expect(share, w.id).toBeGreaterThanOrEqual(75);
-      expect(share, w.id).toBeLessThan(80);
+      expect(share, w.id).toBeLessThan(87); // living 30 / 35 ≈ 86% since D8; trap and siege ≈ 77–79%
       // every root-to-node path fits in the cap: no node is "never" for a free player
       for (const n of w.nodes) expect(closureCost(w, n.id), `${w.id} ${n.id}`).toBeLessThanOrEqual(cap);
       // and at cap there is still a choice to make: more than one maximal reachable set
@@ -104,7 +105,7 @@ describe("the webs are complete, fixed data", () => {
       for (const set of atCap) expect(set.length, w.id).toBeLessThan(w.nodes.filter((n) => n.tier > 0).length);
     }
     // closureCost counts a shared prerequisite once
-    expect(closureCost(LIVING_UNLOCK_WEBS.desert, "desert.longhorn_bull")).toBe(4 + 4 + 8);
+    expect(closureCost(LIVING_UNLOCK_WEBS.desert, "desert.longhorn_bull")).toBe(2 + 2 + 8);
     expect(closureCost(SIEGE_UNLOCK_WEB, "siege.blasting_crate")).toBe(8 + 21);
     expect(closureCost(TRAP_UNLOCK_WEB, "fence.stacked_stone")).toBe(3 + 7 + 10);
   });
@@ -115,7 +116,7 @@ describe("the webs are complete, fixed data", () => {
     const heavy: UnlockWeb = { ...desert, nodes: desert.nodes.map((n) => (n.id === "desert.vaquero" ? { ...n, requires: ["desert.canteen_carrier", "desert.longhorn_bull"] } : n)) };
     const problems = validateUnlockWebs([heavy, ...UNLOCK_WEBS.filter((w) => w !== desert)]);
     expect(problems.some((p) => /desert\.vaquero.*needs (\d+) points but a capped ladder grants 30/.test(p))).toBe(true);
-    expect(closureCost(heavy, "desert.vaquero")).toBe(1 + 8 + 14 + 4 + 4 + 8);
+    expect(closureCost(heavy, "desert.vaquero")).toBe(1 + 8 + 14 + 2 + 2 + 8);
   });
 
   it("starting nodes: 2 living per region (the first two of the roster), 1 trap, 1 fence tier (tier 1), 1 siege — all free, all roots", () => {

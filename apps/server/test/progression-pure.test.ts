@@ -191,7 +191,8 @@ describe("Reputation gap scaling is pure and integer-only", () => {
     expect(gapScaledDelta(win, 1000, 1000 + d)).toBe(win * 2); // beat someone a divisor above you: double
     expect(gapScaledDelta(win, 1000 + d, 1000)).toBe(Math.trunc((win * TUNABLES.REPUTATION_GAP_MULT_MIN) / FIXED_ONE)); // farming the weak: clamped down
     expect(gapScaledDelta(win, 1000, 1000 + 10 * d)).toBe(Math.trunc((win * TUNABLES.REPUTATION_GAP_MULT_MAX) / FIXED_ONE)); // clamped up
-    const loss = TUNABLES.REPUTATION_LOSS_ATTACKER;
+    // The loss side is the caravan's overrun since the final play-test review D6 (a party's loss is 0).
+    const loss = TUNABLES.REPUTATION_CARAVAN_OVERRUN;
     expect(gapScaledDelta(loss, 1000, 1000)).toBe(loss);
     expect(gapScaledDelta(loss, 1000 + d, 1000)).toBe(loss * 2); // favourite losing: double
     expect(gapScaledDelta(loss, 1000, 1000 + d)).toBe(Math.trunc((loss * TUNABLES.REPUTATION_GAP_MULT_MIN_LOSS) / FIXED_ONE)); // losing to a titan: small, but floored higher than a win (D2)
@@ -247,7 +248,7 @@ describe("sandbagging shape (chunk 04 QA D2) and -0 hygiene (N4)", () => {
     expect(gapMultiplier(100_000, 1)).toBe(TUNABLES.REPUTATION_GAP_MULT_MAX);
     expect(gapMultiplier(-100_000, -1)).toBe(TUNABLES.REPUTATION_GAP_MULT_MAX);
     // the QA probe's numbers: a loss at 400 vs 1000 pays half the base, a win at 100 vs 1000 double
-    expect(reputationDelta("party", "caravan_held", 400, 1000).delta).toBe(Math.trunc((TUNABLES.REPUTATION_LOSS_ATTACKER * TUNABLES.REPUTATION_GAP_MULT_MIN_LOSS) / FIXED_ONE));
+    expect(reputationDelta("caravan", "caravan_overrun", 400, 1000).delta).toBe(Math.trunc((TUNABLES.REPUTATION_CARAVAN_OVERRUN * TUNABLES.REPUTATION_GAP_MULT_MIN_LOSS) / FIXED_ONE));
     expect(reputationDelta("party", "caravan_overrun", 100, 1000).delta).toBe(Math.trunc((TUNABLES.REPUTATION_WIN_ATTACKER * TUNABLES.REPUTATION_GAP_MULT_MAX) / FIXED_ONE));
   });
 
@@ -327,12 +328,13 @@ describe("event derivation", () => {
     expect(only(r.events, "reputation_changed")).toEqual(["caravan:living", "party:siege"]);
   });
 
-  it("never moves trap Reputation (D1: nothing reads it); living and siege ratings always move", () => {
+  it("never moves trap Reputation (D1: nothing reads it); the living rating always moves, the siege rating only on the party's success (D6)", () => {
     const reps = (ev: ReturnType<typeof deriveProgressionEvents>["events"]) =>
       ev.filter((e) => e.type === "reputation_changed").map((e) => String(e.payload["pool"]));
-    expect(reps(deriveProgressionEvents(freshSnapshot(), input("stalemate", ["living"], ["siege"])).events)).toEqual(["living", "siege"]);
+    expect(reps(deriveProgressionEvents(freshSnapshot(), input("stalemate", ["living"], ["siege"])).events)).toEqual(["living"]);
+    expect(reps(deriveProgressionEvents(freshSnapshot(), input("caravan_overrun", ["living"], ["siege"])).events)).toEqual(["living", "siege"]);
     const withTraps = deriveProgressionEvents(freshSnapshot(), input("stalemate", ["living", "trap"], []));
-    expect(reps(withTraps.events)).toEqual(["living", "siege"]);
+    expect(reps(withTraps.events)).toEqual(["living"]);
     expect(withTraps.after.caravan.trap.reputation).toBe(TUNABLES.REPUTATION_START);
     expect(withTraps.events.some((e) => e.type === "ladder_progress_gained" && e.payload["pool"] === "trap")).toBe(true); // the trap LADDER still earns
     for (const outcome of ENCOUNTER_OUTCOME_KINDS) {
@@ -342,6 +344,27 @@ describe("event derivation", () => {
       expect(reps(r.events)).not.toContain("trap");
       expect(r.after.caravan.trap.reputation).toBe(TUNABLES.REPUTATION_START);
     }
+  });
+
+  it("D6 (final play-test review, PROJECT.md §10): a held or withdrawn party never lowers its owner's Reputation — no event, the rating unchanged, at any gap; only a success raises it", () => {
+    expect(TUNABLES.REPUTATION_LOSS_ATTACKER).toBe(0);
+    for (const outcome of ["caravan_held", "stalemate"] as const) {
+      for (const [self, opp] of [[1000, 1000], [2000, 400], [400, 2000], [TUNABLES.REPUTATION_FLOOR, 5000]] as const) {
+        expect(reputationDelta("party", outcome, self, opp)).toEqual({ unclamped: 0, delta: 0, after: self, floored: false });
+        const snap = freshSnapshot();
+        snap.party.siege.reputation = self;
+        snap.caravan.living.reputation = opp;
+        const r = deriveProgressionEvents(snap, input(outcome, ["living"], ["siege"]));
+        expect(r.events.filter((e) => e.type === "reputation_changed" && e.payload["pool"] === "siege")).toEqual([]);
+        expect(r.after.party.siege.reputation).toBe(self);
+        // The siege LADDER still earns from a fielded siege piece (LADDER_GAIN_LOSS / _STALEMATE > 0).
+        expect(r.events.some((e) => e.type === "ladder_progress_gained" && e.payload["pool"] === "siege")).toBe(true);
+      }
+    }
+    expect(reputationDelta("party", "caravan_overrun", 1000, 1000).delta).toBe(TUNABLES.REPUTATION_WIN_ATTACKER);
+    // The defender's side is unchanged: a hold +HELD, an overrun OVERRUN.
+    expect(reputationDelta("caravan", "caravan_held", 1000, 1000).delta).toBe(TUNABLES.REPUTATION_CARAVAN_HELD);
+    expect(reputationDelta("caravan", "caravan_overrun", 1000, 1000).delta).toBe(TUNABLES.REPUTATION_CARAVAN_OVERRUN);
   });
 
   it("writes no reputation_changed when the applied delta is 0 (N1): a rating on the floor stays silent", () => {

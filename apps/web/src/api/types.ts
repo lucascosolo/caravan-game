@@ -204,6 +204,10 @@ export interface CandidateMenuView {
   readonly searchSeq: number;
   readonly caravan: { readonly rating: number; readonly ratingPool: "living"; readonly band: BandView };
   readonly centre: number;
+  /** N6: centre − caravan rating and the rule that put it there (encounter 1's offset, or the escalation). */
+  readonly centreBasis?: { readonly offset: number; readonly reason: "first_encounter_offset" | "escalation" | "none"; readonly inCaravanBand: boolean; readonly centreBand: BandView } | undefined;
+  /** S1: the band-0 cold-start raider cap this search applied, or null. */
+  readonly raiderCap?: { readonly packedUnits: number; readonly cap: number; readonly relaxed: boolean; readonly excluded: number } | null | undefined;
   readonly escalation: { readonly applied: number; readonly perEncounter: number; readonly nextEncounter: number };
   readonly bandWidthUsed: number;
   readonly widened: boolean;
@@ -497,6 +501,8 @@ export interface PartyView {
   };
   readonly roster: readonly RosterEntryView[];
   readonly siegeCatalog: readonly (ScoutSiegeView & { readonly unlocked: boolean })[];
+  /** D5: the server's suggested party — the saved one plus free unlocked roster units and the owner's unlocked siege. Null when it adds nothing. */
+  readonly suggested?: PartyConfigBody | null | undefined;
 }
 
 export interface PartyResponse {

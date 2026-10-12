@@ -29,8 +29,11 @@ export const GUIDE_POLL_MS = 3000;
 
 /**
  * The standing party the guide offers to raise: the saved one plus every unlocked roster unit
- * not in it yet, up to the slot cap, with the builder's own defaults (partyModel.addUnit). Null
- * when it would add no one.
+ * not in it yet, up to the slot cap, with the builder's own defaults (partyModel.addUnit), plus
+ * (final play-test review D5) every siege type the server says this account has unlocked, up to
+ * the siege cap — so the passive side's siege ladder grows by default. The same rule as the
+ * server's `suggested` read. Siege rides only with at least one unit (an empty party is never
+ * served). Null when it would add nothing.
  */
 export function prefillParty(view: PartyView): PartyConfig | null {
   let config: PartyConfig = { v: PARTY_CONFIG_VERSION, units: view.config.units, siege: view.config.siege };
@@ -39,7 +42,15 @@ export function prefillParty(view: PartyView): PartyConfig | null {
     if (!r.unlocked || config.units.some((u) => u.ref === r.instanceId)) continue;
     config = addUnit(config, r.instanceId);
   }
-  return config.units.length > view.config.units.length ? config : null;
+  if (config.units.length > 0) {
+    const siege = [...config.siege];
+    for (const s of view.siegeCatalog) {
+      if (siege.length >= view.caps.siege) break;
+      if (s.unlocked && !siege.includes(s.typeId)) siege.push(s.typeId);
+    }
+    config = { ...config, siege };
+  }
+  return config.units.length > view.config.units.length || config.siege.length > view.config.siege.length ? config : null;
 }
 
 export interface Facts {

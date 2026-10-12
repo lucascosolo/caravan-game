@@ -71,6 +71,8 @@ Tags: **S**: blocks the external play test. **D**: design question for the orche
 **N**: polish. Each item fits in one session.
 
 ### S1. One overrun can wipe the whole roster, and recovery is a multi-hour dead end
+> **Server parts closed (server fix round).** Three tunables were added. `GUIDE_RESERVE` (2) is for the client guide. `REFUGEE_ROSTER_FLOOR` (3): a caravan in town below it has its free menu due at once, and each claim brings the next menu until the roster is at the floor (same unlocked pool, one pick, a re-anchored grid). `COLD_START_RAIDER_CAP_BANDS` (1): in band 0 no party with more raiders than the caravan packed is offered; the cap relaxes only to fill a menu and is stored on the row as `raider_cap`, so the menu replays. A PROJECT.md §15 amendment line records the reason. BALANCE-LOG pass 2 re-checks the cap: against the authored pool alone it changes nothing, because every band-0 outfit has 3 raiders. The client parts (the guide reserve and the pack warning) belong to the client fixer.
+
 
 - **Evidence:** the table above. 5 of 12 fresh accounts (A, B, C, h2, h7) had **0 units** within
   three trips. B's empty town: `shots/41-b-empty-town.png` ("0 of 36 board slots used · No units
@@ -102,6 +104,8 @@ Tags: **S**: blocks the external play test. **D**: design question for the orche
   packed living units, so a 1–2 unit rebuild can win its way back.
 
 ### S2. The standing party silently stops being served after a merge or an overrun
+> **Closed (server fix round).** The party now repairs itself in the remover's own transaction. A merge re-points the slot to the merged unit (same stance, edge and cell) and drops any slot the outputs cannot cover. A trip loss drops the destroyed unit's slot. A merge no longer needs `confirmInParty`, and the preview now carries `partyEffect`. Each repair appends an account-scoped `standing_party_repaired` event (migration 027). The inbox turns it into a "your standing party changed" notice (`party_changed`, on by default), and an emptied party is reported as "down: no units to send". The party never reads `valid: false` because of a lost or merged unit. A Town banner for an empty party is not built: that is client work. One limit remains. A party that was already invalid before this change (on a dev database) is repaired only at its owner's next save or next roster removal: there is no back-fill migration, because it would write compositions with no ledger event.
+
 
 - **Evidence:** after B's trip-2 overrun, `GET /me/party` → `valid: false`, with 7 ×
   `unknown_ref` ("party unit #0 is not in your roster (it may have been lost on a trip or
@@ -199,6 +203,8 @@ once you have more units than the caravan can carry"), or raise the early-game r
 bind sooner?
 
 ### D3. Traps cost nothing to pack, so the trap loadout is not a decision
+> **Recorded (server fix round).** BALANCE-LOG pass 2, open item 5 (telemetry question). No mechanic change.
+
 
 The outfit screen lets you pack 6 Spike Pits for free every trip ("6 packed",
 `shots/06-outfit-full.png`), and they are refitted on bank. The guide packs and lays one.
@@ -206,6 +212,8 @@ The outfit screen lets you pack 6 Spike Pits for free every trip ("6 packed",
 decision and say "traps are free; pack all six"?
 
 ### D4. In week 1, bank-or-push is not a real decision
+> **Recorded (server fix round).** BALANCE-LOG pass 2, open item 6 (telemetry question). No mechanic change.
+
 
 With the whole roster at stake (S1), pushing for +808 Coin is a bad bet: the pushed encounter 2
 held 5 of 9 in my runs. The guide itself said "The guide suggests banking this time" after A's
@@ -214,6 +222,8 @@ after S1's fix, re-measure. If the push is still clearly wrong at k = 1 for fres
 the encounter-2 reward or the delivery bonus at band 0–1.
 
 ### D5. Some passive-side progress needs siege the guide never adds
+> **Closed (server fix round).** `GET /me/party` now returns `suggested`: the saved party, plus unlocked roster units up to the cap, plus the owner's unlocked siege up to the siege cap. The guide's "Raise my party" composition (`prefillParty`) adds the unlocked siege by the same rule, through the ordinary `PUT /me/party`.
+
 
 A's strike reported "+0 ladder". The siege ladder only grows when the party carries siege, and
 the guide's "Raise my party from my roster" adds none, although Battering Wagon is free
@@ -221,6 +231,8 @@ the guide's "Raise my party from my roster" adds none, although Battering Wagon 
 party" include the free siege piece, so that the passive side progresses by default?
 
 ### D6. A beaten party lowers its owner's own trip band
+> **Closed (server fix round).** `REPUTATION_LOSS_ATTACKER` −15 → 0, fixed by design (PROJECT.md §10) and asserted at boot. A held or stalemated party writes no Reputation event; only a success raises the owner's rating. (The rating moved was the owner's account-level siege rating, not the caravan's living rating.) The equilibrium check was re-run (`party-rating.ts`, BALANCE-LOG pass 2): the caravans' equilibrium bands are unchanged, and parties now only climb.
+
 
 A's inbox: "Earned 67 Coin · −15 Reputation". Reputation is one number per caravan, so other
 players beating A's party lowers A's encounter bands. That is defensible (§13: raids shift it),
@@ -228,6 +240,8 @@ but it couples passive results to active difficulty in a way testers will not ex
 **Question:** intended? If yes, say so in the strike notice ("your caravan's Reputation −15").
 
 ### D7. Return hooks are mostly off by default
+> **Closed (server fix round).** `refugees_arrived` and `trip_cap_refilled` now default on. `mine_near_cap` and `packs_rotated` stay off, and `party_changed` (S2) is on.
+
 
 Inbox preferences: `refugees_arrived`, `trip_cap_refilled`, `mine_near_cap` and `packs_rotated`
 all `enabled: false` by default. Only party strikes are on, and S2 silences those. With device
@@ -235,6 +249,8 @@ push deferred, a tester has no prompt to come back. **Question:** default `refug
 `trip_cap_refilled` on for the play test?
 
 ### D8. Week-1 unlock variety
+> **Closed (server fix round).** Living tier 2 now costs 2 (was 4). Measured with the week model (`unlock-pace.ts`: 30 trips a week, banked after two holds), the first tier-2 living unit now takes 1.7 days if you save for it, or 3.0 days if you buy a tier-1 node first. It was 4.7 / 6.6 days. Recorded in BALANCE-LOG pass 2.
+
 
 h8's six holds gave 150 living-ladder points, rung 1 and 1 unlock point (a tier-1 node). The rungs
 are at 100 / 282 / 519 / 800 / 1,118; a tier-2 node costs 4 points, so rung 5 needs about 45 holds
@@ -268,20 +284,28 @@ total HP, siege counter vs *your* packed fence and traps, approach mini-map) wit
 collapsed under "Scouting report". Keep everything one tap away (Legibility §4).
 
 ### N6. Search copy says "within your Reputation band" when it is not
+> **Closed (server fix round).** The menu now carries `centreBasis` (the offset from the caravan, the rule that set it, and whether the centre is in the caravan's band). The screen says "Three parties near 250 Reputation (encounter 1 is searched 150 below your caravan)", and the intro no longer claims "within your band".
+
 "Your caravan: 400 Reputation (band 400–699) · Search … centred on 250" and all three offers are
 "band 100–399" (`shots/10-scoutcard.png`). **Fix:** "Three parties near 250 Reputation (encounter
 1 is searched 150 below your caravan)".
 
 ### N7. "Owner loot: 0 Coin" on an overrun reads as if the Coin vanished
+> **Closed (server fix round).** The replay now carries `opponent.authored` (caravan viewer only) and `settled.coinLost.recipientAuthored`. The end card and the summary say "This was an authored outfit: it keeps nothing. Your 600 unbanked Coin was lost to the trail."
+
 A's overrun: "Unbanked Coin lost: 600", while the replay says "Loot reported for the raiding
 party's owner: 0 Coin" (`shots/25-enc2-replay-b.png`). **Fix:** for authored parties, "This was
 an authored outfit: it keeps nothing; your 600 unbanked Coin was lost to the trail".
 
 ### N8. Guest parties are shown as "Unnamed drifter"
+> **Closed (server fix round).** Every caravan created without a name now gets a generated one (`services/caravanNames.ts`, deterministic from the account id). A guest's party is served under its caravan's name. "Unnamed drifter" remains only for an old caravan still named with the legacy "Caravan" placeholder.
+
 B saw A's party as "Unnamed drifter" (`shots/32-unnamed.png`). **Fix:** give every caravan a
 generated name at creation (as the guest flow already allows `caravanName`) and use it.
 
 ### N9. You can pack with no trip available, and then you are stuck packed
+> **Closed (server fix round).** `DELETE /caravans/:id/manifest` now unpacks a manifest that never rode out: it closes unused, nothing is written to the ledger, and the units go back to the roster. It is refused (409) once the manifest rode out. The Town's ride-out panel has an "Unpack" button. Packing with no trip available stays allowed, as the outfit's confirm dialog already explains.
+
 h3 at 0 of 3 trips: outfit, then "Pack and ride out" leaves the units "Packed, waiting to ride
 out … The next one returns in 13:09" with no unpack (`shots/55-320-state.png`). **Fix:** disable
 "Pack and ride out" when 0 trips are available (show the countdown), or offer "Unpack" while not

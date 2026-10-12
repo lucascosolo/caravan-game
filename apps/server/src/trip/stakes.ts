@@ -45,7 +45,7 @@ import type { JsonObject, LedgerEventDraft } from "../ledger/events.js";
 import { assertAccountAppendLockHeld } from "../ledger/ledger.js";
 import { bandOf } from "../matchmaking/band.js";
 import { findChosenSearch } from "../matchmaking/service.js";
-import { standingPartyInvalidationDraft } from "../party/service.js";
+import { repairStandingParty } from "../party/service.js";
 import type { TripEncounterRow } from "./repo.js";
 
 export const DEMERGE_LEVELS_PER_DEATH: number = TUNABLES.DEMERGE_LEVELS_PER_DEATH;
@@ -297,9 +297,11 @@ export async function applyOverrunLosses(
       payload: { unitInstanceId: u.ref, unitTypeId: u.typeId, mergeLevel: u.mergeLevel, hpAtCollapse: u.hp, tripId, encounterIndex: input.encounterIndex, reason: "alive_at_overrun" },
     });
   }
-  // Chunk 09 QA S3: the defender's OWN standing party may name a packed unit that is now gone.
-  const invalidated = await standingPartyInvalidationDraft(client, defender.accountId, plan.destroyed.map((u) => u.ref), "trip_loss");
-  if (invalidated) drafts.push(invalidated);
+  // S2 (final play-test review): the defender's OWN standing party may name a packed unit that is
+  // now gone; its slot is dropped and the owner told (standing_party_repaired). The party's other
+  // units are untouched, and nothing of the attacking party's is ever read for writing.
+  const repaired = await repairStandingParty(client, defender.accountId, { reason: "trip_loss", removedRefs: plan.destroyed.map((u) => u.ref) });
+  if (repaired) drafts.push(repaired);
 
   // 3. Coin: all of it lost; the same amount to the overrunning party's owner, capped. Then
   //    (chunk 19 QA D1) the owner's party-win credit, in the SAME batch under the same

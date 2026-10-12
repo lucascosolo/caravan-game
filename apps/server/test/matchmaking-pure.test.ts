@@ -19,6 +19,7 @@ import {
   bandOf,
   bandWidths,
   candidateSeed,
+  coldStartRaiderCap,
   escalatedCentre,
   escalationFor,
   AUTHORED_FILL_NEAREST_N,
@@ -552,5 +553,29 @@ describe("chunk 19 QA D2b: encounter 1 is matched below the caravan, and that ne
         }
       }
     }
+  });
+});
+
+describe("final play-test review S1: the cold-start raider cap is pure, band-0 only, and never empties a menu", () => {
+  const entry = (i: number, raiders: number, rating = 250) => ({ partyId: `p${String(i).padStart(3, "0")}`, ownerAccountId: `o${i}`, rating, authored: false, raiders });
+
+  it("applies only below COLD_START_RAIDER_CAP_BANDS (band 0 by default)", () => {
+    expect(TUNABLES.COLD_START_RAIDER_CAP_BANDS).toBe(1);
+    const pool = [entry(1, 1), entry(2, 1), entry(3, 1), entry(4, 5)];
+    expect(coldStartRaiderCap(pool, bandCentre(1), 1)).toBeNull();
+    expect(coldStartRaiderCap(pool, bandCentre(0), 1)).toEqual({ band: 0, packedUnits: 1, cap: 1, relaxed: false, excludedPartyIds: ["p004"] });
+  });
+
+  it("caps at the packed count when enough parties fit, and relaxes one raider at a time only as far as a full menu needs", () => {
+    const pool = [entry(1, 3), entry(2, 3), entry(3, 4), entry(4, 5), entry(5, 8)];
+    // Two packed: nothing has ≤ 2 raiders, two have 3, so the cap rises to 4 (three fit).
+    expect(coldStartRaiderCap(pool, 250, 2)).toEqual({ band: 0, packedUnits: 2, cap: 4, relaxed: true, excludedPartyIds: ["p004", "p005"] });
+    // Seven packed: everything up to 7 fits; only the 8-raider party is out.
+    expect(coldStartRaiderCap(pool, 250, 7)).toMatchObject({ cap: 7, relaxed: false, excludedPartyIds: ["p005"] });
+    // Parties beyond ±REPUTATION_BAND_WIDTH_MAX do not count toward filling (they are not drawn in band).
+    const far = [entry(1, 1, 250 + REPUTATION_BAND_WIDTH_MAX + 1), entry(2, 1, 250 + REPUTATION_BAND_WIDTH_MAX + 2), entry(3, 1, 250 + REPUTATION_BAND_WIDTH_MAX + 3), entry(4, 4)];
+    expect(coldStartRaiderCap(far, 250, 1)!.cap).toBe(TUNABLES.PARTY_SLOT_CAP); // never past the slot cap, even when nothing near fills
+    // Order of the entries does not matter.
+    expect(coldStartRaiderCap([...pool].reverse(), 250, 2)).toEqual(coldStartRaiderCap(pool, 250, 2));
   });
 });

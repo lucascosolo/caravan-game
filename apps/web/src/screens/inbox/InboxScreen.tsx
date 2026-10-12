@@ -222,6 +222,13 @@ function ItemBody({ item, api, onWatch }: { readonly item: InboxItemView; readon
           <div className="card__line">{T.packsBody(formatWhen(item.detail.startsAtMs))}</div>
         </>
       );
+    case "party_changed":
+      return (
+        <>
+          <Head title={item.detail.empty ? T.partyChangedEmptyTitle : T.partyChangedTitle} item={item} />
+          <div className="card__line">{T.partyChangedBody(item.detail.reason, item.detail.carriedOver, item.detail.dropped, item.detail.unitsNow)}</div>
+        </>
+      );
   }
 }
 
@@ -297,6 +304,8 @@ function ItemLink({ item }: { readonly item: InboxItemView }): JSX.Element | nul
       return link(T.openTown, "town");
     case "trip_cap_refilled":
       return link(T.openTrail, "trail");
+    case "party_changed":
+      return link(T.openParty, "party");
     // Stated, not sold: neither the mine nor a pack rotation points anywhere a Coin could be spent.
     case "mine_near_cap":
     case "packs_rotated":

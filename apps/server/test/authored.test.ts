@@ -142,7 +142,9 @@ async function fixedOwner(n: number, region: string, siegeRep: number): Promise<
 
 async function fixedDefender(n: number, region: string, livingRep: number): Promise<Player & { caravan: CaravanRow; tripId: string }> {
   const p = await fixedPlayer(n, region);
-  await giveUnits(p, 2, STARTING_TYPE[region]!);
+  // Four packed units: as many as the live owners field, so band 0's cold-start raider cap
+  // (final play-test review S1) leaves this file's pools whole; matchmaking.test.ts covers the cap.
+  await giveUnits(p, 4, STARTING_TYPE[region]!);
   await pool.query("UPDATE pool_progress SET reputation = $2 WHERE caravan_id = $1 AND pool = 'living'", [p.caravanId, livingRep]);
   expect((await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: p.units, traps: [], fence: null })).statusCode).toBe(201);
   const manifest = await pool.query<{ id: string }>("SELECT id FROM wagon_manifest WHERE caravan_id = $1 AND closed_at IS NULL", [p.caravanId]);

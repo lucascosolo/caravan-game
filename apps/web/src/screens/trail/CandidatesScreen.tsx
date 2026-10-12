@@ -79,6 +79,10 @@ export function CandidatesScreen({ encounterIndex, menu, busy, error, onSearchAg
     <section data-testid="candidates-screen" data-encounter={encounterIndex}>
       <h1>{T.encounter(encounterIndex)}</h1>
       <h2>{T.candidatesHeading}</h2>
+      <p className="hint" data-testid="candidates-centre">
+        {T.candidatesCentre(menu.centre, menu.centreBasis?.offset ?? menu.centre - menu.caravan.rating, encounterIndex)}
+        {menu.raiderCap ? ` ${T.raiderCap(menu.raiderCap.cap, menu.raiderCap.packedUnits, menu.raiderCap.relaxed)}` : ""}
+      </p>
       <p className="hint">{T.candidatesIntro}</p>
       <p className="hint" data-testid="caravan-band">
         {T.caravanBand(menu.caravan.rating, menu.caravan.band.low, menu.caravan.band.high)}

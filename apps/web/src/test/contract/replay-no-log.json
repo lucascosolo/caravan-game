@@ -48,6 +48,9 @@
       "partyHash": "a000000000000000000000000000000000000000000000000000000000000001",
       "partySavedAt": "2026-10-11T12:00:00.000Z"
     },
+    "opponent": {
+      "authored": false
+    },
     "settled": {
       "source": "ledger",
       "applied": true,

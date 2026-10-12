@@ -310,6 +310,7 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
             if (replayed) setStatus(STRINGS.trip.rideOutAlreadyWent);
             navigate("trail");
           }}
+          onUnpacked={() => void load({ quiet: true })}
         />
       )}
       {loaded.trip.kind === "error" && <ErrorBox error={loaded.trip.error} onRetry={() => void load()} />}

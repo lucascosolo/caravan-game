@@ -14,6 +14,7 @@
  *   trip_cap_refilled  key trip_cap:<ms>             version = the instant the cap was full again
  *   mine_near_cap      key mine:<last spend seq>     version = 1 (one per stretch between spends)
  *   packs_rotated      key packs:<week index>        version = 1
+ *   party_changed      key party:<ledger seq>        version = 1 (one per standing_party_repaired event, S2)
  */
 import { INBOX_MINE_NEAR_CAP_PERCENT, INBOX_STRIKES_PER_ITEM, INBOX_STRIKE_BATCH_WINDOW_MS, INBOX_HORIZON_MS, type InboxCategory } from "./tunables.js";
 
@@ -104,6 +105,20 @@ export interface MineDetail {
   capReachedAtMs: number | null;
 }
 
+/** S2: one `standing_party_repaired` event, as the owner is told about it. */
+export interface PartyChangedDetail {
+  /** What removed the units: a merge (their slots carry over to the merged unit) or a trip loss (their slots are dropped). */
+  reason: "merge" | "trip_loss";
+  /** Slots re-pointed to a merged unit. */
+  carriedOver: number;
+  /** Slots dropped (the unit is gone and nothing replaced it). */
+  dropped: number;
+  /** Living units the party fields now. */
+  unitsNow: number;
+  /** True when the party is left with no units: it is not served until the owner adds one. */
+  empty: boolean;
+}
+
 export interface PacksDetail {
   weekIndex: number;
   startsAtMs: number;
@@ -125,7 +140,8 @@ export type InboxItem =
   | ItemBase<"refugees_arrived", RefugeeDetail>
   | ItemBase<"trip_cap_refilled", TripCapDetail>
   | ItemBase<"mine_near_cap", MineDetail>
-  | ItemBase<"packs_rotated", PacksDetail>;
+  | ItemBase<"packs_rotated", PacksDetail>
+  | ItemBase<"party_changed", PartyChangedDetail>;
 
 /** An item before the read state is applied. */
 export type DraftItem = Omit<InboxItem, "unread"> & { unread?: never };
@@ -266,6 +282,26 @@ export function packsItem(week: { index: number; startsAtMs: number; endsAtMs: n
     occurredAtMs: week.startsAtMs,
     occurredAt: iso(week.startsAtMs),
     detail: { weekIndex: week.index, startsAtMs: week.startsAtMs, endsAtMs: week.endsAtMs },
+  };
+}
+
+/** S2: one notice per `standing_party_repaired` event (its ledger seq and payload). */
+export function partyChangedItem(e: { seq: number; occurredAtMs: number; payload: Record<string, unknown> }): DraftItem {
+  const n = (v: unknown): number => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : 0);
+  const p = e.payload;
+  return {
+    key: `party:${e.seq}`,
+    category: "party_changed",
+    version: 1,
+    occurredAtMs: e.occurredAtMs,
+    occurredAt: iso(e.occurredAtMs),
+    detail: {
+      reason: p["reason"] === "merge" ? "merge" : "trip_loss",
+      carriedOver: Array.isArray(p["repointed"]) ? p["repointed"].length : 0,
+      dropped: Array.isArray(p["dropped"]) ? p["dropped"].length : 0,
+      unitsNow: n(p["units"]),
+      empty: p["empty"] === true,
+    },
   };
 }
 

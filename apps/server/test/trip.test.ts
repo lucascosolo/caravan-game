@@ -390,13 +390,12 @@ describe("the encounter chain: attrition carries forward, nothing is repaired, b
     const rep = await eventsOf(d.accountId, "reputation_changed");
     expect(rep.length).toBe(1);
     expect(rep[0]!.payload).toMatchObject({ pool: "living", reason: "caravan_held", side: "caravan" });
-    // The (live) party owner's side moved too — account-level siege — and their party is untouched.
+    // The (live) party owner's side: a held party never lowers its owner's Reputation (final play-test
+    // review D6, PROJECT.md §10), so no reputation event — and their party is untouched.
     const job = await getJob(pool, `encounter:${tripId}:1`);
     const owner = (job!.input as { partyOwnerAccountId: string }).partyOwnerAccountId;
     const ownerRep = (await eventsOf(owner, "reputation_changed")).filter((e) => e.causation_id === `progression:${job!.id}`);
-    expect(ownerRep.length).toBe(1);
-    expect(ownerRep[0]!.caravan_id).toBeNull();
-    expect(ownerRep[0]!.payload).toMatchObject({ pool: "siege", side: "party" });
+    expect(ownerRep).toEqual([]);
     const served = (await eventsOf(owner, "party_served_as_encounter")).filter((e) => e.causation_id === job!.id);
     expect(served[0]!.payload).toMatchObject({ tripId, encounterIndex: 1, outcome: { kind: "caravan_held", depth: 512 } });
     expect(served[0]!.payload).toHaveProperty("partyHash");

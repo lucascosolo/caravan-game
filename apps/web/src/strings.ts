@@ -213,7 +213,19 @@ export const STRINGS = {
     noTrip: "Packed, but not yet on the trail.",
     noTripBody: "The caravan is packed but has not ridden out. Ride out from the town; then the parties on the trail can be searched for here.",
     candidatesHeading: "Who is out there",
-    candidatesIntro: "Three parties within your Reputation band. Scout each one in full, then choose the one you will face. The choice is final for this encounter.",
+    candidatesIntro: "Three parties, searched near your caravan's Reputation (encounter 1 a little below it, each later encounter a little higher). Scout each one in full, then choose the one you will face. The choice is final for this encounter.",
+    /** N6: where this search was centred and why, in the server's own numbers. */
+    candidatesCentre: (centre: number, offset: number, encounterIndex: number): string =>
+      offset === 0
+        ? `Three parties near ${centre} Reputation, your caravan's own rating.`
+        : offset < 0
+          ? `Three parties near ${centre} Reputation (encounter ${encounterIndex} is searched ${-offset} below your caravan).`
+          : `Three parties near ${centre} Reputation (encounter ${encounterIndex} is searched ${offset} above your caravan).`,
+    /** S1: the band-0 cold-start raider cap. */
+    raiderCap: (cap: number, packed: number, relaxed: boolean): string =>
+      relaxed
+        ? `None fields more than ${cap} raiders: too few parties as small as your ${packed} packed ${packed === 1 ? "unit" : "units"} were near.`
+        : `None fields more raiders than the ${packed} ${packed === 1 ? "unit" : "units"} you packed.`,
     searchButton: "Search for parties",
     searching: "Searching…",
     rerollButton: "Search again (free)",
@@ -436,6 +448,7 @@ export const STRINGS = {
     rideOutUnconfirmedBody: "Try again asks once more. If the first one went through, it is not counted twice.",
     rideOutTryAgain: "Try again",
     rideOutAlreadyWent: "The caravan had already ridden out; one trip was used.",
+    unpack: "Unpack (back to the roster)",
     toTrail: "To the trail",
     toTown: "Back to town",
     // the trail, before and after
@@ -1056,6 +1069,11 @@ export const STRINGS = {
     depthExplained: "Depth is how far the deepest raider got inside the wagon circle: the share of the distance from the ring to the core that it closed (0 if none got past the ring line). A raid on a caravan that held earns its owner that share to the power 1.5 of the encounter's loot.",
     deepest: (name: string): string => `Deepest: ${name}.`,
     lootCaravan: (coin: number): string => `Loot reported for the raiding party's owner: ${coin} Coin.`,
+    /** N7: an authored outfit keeps nothing; on an overrun the caravan's unbanked Coin is simply gone. */
+    lootCaravanAuthored: (overrun: boolean, lost: number | null): string =>
+      overrun
+        ? `This was an authored outfit: it keeps nothing. ${lost !== null && lost > 0 ? `Your ${lost} unbanked Coin was lost to the trail.` : "Your unbanked Coin was lost to the trail."}`
+        : "This was an authored outfit: it keeps nothing, whatever the fight.",
     lootOwner: (coin: number): string => `Your party's loot from this fight: ${coin} Coin, as reported.`,
     // QA S8 / D3: what the encounter settled, itemized from the ledger (the server's `settled`).
     settledHeading: "What it settled",
@@ -1070,8 +1088,10 @@ export const STRINGS = {
       })[reason] ?? `+${amount} Coin (${reason}).`,
     settledDiscarded: (n: number): string => ` ${n} more was over your storage cap and discarded.`,
     settledUnbanked: (n: number): string => `${n} Coin earned here, not banked yet: it is at risk until the trip banks.`,
-    settledLost: (lost: number, transferred: number, destroyed: number): string =>
-      `Lost ${lost} unbanked Coin: ${transferred} went to the raiding party's owner${destroyed > 0 ? `, ${destroyed} was destroyed` : ""}.`,
+    settledLost: (lost: number, transferred: number, destroyed: number, authored = false): string =>
+      authored
+        ? `Lost ${lost} unbanked Coin to the trail: the raiding party was an authored outfit, which keeps nothing.`
+        : `Lost ${lost} unbanked Coin: ${transferred} went to the raiding party's owner${destroyed > 0 ? `, ${destroyed} was destroyed` : ""}.`,
     settledPool: (pool: string): string => ({ living: "caravan", trap: "trap", siege: "siege" })[pool] ?? pool,
     settledReputation: (pool: string, delta: number): string => `Reputation (${pool}): ${delta > 0 ? "+" : ""}${delta}.`,
     settledLadder: (pool: string, points: number, before: number, after: number): string =>
@@ -1237,9 +1257,15 @@ export const STRINGS = {
     // packs rotated
     packsTitle: "The weekly packs changed over",
     packsBody: (from: string): string => `A new week began ${from}. The Coin in each tier is the same every week; only the cosmetics rotate.`,
+    // standing party changed (final play-test review S2)
+    partyChangedTitle: "Your standing party changed",
+    partyChangedEmptyTitle: "Your standing party is down: no units to send",
+    partyChangedBody: (reason: "merge" | "trip_loss", carried: number, dropped: number, now: number): string =>
+      `${reason === "merge" ? "A merge used units from your party." : "Units from your party were lost on your trip."}${carried > 0 ? ` ${carried} ${carried === 1 ? "slot moved" : "slots moved"} to the merged unit.` : ""}${dropped > 0 ? ` ${dropped} ${dropped === 1 ? "slot was" : "slots were"} dropped.` : ""} ${now === 0 ? "It is not served until you add a unit." : `It now fields ${now} ${now === 1 ? "unit" : "units"}.`}`,
+    openParty: "Open the party",
     // preferences (per-category opt-out)
     prefsHeading: "What to show here",
-    prefsIntro: "Party strikes are on unless you turn them off; everything else is off unless you turn it on.",
+    prefsIntro: "Each kind can be turned on or off. Party strikes, party changes, refugees and trip starts are on unless you turn them off.",
     prefsSaved: "Saved.",
     prefDefault: (on: boolean): string => (on ? "on by default" : "off by default"),
     category: (c: string): string =>
@@ -1249,6 +1275,7 @@ export const STRINGS = {
         trip_cap_refilled: "Trip starts are back",
         mine_near_cap: "Mine near its cap",
         packs_rotated: "Weekly packs changed over",
+        party_changed: "Your standing party changed",
       })[c] ?? c,
   },
   /**

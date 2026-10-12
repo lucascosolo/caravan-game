@@ -179,3 +179,52 @@ export function weeklyFreeEarn(tripsPerWeek: number, p1: number, decay: number, 
   const perTrip = row.gross[row.best - 1]!;
   return { trickle, perTrip, bankAt: row.best, total: trickle + tripsPerWeek * perTrip };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// Unlock pace (final play-test review D8): the same week model, read for ladder points instead
+// of Coin. How many days of play until the first tier-2 living unlock is affordable.
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+/** Expected living-ladder points one trip earns when it pushes until `k` holds, then banks: every encounter fought earns LADDER_GAIN_DEFENSE_HELD if held, LADDER_GAIN_LOSS if overrun. */
+export function ladderPointsPerTrip(k: number, holdRate: (j: number) => number): number {
+  let reach = 1;
+  let points = 0;
+  for (let j = 1; j <= k; j++) {
+    const p = Math.max(0, Math.min(1, holdRate(j)));
+    points += reach * (p * TUNABLES.LADDER_GAIN_DEFENSE_HELD + (1 - p) * TUNABLES.LADDER_GAIN_LOSS);
+    reach *= p;
+  }
+  return points;
+}
+
+/** Cumulative ladder points to have been granted `unlockPoints` unlock points (the first rung whose cumulative grant reaches it). */
+export function ladderPointsForUnlockPoints(unlockPoints: number): { rung: number; points: number } {
+  let granted = 0;
+  for (let rung = 1; rung < TUNABLES.LADDER_POINTS_TO_RUNG.length; rung++) {
+    granted += TUNABLES.UNLOCK_POINTS_BY_RUNG[rung]!;
+    if (granted >= unlockPoints) return { rung, points: TUNABLES.LADDER_POINTS_TO_RUNG[rung]! };
+  }
+  return { rung: Infinity, points: Infinity };
+}
+
+export interface UnlockPace {
+  tripsPerWeek: number;
+  bankAt: number;
+  pointsPerTrip: number;
+  pointsPerDay: number;
+  /** Saving every point for the first tier-2 living node (it needs only a free tier-0 prerequisite). */
+  saveForTier2: { unlockPoints: number; rung: number; days: number };
+  /** Spending the first point on a tier-1 node as it arrives, then the first tier-2. */
+  tier1First: { unlockPoints: number; rung: number; days: number };
+}
+
+/** D8: days of play to the first tier-2 living unlock, at `tripsPerWeek` trips banked at `bankAt` survived encounters. `costs` = the living cost curve by tier. */
+export function unlockPace(tripsPerWeek: number, bankAt: number, holdRate: (j: number) => number, costs: readonly number[] = TUNABLES.UNLOCK_NODE_COST_BY_TIER.living): UnlockPace {
+  const pointsPerTrip = ladderPointsPerTrip(bankAt, holdRate);
+  const pointsPerDay = (pointsPerTrip * tripsPerWeek) / 7;
+  const at = (unlockPoints: number) => {
+    const need = ladderPointsForUnlockPoints(unlockPoints);
+    return { unlockPoints, rung: need.rung, days: need.points / pointsPerDay };
+  };
+  return { tripsPerWeek, bankAt, pointsPerTrip, pointsPerDay, saveForTier2: at(costs[2]!), tier1First: at(costs[1]! + costs[2]!) };
+}

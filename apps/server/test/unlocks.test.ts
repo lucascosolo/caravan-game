@@ -104,7 +104,7 @@ describe("legibility: the whole web is readable, costs and all, before any spend
     const res = await app.inject({ method: "GET", url: "/unlocks/webs" });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.costByTier).toEqual({ living: [0, 1, 4, 8, 14], trap: [0, 1, 3, 7, 10], siege: [0, 1, 8, 15, 21] });
+    expect(body.costByTier).toEqual({ living: [0, 1, 2, 8, 14], trap: [0, 1, 3, 7, 10], siege: [0, 1, 8, 15, 21] });
     expect(body.pointsPerPoolAtLadderCap).toBe(30);
     expect(body.webs.map((w: { id: string }) => w.id)).toEqual(UNLOCK_WEBS.map((w) => w.id));
     const trap = body.webs.find((w: { id: string }) => w.id === "trap");
@@ -370,7 +370,8 @@ describe("permanence: access, once granted, is never revoked", () => {
     }
     const reachedBefore = [...(await unlockedTypeIds(pool, owner(p)))].sort();
     const pointsBefore = { living: await points(p, "living"), trap: await points(p, "trap"), siege: await points(p, "siege") };
-    expect(pointsBefore.living.available).toBe(5);
+    // Ten granted, a tier-1 and a tier-2 living node bought (final play-test review D8: tier 2 costs 2).
+    expect(pointsBefore.living.available).toBe(10 - TUNABLES.UNLOCK_NODE_COST_BY_TIER.living[1]! - TUNABLES.UNLOCK_NODE_COST_BY_TIER.living[2]!);
 
     // 40 overruns in a row: the harshest outcome the game has, on every pool
     for (let i = 0; i < 40; i++) {
