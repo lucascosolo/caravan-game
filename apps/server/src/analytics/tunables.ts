@@ -24,8 +24,15 @@ export const TELEMETRY_BODY_LIMIT_BYTES = 4096;
 /** TUNABLE. Most events in one batch. */
 export const TELEMETRY_MAX_EVENTS_PER_BATCH = 25;
 
-/** TUNABLE. Oldest an event may claim to be (`agoMs`), so a client cannot back-date history. */
-export const TELEMETRY_MAX_AGO_MS = 3_600_000;
+/**
+ * TUNABLE. The client's flush window: the oldest an event may claim to be (`agoMs` is clamped
+ * to it, QA D2). The client flushes within 5 s of an event and drops anything it held longer,
+ * so session times are the server's receipt times give or take this window.
+ */
+export const TELEMETRY_FLUSH_WINDOW_MS = 15_000;
+
+/** TUNABLE. The client's heartbeat cadence while the page is visible (mirrored in the web client). */
+export const TELEMETRY_HEARTBEAT_MS = 60_000;
 
 /** TUNABLE. Ingest batches one account may send per rate window (in-process fixed window). */
 export const TELEMETRY_BATCHES_PER_WINDOW = 12;
@@ -42,7 +49,14 @@ export const ANALYTICS_SESSION_GAP_MS = 30 * 60_000;
 
 /** TUNABLE. Dashboard window, in days: the default and the widest an admin may ask for. */
 export const ANALYTICS_DEFAULT_WINDOW_DAYS = 30;
+/** QA D6: the widest window the EXPLAIN gate (test/telemetry-scale.test.ts) holds at — checked at 120 days (plans *.120d.txt). Raise it only with a passing gate. */
 export const ANALYTICS_MAX_WINDOW_DAYS = 120;
+
+/** TUNABLE (operational). Every dashboard statement is cancelled after this (QA D6). */
+export const ANALYTICS_STATEMENT_TIMEOUT_MS = 5000;
+
+/** TUNABLE (operational). /admin/* requests per admin account per minute (QA D6). */
+export const ADMIN_REQUESTS_PER_MINUTE = 30;
 
 /** TUNABLE. Accounts created this many days before now form the day-1/7/30 return cohort. */
 export const ANALYTICS_RETENTION_COHORT_DAYS = 90;

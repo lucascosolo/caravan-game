@@ -14,6 +14,7 @@
  *   only it owns are deleted; what it shares with other players (replays, their ledgers, their
  *   trips and menus) is anonymized to the tombstone. See the migration's header.
  */
+import { analyticsForExport } from "../analytics/clientEvents.js";
 import type pg from "pg";
 import { hashPassword, verifyPassword } from "../auth/password.js";
 import { withTransaction, type Queryable } from "../db/pool.js";
@@ -23,7 +24,6 @@ import { AppError, badRequest, conflict } from "../services/errors.js";
 import { createAccountHub, normalizeCaravanName, validateCredentials } from "../services/onboarding.js";
 import { listDevices, type DeviceRow } from "./device.js";
 import { storeRecordsForExport } from "../store/export.js";
-import { analyticsRecordsForExport } from "../analytics/export.js";
 import { DELETE_CONFIRM_PHRASE, EXPORT_MAX_BYTES } from "./tunables.js";
 
 export async function createGuest(pool: pg.Pool, input: { regionId: string; caravanName?: string }): Promise<{ account: AccountRow; caravan: CaravanRow }> {
@@ -186,8 +186,6 @@ export async function exportAccount(db: Queryable, accountId: string, maxBytes: 
   for (const d of devices) own.add(d.id);
   const store = await storeRecordsForExport(db, accountId);
   for (const p of store.purchases) own.add((p as { id: string }).id);
-  const analytics = await analyticsRecordsForExport(db, accountId);
-  if (analytics.analytics) own.add((analytics.analytics as { analytics_id: string }).analytics_id);
 
   // The fights it took part in, either side: the stored outcome and the replay's record (its log
   // stays on the server; the other participant's side of it is not this player's to export).
@@ -224,7 +222,8 @@ export async function exportAccount(db: Queryable, accountId: string, maxBytes: 
     tripCap: (await rows(db, "SELECT * FROM trip_cap WHERE account_id = $1", [accountId]))[0] ?? null,
     tripCapUses: await rows(db, "SELECT * FROM trip_cap_use WHERE account_id = $1 ORDER BY trip_id", [accountId]),
     ...store,
-    ...analytics,
+    // Chunk 32 QA D5: the usage-data setting and this account's own client events (no analytics id).
+    analytics: await analyticsForExport(db, accountId),
     devices,
     caravans: perCaravan,
     encounters,

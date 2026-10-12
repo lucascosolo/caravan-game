@@ -1,0 +1,52 @@
+-- chunk 32: merge-levels over the synthetic history in test/telemetry-scale.test.ts (120-day window)
+GroupAggregate
+  Group Key: lv.side, lv.level
+  CTE enc
+    ->  Nested Loop
+          ->  Hash Anti Join
+                Hash Cond: (te.trip_id = st.id)
+                ->  Bitmap Heap Scan on trip_encounter te
+                      Recheck Cond: ((settled_at >= '2026-06-13 23:35:31.636+00'::timestamp with time zone) AND (settled_at < '2026-10-11 23:35:31.636+00'::timestamp with time zone))
+                      ->  Bitmap Index Scan on trip_encounter_settled_at_idx
+                            Index Cond: ((settled_at >= '2026-06-13 23:35:31.636+00'::timestamp with time zone) AND (settled_at < '2026-10-11 23:35:31.636+00'::timestamp with time zone))
+                ->  Hash
+                      ->  Nested Loop
+                            ->  Nested Loop
+                                  ->  Index Only Scan using account_system_idx on account sa
+                                        Filter: (id <> '00000000-0000-4000-8000-0000000000d0'::uuid)
+                                  ->  Index Scan using caravan_account_idx on caravan sc
+                                        Index Cond: (account_id = sa.id)
+                            ->  Index Scan using trip_caravan_idx on trip st
+                                  Index Cond: (caravan_id = sc.id)
+          ->  Limit
+                ->  Index Scan using resolution_job_pkey on resolution_job
+                      Index Cond: (id = te.job_id)
+          SubPlan 1
+            ->  Limit
+                  ->  Nested Loop
+                        ->  Index Scan using encounter_candidates_chosen_recent_idx on encounter_candidates ec
+                              Index Cond: ((trip_id = te.trip_id) AND (encounter_index = te.encounter_index))
+                        ->  Function Scan on jsonb_array_elements c
+                              Filter: ((value ->> 'candidateId'::text) = ec.chosen_candidate_id)
+  ->  Sort
+        Sort Key: lv.side, lv.level
+        ->  Subquery Scan on lv
+              ->  HashAggregate
+                    Group Key: e.trip_id, e.encounter_index, e.outcome_kind, ('posted'::text), (((u.value ->> 'mergeLevel'::text))::integer)
+                    ->  Append
+                          ->  HashAggregate
+                                Group Key: e.trip_id, e.encounter_index, e.outcome_kind, ((u.value ->> 'mergeLevel'::text))::integer
+                                ->  Nested Loop
+                                      ->  CTE Scan on enc e
+                                      ->  Hash Join
+                                            Hash Cond: ((p.value ->> 'ref'::text) = (u.value ->> 'ref'::text))
+                                            ->  Function Scan on jsonb_array_elements p
+                                            ->  Hash
+                                                  ->  Function Scan on jsonb_array_elements u
+                                                        Filter: (jsonb_typeof((value -> 'mergeLevel'::text)) = 'number'::text)
+                          ->  HashAggregate
+                                Group Key: e_1.trip_id, e_1.encounter_index, e_1.outcome_kind, ((u_1.value ->> 'mergeLevel'::text))::integer
+                                ->  Nested Loop
+                                      ->  CTE Scan on enc e_1
+                                      ->  Function Scan on jsonb_array_elements u_1
+                                            Filter: (jsonb_typeof((value -> 'mergeLevel'::text)) = 'number'::text)

@@ -36,8 +36,8 @@
         "slot": "party_banner",
         "owned": false,
         "nextOffer": {
-          "weekIndex": 39,
-          "tier": 3
+          "weekIndex": 42,
+          "tier": 2
         }
       },
       {
@@ -106,8 +106,8 @@
         "slot": "fence_style",
         "owned": false,
         "nextOffer": {
-          "weekIndex": 39,
-          "tier": 1
+          "weekIndex": 41,
+          "tier": 2
         }
       },
       {
@@ -162,8 +162,8 @@
         "slot": "unit_skin:desert.dust_rider",
         "owned": false,
         "nextOffer": {
-          "weekIndex": 39,
-          "tier": 2
+          "weekIndex": 40,
+          "tier": 3
         }
       },
       {
@@ -190,8 +190,8 @@
         "slot": "unit_skin:high_plains.homesteader",
         "owned": false,
         "nextOffer": {
-          "weekIndex": 39,
-          "tier": 3
+          "weekIndex": 51,
+          "tier": 2
         }
       },
       {
@@ -274,8 +274,8 @@
         "slot": "town_decoration",
         "owned": false,
         "nextOffer": {
-          "weekIndex": 39,
-          "tier": 2
+          "weekIndex": 41,
+          "tier": 3
         }
       },
       {
@@ -302,7 +302,7 @@
         "slot": "wagon_skin",
         "owned": false,
         "nextOffer": {
-          "weekIndex": 39,
+          "weekIndex": 42,
           "tier": 3
         }
       },

@@ -11,13 +11,13 @@
     ],
     "owned": [
       {
-        "id": "fence_style.weathered_grey",
-        "kind": "fence_style",
-        "displayName": "Weathered Grey",
-        "description": "Sun-greyed timber.",
+        "id": "wagon.conestoga_white",
+        "kind": "wagon_skin",
+        "displayName": "Whitetop Conestoga",
+        "description": "Bleached canvas over a blue bed.",
         "appliesTo": null,
-        "reviewNote": "Texture only; segment length, height and the gap rendering are the tier's. Tier remains readable by shape. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
-        "slot": "fence_style",
+        "reviewNote": "Paint and canopy only; the wagon core's footprint and HP bar are unchanged. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
+        "slot": "wagon_skin",
         "purchaseId": "00000000-0000-4000-8000-000000000001",
         "grantedAt": "2026-10-11T12:00:00.000Z",
         "equipped": false
@@ -49,8 +49,8 @@
         "slot": "party_banner",
         "owned": false,
         "nextOffer": {
-          "weekIndex": 39,
-          "tier": 3
+          "weekIndex": 42,
+          "tier": 2
         }
       },
       {
@@ -117,10 +117,10 @@
         "appliesTo": null,
         "reviewNote": "Texture only; segment length, height and the gap rendering are the tier's. Tier remains readable by shape. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
         "slot": "fence_style",
-        "owned": true,
+        "owned": false,
         "nextOffer": {
-          "weekIndex": 39,
-          "tier": 1
+          "weekIndex": 41,
+          "tier": 2
         }
       },
       {
@@ -175,8 +175,8 @@
         "slot": "unit_skin:desert.dust_rider",
         "owned": false,
         "nextOffer": {
-          "weekIndex": 39,
-          "tier": 2
+          "weekIndex": 40,
+          "tier": 3
         }
       },
       {
@@ -203,8 +203,8 @@
         "slot": "unit_skin:high_plains.homesteader",
         "owned": false,
         "nextOffer": {
-          "weekIndex": 39,
-          "tier": 3
+          "weekIndex": 51,
+          "tier": 2
         }
       },
       {
@@ -287,8 +287,8 @@
         "slot": "town_decoration",
         "owned": false,
         "nextOffer": {
-          "weekIndex": 39,
-          "tier": 2
+          "weekIndex": 41,
+          "tier": 3
         }
       },
       {
@@ -315,7 +315,7 @@
         "slot": "wagon_skin",
         "owned": false,
         "nextOffer": {
-          "weekIndex": 39,
+          "weekIndex": 42,
           "tier": 3
         }
       },
@@ -327,7 +327,7 @@
         "appliesTo": null,
         "reviewNote": "Paint and canopy only; the wagon core's footprint and HP bar are unchanged. — pending art review (chunk 26); constraint written by the chunk 20 Maker, 2026-10-11, not yet verified against art.",
         "slot": "wagon_skin",
-        "owned": false,
+        "owned": true,
         "nextOffer": {
           "weekIndex": 40,
           "tier": 1

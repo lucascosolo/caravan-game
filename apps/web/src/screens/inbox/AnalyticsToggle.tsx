@@ -36,6 +36,8 @@ export function AnalyticsToggle({ api }: { readonly api: Api }): JSX.Element | n
   const change = async (share: boolean): Promise<void> => {
     setBusy(true);
     setStatus(null);
+    // QA S2: opting out empties the reporter's queue BEFORE the request, so nothing queued is sent after it.
+    if (!share) setTelemetryOptOut(true);
     try {
       const s = await api.setAnalyticsOptOut(!share);
       setOptedOut(s.optedOut);

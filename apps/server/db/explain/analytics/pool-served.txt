@@ -13,9 +13,9 @@ Sort
               ->  Nested Loop
                     ->  Function Scan on generate_series b
                     ->  Bitmap Heap Scan on encounter_candidates
-                          Recheck Cond: ((band = b.band) AND (chosen_at >= '2026-09-11 22:01:49.946+00'::timestamp with time zone) AND (chosen_at < '2026-10-11 22:01:49.946+00'::timestamp with time zone))
+                          Recheck Cond: ((band = b.band) AND (chosen_at >= '2026-09-11 23:35:31.392+00'::timestamp with time zone) AND (chosen_at < '2026-10-11 23:35:31.392+00'::timestamp with time zone))
                           ->  Bitmap Index Scan on encounter_candidates_band_chosen_idx
-                                Index Cond: ((band = b.band) AND (chosen_at >= '2026-09-11 22:01:49.946+00'::timestamp with time zone) AND (chosen_at < '2026-10-11 22:01:49.946+00'::timestamp with time zone))
+                                Index Cond: ((band = b.band) AND (chosen_at >= '2026-09-11 23:35:31.392+00'::timestamp with time zone) AND (chosen_at < '2026-10-11 23:35:31.392+00'::timestamp with time zone))
               ->  Memoize
                     Cache Key: encounter_candidates.chosen_candidate_id, encounter_candidates.candidates
                     Cache Mode: binary

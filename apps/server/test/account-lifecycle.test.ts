@@ -414,18 +414,23 @@ describe("export", () => {
     const p = await register();
     const store = (await call(p, "GET", "/me/store")).json();
     expect((await call(p, "POST", "/me/store/purchase", { tier: 1, weekIndex: store.week.index, contentsHash: store.offers[0].contentsHash })).statusCode).toBe(201);
+    // Chunk 32 QA D5: the account's own client telemetry is part of its data.
+    expect((await call(p, "POST", "/me/telemetry", { session: 7, seq: 0, events: [{ kind: "screen", screen: "town" }, { kind: "crash", screen: "town", errorName: "TypeError", stackHash: "0badc0de" }] })).statusCode).toBe(202);
     const res = await call(p, "GET", "/me/export");
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-disposition"]).toMatch(/attachment; filename="caravan-vaults-export-/);
     const x = res.json();
     expect(x).toMatchObject({ format: "caravan-vaults-account-export", version: 2, account: { id: p.accountId, username: p.username, guest: false } });
-    for (const key of ["analytics", "clientEvents", "inboxRead", "tripCap", "tripCapUses", "cosmetics"]) expect(x, key).toHaveProperty(key);
+    for (const key of ["analytics", "inboxRead", "tripCap", "tripCapUses", "cosmetics"]) expect(x, key).toHaveProperty(key);
     for (const key of ["manifests", "formations", "refugeeMenus", "trips", "tripEncounters", "tripMenus", "units", "poolProgress"]) expect(x.caravans[0], key).toHaveProperty(key);
     expect(x.caravans).toHaveLength(1);
     expect(x.caravans[0].id).toBe(p.caravanId);
     expect(x.purchases).toHaveLength(1);
     expect(x.ledger.some((e: { event_type: string }) => e.event_type === "coin_purchased")).toBe(true);
     expect(x.devices).toHaveLength(1);
+    expect(x.analytics).toMatchObject({ optedOut: false, events: [{ kind: "screen", screen: "town", errorName: null, stackHash: null }, { kind: "crash", screen: "town", errorName: "TypeError", stackHash: "0badc0de" }] });
+    const analyticsId = (await pool.query<{ analytics_id: string }>("SELECT analytics_id FROM account_analytics WHERE account_id = $1", [p.accountId])).rows[0]!.analytics_id;
+    expect(res.body).not.toContain(analyticsId);
     const text = res.body;
     for (const secret of ["password_hash", "token_hash", "scrypt$"]) expect(text).not.toContain(secret);
     expect(text).not.toContain(p.token);

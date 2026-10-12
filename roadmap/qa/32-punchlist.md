@@ -41,7 +41,7 @@ Checked and fine:
 
 ## Should-fix
 
-S1. **Authored-party seeding fills the ladder and unlock panels.** `LADDER_GAINED_SQL`
+S1. **Authored-party seeding fills the ladder and unlock panels.** — **Closed (fix32):** every panel excludes the authored outfits (system accounts other than chunk 30's tombstone, whose rows are erased players' history) through keyed NOT EXISTS probes; telemetry.test.ts seeds the 96 cold-start parties and the ladder / unlock / earn panels are unchanged, pool health shows 12 authored per band 0–7. `LADDER_GAINED_SQL`
 (queries.ts:323-327) and `UNLOCKS_SQL` (queries.ts:329-333) do not exclude system accounts.
 `LADDER_LEVELS_SQL` (queries.ts:320) does. `pnpm db:seed` builds the 96 cold-start outfits
 through the real writers: `ladder_progress_gained` with reason `authored_set`
@@ -57,7 +57,7 @@ the authored set in `telemetry.test.ts`'s `beforeAll`. The ladder/unlock asserti
 hold, and pool health should then show `authoredParties` of 12 per band (today the test asserts 0,
 telemetry.test.ts:369).
 
-S2. **Opting out races a batch already in flight, and the race keeps events after the opt-out.**
+S2. **Opting out races a batch already in flight, and the race keeps events after the opt-out.** — **Closed (fix32):** `ingest` and `saveSettings` each run in one transaction that takes `SELECT … FOR UPDATE` on the account's analytics row; the toggle empties the reporter's queue before the PUT. Test: 50 concurrent ingest/opt-out pairs leave 0 rows.
 `ingest` reads `opted_out` (clientEvents.ts:235-236) and then inserts later (clientEvents.ts:243).
 Both statements are autocommit and take no lock. `saveSettings` UPDATEs and then DELETEs
 (clientEvents.ts:222-223). An ingest that read `false` before the UPDATE inserts after the
@@ -74,7 +74,7 @@ concurrent pair 50× with no row left over.
 
 ## Design-level
 
-D1. **The tick-cap panel's "At cap" column is always 0.** `TICK_CAP_SQL` counts
+D1. **The tick-cap panel's "At cap" column is always 0.** — **Closed (fix32):** "At cap" counts `outcome_kind = 'stalemate'` (as decided); the stalemate at tick 3599 now asserts `atCap: 1`. `TICK_CAP_SQL` counts
 `end_tick >= TICK_CAP` (queries.ts:212). The resolver's `endTick` is the last tick simulated, in
 `0 … tickCap − 1` (resolver resolve.ts:117; replay.ts:457 rejects anything else), and a stalemate
 ends at `TICK_CAP − 1` (trip/outcome.ts:52). No fight can ever match. The test enshrines this: a
@@ -82,7 +82,7 @@ stalemate at 3599 asserts `atCap: 0` (telemetry.test.ts:258). The page shows the
 (AdminScreen.tsx:245,274). §20 #14 ("fights at / near the cap") reads it. Fix: `end_tick >= $3 - 1`
 (or count `outcome_kind = 'stalemate'`) and assert `atCap: 1` for the stalemate.
 
-D2. **Session length is easy to fake from one account, and it undercounts real play.** The server
+D2. **Session length is easy to fake from one account, and it undercounts real play.** — **Closed (fix32):** migration 024: each batch carries `{session, seq}` (a random int31 per page load) and the server de-duplicates on (id, session, seq, index); `agoMs` is clamped to the 15 s flush window, so times are receipt times; a `heartbeat` kind about once a minute while visible, flush on `visibilitychange` → hidden (no sendBeacon). Test: the replayed 25-event POST stores nothing and spans ≤ 15 s. The server
 trusts every `agoMs` up to an hour (clientEvents.ts:134-136). It does not de-duplicate, and it
 does not check that events are ordered against what this id already sent. Failure scenario
 (observed): two identical 25-event POSTs, with `agoMs` spread from 3 600 000 down to 0, produced
@@ -97,7 +97,7 @@ refuse a batch that goes back past it), and drop exact duplicates. (b) On the cl
 `sendBeacon`/`keepalive` on `pagehide`. Test: the two-POST replay above yields one session of
 ≤ the real span.
 
-D3. **§20 #1 and #4 have no panel that shows the metric they are tuned against.** TUNING_MAP #1
+D3. **§20 #1 and #4 have no panel that shows the metric they are tuned against.** — **Closed (fix32):** new `matchups` (held rate per posted × raider affinity), `mergeLevels` (per side and level) and `fences` (placed / broken / damaged / HP lost per tier, from `result.outcome.fences`) panels; §20 #1 and #4 point at them first, and every TUNING_MAP entry's primary panel must read its own subsystem (PANEL_SUBSYSTEMS, tested). TUNING_MAP #1
 (dashboard.ts:56-62) names `AFFINITY_ADVANTAGE_MULT`, `AFFINITY_DISADVANTAGE_MULT` and
 `MERGE_MULT_PER_LEVEL`. The panels give only each type's marginal win rate (queries.ts:116-135).
 They give no win rate by affinity matchup (defender affinity × attacker affinity) and no win rate
@@ -111,7 +111,7 @@ pair and per merge level, from the same ENC_CTE) and a `fences` panel (segments 
 per tier, from `result.outcome.fences`). Point #1 and #4 at them, and extend the §20 test so each
 entry names at least one panel that reads a field of its own subsystem.
 
-D4. **The pack funnel mixes populations.** "Opened the game" and "opened the store"
+D4. **The pack funnel mixes populations.** — **Closed (fix32):** one population for the funnel — analytics ids with screen flow whose account has not opted out — with nested stages (buyers ⊆ store viewers ⊆ viewers); every buyer appears only as `allBuyers`, labelled outside the funnel. Test: an opted-out buyer is in allBuyers only. "Opened the game" and "opened the store"
 (queries.ts:356-359) count analytics ids with screen events, which leaves out every opted-out
 account. "Bought" (queries.ts:353-354) counts every settled buyer, opted-out ones included. The
 page prints them as one funnel (AdminScreen.tsx:284). Failure scenario: three opted-out players
@@ -120,7 +120,7 @@ cannot be read. Fix: restrict `PACK_BUYERS_SQL` (for the funnel line only) to ac
 not opted out, or label the buyers figure as "all buyers" outside the funnel. Test: an opted-out
 buyer does not appear in the funnel line.
 
-D5. **The account export leaves out the account's analytics data.** `exportAccount`
+D5. **The account export leaves out the account's analytics data.** — **Closed (fix32):** `exportAccount` includes `analytics: { optedOut, events: [{kind, screen, errorName, stackHash, occurredAt}] }`, without the analytics id; chunk 30's export test extended. `exportAccount`
 (account/service.ts:124-170) exports every player-owned table. It omits `account_analytics`
 (the opt-out setting) and the account's `analytics_client_event` rows, which are personal data
 keyed to the account through the opaque id. Failure scenario: a player asks for their data, gets
@@ -128,7 +128,7 @@ the export, and it holds no trace of the 1 000-a-day screen and crash rows the s
 them. Fix: add `analytics: { optedOut, events: [{kind, screen, errorName, stackHash, occurredAt}] }`
 (without the analytics id) and extend chunk 30's export test.
 
-D6. **The dashboard has no time bound and is gated only at a 30-day window.** The route runs about
+D6. **The dashboard has no time bound and is gated only at a 30-day window.** — **Closed (fix32):** `buildDashboard` runs in one READ ONLY transaction with `SET LOCAL statement_timeout` (ANALYTICS_STATEMENT_TIMEOUT_MS 5000, tested); /admin/* is rate-limited per admin (30/min, after the admin check so a non-admin only sees the 404); the gate EXPLAINs every query at 30 and at ANALYTICS_MAX_WINDOW_DAYS and compares each live plan's scan skeleton with the checked-in plan. 120 days passes the gate, so the cap stays 120 (plans `*.120d.txt`). The route runs about
 30 queries one after another on the shared app pool (dashboard.ts:221-268), with no
 `statement_timeout` (none anywhere in `src/`) and no rate limit. `days` may be up to 120
 (routes/telemetry.ts:61). The scale gate EXPLAINs only a 30-day window (telemetry-scale.test.ts:
@@ -143,7 +143,7 @@ Either drop the `.txt` files or compare their node-type skeleton (timestamps str
 
 ## Nits
 
-N1. **`/admin/*` 404s are distinguishable from a real unknown route.** `/admin/x`, `/admin/` and a
+N1. **`/admin/*` 404s are distinguishable from a real unknown route.** — **Closed (fix32):** every non-admin /admin/* answer is Fastify's own unknown-route body (`Route <METHOD>:<url> not found`); tested against a real unknown route for GET and POST on five paths. `/admin/x`, `/admin/` and a
 denied `/admin/dashboard` answer `{"error":"not_found","message":"not found"}`
 (routes/telemetry.ts:71-73, admin.ts:27). `/admin` and `/nope` answer Fastify's default
 `{"message":"Route GET:/nope not found","error":"Not Found","statusCode":404}` (observed). The
@@ -151,48 +151,48 @@ comment at admin.ts:26 ("the same 404 an unknown route gives") is untrue, and th
 fingerprintable. Fix: a `setNotFoundHandler` that answers the same body, or reuse Fastify's shape
 in `ADMIN_NOT_FOUND`.
 
-N2. **Out-of-range `week` is a 500.** `week=1e308`, `-99999999999` and `99999999999999` pass
+N2. **Out-of-range `week` is a 500.** — **Closed (fix32):** `days` and `week` must be plain digits, `days` 1..120, `week` 0..the current week; 1e308, 0x10, signs and a future week are 400. `week=1e308`, `-99999999999` and `99999999999999` pass
 `Number.isInteger` (routes/telemetry.ts:64-65) and crash in `toISOString` (observed:
 500 `internal`). `days=0x10` is accepted as 16. Fix: bound `week` to
 `[0, weekIndexAt(now)]`, and parse both parameters with `/^\d+$/`.
 
 N3. **The pool-health `authored_over_share` alarm measures a different share than the matchmaker
-acts on.** The dashboard uses the authored share of everything served in the dashboard window
+acts on.** — **Closed (fix32):** the `authored_over_share` alarm reads the matchmaker's own query and window (`AUTHORED_SERVED_SHARE_SQL`, last AUTHORED_SERVED_SHARE_WINDOW menus); the window share is shown as information only. The dashboard uses the authored share of everything served in the dashboard window
 (queries.ts:455-462, :681). The matchmaker weights authored parties down on the last
 `AUTHORED_SERVED_SHARE_WINDOW` chosen rows of the band (authoredShare.ts). A band can alarm while
 the matchmaker sees it under the cap, or the reverse. Fix: compute the alarm with
 `authoredServedShare(db, band)` (the same SQL), and show the window share as information only.
 
-N4. **The `empty` alarm ignores self-exclusion and recent-opponent exclusion.** A band with exactly
+N4. **The `empty` alarm ignores self-exclusion and recent-opponent exclusion.** — **Closed (fix32):** new `thin` alarm below CANDIDATES_PER_SEARCH + 1 + RECENT_OPPONENT_EXCLUSION servable parties (`THIN_BAND_PARTIES`). A band with exactly
 `CANDIDATES_PER_SEARCH` parties is `ok` (queries.ts:679), even though a searcher whose own party is
 one of them, or who just met one (`RECENT_OPPONENT_EXCLUSION`), cannot get a full menu from it.
 Fix: alarm below `CANDIDATES_PER_SEARCH + 1 + RECENT_OPPONENT_EXCLUSION`, or document the gap in
 the alarm's label.
 
-N5. **The unlock panel cannot show "never bought" nodes.** TUNING_MAP #8 says "which nodes are
+N5. **The unlock panel cannot show "never bought" nodes.** — **Closed (fix32):** the unlock panel lists every node of every web from @caravan/content, 0 where nobody bought it. TUNING_MAP #8 says "which nodes are
 bought (and which never are)" (dashboard.ts:110). `UNLOCKS_SQL` groups only nodes that have
 purchases, so a node nobody buys is absent rather than shown as 0. Fix: left-join the unlock webs
 from `@caravan/content` in TS and emit zero rows.
 
-N6. **Erased owners' parties count as authored on the attacker panel.** `ENC_CTE.authored` reads
+N6. **Erased owners' parties count as authored on the attacker panel.** — **Closed (fix32):** `authored` on the attacker panel is the served candidate's stored `owner.authored`, not today's `is_system`. `ENC_CTE.authored` reads
 `is_system` of the job's `partyOwnerAccountId` at query time (queries.ts:109). Erasure rewrites
 that id to the tombstone, which is `is_system` (migration 020), so an erased player's live party
 moves from `live` to authored retroactively. Fix: read the stored candidate's
 `owner.authored` (as `POOL_SERVED_SQL` does), or carry `partyOwnerAuthored` from the job input.
 
-N7. **The grind-wall probe dates trickle Coin at flush time.** Trickle is credited lazily when the
+N7. **The grind-wall probe dates trickle Coin at flush time.** — **Closed (fix32):** trickle credits are apportioned by their stored `[accruedFromMs, accruedThroughMs)` span to the week (credits up to 7 days after the week read for their in-week share); the panel carries a note saying so. Trickle is credited lazily when the
 account next touches Coin (economy/trickle.ts). Coin accrued over days of absence therefore lands
 in the week of the next visit, and inflates that week's "free weekly earn" for returning players
 (queries.ts:286-301). Fix: document it on the panel, or apportion `trickle` credits by their
 accrual span if the payload carries one.
 
-N8. **The reporter forgets the opt-out across reloads.** Each sign-in builds a reporter that
+N8. **The reporter forgets the opt-out across reloads.** — **Closed (fix32):** the reporter reads `GET /me/analytics` before its first flush and holds the queue until then (a failed read retries on the next flush); tested. Each sign-in builds a reporter that
 assumes opted-in (useTelemetry.ts:14). An opted-out player's first batch after every reload
 is still sent, and dropped by the server. The server-side honouring holds, but the bytes still
 leave the device. Fix: seed the reporter from `GET /me/analytics` before the first flush (and hold
 the queue until then).
 
-N9. **Test gaps.** No test seeds the authored set (S1). No test runs concurrent opt-out and ingest
+N9. **Test gaps.** — **Closed (fix32):** added the S1 seeding, the S2 race, the D1 assertion, a real merge (`/me/caravans/:id/merge`) and a real unlock (`/me/unlocks/spend`) in place of hand-written payloads, and a recursive walk of the three packages. No test seeds the authored set (S1). No test runs concurrent opt-out and ingest
 (S2). The tick-cap test asserts the always-zero column (D1). The merge, ladder and unlock rows in
 `beforeAll` are hand-written payloads (telemetry.test.ts:166-185) rather than real
 `/me/.../merge` and `/me/unlocks/spend` calls. They match today's writers but would not catch a

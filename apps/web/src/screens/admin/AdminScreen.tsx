@@ -174,7 +174,8 @@ export function AdminScreen(props: { readonly api?: Api } = {}): JSX.Element {
             { label: "Live share", value: (b) => b.liveShareBp, rate: true },
             { label: "Caravans", value: (b) => b.caravans },
             { label: "Served", value: (b) => b.served },
-            { label: "Served authored", value: (b) => b.servedAuthoredShareBp, rate: true },
+            { label: "Served authored (window)", value: (b) => b.servedAuthoredShareBp, rate: true },
+            { label: "Matchmaker's share", value: (b) => b.matchmakerWindow.shareBp, rate: true },
             { label: "Status", value: (b) => T.alarm(b.alarm) },
           ]}
         />
@@ -183,6 +184,9 @@ export function AdminScreen(props: { readonly api?: Api } = {}): JSX.Element {
       <Panel id="grindWall">
         <p className="hint">
           Week {p.grindWall.weekIndex} ({p.grindWall.weekFrom.slice(0, 10)}): WEEKLY_PAY_CEILING {p.grindWall.weeklyPayCeiling}, FREE_WEEKLY_EARN_ESTIMATE {p.grindWall.freeWeeklyEarnEstimate}
+        </p>
+        <p className="hint" data-testid="grind-note">
+          {p.grindWall.note}
         </p>
         <Table
           rows={p.grindWall.deciles}
@@ -226,6 +230,15 @@ export function AdminScreen(props: { readonly api?: Api } = {}): JSX.Element {
       <Panel id="attackerUnits">
         <Table rows={p.attackerUnits.rows} columns={[...typed("overrun"), { label: "In live parties", value: (r) => r.live ?? null }]} />
       </Panel>
+      <Panel id="matchups">
+        <Table testId="matchups" rows={p.matchups} columns={[{ label: "Posted affinity", value: (r) => r.defender }, { label: "Raider affinity", value: (r) => r.attacker }, { label: "Encounters", value: (r) => r.encounters }, { label: "Held", value: (r) => r.held }, { label: "Overrun", value: (r) => r.overrun }, { label: "Held rate", value: (r) => r.heldRateBp, rate: true }]} />
+      </Panel>
+      <Panel id="mergeLevels">
+        <Table rows={p.mergeLevels} columns={[{ label: "Side", value: (r) => r.side }, { label: "Merge level", value: (r) => r.level }, { label: "Encounters", value: (r) => r.encounters }, { label: "Held rate", value: (r) => r.heldRateBp, rate: true }]} />
+      </Panel>
+      <Panel id="fences">
+        <Table testId="fences" rows={p.fences} columns={[{ label: "Tier", value: (r) => r.tierId }, { label: "Placed", value: (r) => r.placed }, { label: "Broken", value: (r) => r.broken }, { label: "Damaged", value: (r) => r.damaged }, { label: "HP lost", value: (r) => r.hpLost }, { label: "Broken rate", value: (r) => r.brokenRateBp, rate: true }]} />
+      </Panel>
       <Panel id="stances">
         <Table rows={p.stances} columns={[{ label: "Stance", value: (r) => r.stance }, { label: "Posts", value: (r) => r.posts }, { label: "Held", value: (r) => r.held }, { label: "Held rate", value: (r) => r.heldRateBp, rate: true }]} />
       </Panel>
@@ -242,7 +255,7 @@ export function AdminScreen(props: { readonly api?: Api } = {}): JSX.Element {
         <p className="hint">
           Cap {p.tickCap.capTicks} ticks; near = at least {p.tickCap.nearCapTicks}
         </p>
-        <Table rows={p.tickCap.rows} columns={[{ label: "Outcome", value: (r) => r.outcomeKind }, { label: "Fights", value: (r) => r.fights }, { label: "Near cap", value: (r) => r.nearCap }, { label: "At cap", value: (r) => r.atCap }, { label: "Median end tick", value: (r) => r.medianEndTick }, { label: "Max end tick", value: (r) => r.maxEndTick }]} />
+        <Table rows={p.tickCap.rows} columns={[{ label: "Outcome", value: (r) => r.outcomeKind }, { label: "Fights", value: (r) => r.fights }, { label: "Near cap", value: (r) => r.nearCap }, { label: "At cap (stalemate)", value: (r) => r.atCap }, { label: "Median end tick", value: (r) => r.medianEndTick }, { label: "Max end tick", value: (r) => r.maxEndTick }]} />
       </Panel>
       <Panel id="ladder">
         <Table rows={p.ladder.gained} columns={[{ label: "Pool", value: (r) => r.pool }, { label: "Gains", value: (r) => r.events }, { label: "Points", value: (r) => r.points }, { label: "Rungs crossed", value: (r) => r.rungs }]} />
@@ -282,6 +295,10 @@ export function AdminScreen(props: { readonly api?: Api } = {}): JSX.Element {
       <Panel id="packFunnel">
         <p className="hint" data-testid="admin-funnel">
           Opened the game {p.packFunnel.viewers} → opened the store {p.packFunnel.storeViewers} → bought {p.packFunnel.buyers}
+        </p>
+        <p className="hint">One population: players who have not opted out of usage data. Per tier, the store viewers&apos; purchases.</p>
+        <p className="hint" data-testid="admin-all-buyers">
+          Not part of the funnel: {p.packFunnel.allBuyers} buyers in all (opted-out players included).
         </p>
         <Table rows={p.packFunnel.tiers} columns={[{ label: "Tier", value: (r) => r.tier }, { label: "Reserved", value: (r) => r.reserved }, { label: "Settled", value: (r) => r.settled }, { label: "Buyers", value: (r) => r.buyers }, { label: "Cents", value: (r) => r.cents }]} />
       </Panel>

@@ -1,0 +1,18 @@
+-- chunk 32: pack-funnel over the synthetic history in test/telemetry-scale.test.ts (120-day window)
+Aggregate
+  ->  Hash Join
+        Hash Cond: (ce.analytics_id = x.analytics_id)
+        ->  HashAggregate
+              Group Key: ce.analytics_id
+              ->  Bitmap Heap Scan on analytics_client_event ce
+                    Recheck Cond: ((occurred_at >= '2026-06-13 23:35:31.636+00'::timestamp with time zone) AND (occurred_at < '2026-10-11 23:35:31.636+00'::timestamp with time zone))
+                    Filter: (kind = 'screen'::text)
+                    ->  Bitmap Index Scan on analytics_client_event_time_idx
+                          Index Cond: ((occurred_at >= '2026-06-13 23:35:31.636+00'::timestamp with time zone) AND (occurred_at < '2026-10-11 23:35:31.636+00'::timestamp with time zone))
+        ->  Hash
+              ->  Seq Scan on account_analytics x
+                    Filter: (NOT opted_out)
+  SubPlan 1
+    ->  Index Scan using pack_purchase_account_idx on pack_purchase p
+          Index Cond: ((account_id = x.account_id) AND (purchased_at >= '2026-06-13 23:35:31.636+00'::timestamp with time zone) AND (purchased_at < '2026-10-11 23:35:31.636+00'::timestamp with time zone))
+          Filter: (settled_at IS NOT NULL)

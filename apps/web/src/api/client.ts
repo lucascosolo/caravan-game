@@ -52,7 +52,7 @@ import { bankResultShape, encounterCommitShape, pushResultShape, stakesPreviewSh
 import { recentFightsShape, replayShape } from "./replayShapes.ts";
 import { inboxMarkResultShape, inboxShape, inboxStrikeLinesShape, inboxUnreadShape } from "./inboxShapes.ts";
 import { analyticsSettingsShape, dashboardShape, telemetryIngestShape } from "./telemetryShapes.ts";
-import type { AnalyticsSettings, DashboardView, TelemetryEvent, TelemetryIngestResult } from "./telemetryTypes.ts";
+import type { AnalyticsSettings, DashboardView, TelemetryBatch, TelemetryIngestResult } from "./telemetryTypes.ts";
 import type { InboxCategoryView, InboxMarkRequest, InboxMarkResult, InboxStrikeLinesView, InboxUnreadView, InboxView } from "./inboxTypes.ts";
 import { onboardingChangeShape, onboardingShape, type OnboardingChange, type OnboardingResponse } from "../onboarding/shapes.ts";
 import type { OnboardingStep } from "../onboarding/steps.ts";
@@ -230,7 +230,7 @@ export interface Api {
   // the opt-out is an account setting the server honours (an opted-out batch is dropped).
   analyticsSettings(): Promise<AnalyticsSettings>;
   setAnalyticsOptOut(optedOut: boolean): Promise<AnalyticsSettings>;
-  sendTelemetry(events: readonly TelemetryEvent[]): Promise<TelemetryIngestResult>;
+  sendTelemetry(batch: TelemetryBatch): Promise<TelemetryIngestResult>;
   // The admin dashboard (404 for anyone who is not an admin).
   adminDashboard(days?: number): Promise<DashboardView>;
 }
@@ -357,7 +357,7 @@ export function createApi(opts: ApiOptions): Api {
     skipOnboarding: () => request("POST", "/me/onboarding/skip", onboardingChangeShape),
     analyticsSettings: () => request("GET", "/me/analytics", analyticsSettingsShape),
     setAnalyticsOptOut: (optedOut) => request("PUT", "/me/analytics", analyticsSettingsShape, { optedOut }),
-    sendTelemetry: (events) => request("POST", "/me/telemetry", telemetryIngestShape, { events }),
+    sendTelemetry: (batch) => request("POST", "/me/telemetry", telemetryIngestShape, { session: batch.session, seq: batch.seq, events: batch.events }),
     adminDashboard: (days) => request("GET", days === undefined ? "/admin/dashboard" : `/admin/dashboard?days=${Math.trunc(days)}`, dashboardShape),
   };
 }
