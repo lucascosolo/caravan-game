@@ -1004,6 +1004,10 @@ export const STRINGS = {
     title: (n: number): string => `Encounter ${n}: the fight`,
     close: "Close",
     loading: "Loading the fight…",
+    // QA-36 S4: the replay player's code could not be downloaded.
+    chunkFailedTitle: "Couldn't load the replay",
+    chunkFailedBody: "The replay player didn't download — check your connection and try again. If the game was just updated, reloading the page fetches the new version.",
+    chunkRetry: "Try again",
     loadFailed: "Could not load the fight.",
     notResolved: "This fight has not been fought out yet. Its replay appears once the server has resolved it: try again in a moment.",
     unavailable: "This fight could not be resolved and never will be, so there is no replay of it.",

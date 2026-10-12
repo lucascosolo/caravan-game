@@ -106,6 +106,9 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
           ...(inline ? { retryBackoffMs: () => 0, pollMs: DOUBLE_POLL_MS } : {}),
           ...(typeof workerOpt === "object" && workerOpt.pollMs !== undefined ? { pollMs: workerOpt.pollMs } : {}),
           onError: (err) => app.log.error(err),
+          // QA-36 N2: an abnormal log — its defender gets the summary, not a replay. Count these.
+          onLogOverBudget: (jobId, storedBytes, budgetBytes) =>
+            app.log.warn({ job: jobId, storedBytes, budgetBytes, anomaly: "replay_log_over_size_budget" }, "replay log over LOG_SIZE_BUDGET: compacted at write"),
           onOutcome: (o) => {
             if (o.kind === "failed" || o.kind === "parked") app.log.warn({ job: o.jobId, error: o.error }, `encounter job ${o.kind}`);
           },
@@ -121,7 +124,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
       : new LogRetentionLoop(db, {
           ...(typeof opts.retentionJob === "object" && opts.retentionJob.intervalMs !== undefined ? { intervalMs: opts.retentionJob.intervalMs } : {}),
           onError: (err) => app.log.error(err),
-          onRun: (r) => app.log.info(r, `replay retention: ${r.compacted} log(s) compacted to their results summary`),
+          onRun: (r) => app.log.info(r, `retention: ${r.compacted} replay log(s) compacted to their results summary, ${r.guestsErased} expired guest(s) erased`),
         });
   app.decorate("retentionJob", retention);
   if (retention) {

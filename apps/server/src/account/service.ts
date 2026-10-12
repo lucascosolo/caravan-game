@@ -188,13 +188,19 @@ export async function exportAccount(db: Queryable, accountId: string, maxBytes: 
   for (const p of store.purchases) own.add((p as { id: string }).id);
 
   // The fights it took part in, either side: the stored outcome and the replay's record (its log
-  // stays on the server; the other participant's side of it is not this player's to export).
+  // stays on the server; the other participant's side of it is not this player's to export) — or,
+  // once compacted (PHASE-2 §36), the kept results summary in its place.
   const encounters = await rows(
     db,
     `SELECT j.id AS job_id, CASE WHEN j.account_id = $1 THEN 'caravan' ELSE 'party_owner' END AS role, j.status, j.created_at, j.completed_at,
             j.result->'outcome' AS outcome,
-            l.resolver_version, l.log_format, l.raw_bytes, l.stored_bytes, l.log_sha256, l.created_at AS replay_created_at, (l.job_id IS NOT NULL) AS replay_stored
-       FROM resolution_job j LEFT JOIN encounter_log l ON l.job_id = j.id
+            coalesce(l.resolver_version, cs.resolver_version) AS resolver_version, coalesce(l.log_format, cs.log_format) AS log_format,
+            coalesce(l.raw_bytes, cs.raw_bytes) AS raw_bytes, coalesce(l.stored_bytes, cs.stored_bytes) AS stored_bytes,
+            coalesce(l.log_sha256, cs.log_sha256) AS log_sha256, coalesce(l.created_at, cs.log_created_at) AS replay_created_at,
+            (l.job_id IS NOT NULL) AS replay_stored,
+            -- PHASE-2 §36 (QA N4): a log compacted to its results summary is exported as that summary.
+            (cs.job_id IS NOT NULL) AS replay_compacted, cs.reason AS compacted_reason, cs.compacted_at, cs.summary AS compacted_summary
+       FROM resolution_job j LEFT JOIN encounter_log l ON l.job_id = j.id LEFT JOIN encounter_log_summary cs ON cs.job_id = j.id
       WHERE j.kind = 'encounter_resolution' AND (j.account_id = $1 OR j.input->>'partyOwnerAccountId' = $1::text)
       ORDER BY j.created_at, j.id`,
     [accountId],

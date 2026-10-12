@@ -65,12 +65,14 @@ export function decompressLog(row: Pick<EncounterLogRow, "encoding" | "log">): s
  * Write a completed encounter's log (once) and prune the caravan's expired logs, both through the
  * owner's definer functions, inside the completion transaction. `fence` is the worker's lease.
  */
-export async function storeEncounterLog(client: pg.PoolClient, a: EncounterLogArtifact, fence: LeaseFence): Promise<void> {
+/** Returns the stored (compressed) size in bytes. */
+export async function storeEncounterLog(client: pg.PoolClient, a: EncounterLogArtifact, fence: LeaseFence): Promise<number> {
   const stored = compressLog(a.text);
   await client.query(
     `SELECT encounter_log_write($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
     [a.jobId, fence.workerId, fence.attempts, a.caravanId, a.defenderAccountId, a.partyOwnerAccountId, a.resolverVersion, a.logFormat, LOG_ENCODING, stored, Buffer.byteLength(a.text, "utf8"), a.sha256, a.formationSha256, a.survivorsSha256, a.partySha256, a.contentHash],
   );
+  return stored.length;
 }
 
 /**

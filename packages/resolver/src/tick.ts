@@ -250,11 +250,11 @@ const noBreach = (): number => COST_INFINITE;
  */
 export function planRoute(state: SimState, u: UnitState, from: FixedPoint, goal: Cell): Waypoint[] | null {
   const breachCost = breachCostFor(state, u);
-  const steps = findPath(state.grid, cellOf(from), goal, breachCost);
+  const steps = findPath(state.grid, cellOf(from), goal, breachCost, state.work);
   if (steps === null) return null;
   let route = smoothPath(state.grid, from, steps);
   if (steps.some((s) => s.breach >= 0)) {
-    const around = findPath(state.grid, cellOf(from), goal, noBreach);
+    const around = findPath(state.grid, cellOf(from), goal, noBreach, state.work);
     if (around !== null) {
       const routeAround = smoothPath(state.grid, from, around);
       if (routeCost(from, routeAround, breachCost) <= routeCost(from, route, breachCost)) route = routeAround;
@@ -424,6 +424,7 @@ export function keyframe(state: SimState, log: LogEvent[]): void {
 
 /** Run every phase for `state.tick`, in TICK_PHASE_ORDER, then the keyframe if due. */
 export function runTick(state: SimState, log: LogEvent[]): void {
+  for (const u of state.units) if (u.alive) state.work.unitTicks++; // §36 work counter (never read by the sim)
   retargetPhase(state, log); // 1
   pathPhase(state, log); // 2
   movementPhase(state, log); // 3

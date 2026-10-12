@@ -222,6 +222,19 @@ test("a full trip: outfit, ride out, three encounters (a rider dies at the secon
   if (shotDir) await page.screenshot({ path: `${shotDir}/replay-320-dialog.png` });
   await page.setViewportSize({ width: 360, height: 640 });
   await real.getByTestId("replay-close").click();
+  // QA-36 N7: open and close the real replay ten times — each close tears its renderer down, so
+  // canvases (and their WebGL contexts) never accumulate and the debug handle goes with the scene.
+  const canvases = () => page.evaluate(() => document.querySelectorAll("canvas").length);
+  const baseline = await canvases();
+  for (let i = 0; i < 10; i++) {
+    await r1.getByTestId("watch-fight").click();
+    await expect(real.getByTestId("iso-canvas")).toBeVisible();
+    expect(await canvases()).toBe(baseline + 1);
+    await real.getByTestId("replay-close").click();
+    await expect(real).toHaveCount(0);
+  }
+  expect(await canvases()).toBe(baseline);
+  expect(await page.evaluate(() => "__isoDebug" in window)).toBe(false);
   await page.unroute("**/api/me/encounters/*/replay");
 
   // ── bank or push: every stake on screen, then push ──
