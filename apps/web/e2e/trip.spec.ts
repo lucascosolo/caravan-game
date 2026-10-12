@@ -204,9 +204,11 @@ test("a full trip: outfit, ride out, three encounters (a rider dies at the secon
   await expect(player).toBeVisible();
   await expect(real.getByTestId("iso-canvas")).toBeVisible();
   await expect(real.getByTestId("replay-summary-toggle")).toContainText("How it ended: Your caravan held.");
-  // QA S2: the camera opens on the action, a lattice cell at least 32 px wide at 360 px.
+  // Final play-test review r2 N14: the camera OPENS on the ring plus every raider's start cell (no
+  // raider off-canvas at 0:00), and moves in once the fighting starts: QA S2's "a lattice cell at
+  // least 32 px wide at 360 px" is now asserted once the fight is under way (below).
   const isoZoom = () => page.evaluate(() => (window as unknown as { __isoDebug?: { zoom(): number } }).__isoDebug?.zoom() ?? 0);
-  await expect.poll(isoZoom).toBeGreaterThanOrEqual(32 / 48 - 1e-6);
+  expect(await isoZoom()).toBeGreaterThan(0);
   // QA S9: the canvas keeps updating while the fight plays — its pixels change and the renderer's frame count rises.
   const frames = () => page.evaluate(() => (window as unknown as { __isoDebug?: { framesDrawn(): number } }).__isoDebug?.framesDrawn() ?? 0);
   const field = real.locator(".replay__field canvas");
@@ -217,6 +219,7 @@ test("a full trip: outfit, ride out, three encounters (a rider dies at the secon
   await real.getByTestId("replay-play").click();
   await expect.poll(async () => Number(await real.getByTestId("replay-scrub").inputValue()), { timeout: 8_000 }).toBeGreaterThan(130);
   await real.getByTestId("replay-play").click();
+  await expect.poll(isoZoom, { timeout: 10_000 }).toBeGreaterThanOrEqual(32 / 48 - 1e-6);
   const after = await field.screenshot(shotDir ? { path: `${shotDir}/replay-360-mid.png` } : {});
   expect(Buffer.compare(before, after), "the canvas changed between two ticks").not.toBe(0);
   expect(await frames()).toBeGreaterThan(framesBefore + 10);

@@ -31,6 +31,8 @@ import { BoardPanel, unitName } from "./BoardPanel.tsx";
 import { MergeDialog } from "./MergeDialog.tsx";
 import { MinePanel } from "./MinePanel.tsx";
 import { OutfitScreen } from "./OutfitScreen.tsx";
+import { PartyDownBanner } from "./PartyDownBanner.tsx";
+import { useOnboarding } from "../../onboarding/OnboardingProvider.tsx";
 import { RecruitPanel } from "./RecruitPanel.tsx";
 import { RefugeePanel } from "./RefugeePanel.tsx";
 import { RideOutPanel, TripCapLine } from "./RideOutPanel.tsx";
@@ -93,6 +95,7 @@ export interface TownScreenProps {
 
 export function TownScreen(props: TownScreenProps = {}): JSX.Element {
   const api = useApi(props.api);
+  const onboarding = useOnboarding();
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loadError, setLoadError] = useState<ApiError | null>(null);
   const [view, setView] = useState<"town" | "outfit">("town");
@@ -323,6 +326,27 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
         </div>
       )}
 
+      {/* Final play-test review r2: the party-down banner (D2), and the refugee panel up top (N13) — the
+          parts of the town that change between visits come before the board and the reference panels. */}
+      <PartyDownBanner api={api} guideActive={onboarding?.active ?? false} rosterVersion={loaded.units.length} />
+
+      {loaded.refugees.kind === "ok" ? (
+        <RefugeePanel
+          api={api}
+          caravanId={caravanId}
+          view={loaded.refugees.value}
+          readAt={loaded.refugeesReadAt}
+          onView={(v, at) => setLoaded((l) => (l ? { ...l, refugees: { kind: "ok", value: v }, refugeesReadAt: at } : l))}
+          onReload={() => void reloadRefugees()}
+          onRosterChanged={() => void load({ quiet: true })}
+        />
+      ) : (
+        <section>
+          <h2>{T.refugeesHeading}</h2>
+          <ErrorBox error={loaded.refugees.error} onRetry={() => void reloadRefugees()} />
+        </section>
+      )}
+
       <IsoCanvas
         ref={isoRef}
         geometry={TOWN_GEOMETRY}
@@ -364,25 +388,6 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
         onMerge={openMerge}
       />
 
-      <MinePanel economy={loaded.economy} forecast={loaded.forecast?.overflow ?? null} />
-
-      {loaded.refugees.kind === "ok" ? (
-        <RefugeePanel
-          api={api}
-          caravanId={caravanId}
-          view={loaded.refugees.value}
-          readAt={loaded.refugeesReadAt}
-          onView={(v, at) => setLoaded((l) => (l ? { ...l, refugees: { kind: "ok", value: v }, refugeesReadAt: at } : l))}
-          onReload={() => void reloadRefugees()}
-          onRosterChanged={() => void load({ quiet: true })}
-        />
-      ) : (
-        <section>
-          <h2>{T.refugeesHeading}</h2>
-          <ErrorBox error={loaded.refugees.error} onRetry={() => void reloadRefugees()} />
-        </section>
-      )}
-
       {loaded.recruit.kind === "ok" ? (
         <RecruitPanel api={api} caravanId={caravanId} view={loaded.recruit.value} onRecruited={() => void load({ quiet: true })} />
       ) : (
@@ -391,6 +396,8 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
           <ErrorBox error={loaded.recruit.error} onRetry={() => void load()} />
         </section>
       )}
+
+      <MinePanel economy={loaded.economy} forecast={loaded.forecast?.overflow ?? null} />
 
       <section aria-labelledby="nav-heading" data-testid="town-nav">
         <h2 id="nav-heading">{T.navHeading}</h2>

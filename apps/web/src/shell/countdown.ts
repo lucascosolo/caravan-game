@@ -27,12 +27,21 @@ export function useAnchoredCountdown(anchor: unknown, durationMs: number, now: (
   return left;
 }
 
-/** m:ss (h:mm:ss past an hour) for a whole number of seconds. */
+/**
+ * A countdown in words, never a clock (final play-test review r2 N12: "returns in 4:48" read as a
+ * time of day): "45 s", "4 min 48 s", "20 min", and past an hour "1 h 30 min" (minutes rounded
+ * up, so a wait never reads shorter than it is). Rounds the seconds up as well.
+ */
 export function formatSeconds(seconds: number): string {
   const total = Math.max(0, Math.ceil(seconds));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  const pad = (n: number): string => (n < 10 ? `0${n}` : String(n));
-  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+  if (total < 60) return `${total} s`;
+  if (total < 3600) {
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return s === 0 ? `${m} min` : `${m} min ${s} s`;
+  }
+  const minutes = Math.ceil(total / 60);
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m === 0 ? `${h} h` : `${h} h ${m} min`;
 }

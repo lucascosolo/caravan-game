@@ -140,13 +140,13 @@ describe("refugee model", () => {
 
   it("timer: counting from the server's msUntilFreeRefresh, stale when it runs out, due when the server says so", () => {
     const v = refugeeView({ timer: { msUntilFreeRefresh: 65_000 } });
-    expect(refugeeTimer(v, 0)).toEqual({ kind: "counting", msLeft: 65_000, mmss: "1:05" });
-    expect(refugeeTimer(v, 64_500)).toMatchObject({ kind: "counting", mmss: "0:01" });
+    expect(refugeeTimer(v, 0)).toEqual({ kind: "counting", msLeft: 65_000, mmss: "1 min 5 s" });
+    expect(refugeeTimer(v, 64_500)).toMatchObject({ kind: "counting", mmss: "1 s" });
     expect(refugeeTimer(v, 65_000)).toEqual({ kind: "stale" });
     expect(refugeeTimer(refugeeView({ timer: { freeRefreshDue: true, msUntilFreeRefresh: 0 } }), 0)).toEqual({ kind: "due", claimed: false });
     expect(refugeeTimer(refugeeView({ timer: { freeRefreshDue: true, msUntilFreeRefresh: 0 }, menu: { claimed: { unitTypeId: "desert.dust_rider", instanceId: uid(5), claimedAtMs: 2 } } }), 0)).toEqual({ kind: "due", claimed: true });
-    expect(formatCountdown(5_400_000)).toBe("1:30:00");
-    expect(formatCountdown(0)).toBe("0:00");
+    expect(formatCountdown(5_400_000)).toBe("1 h 30 min");
+    expect(formatCountdown(0)).toBe("0 s");
   });
 });
 

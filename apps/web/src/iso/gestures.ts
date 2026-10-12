@@ -45,7 +45,8 @@ export type GestureEffect =
   | { readonly kind: "dragEnd"; readonly at: XY }
   | { readonly kind: "dragCancel" }
   | { readonly kind: "tapCell"; readonly at: XY }
-  | { readonly kind: "tapEntity"; readonly hit: HitResult };
+  /** `at`: where the press began (final play-test review r2 N7: a tap next to an entity may mean the cell). */
+  | { readonly kind: "tapEntity"; readonly hit: HitResult; readonly at: XY };
 
 export class GestureMachine {
   private readonly pointers = new Map<number, XY>();
@@ -129,7 +130,7 @@ export class GestureMachine {
     if (g.kind === "drag" && g.id === p.id) {
       this.g = { kind: "none" };
       if (g.moved) return [cancelled ? { kind: "dragCancel" } : { kind: "dragEnd", at: { x: p.x, y: p.y } }];
-      return cancelled ? [] : [{ kind: "tapEntity", hit: g.hit }];
+      return cancelled ? [] : [{ kind: "tapEntity", hit: g.hit, at: { x: g.startX, y: g.startY } }];
     }
     return [];
   }

@@ -150,8 +150,9 @@ export function RecruitPanel({ api, caravanId, view, onRecruited }: RecruitPanel
         ))}
       </ul>
       {view.locked.length > 0 && (
-        <>
-          <div className="h3">{T.recruitLockedHeading}</div>
+        // Final play-test review r2 N13: the locked list is reference, not a choice: collapsed by default.
+        <details className="disclosure" data-testid="recruit-locked-details">
+          <summary>{T.recruitLockedSummary(view.locked.length)}</summary>
           <ul className="plain" data-testid="recruit-locked">
             {view.locked.map((l) => (
               <li key={l.unitTypeId} data-type={l.unitTypeId}>
@@ -162,7 +163,7 @@ export function RecruitPanel({ api, caravanId, view, onRecruited }: RecruitPanel
           <button type="button" className="btn btn--block" onClick={() => navigate("webs")}>
             {T.recruitToWebs}
           </button>
-        </>
+        </details>
       )}
       {view.inventory.full && <p className="error">{T.inventoryFull}</p>}
       {error && <ErrorBox error={error} heading={errorHeading} />}

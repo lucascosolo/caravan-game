@@ -1,8 +1,7 @@
 /**
  * The guide's cards outside the Trail's own (chunk 24): above whatever screen is showing, for
  * the town steps (take a unit, pack and ride out), a pointer back to the Trail while the first
- * trip is out, and — once it ends — the passive side: "while you were out, someone else's party
- * met a caravan", with the standing party pre-filled from the roster through the ordinary
+ * trip is out, and — once it ends — the passive side: "whose parties you just fought", with the standing party pre-filled from the roster through the ordinary
  * `PUT /me/party` (chunk 09's rules: free, instant, a template that never loses a unit).
  *
  * Progress is read from the server, never guessed: while the guide waits on the town steps it

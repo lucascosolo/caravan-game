@@ -9,6 +9,7 @@
  * overrun.
  */
 import type { Formation, Manifest } from "@caravan/circle";
+import { TUNABLES } from "@caravan/content";
 import { useEffect, useState, type ReactNode } from "react";
 import type { Api } from "../api/client.ts";
 import type { CandidateView } from "../api/types.ts";
@@ -56,6 +57,19 @@ export function showsAt(step: OnboardingStep | null, moment: TrailMoment): boole
 }
 
 /**
+ * A raider is ranged when its attack range exceeds the melee default: range is the only thing
+ * that makes a unit ranged (content tunables). Read off the scout, never the resolver.
+ */
+export function isRangedRaider(u: { readonly attackRange: number }): boolean {
+  return u.attackRange > TUNABLES.ATTACK_RANGE_MELEE_DEFAULT;
+}
+
+/** Every raider in the party is ranged (an empty party is not). */
+export function isRangedOnly(c: CandidateView): boolean {
+  return c.scout.units.length > 0 && c.scout.units.every(isRangedRaider);
+}
+
+/**
  * The smallest of the served parties, by the scout alone (QA N2): least total HP, then fewest
  * siege pieces (siege counters exactly the fence and trap the guide teaches), then fewest
  * raiders, then menu order. HP first, so fielding one strong raider does not make a party read
@@ -63,7 +77,12 @@ export function showsAt(step: OnboardingStep | null, moment: TrailMoment): boole
  */
 export function smallestCandidate(candidates: readonly CandidateView[]): { readonly index: number; readonly raiders: number; readonly hp: number; readonly siege: number } | null {
   let best: { index: number; raiders: number; hp: number; siege: number } | null = null;
+  // Final play-test review r2 S2: a party whose every raider is ranged shoots the guided circle's
+  // posts from outside the fence, where guards never reach it. Pass over such parties whenever
+  // another candidate exists; with none, the smallest of them is still a reading of the scout.
+  const anyNotRanged = candidates.some((c) => !isRangedOnly(c));
   candidates.forEach((c, index) => {
+    if (anyNotRanged && isRangedOnly(c)) return;
     const raiders = c.scout.units.length;
     const siege = c.scout.siege.length;
     const hp = c.scout.units.reduce((n, u) => n + u.hp, 0);
@@ -114,14 +133,16 @@ export function SearchGuide(): JSX.Element {
 export function ScoutGuide({ candidates }: { candidates: readonly CandidateView[] }): JSX.Element {
   const pick = smallestCandidate(candidates);
   const c = pick ? candidates[pick.index] : undefined;
+  const passed = candidates.some((x) => !isRangedOnly(x)) ? candidates.filter(isRangedOnly).map((x) => x.owner.displayName) : [];
   return (
     <GuideCard title={G.scoutTitle} testId="guide-scout">
       <p>{G.scoutBody}</p>
       {pick && c && (
         <p data-testid="guide-scout-pick" data-index={pick.index}>
-          {G.scoutPick(c.owner.displayName, pick.raiders, pick.hp, pick.siege)}
+          {G.scoutPick(c.owner.displayName, pick.raiders, pick.hp, pick.siege, passed.length > 0)}
         </p>
       )}
+      {pick && passed.length > 0 && <p data-testid="guide-scout-ranged">{G.scoutRangedNote(passed.join(", "))}</p>}
     </GuideCard>
   );
 }

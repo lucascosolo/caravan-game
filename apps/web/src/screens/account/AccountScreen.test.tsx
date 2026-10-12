@@ -285,6 +285,92 @@ describe("QA-30 S4 / D1 / N4: resume failures, many tabs, a guest already on the
   });
 });
 
+describe("final play-test review r2 S1: sign-outs", () => {
+  const unauthorized = { status: 401, body: { error: "unauthorized", message: "unauthorized" } };
+
+  it("a resume that answers 200 but whose sessions keep dying ends on the retry card, never the start screen; Retry gets back in", async () => {
+    const user = userEvent.setup();
+    let evicting = true;
+    let resumes = 0;
+    const live = (body: unknown): Handler => () => (evicting ? unauthorized : { status: 200, body });
+    const s = server({
+      "POST /auth/resume": () => {
+        resumes += 1;
+        return { status: 200, body: { ...authGuestJson.body, token: `t${resumes}` } };
+      },
+      "GET /me": live({ ...meResponse(), account: { id: "g", username: null, guest: true } }),
+      "GET /me/onboarding": live(done),
+      "GET /me/inbox/unread": live({ unreadCount: 0, latestAtMs: null }),
+    });
+    render(<App fetchImpl={s.fetch} autoResume />);
+    expect(await screen.findByTestId("resume-failed")).toBeInTheDocument();
+    expect(screen.queryByTestId("guest-start")).toBeNull();
+    expect(screen.queryByRole("button", { name: STRINGS.auth.submitStart })).toBeNull();
+    const before = resumes;
+    expect(before).toBeLessThanOrEqual(5);
+    evicting = false;
+    await user.click(screen.getByRole("button", { name: STRINGS.app.retry }));
+    expect(await screen.findByTestId("guest-badge")).toBeInTheDocument();
+  });
+
+  it("only a 401 no_device shows the start screen; any other resume refusal (a 401 of another kind, a 429) is a retry", async () => {
+    for (const refusal of [unauthorized, { status: 429, body: { error: "rate_limited", message: "slow down" } }]) {
+      const s = server({ "POST /auth/resume": () => refusal });
+      const { unmount } = render(<App fetchImpl={s.fetch} autoResume />);
+      expect(await screen.findByTestId("resume-failed")).toBeInTheDocument();
+      expect(screen.queryByTestId("guest-start")).toBeNull();
+      unmount();
+    }
+  });
+
+  it("asks the server to resume once per launch, even under StrictMode's double effects", async () => {
+    const { StrictMode } = await import("react");
+    const s = server({ "POST /auth/resume": () => ({ status: 200, body: authGuestJson.body }) });
+    render(
+      <StrictMode>
+        <App fetchImpl={s.fetch} autoResume />
+      </StrictMode>,
+    );
+    expect(await screen.findByTestId("guest-badge")).toBeInTheDocument();
+    expect(s.calls.filter((c) => c.path === "/auth/resume")).toHaveLength(1);
+  });
+
+  it("'Continue the guest caravan' never silently drops back to the start screen: a failed continue says so, and Retry gets in", async () => {
+    const user = userEvent.setup();
+    let resumeOk = false;
+    const s = server({
+      "POST /auth/resume": () => (resumeOk ? { status: 200, body: authGuestJson.body } : { status: 401, body: { error: "no_device", message: "no signed-in device here" } }),
+      "POST /auth/guest": () => ({ status: 409, body: { error: "guest_on_device", message: "this device holds a guest caravan" } }),
+    });
+    render(<App fetchImpl={s.fetch} autoResume />);
+    await user.click(within(await screen.findByTestId("guest-start")).getByRole("button", { name: STRINGS.auth.submitStart }));
+    const card = await screen.findByTestId("guest-on-device");
+    await user.click(within(card).getByRole("button", { name: STRINGS.auth.continueGuest }));
+    expect(await screen.findByTestId("continue-failed")).toBeInTheDocument();
+    expect(screen.queryByTestId("guest-start")).toBeNull();
+    resumeOk = true;
+    await user.click(screen.getByRole("button", { name: STRINGS.app.retry }));
+    expect(await screen.findByTestId("guest-badge")).toBeInTheDocument();
+  });
+
+  it("'Continue the guest caravan' resumes straight into the game when the device answers", async () => {
+    const user = userEvent.setup();
+    let resumes = 0;
+    const s = server({
+      "POST /auth/resume": () => {
+        resumes += 1;
+        return resumes === 1 ? { status: 401, body: { error: "no_device", message: "no signed-in device here" } } : { status: 200, body: authGuestJson.body };
+      },
+      "POST /auth/guest": () => ({ status: 409, body: { error: "guest_on_device", message: "this device holds a guest caravan" } }),
+    });
+    render(<App fetchImpl={s.fetch} autoResume />);
+    await user.click(within(await screen.findByTestId("guest-start")).getByRole("button", { name: STRINGS.auth.submitStart }));
+    await user.click(within(await screen.findByTestId("guest-on-device")).getByRole("button", { name: STRINGS.auth.continueGuest }));
+    expect(await screen.findByTestId("guest-badge")).toBeInTheDocument();
+    expect(s.calls.filter((c) => c.path === "/auth/guest")).toHaveLength(1);
+  });
+});
+
 describe("account guards", () => {
   it("accept the recorded bodies and refuse a device row that carries a credential", () => {
     expect(expectShape(accountViewShape, accountGuestJson.body).account.guest).toBe(true);

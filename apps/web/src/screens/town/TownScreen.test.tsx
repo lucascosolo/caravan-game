@@ -212,7 +212,7 @@ describe("RefugeePanel", () => {
     expect(offers.getAllByRole("listitem")).toHaveLength(2);
     expect(offers.getByText("offered 2×")).toBeInTheDocument();
     expect(screen.getByTestId("refugee-panel")).toHaveAttribute("data-timer", "counting");
-    expect(screen.getByTestId("refugee-timer")).toHaveTextContent("Next free menu in 1:05");
+    expect(screen.getByTestId("refugee-timer")).toHaveTextContent("Next free menu in 1 min 5 s");
     expect(screen.getByTestId("refugee-reroll")).toHaveTextContent("New menu now for 150 Coin (reroll 1 this window)");
     await user.click(offers.getByRole("button", { name: "Take Dust Rider" }));
     expect(claimRefugee).toHaveBeenCalledWith(CARAVAN_ID, "desert.dust_rider", 7);
@@ -226,7 +226,7 @@ describe("RefugeePanel", () => {
     let t = 0;
     const onReload = vi.fn();
     render(<RefugeePanel {...base} view={refugeeView({ timer: { msUntilFreeRefresh: 2_000 } })} readAt={0} now={() => t} onReload={onReload} />);
-    expect(screen.getByTestId("refugee-timer")).toHaveTextContent("0:02");
+    expect(screen.getByTestId("refugee-timer")).toHaveTextContent("2 s");
     t = 2_500;
     act(() => {
       vi.advanceTimersByTime(3_000);
@@ -468,7 +468,7 @@ describe("Town: the caravan's state from the trip loop, the trip cap and riding 
     const spent = withCap(statusPacked(), { available: 2, nextRegenAtMs: statusPacked().nowMs + 125_000, fullAtMs: statusPacked().nowMs + 125_000 });
     render(<TownScreen api={townApi(RIDERS, { tripStatus: vi.fn(async () => spent) })} />);
     const cap = await screen.findByTestId("trip-cap");
-    expect(cap).toHaveTextContent("Trips available: 2 of 3. The next trip returns in 2:05.");
+    expect(cap).toHaveTextContent("Trips available: 2 of 3. The next trip returns in 2 min 5 s.");
     expect(screen.queryByTestId("ride-out")).toBeNull();
   });
 
@@ -518,7 +518,7 @@ describe("RideOutPanel (chunk 23)", () => {
     try {
       const s = withCap(statusPacked(), { available: 0, nextRegenAtMs: statusPacked().nowMs + 90_000, fullAtMs: statusPacked().nowMs + 90_000 });
       render(<RideOutPanel api={fakeApi()} caravanId={CARAVAN_ID} status={s} onStarted={() => {}} />);
-      expect(screen.getByTestId("trip-cap")).toHaveTextContent("The next trip returns in 1:30.");
+      expect(screen.getByTestId("trip-cap")).toHaveTextContent("The next trip returns in 1 min 30 s.");
       expect(Number(screen.getByTestId("trip-cap").getAttribute("data-seconds-left"))).toBeGreaterThanOrEqual(89);
       expect(screen.getByTestId("ride-out-open-confirm")).toBeDisabled();
     } finally {
@@ -529,7 +529,7 @@ describe("RideOutPanel (chunk 23)", () => {
   it("refusals are the server's: trip_cap_exhausted counts down from retryAfterSeconds; trip_open points at the trail; not_packed says so", async () => {
     const user = userEvent.setup();
     const { unmount } = render(<RideOutPanel api={fakeApi()} caravanId={CARAVAN_ID} status={statusPacked()} initialError={capRefused()} onStarted={() => {}} />);
-    expect(screen.getByTestId("ride-out-refused")).toHaveTextContent("No trip is available right now. The next one returns in 20:00");
+    expect(screen.getByTestId("ride-out-refused")).toHaveTextContent("No trip is available right now. The next one returns in 20 min");
     expect(screen.getByTestId("ride-out-open-confirm")).toBeDisabled();
     unmount();
     const startTrip = vi.fn(async () => {

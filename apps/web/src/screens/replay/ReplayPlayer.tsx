@@ -357,7 +357,15 @@ function Playback({ view, model, settled, autoPlay, initialSpeed }: { readonly v
     <div className="replay" data-testid="replay-player" data-viewer={view.viewer}>
       <div className="replay__stage" data-testid="replay-stage">
         <div className="replay__field">
-          <IsoCanvas geometry={REPLAY_GEOMETRY} state={scene} label={T.canvasLabel} frame={model.frameRect} touchScroll sleepWhenIdle />
+          <IsoCanvas
+            geometry={REPLAY_GEOMETRY}
+            state={scene}
+            label={T.canvasLabel}
+            frame={model.frameRect}
+            focus={at >= model.closeTick ? { key: "close", rect: { x0: model.closeRect.x, y0: model.closeRect.y, x1: model.closeRect.x + model.closeRect.w - 1, y1: model.closeRect.y + model.closeRect.h - 1 }, minCellPx: model.closeRect.minCellPx ?? 0 } : null}
+            touchScroll
+            sleepWhenIdle
+          />
           {showEnd && (
             <section className="replay__end card" data-testid="replay-end-card" data-outcome={o?.kind ?? ""} aria-live="polite">
               <h3>{T.endTitle}</h3>

@@ -280,7 +280,7 @@ describe("after the first trip (chunk 24)", () => {
     // the passive side follows under a heading that says whose party meets whose caravan.
     await waitFor(() => expect(within(card).getAllByRole("heading")[0]).toHaveTextContent("Your caravan was overrun"));
     expect(within(card).getAllByRole("heading").map((h) => h.textContent)).toEqual(["Your caravan was overrun", "Meanwhile, your own party meets other players' caravans"]);
-    expect(card).not.toHaveTextContent("While you were out, someone else's party met a caravan");
+    expect(card).not.toHaveTextContent("Whose parties you just fought");
     expect(card).toHaveTextContent("never at risk");
     // QA S2: what the ended trip recorded, not "what you packed is lost".
     const losses = within(card).getByTestId("guide-overrun-losses");

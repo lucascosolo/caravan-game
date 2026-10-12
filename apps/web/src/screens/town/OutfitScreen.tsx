@@ -32,9 +32,12 @@ import {
   FENCE_BUDGET,
   RING_POSITIONS,
   addTrap,
+  loadLastOutfit,
   outfitMeters,
   packRequest,
+  reapplyOutfit,
   removeTrap,
+  saveLastOutfit,
   setFenceCount,
   setFenceTier,
   toggleUnit,
@@ -136,6 +139,17 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked, onRodeOu
     void load();
   }, [load]);
 
+  // Final play-test review r2 N5: a returning player opens with the last trip's traps and fence
+  // (re-checked against what is unlocked now); "Pack the same as last trip" adds its units back.
+  const [last] = useState<OutfitDraft | null>(() => loadLastOutfit(caravanId));
+  const restored = useRef(false);
+  useEffect(() => {
+    if (!catalog || !last || guiding || restored.current) return;
+    restored.current = true;
+    setDraft((d) => (d.units.length > 0 || d.traps.length > 0 || d.fence ? d : reapplyOutfit(last, { units: units.map((u) => u.id), traps: catalog.traps, fences: catalog.fences }, false)));
+  }, [catalog, last, guiding, units]);
+  const lastAgain = last && catalog ? reapplyOutfit(last, { units: units.map((u) => u.id), traps: catalog.traps, fences: catalog.fences }, true) : null;
+
   const meters = outfitMeters(draft);
   const wholeRoster = units.length > 0 && units.every((u) => draft.units.includes(u.id));
 
@@ -154,6 +168,7 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked, onRodeOu
       setBusy(false);
       return;
     }
+    saveLastOutfit(caravanId, draft);
     onPacked(manifest);
     // Packed: now ride out. A refusal leaves the caravan packed, waiting, with the server's reason.
     try {
@@ -237,6 +252,15 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked, onRodeOu
     <section data-testid="outfit-screen">
       {head}
       <p className="hint">{T.intro}</p>
+
+      {lastAgain && lastAgain.units.length > 0 && (
+        <div className="card" data-testid="outfit-last">
+          <button type="button" className="btn btn--block" onClick={() => setDraft(lastAgain)} data-testid="outfit-same-as-last">
+            {T.sameAsLast(lastAgain.units.length, lastAgain.traps.length, lastAgain.fence?.count ?? 0)}
+          </button>
+          {last && lastAgain.units.length < last.units.length && <p className="hint">{T.sameAsLastLost(last.units.length - lastAgain.units.length)}</p>}
+        </div>
+      )}
 
       <h2>{T.unitsHeading}</h2>
       <MeterBar m={meters.units} label={T.unitsMeter(meters.units.chosen, meters.units.cap)} testId="outfit-units-meter" />

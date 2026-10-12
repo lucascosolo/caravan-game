@@ -7,7 +7,8 @@ import onboardingJson from "../test/contract/onboarding.json";
 import { onboardingShape } from "./shapes.ts";
 import { prefillParty, stepForFacts } from "./ShellGuide.tsx";
 import { ONBOARDING_STEPS } from "./steps.ts";
-import { pushAdvice, showsAt, smallestCandidate, stepForMoment } from "./TrailGuide.tsx";
+import { isRangedOnly, pushAdvice, showsAt, smallestCandidate, stepForMoment } from "./TrailGuide.tsx";
+import { TUNABLES } from "@caravan/content";
 import type { CandidateView } from "../api/types.ts";
 import { STRINGS } from "../strings.ts";
 import { previewAfter1 } from "../test/tripFixtures.ts";
@@ -74,6 +75,25 @@ describe("the guide's step model (chunk 24)", () => {
     // Equal HP: fewer siege pieces first, then fewer raiders.
     expect(smallestCandidate([party([500, 500], 2), party([500, 500], 1)])!.index).toBe(1);
     expect(smallestCandidate([party([500, 500], 1), party([1000], 1)])!.index).toBe(1);
+  });
+
+  it("final play-test review r2 S2: an all-ranged party is passed over whenever another candidate exists, however small it is", () => {
+    const base = fixtureCandidate(1);
+    const unit = base.scout.units[0]!;
+    const melee = TUNABLES.ATTACK_RANGE_MELEE_DEFAULT;
+    const party = (hps: number[], ranges: number[]): CandidateView => ({
+      ...base,
+      scout: { ...base.scout, units: hps.map((h, i) => ({ ...unit, ref: `u${i}`, hp: h, attackRange: ranges[i]! as typeof unit.attackRange })), siege: [] },
+    });
+    const gunslingers = party([380, 380], [melee * 4, melee * 3]);
+    const mixed = party([900, 450], [melee, melee * 4]);
+    const brawlers = party([1100, 1100], [melee, melee]);
+    expect(isRangedOnly(gunslingers)).toBe(true);
+    expect(isRangedOnly(mixed)).toBe(false);
+    expect(smallestCandidate([gunslingers, brawlers, mixed])!.index).toBe(2);
+    expect(smallestCandidate([gunslingers, brawlers])!.index).toBe(1);
+    // Nothing else on the menu: the smallest all-ranged party is still the reading.
+    expect(smallestCandidate([party([900, 900], [melee * 4, melee * 4]), gunslingers])!.index).toBe(1);
   });
 
   it("QA D2: the bank-or-push advice reads the stakes — a 74/1100 survivor means bank, and no card ever says the trip pushes", () => {
