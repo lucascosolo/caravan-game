@@ -136,3 +136,32 @@ export function pushAdvice(p: StakesLike, menu: readonly ScoutPartyLike[] | null
   if (menu && menu.length > 0 && menu.every(isRangedHeavy) && circleHurt(p)) reasons.push({ kind: "ranged_menu", parties: menu.length });
   return reasons.length > 0 ? { kind: "bank", reasons } : { kind: "push" };
 }
+
+/**
+ * BALANCE-LOG pass 8 (folds pass 7's open item): the order "Raise my party" (the guide) and the
+ * server's `suggested` party take roster units in — round-robin over the roster's unit types, in
+ * the order each type first appears, each type's own units in roster order. With
+ * SUGGESTED_PARTY_MAX 4 a fresh roster (3 + 3 of two starter types, plus the refugee) raises 2 + 2
+ * instead of 3 + 1: a Mountain raise is 2 Grizzlies and 2 Trappers, not 3 Grizzlies; a Badlands
+ * raise mixes Gunslingers and Bounty Hunters. Measured against the 56 fresh guided packs of
+ * `scripts/balance/low-bands.ts`: every region's raise held ≥ 70 % guided. Pure and stable.
+ */
+export function raiseOrder<T extends { readonly typeId: string }>(roster: readonly T[]): T[] {
+  const types: string[] = [];
+  const byType = new Map<string, T[]>();
+  for (const r of roster) {
+    let list = byType.get(r.typeId);
+    if (!list) {
+      list = [];
+      byType.set(r.typeId, list);
+      types.push(r.typeId);
+    }
+    list.push(r);
+  }
+  const out: T[] = [];
+  for (let k = 0; out.length < roster.length; k++) for (const t of types) {
+    const u = byType.get(t)![k];
+    if (u) out.push(u);
+  }
+  return out;
+}

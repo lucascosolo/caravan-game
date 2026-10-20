@@ -41,6 +41,7 @@ import {
   manifestFromJson,
   partyConfigFromJson,
   partyEdges,
+  raiseOrder,
   resolveParty,
   scoutParty,
   serializePartyConfig,
@@ -264,16 +265,17 @@ async function buildView(db: Queryable, r: ResolvedStandingParty): Promise<Party
 export const SUGGESTED_EDGE: EntryEdge = "north";
 
 /**
- * D5, PURE: the saved config plus every unlocked roster unit not in it (roster order, up to
+ * D5, PURE: the saved config plus every unlocked roster unit not in it (raiseOrder: round-robin over unit types, pass 8; up to
  * SUGGESTED_PARTY_MAX — final guardrail review r4 D1, the guide's packed size, so a new player's
  * party can be served to other new players; a saved party already larger is never cut; default stance `nearest`, the north band, spread along it as the web builder does) plus every unlocked
  * siege type not in it (SIEGE_TYPES order, up to SIEGE_SLOT_CAP). Null when nothing is added.
  */
-export function suggestParty(config: PartyConfig, roster: readonly { instanceId: string; unlocked: boolean }[], access: AccessPredicate): PartyConfig | null {
+export function suggestParty(config: PartyConfig, roster: readonly { instanceId: string; typeId: string; unlocked: boolean }[], access: AccessPredicate): PartyConfig | null {
   const units = [...config.units];
   const have = new Set(units.map((u) => u.ref));
   const max = Math.min(PARTY_SLOT_CAP, TUNABLES.SUGGESTED_PARTY_MAX);
-  for (const r of roster) {
+  // BALANCE-LOG pass 8: round-robin over unit types (@caravan/circle raiseOrder), as the guide's raise does.
+  for (const r of raiseOrder(roster)) {
     if (units.length >= max) break;
     if (!r.unlocked || have.has(r.instanceId)) continue;
     const n = units.filter((u) => u.edge === SUGGESTED_EDGE).length;

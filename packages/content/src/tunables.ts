@@ -625,9 +625,12 @@ export const TUNABLES = {
    * size the guide packs (roster 7 − GUIDE_RESERVE 2). With COLD_START_PACKED_CAP_MAX_BAND a party
    * bigger than a new player's packed circle is never served to them in bands 0–1, so a suggested
    * whole roster of 7 was hardly ever served while most testers live there; at 5 it is. A player
-   * can still raise a bigger party by hand, up to PARTY_SLOT_CAP.
+   * can still raise a bigger party by hand, up to PARTY_SLOT_CAP. BALANCE-LOG pass 8: 5 → 4, with the
+   * raise taking unit types round-robin (@caravan/circle raiseOrder): a Mountain or Badlands raise
+   * of 5 was held by a fresh guided 5-post circle 39 % / 30 % of the time (56 packs); 4 taken
+   * round-robin is held 73 % / 70 % (4 in roster order: 63 % / 57 %), and is still served.
    */
-  SUGGESTED_PARTY_MAX: 5,
+  SUGGESTED_PARTY_MAX: 4,
   /**
    * TUNABLE (final play-test review r2 S2; r3 S2(a)). Cold-start fairness, same family: a caravan
    * meets AUTHORED outfits only, at every encounter, until it has BANKED this many trips (live

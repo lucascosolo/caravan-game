@@ -4,7 +4,7 @@
  */
 import { TUNABLES } from "@caravan/content";
 import { describe, expect, it } from "vitest";
-import { GUIDE_RANGED_MIN_CELLS, applyEncounterOutcome, circleHurt, guidePick, guideStakesOf, isRangedHeavy, isRangedOnly, isRangedRaider, pushAdvice, rangedCount, type ScoutPartyLike, type StakesLike } from "../src/index.js";
+import { raiseOrder, GUIDE_RANGED_MIN_CELLS, applyEncounterOutcome, circleHurt, guidePick, guideStakesOf, isRangedHeavy, isRangedOnly, isRangedRaider, pushAdvice, rangedCount, type ScoutPartyLike, type StakesLike } from "../src/index.js";
 import { fullPack } from "./fixtures.js";
 
 const CELL = TUNABLES.ATTACK_RANGE_MELEE_DEFAULT;
@@ -62,5 +62,14 @@ describe("pushAdvice", () => {
     const p: StakesLike = { units: [{ ref: "a", alive: true, hp: 4, maxHp: 10 }], traps: { remaining: [], spent: [] }, fences: { intact: [], destroyed: [] } };
     expect(pushAdvice(p)).toEqual({ kind: "bank", reasons: [{ kind: "hurt", ref: "a", hp: 4, maxHp: 10 }] });
     expect(pushAdvice({ ...p, units: [{ ref: "a", alive: false, hp: 0, maxHp: 10 }] })).toEqual({ kind: "bank", reasons: [{ kind: "none_standing" }] });
+  });
+});
+
+describe("raiseOrder (BALANCE-LOG pass 8): the guide's raise takes unit types round-robin", () => {
+  it("interleaves types in first-appearance order, each type's units in roster order; stable and complete", () => {
+    const r = ["g1", "g2", "g3", "t1", "t2", "t3", "g4"].map((id) => ({ id, typeId: id[0]! }));
+    expect(raiseOrder(r).map((x) => x.id)).toEqual(["g1", "t1", "g2", "t2", "g3", "t3", "g4"]);
+    expect(raiseOrder([])).toEqual([]);
+    expect(raiseOrder([{ typeId: "a" }])).toHaveLength(1);
   });
 });

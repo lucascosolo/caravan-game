@@ -8,7 +8,7 @@
  * re-reads `/me` and the trip status (on every tab change and every few seconds), and moves the
  * account's guide on when the roster has a unit or a trip is out.
  */
-import { PARTY_CONFIG_VERSION, type PartyConfig } from "@caravan/circle";
+import { PARTY_CONFIG_VERSION, raiseOrder, type PartyConfig } from "@caravan/circle";
 import { TUNABLES } from "@caravan/content";
 import { useCallback, useEffect, useState } from "react";
 import type { Api } from "../api/client.ts";
@@ -39,7 +39,8 @@ export function prefillParty(view: PartyView): PartyConfig | null {
   let config: PartyConfig = { v: PARTY_CONFIG_VERSION, units: view.config.units, siege: view.config.siege };
   // Final guardrail review r4 D1: the raised party stops at SUGGESTED_PARTY_MAX (the guide's packed size), as the server's `suggested` does.
   const max = Math.min(view.caps.units, TUNABLES.SUGGESTED_PARTY_MAX);
-  for (const r of view.roster) {
+  // BALANCE-LOG pass 8: round-robin over unit types (@caravan/circle raiseOrder), as the server's `suggested` does.
+  for (const r of raiseOrder(view.roster)) {
     if (config.units.length >= max) break;
     if (!r.unlocked || config.units.some((u) => u.ref === r.instanceId)) continue;
     config = addUnit(config, r.instanceId);
