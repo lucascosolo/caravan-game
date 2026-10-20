@@ -398,3 +398,18 @@ Clean-up:
   my dumps, the env file and the secrets are deleted.
 - `caravan_app` carries no role setting.
 - `caravan_test_r3g` and `caravan_dev_r3g` are kept for the fix round.
+
+## Orchestrator decisions (2026-10-20)
+
+- **S1: both halves.**
+  - **(a) Runbook.** Before restarting on a build with a new RESOLVER_VERSION, stop taking commits and drain. Run the old build until no job is queued or leased, and say how to check that.
+  - **(b) Code, as the safety net when a drain was skipped or a crash interrupted it.** At boot, and in the worker's poll, any queued or leased job whose resolver version is not the running one is parked with an explicit reason. Its trip is voided through the existing void path: it banks as of the last survived encounter, and nothing from the unresolved fight is applied. The player sees the honest voided summary.
+  - Re-resolving the fight with the new version is rejected: the formation was committed against the old rules, and a different outcome would contradict what was scouted.
+  - Add a test that commits under a stamped old version, boots, and sees the trip voided and the caravan back in town.
+- **N1: fix.** Serialize session issue per device with a row lock on the device.
+- **N2: fix.**
+  - Erasure rewrites only the owner object's name, never other `displayName` fields.
+  - Content names and "Departed outfit" are reserved.
+  - Beyond the ordinals, fall back to a short hash suffix.
+- **N3: fix in the runbook.** Say which upgrades bump RESOLVER_VERSION (the release note or the commit carries `[resolver-bump]`), and that old replays keep rendering.
+- **N4:** under `NODE_ENV=production`, refuse an explicit `STORE_MODE=sandbox` unless `STORE_SANDBOX_IN_PRODUCTION=1` is also set, and log a loud warning when it is. A play test must never hand out free Coin by accident.
