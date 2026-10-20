@@ -1483,7 +1483,8 @@ export const STRINGS = {
     reasonRangedMenu: (n: number): string => `the circle has taken losses, and every one of the ${n} parties you were just offered is mostly raiders that shoot from range, which can hit your posts from outside the fence; the next search is a step harder`,
     reasonFence: (destroyed: number, intact: number): string => `${destroyed} fence segment${destroyed === 1 ? " is" : "s are"} broken and ${intact} still stand${intact === 1 ? "s" : ""}`,
     freeTitle: "Encounter 2: your arrangement",
-    freeBody: "No list this time. Search, scout the party, then arrange the circle yourself. What broke or was spent at encounter 1 is still broken or spent.",
+    /** Round 3: the guided steps come back at every guided encounter, read off this party and what is left. */
+    freeBody: "Search and scout as before. Once you choose, the guide's steps are under the circle again, read off that party and what your caravan has left: what broke or was spent earlier is still broken or spent. Use them, or arrange the circle yourself.",
     decide2Title: "Bank the trip",
     decide2Body: "Banking now makes the Coin you carried safe in town for good and brings your units home; that ends the first trip. Pushing on is allowed too, at the stakes shown below.",
     // ── after the trip: the passive side ──

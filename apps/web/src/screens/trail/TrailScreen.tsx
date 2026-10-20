@@ -349,6 +349,7 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
     case "ready":
       return (
         <>
+          {/* Round 3: the guided steps also come at every later guided encounter (below the circle); this card says so. */}
           {guiding && !isFirst && <FreeGuide />}
           {state.initial?.committedAt && (
             <div className="notice" data-testid="committed-unsent">
@@ -371,7 +372,7 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
               committedJustNow.current = true;
               void load();
             }}
-            {...(guiding && isFirst
+            {...((guiding || guideStep !== null)
               ? { guide: (g: FormationGuideContext) => <ArrangeGuide {...g} scout={state.scout.scout} /> }
               : {})}
           />
