@@ -373,3 +373,13 @@ already in use by live parties, or add the region.
   types only) and merges, which the preview shows as fewer slots, not more power ("Max HP 1240 →
   775 … not stronger than the consumed ones combined").
 - **Grind walls:** none in the first hour or the simulated week.
+
+## Orchestrator decisions (2026-10-20)
+
+Verdict accepted: READY. A final polish round runs before the hand-off, then one short confirmation round on the final commit.
+
+- **D1: fix.** `pushAdvice` takes the encounter index. After encounter 2 the advice never uses the "one push shows how encounters escalate" line. Past encounter 2 it recommends a push only when the circle is unhurt and the next menu is not ranged-heavy. Otherwise it recommends banking, and says what is at stake (the unbanked Coin and the units). The harness measures up to encounter 3 with this rule. This is a change to the shared rule in packages/circle/src/guide.ts, coordinated with the balance agent.
+- **D2: fix.** The guide's one-tap raise varies its entry edges and stances deterministically: spread across the caravan's starter edges, and each unit's stance from its role. Live scouting then means something.
+- **D3, D5: telemetry questions.** Add them to BALANCE-LOG.
+- **D4: no change**, per PROJECT.md §13 (round 1 D1).
+- **N1, N2, N4, N5, N6, N8, N9, N10, N11: in scope.** N7 stays as is: a party never refills automatically; the Town banner offers it. N3 was already fixed by the authored-only copy rewrite (2f92d6a); verify it.
