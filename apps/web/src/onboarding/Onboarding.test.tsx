@@ -4,6 +4,7 @@
  * arrangement edits the circle through the formation screen's own model; a finished account
  * sees no guide. No storage of any kind is touched.
  */
+import { raiseOrder } from "@caravan/circle";
 import { TUNABLES } from "@caravan/content";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -373,7 +374,7 @@ describe("after the first trip (chunk 24)", () => {
     await userEvent.setup().click(within(card).getByTestId("guide-raise-party"));
     await screen.findByTestId("guide-party-raised");
     expect(saveParty).toHaveBeenCalledTimes(1);
-    expect((saveParty.mock.calls[0]![0] as { units: { ref: string }[] }).units.map((u) => u.ref)).toEqual(party.roster.filter((r) => r.unlocked).map((r) => r.instanceId).slice(0, Math.min(party.caps.units, TUNABLES.SUGGESTED_PARTY_MAX)));
+    expect((saveParty.mock.calls[0]![0] as { units: { ref: string }[] }).units.map((u) => u.ref)).toEqual(raiseOrder(party.roster.filter((r) => r.unlocked)).map((r) => r.instanceId).slice(0, Math.min(party.caps.units, TUNABLES.SUGGESTED_PARTY_MAX))); // BALANCE-LOG pass 8: round-robin over types
     expect(onSaved).toHaveBeenCalled();
     expect(window.location.hash).toBe("#/party");
     // QA N8: the Party screen opens at its top.
