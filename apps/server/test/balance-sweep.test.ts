@@ -14,10 +14,11 @@
  * Time budget: SWEEP_BUDGET_MS of wall clock for the whole file.
  */
 import { describe, expect, it } from "vitest";
-import { firstTrip, firstTripTasks, raisedGate, raisedGateTasks, summarize, summarizeRaised } from "../../../scripts/balance/first-trip.js";
+import { authoredPhase, firstTrip, firstTripTasks, raisedGate, raisedGateTasks, summarize, summarizePhase, summarizeRaised } from "../../../scripts/balance/first-trip.js";
+import { CORE_HEAVY_MAX_SHARE, LOW_BAND_GUIDED_MIN, freshPacks, isCoreHeavy, lowBandFight } from "../../../scripts/balance/low-bands.js";
 import { corpus } from "../../../scripts/balance/matchup-sweep.js";
 import { turtleRoster } from "../../../scripts/balance/probes.js";
-import { NAIVE, SKILLED, authoredParties, bandTypicalRoster, bestFight, guidePick, isRangedOnly, manifestOf, servedMenu, starterTypes } from "../../../scripts/balance/sweep.js";
+import { NAIVE, SKILLED, authoredParties, raiseCaravanIds, bandTypicalRoster, bestFight, guidePick, isRangedOnly, manifestOf, servedMenu, starterTypes } from "../../../scripts/balance/sweep.js";
 import { guidePick as clientGuidePick, isRangedOnly as clientRangedOnly, scoutParty } from "@caravan/circle";
 
 /** Tunable (chunk 37): the CI slice's wall-clock budget. */
@@ -67,12 +68,48 @@ describe("balance sweep — the CI slice (PHASE-2 §37)", () => {
     expect(s.pushed2Guided / s.pushed2, JSON.stringify(s)).toBeGreaterThanOrEqual(0.6);
   }, SWEEP_BUDGET_MS);
 
+  it("pass 8, the bands 0–1 gate: at most a third of each band core-stance-heavy; every band 0–1 outfit held ≥ 60 % by the guided layout of the guide's default pack", async () => {
+    // The full gate is `low-bands.ts` (56 packs: every rotation of who stays home). The slice: two rotations per pack (16).
+    const parties = authoredParties();
+    for (const band of [0, 1]) {
+      const inBand = parties.filter((p) => p.spec.band === band);
+      expect(inBand.filter(isCoreHeavy).length / inBand.length, `band ${band}`).toBeLessThanOrEqual(CORE_HEAVY_MAX_SHARE);
+    }
+    const packs = freshPacks();
+    const picked = packs.map((_, i) => i).filter((i) => i % 7 === 0 || i % 7 === 4);
+    expect(picked).toHaveLength(16);
+    const low: string[] = [];
+    for (let party = 0; party < parties.length; party++) {
+      if (parties[party]!.spec.band > 1) continue;
+      let held = 0;
+      for (const pack of picked) {
+        if (lowBandFight({ party, variant: 0, pack })) held++;
+        await yieldLoop();
+      }
+      if (held < LOW_BAND_GUIDED_MIN * picked.length) low.push(`${parties[party]!.spec.outfit.name} ${held}/${picked.length}`);
+    }
+    expect(low).toEqual([]);
+  }, SWEEP_BUDGET_MS);
+
+  it("pass 8, the authored-only phase: trip 2 (attrition carried, the guide's pick, layout and advice throughout) is delivered ≥ 50 %", async () => {
+    // The full probe is `first-trip.ts --phase` (200 caravans). The slice: 4 seeds (32 caravans).
+    const rs: ReturnType<typeof authoredPhase>[] = [];
+    for (const t of firstTripTasks(4, 1)) {
+      rs.push(authoredPhase(t));
+      await yieldLoop();
+    }
+    const s = summarizePhase(rs);
+    expect(s.caravans).toBe(32);
+    expect(s.trip2Banked / s.caravans, JSON.stringify(s)).toBeGreaterThanOrEqual(0.5);
+  }, SWEEP_BUDGET_MS);
+
   it("final play-test review r2 S2 / r3 S2, the later trips' gate: raised parties of every region (ranged pairs, whole 7-unit rosters with the refugee, and since r4 D1 the 5-unit suggested party) — over what a bands 0–1 search can serve against the 5-post circle, guided ≥ 60 %, best skilled ≥ 70 %", async () => {
     // The full gate is `first-trip.ts --raised` (all 76 skilled layouts; BALANCE-LOG pass 6).
     // The slice: one fresh roster per region (refugee = its first starter type) and the first 24 skilled layouts.
     const defenders = (["desert", "high_plains", "mountain", "badlands"] as const).map((region) => ({ region, refugee: starterTypes(region)[0]! }));
     const rs: ReturnType<typeof raisedGate>[] = [];
-    for (const t of raisedGateTasks(undefined, 24, defenders)) {
+    // r4 D2: the raise's starter edges come from the caravan id; the slice fights one caravan's raise.
+    for (const t of raisedGateTasks(undefined, 24, defenders, [raiseCaravanIds()[0]!])) {
       rs.push(raisedGate(t));
       await yieldLoop();
     }

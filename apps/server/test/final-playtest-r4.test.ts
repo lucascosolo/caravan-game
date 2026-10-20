@@ -7,7 +7,7 @@
  *   N8   a strike window still open at the read says so (`windowOpen`);
  *   N11  generated caravan names never share a first part with another caravan's name while one is free.
  */
-import { raiseStance, starterEdges, type PartyConfig } from "@caravan/circle";
+import { raiseOrder, raiseStance, starterEdges, type PartyConfig } from "@caravan/circle";
 import { TUNABLES } from "@caravan/content";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import pg from "pg";
@@ -61,8 +61,8 @@ describe("r4 D2: the suggested party varies its edges and stances, deterministic
       expect(suggested.units.length).toBe(Math.min(TUNABLES.PARTY_SLOT_CAP, TUNABLES.SUGGESTED_PARTY_MAX, (view.roster as { unlocked: boolean }[]).filter((r) => r.unlocked).length));
       const [a, b] = starterEdges(p.caravanId);
       const types = new Map((view.roster as { instanceId: string; typeId: string }[]).map((r) => [r.instanceId, r.typeId]));
-      // normalizePartyConfig may reorder units; check each unit against the rule by its place in roster order.
-      const order = (view.roster as { instanceId: string; unlocked: boolean }[]).filter((r) => r.unlocked).map((r) => r.instanceId);
+      // normalizePartyConfig may reorder units; check each unit against the rule by its place in raise order (BALANCE-LOG pass 8: round-robin over types).
+      const order = raiseOrder((view.roster as { instanceId: string; typeId: string; unlocked: boolean }[]).filter((r) => r.unlocked)).map((r) => r.instanceId);
       for (const u of suggested.units) {
         const i = order.indexOf(u.ref);
         expect(u.edge, u.ref).toBe(i % 2 === 0 ? a : b);

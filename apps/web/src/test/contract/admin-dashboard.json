@@ -1277,7 +1277,7 @@
         "alarms": 7
       },
       "partyStrikes": {
-        "suggestedPartyMax": 5,
+        "suggestedPartyMax": 3,
         "lowBandMax": 1,
         "rows": [
           {

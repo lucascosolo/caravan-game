@@ -11,9 +11,12 @@
  *     clockwise is the second. Raised units alternate between them by their place in the party
  *     (even places the first edge, odd the second), so a refill continues the alternation.
  *   - STANCE from the unit type's role (`raiseStance`), read off its one ability:
- *       dash                               -> `core`   (a runner: straight for the wagons)
  *       structure_breaker, burst_radius    -> `traps`  (it clears what is laid in the circle)
- *       anything else                      -> `nearest`
+ *       anything else, dash included       -> `nearest`
+ *     (BALANCE-LOG pass 8: dash raised `core` until then. A raise with core runners from two sides
+ *     was held by a fresh guided five-post circle 0–20 % of the time — desert and high plains, which
+ *     start with a dash type — and those raises are served to fresh circles from a caravan's third
+ *     trip. A player who wants runners sets `core` in the builder.)
  *   - CELL: spread along the edge's outer row, as the party builder places a unit
  *     (`raiseCell`, the builder's defaultCell).
  *
@@ -52,8 +55,6 @@ export function starterEdges(caravanId: string): readonly [EntryEdge, EntryEdge]
 export function raiseStance(typeId: string): TargetingStance {
   const t = LIVING_UNIT_TYPES.find((x) => x.id === typeId);
   switch (t?.ability.archetype) {
-    case "dash":
-      return "core";
     case "structure_breaker":
     case "burst_radius":
       return "traps";
@@ -78,13 +79,43 @@ export function raiseCell(edge: EntryEdge, n: number): Cell {
 }
 
 /**
+ * BALANCE-LOG pass 8 (folds pass 7's open item): the order "Raise my party" (the guide) and the
+ * server's `suggested` party take roster units in — round-robin over the roster's unit types, in
+ * the order each type first appears, each type's own units in roster order. With
+ * SUGGESTED_PARTY_MAX 3 a fresh roster (3 + 3 of two starter types, plus the refugee) raises
+ * A, B, A instead of A, A, A: a Mountain raise is not three Grizzlies, a desert one not three Dust
+ * Riders. Measured with the guided layout against the 56 fresh guided packs of
+ * `scripts/balance/low-bands.ts` (BALANCE-LOG pass 8). Pure and stable.
+ */
+export function raiseOrder<T extends { readonly typeId: string }>(roster: readonly T[]): T[] {
+  const types: string[] = [];
+  const byType = new Map<string, T[]>();
+  for (const r of roster) {
+    let list = byType.get(r.typeId);
+    if (!list) {
+      list = [];
+      byType.set(r.typeId, list);
+      types.push(r.typeId);
+    }
+    list.push(r);
+  }
+  const out: T[] = [];
+  for (let k = 0; out.length < roster.length; k++) for (const t of types) {
+    const u = byType.get(t)![k];
+    if (u) out.push(u);
+  }
+  return out;
+}
+
+/**
  * The raised units: the saved ones untouched, then every unlocked roster unit not in the party yet,
- * in roster order, up to `max` (a saved party already larger is never cut). Siege is the caller's.
+ * in `raiseOrder` (round-robin over unit types, BALANCE-LOG pass 8), up to `max` (a saved party
+ * already larger is never cut). Siege is the caller's.
  */
 export function raiseUnits(config: PartyConfig, roster: readonly RaiseRosterUnit[], max: number): PartyConfig["units"] {
   const units = [...config.units];
   const have = new Set(units.map((u) => u.ref));
-  for (const r of roster) {
+  for (const r of raiseOrder(roster)) {
     if (units.length >= max) break;
     if (!r.unlocked || have.has(r.instanceId)) continue;
     const pair = starterEdges(r.caravanId);

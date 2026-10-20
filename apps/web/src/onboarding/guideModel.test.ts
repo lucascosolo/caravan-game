@@ -9,7 +9,7 @@ import { prefillParty, stepForFacts } from "./ShellGuide.tsx";
 import { ONBOARDING_STEPS } from "./steps.ts";
 import { isRangedOnly, pushAdvice, showsAt, smallestCandidate, stepForMoment } from "./TrailGuide.tsx";
 import { TUNABLES } from "@caravan/content";
-import { raiseStance, raiseUnits, starterEdges } from "@caravan/circle";
+import { raiseOrder, raiseStance, raiseUnits, starterEdges } from "@caravan/circle";
 import type { CandidateView } from "../api/types.ts";
 import { STRINGS } from "../strings.ts";
 import { previewAfter1 } from "../test/tripFixtures.ts";
@@ -118,11 +118,12 @@ describe("the guide's step model (chunk 24)", () => {
     expect(topped.units.slice(0, view.config.units.length)).toEqual(view.config.units);
     // r4 D1: the saved units, then unlocked roster units not in it, up to SUGGESTED_PARTY_MAX (never cutting the saved ones).
     const saved = view.config.units.map((u) => u.ref);
-    const adds = view.roster.filter((r) => r.unlocked && !saved.includes(r.instanceId)).map((r) => r.instanceId);
+    // BALANCE-LOG pass 8: in raiseOrder (round-robin over unit types).
+    const adds = raiseOrder(view.roster.filter((r) => r.unlocked && !saved.includes(r.instanceId))).map((r) => r.instanceId);
     expect(new Set(topped.units.map((u) => u.ref))).toEqual(new Set([...saved, ...adds].slice(0, Math.max(saved.length, Math.min(view.caps.units, TUNABLES.SUGGESTED_PARTY_MAX)))));
     const empty = { ...view, config: { ...view.config, units: [] } };
     const filled = prefillParty(empty)!;
-    expect(filled.units.map((u) => u.ref)).toEqual(view.roster.filter((r) => r.unlocked).map((r) => r.instanceId).slice(0, Math.min(view.caps.units, TUNABLES.SUGGESTED_PARTY_MAX)));
+    expect(filled.units.map((u) => u.ref)).toEqual(raiseOrder(view.roster.filter((r) => r.unlocked)).map((r) => r.instanceId).slice(0, Math.min(view.caps.units, TUNABLES.SUGGESTED_PARTY_MAX)));
     // r4 D2: the shared raise rule (@caravan/circle raiseUnits): the caravan's two starter edges, alternating; stance by role.
     expect(filled.units).toEqual(raiseUnits({ ...empty.config, units: [] }, empty.roster, Math.min(view.caps.units, TUNABLES.SUGGESTED_PARTY_MAX)));
     const [a, b] = starterEdges(empty.roster[0]!.caravanId);

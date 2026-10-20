@@ -32,8 +32,10 @@
 import { REGION_IDS, TUNABLES } from "../../packages/content/src/index.js";
 import { bandOf, escalatedCentre } from "../../apps/server/src/matchmaking/band.js";
 import { reputationDelta } from "../../apps/server/src/progression/reputation.js";
+import { coinForDelivery, coinForEncounter } from "../../apps/server/src/economy/coin.js";
+import { raiseOrder } from "../../packages/circle/src/index.js";
 import { runParallel, serveIfChild } from "./parallel.js";
-import { GUIDED, SKILLED, authoredParties, bestFight, freshRoster, guideAdvice, guidePick, isRangedOnly, manifestOf, oneFight, pct, raisedStarterParty, servedMenu, share, starterTypes, type Kind, type Layout } from "./sweep.js";
+import { GUIDED, SKILLED, authoredParties, raiseCaravanIds, bestFight, freshRoster, guideAdvice, guidePick, isRangedOnly, manifestOf, oneFight, pct, raisedStarterParty, servedMenu, share, starterTypes, type Kind, type Layout } from "./sweep.js";
 
 export interface FirstTripTask {
   readonly region: (typeof REGION_IDS)[number];
@@ -75,7 +77,7 @@ export function firstTrip(t: FirstTripTask): FirstTripResult {
   const base = { band1: bandOf(e1.centre).index, party1: p1.spec.outfit.name, kind1: r1.kind, endTick1: r1.endTick };
   if (r1.kind === "caravan_overrun") return { ...base, advice1: null, band2: null, kind2Guided: null, kind2Best: null, party2: null, rangedOnly2: null };
   // r3 S1: the guide's advice, as the client gives it (the shared rule over the menu just faced).
-  const advice1 = guideAdvice(r1.survivors, e1.menu).kind;
+  const advice1 = guideAdvice(r1.survivors, e1.menu, 1).kind;
   const rating2 = rating + reputationDelta("caravan", r1.kind, rating, p1.spec.rating).delta;
   const e2 = servedMenu(`caravan-${id}`, `trip-${id}`, rating2, 2, 1, cap);
   // r3 S1: the guide's pick at every guided encounter (the shared rule), then the guide's shape again and the best skilled.
@@ -89,6 +91,144 @@ export function firstTripTasks(seeds: number, traps: number, reserve: number = T
   const tasks: FirstTripTask[] = [];
   for (const region of REGION_IDS) for (const refugee of starterTypes(region)) for (let seed = 1; seed <= seeds; seed++) tasks.push({ region, refugee, seed, traps, reserve });
   return tasks;
+}
+
+// ── Balance pass 8: the whole authored-only phase — trip 1, then trip 2 with the attrition carried ──
+//
+// Until a caravan has banked AUTHORED_ONLY_UNTIL_BANKS trips it meets authored outfits only and the
+// guide helps at every encounter (main since round 3). Each trip here plays the guide's way end to
+// end: the guide's default pack (roster − GUIDE_RESERVE, the units left home rotated by the seed),
+// one trap and a full fence; at every encounter the server's menu (authored pool, the raider cap),
+// the guide's pick, its "Arrange for me" (`guidedFormation`), and after every hold its
+// bank-or-push advice (`pushAdvice` over the menu just faced), until an overrun, an advised bank or
+// PHASE_MAX_ENCOUNTERS holds (then a bank). Between trips (PROJECT.md §14, chunk 19): on a bank
+// every packed unit comes home (the dead de-merged, floored at L1); on an overrun the units still
+// standing are destroyed and the dead come home. A roster under REFUGEE_ROSTER_FLOOR takes free
+// refugee claims (the region's starter types, alternating) up to it. Reputation moves by the
+// server's reputationDelta after every fight.
+
+/** Tunable (pass 8): a guided trip that is never advised to bank banks after this many holds. */
+export const PHASE_MAX_ENCOUNTERS = 5;
+
+export interface PhaseTrip {
+  readonly end: "banked" | "overrun";
+  readonly encounters: number;
+  readonly packed: number;
+  readonly parties: readonly string[];
+  /** The outfit that overran the caravan, if any. */
+  readonly overrunBy: string | null;
+  /** Coin delivered (0 on an overrun). Sandbag and storage clamps not modelled. */
+  readonly coin: number;
+}
+
+/** "new": the advice reads the encounter just survived (r4 D1); "old": the encounter-1 rule at every encounter. */
+export type AdviceMode = "old" | "new";
+export interface PhaseResult {
+  readonly region: string;
+  readonly trips: readonly PhaseTrip[];
+}
+
+type Unit = { readonly typeId: string; readonly mergeLevel: number };
+
+function guidedTripOf(region: (typeof REGION_IDS)[number], roster: readonly Unit[], rating: number, id: string, seed: number, reserve: number, traps: number, adviceMode: AdviceMode): { trip: PhaseTrip; home: Unit[]; rating: number } {
+  const keep = Math.max(1, Math.min(TUNABLES.DEPLOYMENT_SLOT_CAP, roster.length - reserve));
+  const rot = seed % roster.length;
+  const rotated = [...roster.slice(rot), ...roster.slice(0, rot)];
+  const packedUnits = rotated.slice(0, keep);
+  const leftHome = rotated.slice(keep);
+  const fresh = freshRoster(region, null, traps);
+  let m = manifestOf({ ...fresh, label: `${id} packs ${keep}`, units: packedUnits });
+  const cap = { packedUnits: keep, rosterLevels: roster.map((u) => u.mergeLevel) };
+  const parties: string[] = [];
+  let end: "banked" | "overrun" = "banked";
+  let overrunBy: string | null = null;
+  let coin = 0;
+  let j = 0;
+  for (j = 1; j <= PHASE_MAX_ENCOUNTERS; j++) {
+    const { menu } = servedMenu(`caravan-${id}`, `trip-${id}`, rating, j, 1, cap);
+    const sp = guidePick(menu);
+    parties.push(sp.spec.outfit.name);
+    const r = oneFight(m, sp, GUIDED);
+    if (!r) throw new Error(`guided layout refused for ${id} at encounter ${j}`);
+    const bandBefore = bandOf(rating).index;
+    rating += reputationDelta("caravan", r.kind, rating, sp.spec.rating).delta;
+    if (r.kind === "caravan_overrun") {
+      end = "overrun";
+      overrunBy = sp.spec.outfit.name;
+      m = r.survivors;
+      break;
+    }
+    m = r.survivors;
+    coin += coinForEncounter(j, bandBefore);
+    // r4 D1: the advice reads the encounter just survived; "old" replays the encounter-1 rule throughout.
+    if (guideAdvice(m, menu, adviceMode === "old" ? 1 : j).kind === "bank") break;
+  }
+  const encounters = Math.min(j, PHASE_MAX_ENCOUNTERS);
+  // Coin the trip delivers: every survived encounter's (at the caravan's band when it fought) plus the
+  // delivery bonus, on a bank; nothing on an overrun (the unbanked Coin is lost).
+  const delivered = end === "banked" ? coin + coinForDelivery(encounters) : 0;
+  // Who comes home: everyone on a bank (de-merged, floored at L1); on an overrun only the dead.
+  const back = m.units.filter((u) => end === "banked" || u.hp === 0).map((u) => ({ typeId: u.typeId, mergeLevel: u.hp === 0 ? Math.max(TUNABLES.MERGE_LEVEL_MIN, u.mergeLevel - 1) : u.mergeLevel }));
+  const home: Unit[] = [...leftHome, ...back];
+  const starters = starterTypes(region);
+  for (let k = 0; home.length < TUNABLES.REFUGEE_ROSTER_FLOOR; k++) home.push({ typeId: starters[k % starters.length]!, mergeLevel: 1 });
+  return { trip: { end, encounters, packed: keep, parties, overrunBy, coin: delivered }, home, rating };
+}
+
+/** The authored-only phase for one fresh caravan: guided trips until AUTHORED_ONLY_UNTIL_BANKS banks, at most `maxTrips`. */
+export function authoredPhase(t: FirstTripTask & { readonly maxTrips?: number; readonly adviceMode?: AdviceMode }): PhaseResult {
+  let roster: Unit[] = freshRoster(t.region, t.refugee, t.traps).units.map((u) => ({ typeId: u.typeId, mergeLevel: u.mergeLevel }));
+  let rating: number = TUNABLES.REPUTATION_START;
+  const trips: PhaseTrip[] = [];
+  const id = `${t.region}-${t.refugee}-${t.seed}`;
+  for (let n = 1; n <= (t.maxTrips ?? 2); n++) {
+    const r = guidedTripOf(t.region, roster, rating, n === 1 ? id : `${id}-t${n}`, t.seed + n - 1, t.reserve, t.traps, t.adviceMode ?? "new");
+    trips.push(r.trip);
+    roster = r.home;
+    rating = r.rating;
+  }
+  return { region: t.region, trips };
+}
+
+export interface PhaseSummary {
+  readonly caravans: number;
+  readonly trip1Banked: number;
+  readonly trip2Banked: number;
+  readonly trip2AfterBank: { readonly n: number; readonly banked: number };
+  readonly trip2AfterOverrun: { readonly n: number; readonly banked: number };
+  readonly overrunBy: Record<string, number>;
+  readonly trip2ByRegion: Record<string, { n: number; banked: number }>;
+  /** Mean Coin delivered per trip (overruns count 0), trip 1 and trip 2. */
+  readonly coinPerTrip: readonly [number, number];
+  /** Mean encounters fought on trip 1 and trip 2, and the share of trips that reached encounter 3. */
+  readonly encountersPerTrip: readonly [number, number];
+  readonly reached3: readonly [number, number];
+}
+export function summarizePhase(rs: readonly PhaseResult[]): PhaseSummary {
+  const overrunBy: Record<string, number> = {};
+  const trip2ByRegion: Record<string, { n: number; banked: number }> = {};
+  for (const r of rs) {
+    for (const t of r.trips) if (t.overrunBy) overrunBy[t.overrunBy] = (overrunBy[t.overrunBy] ?? 0) + 1;
+    const e = (trip2ByRegion[r.region] ??= { n: 0, banked: 0 });
+    e.n++;
+    if (r.trips[1]?.end === "banked") e.banked++;
+  }
+  const after = (end: string) => {
+    const xs = rs.filter((r) => r.trips[0]!.end === end);
+    return { n: xs.length, banked: xs.filter((r) => r.trips[1]?.end === "banked").length };
+  };
+  return {
+    caravans: rs.length,
+    trip1Banked: rs.filter((r) => r.trips[0]!.end === "banked").length,
+    trip2Banked: rs.filter((r) => r.trips[1]?.end === "banked").length,
+    trip2AfterBank: after("banked"),
+    trip2AfterOverrun: after("overrun"),
+    overrunBy,
+    trip2ByRegion,
+    coinPerTrip: [0, 1].map((k) => rs.reduce((a, r) => a + (r.trips[k]?.coin ?? 0), 0) / Math.max(1, rs.length)) as [number, number],
+    encountersPerTrip: [0, 1].map((k) => rs.reduce((a, r) => a + (r.trips[k]?.encounters ?? 0), 0) / Math.max(1, rs.length)) as [number, number],
+    reached3: [0, 1].map((k) => rs.filter((r) => (r.trips[k]?.encounters ?? 0) >= 3).length / Math.max(1, rs.length)) as [number, number],
+  };
 }
 
 // ── Final play-test review r2 S2: the second trip's gate — raised starter parties ─────────────
@@ -108,6 +248,8 @@ export interface RaisedGateTask {
   readonly raiderRegion: (typeof REGION_IDS)[number];
   readonly label: string;
   readonly typeIds: readonly string[];
+  /** r4 D2: whose caravan raised it (its starter edges); one of `raiseCaravanIds()`. */
+  readonly caravanId?: string;
   readonly defRegion: (typeof REGION_IDS)[number];
   readonly refugee: string;
   readonly reserve: number;
@@ -128,7 +270,8 @@ export interface RaisedGateResult {
  * The raised parties of a region: each pair of its starter types, and the WHOLE roster as the guide's
  * "Raise my party from my roster" raises it once the first refugee is in (final play-test review r3
  * S2: the starting roster plus the refugee, 7 units; one variant per starter type as the refugee), and
- * since r4 D1 the suggested party the guide raises now: the first SUGGESTED_PARTY_MAX of that roster.
+ * since r4 D1 the suggested party the guide raises now: SUGGESTED_PARTY_MAX of that roster, taken
+ * round-robin over unit types since pass 8 (@caravan/circle `raiseOrder`).
  */
 export function raisedParties(region: (typeof REGION_IDS)[number]): { label: string; typeIds: string[] }[] {
   const [a, b] = starterTypes(region) as [string, string];
@@ -139,23 +282,27 @@ export function raisedParties(region: (typeof REGION_IDS)[number]): { label: str
     { label: `${region}: ${short(a)} + ${short(b)}`, typeIds: [a, b] },
     { label: `${region}: ${short(b)} + ${short(b)}`, typeIds: [b, b] },
     ...[a, b].map((r) => ({ label: `${region}: the whole roster + ${short(r)} (${wholeWith(r).length})`, typeIds: wholeWith(r) })),
-    // Final guardrail review r4 D1: "Raise my party" adds roster units only up to SUGGESTED_PARTY_MAX, in
-    // roster order (the starting roster first, so the refugee never makes the cut at 5).
-    { label: `${region}: the suggested party (${TUNABLES.SUGGESTED_PARTY_MAX})`, typeIds: wholeWith(a).slice(0, TUNABLES.SUGGESTED_PARTY_MAX) },
+    // Final guardrail review r4 D1: "Raise my party" adds roster units only up to SUGGESTED_PARTY_MAX;
+    // since pass 8 in @caravan/circle `raiseOrder` (round-robin over unit types), the shared rule.
+    { label: `${region}: the suggested party (${TUNABLES.SUGGESTED_PARTY_MAX})`, typeIds: raiseOrder(wholeWith(a).map((typeId) => ({ typeId }))).slice(0, TUNABLES.SUGGESTED_PARTY_MAX).map((u) => u.typeId) },
   ];
 }
 
-export function raisedGateTasks(reserve: number = TUNABLES.GUIDE_RESERVE, skilled: number = SKILLED.length, defenders?: readonly { region: (typeof REGION_IDS)[number]; refugee: string }[]): RaisedGateTask[] {
+/**
+ * `caravanIds`: whose raise (r4 D2: the starter edges come from the raising caravan's id). By
+ * default one caravan per first starter edge (north, east, south, west), so every edge pair is fought.
+ */
+export function raisedGateTasks(reserve: number = TUNABLES.GUIDE_RESERVE, skilled: number = SKILLED.length, defenders?: readonly { region: (typeof REGION_IDS)[number]; refugee: string }[], caravanIds: readonly string[] = raiseCaravanIds()): RaisedGateTask[] {
   const defs = defenders ?? REGION_IDS.flatMap((region) => starterTypes(region).map((refugee) => ({ region, refugee })));
   const tasks: RaisedGateTask[] = [];
-  for (const raiderRegion of REGION_IDS) for (const p of raisedParties(raiderRegion)) for (const d of defs) tasks.push({ raiderRegion, label: p.label, typeIds: p.typeIds, defRegion: d.region, refugee: d.refugee, reserve, skilled });
+  for (const raiderRegion of REGION_IDS) for (const p of raisedParties(raiderRegion)) for (const d of defs) for (const caravanId of caravanIds) tasks.push({ raiderRegion, label: p.label, typeIds: p.typeIds, defRegion: d.region, refugee: d.refugee, reserve, skilled, caravanId });
   return tasks;
 }
 
 let templateParty: ReturnType<typeof authoredParties>[number] | undefined;
 export function raisedGate(t: RaisedGateTask): RaisedGateResult {
   templateParty ??= authoredParties().find((p) => p.spec.band === 0)!;
-  const sp = raisedStarterParty(t.typeIds, t.label, templateParty);
+  const sp = raisedStarterParty(t.typeIds, t.label, templateParty, t.caravanId);
   const full = freshRoster(t.defRegion, t.refugee, 1);
   const keep = Math.max(1, Math.min(TUNABLES.DEPLOYMENT_SLOT_CAP, full.units.length - t.reserve));
   const m = manifestOf({ ...full, units: full.units.slice(0, keep) });
@@ -245,6 +392,25 @@ export function summarize(rs: readonly FirstTripResult[]): FirstTripSummary {
 
 const isMain = process.argv[1]?.endsWith("first-trip.ts") ?? false;
 const raisedMode = process.argv.includes("--raised");
+const phaseMode = process.argv.includes("--phase");
+if (isMain && phaseMode && !serveIfChild(authoredPhase)) {
+  const arg = (n: string, d: number) => {
+    const i = process.argv.indexOf(`--${n}`);
+    return i >= 0 ? Number(process.argv[i + 1]) : d;
+  };
+  const adviceMode: AdviceMode = process.argv.includes("--old-advice") ? "old" : "new";
+  const tasks = firstTripTasks(arg("seeds", 25), arg("traps", 1), arg("reserve", TUNABLES.GUIDE_RESERVE)).map((t) => ({ ...t, adviceMode }));
+  const rs = await runParallel(process.argv[1]!, tasks, authoredPhase, arg("jobs", 4));
+  const s = summarizePhase(rs);
+  console.log(`Authored-only phase (pass 8) — ${s.caravans} fresh caravans, trip 1 then trip 2 with the attrition carried; the guide's pick, Arrange for me and advice (${adviceMode === "new" ? "the encounter-aware rule, r4 D1" : "the encounter-1 rule throughout, --old-advice"}) at every encounter (≤ ${PHASE_MAX_ENCOUNTERS} encounters)`);
+  console.log(`Coin delivered per trip (mean, overruns 0): trip 1 ${s.coinPerTrip[0].toFixed(0)}, trip 2 ${s.coinPerTrip[1].toFixed(0)}; reached encounter 3: trip 1 ${pct(s.reached3[0])}, trip 2 ${pct(s.reached3[1])}`);
+  console.log(`trip 1 delivered (banked): ${s.trip1Banked}/${s.caravans} = ${pct(share(s.trip1Banked, s.caravans))}`);
+  console.log(`trip 2 delivered (banked): ${s.trip2Banked}/${s.caravans} = ${pct(share(s.trip2Banked, s.caravans))} (target ≥ 50 %)   after a banked trip 1: ${s.trip2AfterBank.banked}/${s.trip2AfterBank.n}   after an overrun: ${s.trip2AfterOverrun.banked}/${s.trip2AfterOverrun.n}`);
+  console.log("trip 2 by region: " + Object.entries(s.trip2ByRegion).map(([k, v]) => `${k} ${v.banked}/${v.n}`).join(", "));
+  const enc = (k: number) => rs.map((r) => r.trips[k]!.encounters);
+  console.log(`encounters per trip (mean): trip 1 ${(enc(0).reduce((a, b) => a + b, 0) / rs.length).toFixed(2)}, trip 2 ${(enc(1).reduce((a, b) => a + b, 0) / rs.length).toFixed(2)}; packed on trip 2 (mean) ${(rs.reduce((a, r) => a + r.trips[1]!.packed, 0) / rs.length).toFixed(2)}`);
+  console.log("overruns by outfit (both trips): " + Object.entries(s.overrunBy).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(", "));
+}
 if (isMain && raisedMode && !serveIfChild(raisedGate)) {
   const ji = process.argv.indexOf("--jobs");
   const jobs = ji >= 0 ? Number(process.argv[ji + 1]) : 4;
@@ -253,12 +419,12 @@ if (isMain && raisedMode && !serveIfChild(raisedGate)) {
   const tasks = raisedGateTasks(reserve);
   const rs = await runParallel(process.argv[1]!, tasks, raisedGate, jobs);
   const s = summarizeRaised(rs);
-  console.log(`Second-trip gate (r2 S2) — raised starter parties (L1, north, nearest, Battering Wagon) vs every fresh guided roster (reserve ${reserve}); best of ${SKILLED.length} skilled layouts`);
+  console.log(`Second-trip gate (r2 S2) — raised starter parties (L1, raised by @caravan/circle raiseUnits for 4 caravans' starter-edge pairs, Battering Wagon) vs every fresh guided roster (reserve ${reserve}); best of ${SKILLED.length} skilled layouts`);
   for (const [label, e] of Object.entries(s.byParty)) console.log(`  ${label.padEnd(52)}${e.rangedOnly ? " ranged" : "       "}  guided ${`${e.guidedHeld}/${e.fights}`.padStart(6)}   best skilled ${`${e.bestHeld}/${e.fights}`.padStart(6)}   served in bands 0–1: ${e.servedLowBands}/${e.fights}`);
   console.log(`ALL raised parties: guided held ${s.guidedHeld}/${s.fights} = ${pct(share(s.guidedHeld, s.fights))}   best skilled held ${s.bestHeld}/${s.fights} = ${pct(share(s.bestHeld, s.fights))}`);
   console.log(`those a bands 0–1 search can serve (r3 S2(b)): guided held ${s.servedGuidedHeld}/${s.servedFights} = ${pct(share(s.servedGuidedHeld, s.servedFights))} (target ≥ 60 %)   best skilled held ${s.servedBestHeld}/${s.servedFights} = ${pct(share(s.servedBestHeld, s.servedFights))} (target ≥ 70 %)`);
 }
-if (isMain && !raisedMode && !serveIfChild(firstTrip)) {
+if (isMain && !raisedMode && !phaseMode && !serveIfChild(firstTrip)) {
   const arg = (n: string, d: number) => {
     const i = process.argv.indexOf(`--${n}`);
     return i >= 0 ? Number(process.argv[i + 1]) : d;

@@ -1,7 +1,7 @@
 /** Final play-test review round 4 D2: the one-tap raise varies its edges and stances, deterministically. */
 import { LIVING_UNIT_TYPES } from "@caravan/content";
 import { describe, expect, it } from "vitest";
-import { ENTRY_EDGES, isEntryCell, partyEdges, raiseStance, raiseUnits, starterEdges } from "../src/index.js";
+import { ENTRY_EDGES, isEntryCell, partyEdges, raiseOrder, raiseStance, raiseUnits, starterEdges } from "../src/index.js";
 
 const caravans = Array.from({ length: 40 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`);
 const roster = (caravanId: string, types: readonly string[]) => types.map((typeId, i) => ({ instanceId: `${caravanId}-u${i}`, caravanId, typeId, unlocked: true }));
@@ -19,9 +19,9 @@ describe("round 4 D2: the raise", () => {
     expect(seen.size).toBe(ENTRY_EDGES.length);
   });
 
-  it("each unit's stance comes from its ability: dash runs at the core, breakers and bursts take the traps", () => {
+  it("each unit's stance comes from its ability: breakers and bursts take the traps, everything else (dash too, since BALANCE-LOG pass 8) the nearest", () => {
     for (const t of LIVING_UNIT_TYPES) {
-      const want = t.ability.archetype === "dash" ? "core" : t.ability.archetype === "structure_breaker" || t.ability.archetype === "burst_radius" ? "traps" : "nearest";
+      const want = t.ability.archetype === "structure_breaker" || t.ability.archetype === "burst_radius" ? "traps" : "nearest";
       expect(raiseStance(t.id), t.id).toBe(want);
     }
     expect(raiseStance("no.such_type")).toBe("nearest");
@@ -48,5 +48,14 @@ describe("round 4 D2: the raise", () => {
     // Locked units are skipped; a saved party over max is never cut.
     expect(raiseUnits({ v: 1, units: [], siege: [] }, r.map((x, i) => ({ ...x, unlocked: i !== 0 })), 5)[0]!.ref).toBe(r[1]!.instanceId);
     expect(raiseUnits({ v: 1, units, siege: [] }, r, 3)).toEqual(units);
+  });
+});
+
+describe("raiseOrder (BALANCE-LOG pass 8): the guide's raise takes unit types round-robin", () => {
+  it("interleaves types in first-appearance order, each type's units in roster order; stable and complete", () => {
+    const r = ["g1", "g2", "g3", "t1", "t2", "t3", "g4"].map((id) => ({ id, typeId: id[0]! }));
+    expect(raiseOrder(r).map((x) => x.id)).toEqual(["g1", "t1", "g2", "t2", "g3", "t3", "g4"]);
+    expect(raiseOrder([])).toEqual([]);
+    expect(raiseOrder([{ typeId: "a" }])).toHaveLength(1);
   });
 });

@@ -95,8 +95,10 @@ export const AUTHORED_USERNAME_PREFIX = SYSTEM_USERNAME_PREFIX;
  * AUTHORED_FLOOR_BAND_PARTY_SIZE (2) raiders, so a first trip that leaves GUIDE_RESERVE units in
  * town still holds ≥ 70 % of guided first fights.
  * v6 (final play-test review r3 D2, BALANCE-LOG pass 6): the outliers re-authored (AUTHORED_REAUTHORED).
+ * v7 (BALANCE-LOG pass 8): bands 0–1 re-authored for the authored-only phase — at most a third of a
+ * band core-stance-heavy, every outfit held ≥ 60 % by the guided layout of the guide's default pack.
  */
-export const AUTHORED_SET_VERSION = 6;
+export const AUTHORED_SET_VERSION = 7;
 export const AUTHORED_PARTIES_PER_BAND: number = TUNABLES.AUTHORED_PARTIES_PER_BAND;
 if (!Number.isInteger(AUTHORED_PARTIES_PER_BAND) || AUTHORED_PARTIES_PER_BAND < 12) throw new Error("TUNABLES.AUTHORED_PARTIES_PER_BAND must be an integer of at least 12 (PHASE-2 §25)");
 if (!Number.isInteger(TUNABLES.AUTHORED_REPUTATION_CEILING) || TUNABLES.AUTHORED_REPUTATION_CEILING < TUNABLES.REPUTATION_FLOOR) throw new Error("TUNABLES.AUTHORED_REPUTATION_CEILING must be an integer at or above REPUTATION_FLOOR");
@@ -280,7 +282,24 @@ function chooseTypes(web: UnlockWeb, maxTier: number, want: number, offset: numb
  * validateSpecs still holds: every band keeps a party of every stance pattern, and the band
  * difficulty (tier, merge level, raiders in the band) still rises.
  */
-export const AUTHORED_REAUTHORED: Readonly<Record<string, { readonly stancePattern?: StancePattern; readonly dropRaiders?: number; readonly addRaiders?: number }>> = {
+export const AUTHORED_REAUTHORED: Readonly<Record<string, { readonly stancePattern?: StancePattern; readonly dropRaiders?: number; readonly addRaiders?: number; readonly edgeCount?: (typeof EDGE_SPLITS)[number]; readonly types?: readonly string[]; readonly siege?: readonly string[] }>> = {
+  // BALANCE-LOG pass 8 (the authored-only phase, bands 0–1; `scripts/balance/low-bands.ts`): every
+  // band 0–1 outfit held ≥ 60 % by the guided layout of the guide's default pack (roster −
+  // GUIDE_RESERVE), and at most a third of a band core-stance-heavy. Each region keeps a 1-, 2- and
+  // 4-edge party in each band (an edge split moves between two of a region's outfits, never away).
+  // Guided holds of 56 packs, before → after:
+  "Dry Gulch Boys": { stancePattern: "core" }, // b0 desert: band 0's core outfit (core 56/56; was Grizzly Creek / Timberline at 30, 28)
+  "Grizzly Creek Trappers": { stancePattern: "traps" }, // b0: 30 → 56
+  "Timberline Gang": { stancePattern: "mixed" }, // b0: 28 → 56
+  "Windmill Gang": { stancePattern: "nearest" }, // b0: 19 → 52
+  "Claim Jumpers' League": { stancePattern: "traps" }, // b0: 5 → 54
+  "Prairie Wolf Pack": { stancePattern: "nearest" }, // b0: 50 → 56; the guide's most frequent encounter-1 pick, and the top overrunner of the authored-only phase (traps-stance Lope runners against a hurt circle)
+  "The Cistern Gang": { stancePattern: "core" }, // b1 desert: band 1's core outfit (core 52/56; the best-held core variant in band 1, and band 1 needs one; 3 is the band minimum)
+  "Sodbusters' Levy": { stancePattern: "traps" }, // b1: 34 → 56
+  "Buffalo Wallow Crew": { stancePattern: "nearest" }, // b1: 0 → 56
+  "The Grange Riders": { stancePattern: "traps" }, // b1: 7 → 56
+  "The Avalanche Club": { stancePattern: "nearest", edgeCount: 4, types: ["mountain.trapper"], siege: [] }, // b1 mountain: 13 → 46, takes the 4-edge split (Grizzlies from four sides held ≤ 6 whatever the stance or siege)
+  "Mule Skinner Mafia": { edgeCount: 2 }, // b1 mountain (mixed): 0 → 56, takes the 2-edge split (3 raiders)
   // The outliers (each was under 20 %):
   "Hardrock Hirelings": { stancePattern: "nearest" }, // b0: typical 3/8, fresh-5 0/8 (mixed: fresh-5 6/8, and lost pushed encounter 2)
   "Boot Hill Society": { stancePattern: "mixed" }, // b3: 0/8
@@ -329,20 +348,21 @@ export function authoredPartySpecs(): AuthoredPartySpec[] {
       if (!outfit) throw new Error(`authoredOutfits.ts needs at least ${bands.length * perRegionPerBand} outfits for region '${regionId}'`);
       const livingWeb = unlockWebFor("living", regionId);
       const roster = chooseTypes(livingWeb, maxLivingTier(ordinal), 2 + Math.floor(ordinal / 2), nth + ordinal);
-      const edgeCount = EDGE_SPLITS[nth % EDGE_SPLITS.length]!;
+      const re = AUTHORED_REAUTHORED[outfit.name];
+      const edgeCount = re?.edgeCount ?? EDGE_SPLITS[nth % EDGE_SPLITS.length]!;
       // At least one unit per edge the party splits across, so a 4-edge party really comes from four sides.
       const size = Math.min(TUNABLES.PARTY_SLOT_CAP, Math.max(edgeCount, bandPartySize(ordinal, i)));
       const base = baseMergeLevel(ordinal);
-      const re = AUTHORED_REAUTHORED[outfit.name];
       const fielded = Math.min(TUNABLES.PARTY_SLOT_CAP, Math.max(edgeCount, size - (re?.dropRaiders ?? 0) + (re?.addRaiders ?? 0)));
       const units: { typeId: string; mergeLevel: number }[] = [];
       for (let u = 0; u < fielded; u++) {
         const leader = ordinal >= AUTHORED_LEADER_FROM_ORDINAL && i % 3 === 0 ? 1 : 0;
         const level = u === 0 ? Math.min(TUNABLES.MERGE_LEVEL_MAX, base + leader) : Math.max(TUNABLES.MERGE_LEVEL_MIN, base - (ordinal >= AUTHORED_FULL_LEVEL_FROM_ORDINAL ? 0 : u % 2));
-        units.push({ typeId: roster.types[u % roster.types.length]!, mergeLevel: level });
+        const types = re?.types ?? roster.types;
+        units.push({ typeId: types[u % types.length]!, mergeLevel: level });
       }
       const loadouts = SIEGE_LOADOUTS.filter((l) => l.every((id) => (findUnlockNode(siegeWeb, id)?.tier ?? Infinity) <= maxSiegeTier(ordinal)));
-      const siege = [...loadouts[(i + ordinal) % loadouts.length]!];
+      const siege = [...(re?.siege ?? loadouts[(i + ordinal) % loadouts.length]!)];
       const siegeNodes = purchaseOrder(siegeWeb, closureOf(siegeWeb, siege));
       const r = (band + i) % EDGES.length;
       const edges = edgeCount === 4 ? [...EDGES] : edgeCount === 2 ? [EDGES[r]!, EDGES[(r + 1) % 4]!] : [EDGES[r]!];
@@ -357,8 +377,8 @@ export function authoredPartySpecs(): AuthoredPartySpec[] {
         edgeCount,
         edges,
         stancePattern: re?.stancePattern ?? STANCE_PATTERNS[(i + ordinal) % STANCE_PATTERNS.length]!,
-        livingNodes: roster.nodes.map((n) => n.id),
-        livingPoints: roster.points,
+        livingNodes: (re?.types ? purchaseOrder(livingWeb, closureOf(livingWeb, re.types)) : roster.nodes).map((n) => n.id),
+        livingPoints: re?.types ? pointsFor(livingWeb, purchaseOrder(livingWeb, closureOf(livingWeb, re.types))) : roster.points,
         siegeNodes: siegeNodes.map((n) => n.id),
         siegePoints: pointsFor(siegeWeb, siegeNodes),
       });
