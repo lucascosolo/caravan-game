@@ -293,7 +293,8 @@ export const AUTHORED_REAUTHORED: Readonly<Record<string, { readonly stancePatte
   "Timberline Gang": { stancePattern: "mixed" }, // b0: 28 → 56
   "Windmill Gang": { stancePattern: "nearest" }, // b0: 19 → 52
   "Claim Jumpers' League": { stancePattern: "traps" }, // b0: 5 → 54
-  "The Cistern Gang": { stancePattern: "core" }, // b1 desert: band 1's core outfit (core 52/56)
+  "Prairie Wolf Pack": { stancePattern: "nearest" }, // b0: 50 → 56; the guide's most frequent encounter-1 pick, and the top overrunner of the authored-only phase (traps-stance Lope runners against a hurt circle)
+  "The Cistern Gang": { stancePattern: "core" }, // b1 desert: band 1's core outfit (core 52/56; the best-held core variant in band 1, and band 1 needs one; 3 is the band minimum)
   "Sodbusters' Levy": { stancePattern: "traps" }, // b1: 34 → 56
   "Buffalo Wallow Crew": { stancePattern: "nearest" }, // b1: 0 → 56
   "The Grange Riders": { stancePattern: "traps" }, // b1: 7 → 56

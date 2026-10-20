@@ -419,7 +419,7 @@ if (isMain && raisedMode && !serveIfChild(raisedGate)) {
   const tasks = raisedGateTasks(reserve);
   const rs = await runParallel(process.argv[1]!, tasks, raisedGate, jobs);
   const s = summarizeRaised(rs);
-  console.log(`Second-trip gate (r2 S2) — raised starter parties (L1, north, nearest, Battering Wagon) vs every fresh guided roster (reserve ${reserve}); best of ${SKILLED.length} skilled layouts`);
+  console.log(`Second-trip gate (r2 S2) — raised starter parties (L1, raised by @caravan/circle raiseUnits for 4 caravans' starter-edge pairs, Battering Wagon) vs every fresh guided roster (reserve ${reserve}); best of ${SKILLED.length} skilled layouts`);
   for (const [label, e] of Object.entries(s.byParty)) console.log(`  ${label.padEnd(52)}${e.rangedOnly ? " ranged" : "       "}  guided ${`${e.guidedHeld}/${e.fights}`.padStart(6)}   best skilled ${`${e.bestHeld}/${e.fights}`.padStart(6)}   served in bands 0–1: ${e.servedLowBands}/${e.fights}`);
   console.log(`ALL raised parties: guided held ${s.guidedHeld}/${s.fights} = ${pct(share(s.guidedHeld, s.fights))}   best skilled held ${s.bestHeld}/${s.fights} = ${pct(share(s.bestHeld, s.fights))}`);
   console.log(`those a bands 0–1 search can serve (r3 S2(b)): guided held ${s.servedGuidedHeld}/${s.servedFights} = ${pct(share(s.servedGuidedHeld, s.servedFights))} (target ≥ 60 %)   best skilled held ${s.servedBestHeld}/${s.servedFights} = ${pct(share(s.servedBestHeld, s.servedFights))} (target ≥ 70 %)`);
