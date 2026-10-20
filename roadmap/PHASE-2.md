@@ -1339,6 +1339,26 @@ counters regenerated, the golden gate accepts.
 Open for telemetry: a whole six-unit ranged roster raised as one party (Mountain 25 %, Badlands
 0 %), the four-healer turtle's healing offset (47 %), 8 × L4 trip EV, core-stance dominance.
 
+**Balance pass 6 (2026-10-20, final play-test review round 3; RESOLVER_VERSION unchanged at 9;
+BALANCE-LOG.md pass 6).** Changes: `AUTHORED_ONLY_UNTIL_BANKS` 2 replaces the first-trip rule
+(voided and overrun trips do not count); `COLD_START_PACKED_CAP_MAX_BAND` 1 applies the packed-unit
+raider cap in bands 0–1 whatever the roster; 19 authored outfits re-authored (`AUTHORED_REAUTHORED`,
+set v6): the 10 under 20 % and 9 that keep bands 5–6 hard. The harness runs the client's own guide
+code (`@caravan/circle` guide.ts and guideLayout.ts).
+
+| target | before | after |
+|---|---|---|
+| guided first fight (≥ 70 %) | 86 % | 86 % |
+| pushed encounter 2, the guide's pick and layout (≥ 60 %, new) | 56 % (as played) | 90 % |
+| first trip delivered | ≈ 48 % | 78 % |
+| later trips' gate, 7-unit whole rosters, over what can be served (≥ 60 / 70 %) | 79 / 83 % (all served) | 100 / 100 % (none of them in bands 0–1) |
+| authored parties under 20 % (best layout, band-typical) | 10 | 0 |
+| skilled − naive at the band-typical diagonal | 18 pts | 26 pts |
+| trip EV best bank point L1 / L2 / L3 | +5,930 / +3,752 / +5,761 | +5,960 / +9,485 / +5,783 |
+
+Open for telemetry: whole raised rosters from band 2 up; 8 × L3 one fight under the band-5
+break-even; D1 fast runners (Timberline Gang 11 / 28); D3 week-1 unlock pace; the pass-5 items.
+
 **Definition of done.** No single type predicts outcomes above threshold in the sweep,
 the alpha's bank-versus-push curve shows real decisions at encounters two through five,
 and the grind-wall dashboard shows the paid path as optional across deciles.

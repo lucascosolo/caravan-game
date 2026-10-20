@@ -26,6 +26,7 @@ import {
   RING_SEGMENTS,
   applyEncounterOutcome,
   guidePick as guideRulePick,
+  guidedFormation,
   guideStakesOf,
   isRangedOnly as guideRangedOnly,
   isFenceIntact,
@@ -287,40 +288,18 @@ export function searchLayout(gap: string, post: string, mode: "guard" | "hold" |
 }
 
 /**
- * The onboarding's guided arrangement (arrangeGuide.ts), step for step: fence the main side but
- * its middle; leave the middle open; lay the first trap one cell inside the gap; post every unit
- * as near two cells inside the gap as the rules allow (keeping the trap's cell free), on the
- * default stance (guard); then the rest of the fence, most raiders first. Only the FIRST trap is
- * laid (the guide lays one); a manifest with more keeps the rest back.
+ * The onboarding's guided arrangement, as the client lays it at every guided encounter (final
+ * play-test review r3): @caravan/circle's shared `guidedFormation` (guideLayout.ts), the very code
+ * apps/web's arrangeGuide runs, over the manifest as it stands (survivors at a pushed encounter)
+ * and the chosen party's raider edges. Not mirrored: imported. (Before pass 6 this was a port;
+ * the port and the shared function built the same formation for all 6,528 sweep matchups and 444
+ * pushed-encounter survivors checked.)
  */
 export const GUIDED: Layout = {
   name: "guided",
   family: "guided",
   build(m, scout) {
-    const mid = midSegment(scout.main);
-    const fences = fenceInOrder(m, [...sidesOrder(ranked(scout.byEdge, scout.main), new Set([mid]))]);
-    const gapCell = ringSegment(mid).cell;
-    const trapCell = add(gapCell, OUT[scout.main], -1);
-    const postTarget = add(gapCell, OUT[scout.main], -2);
-    const traps = unspentTraps(m);
-    const f0: { fences: Formation["fences"]; traps: { ref: string; cell: Cell }[]; posts: { ref: string; cell: Cell; stance: DefensiveStance }[] } = { fences: [], traps: [], posts: [] };
-    // Fence the main side first (as the guide does), then posts, trap, rest — the cells do not
-    // interact with the fence, so placing all fences at once is the same formation.
-    f0.fences = fences;
-    const taken = new Set<string>();
-    // Posts (the guide posts before laying the trap, keeping the trap's cell free).
-    for (const u of m.units.filter(isUnitAlive)) {
-      const c = nearestCells(postTarget, new Set([...taken, key(trapCell)]), (x) => minPostOk(x, f0.posts))[0];
-      if (!c) return null;
-      f0.posts.push({ ref: u.ref, cell: c, stance: "guard" });
-      taken.add(key(c));
-    }
-    const t = traps[0];
-    if (t) {
-      const c = nearestCells(trapCell, taken)[0];
-      if (c) f0.traps.push({ ref: t.ref, cell: c });
-    }
-    const f: Formation = { v: 2, fences: f0.fences, traps: f0.traps, posts: f0.posts };
+    const f = guidedFormation(m, { units: scout.byEdge.flatMap((e) => Array.from({ length: e.raiders }, () => ({ edge: e.edge }))), edges: scout.edges });
     const v = validateFormation(m, f, () => true);
     return v.ok ? v.value : null;
   },
