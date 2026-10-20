@@ -374,6 +374,7 @@ const menuFields = object({
   authoredOutsideBand: boolean(),
   authoredShare: object({ authored: COUNT, of: COUNT, shareBp: BP, maxShareBp: BP }),
   authoredServed: nullable(object({ band: integer(), window: COUNT, served: COUNT, authored: COUNT, weightedDown: boolean() })),
+  authoredOnlyTrip: optional(boolean()),
   candidates: array(candidate, { maxLength: 16 }),
   searchedAtMs: integer({ min: 0 }),
   // The reroll is free and gated by time only (GUARDRAILS §2): any other gate is a bad body.

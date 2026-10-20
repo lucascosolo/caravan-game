@@ -22,6 +22,7 @@ import { monotonic, useAnchoredCountdown } from "../../shell/countdown.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { STRINGS } from "../../strings.ts";
 import { rangedCount } from "@caravan/circle";
+import { TUNABLES } from "@caravan/content";
 import { ScoutPanel } from "./ScoutPanel.tsx";
 import type { ScoutedParty } from "./scoutTypes.ts";
 
@@ -148,10 +149,11 @@ export function CandidatesScreen({ encounterIndex, menu, busy, error, onSearchAg
           {T.authoredFallback}
         </p>
       )}
-      <p className="hint" data-testid="authored-share">
-        {T.authoredShare(share.authored, share.of, Math.round(share.maxShareBp / 100))}
+      {/* Final play-test review r3: an authored-only menu says why, never the live pool's 30 % share. */}
+      <p className="hint" data-testid="authored-share" data-authored-only={menu.authoredOnlyTrip === true ? "true" : "false"}>
+        {menu.authoredOnlyTrip === true ? T.authoredOnlyTrip(TUNABLES.AUTHORED_ONLY_UNTIL_BANKS) : T.authoredShare(share.authored, share.of, Math.round(share.maxShareBp / 100))}
       </p>
-      {menu.authoredServed?.weightedDown && <p className="hint">{T.authoredWeightedDown}</p>}
+      {menu.authoredOnlyTrip !== true && menu.authoredServed?.weightedDown && <p className="hint">{T.authoredWeightedDown}</p>}
 
       <div className="actions">
         <button type="button" className="btn" disabled={!canReroll} aria-disabled={!canReroll} onClick={onSearchAgain} data-testid="reroll" data-seconds-left={Math.max(left, refusedLeft)}>
