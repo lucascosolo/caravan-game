@@ -24,7 +24,8 @@ flat design, realistic rendering, or noisy retro pixel art with heavy dithering.
 
 | Knob | Pick | What it means in practice |
 |---|---|---|
-| Pixel size | **Small** | Each art pixel is a whole number of device pixels, about 1 CSS px on a phone. This gives the finest detail of the three sizes tried. |
+| Pixel size | **Small** | The finest of the three sizes tried. |
+| Detail | **Fine: 1.5× finer grid, same footprint** (picked later the same day) | Every asset keeps the on-screen footprint in §3 but is drawn on a grid 1.5 times finer, so a 24 × 32 character is drawn at 36 × 48. On a 3× phone screen that is exactly 2 device pixels per art pixel, so the pixels stay crisp. In the look test only the AI-made pieces used it; the finished set uses it for everything, ground and fences included, because mixed pixel sizes are banned (§8). |
 | Outline | **Extra bold, never on the ground** | Every object has its own 1 px dark outline in the art, and code adds a second 1 px dark line around the silhouette. Ground tiles get neither, because outlined tiles read as a grid. |
 | Colour | **Warm-bright** | The warm palette pushed between warm and bright. The hex values in §4 already include this grade, so nothing is applied by a screen filter. |
 | Side marks | **On by default; each player can turn them off** | The round settler badge and triangular raider tag are drawn by code over every unit. They are an account setting, defaulting to on. |
@@ -33,18 +34,26 @@ flat design, realistic rendering, or noisy retro pixel art with heavy dithering.
 
 ### Grid and scale
 
-Every asset class has a fixed art-pixel size, measured on the 48 × 24 ground tile the
-renderer already uses (`apps/web/src/iso/projection.ts`). The build step checks these sizes.
+Every asset class has a fixed footprint, measured on the 48 × 24 ground tile the renderer
+already uses (`apps/web/src/iso/projection.ts`). The sizes below are footprints. The art itself
+is drawn 1.5 times finer (§2, "Detail"), so a 24 × 32 person is a 36 × 48 drawing, a
+48 × 24 tile a 72 × 36 drawing and an 84 × 62 wagon a 126 × 93 drawing. The outline grows by
+the same factor, so it reads equally bold. The build step checks these sizes.
 
 | Class | Art size (w × h, px) | Ground-contact point | From the look test |
 |---|---|---|---|
 | Ground tile | 48 × 24, an exact 2:1 diamond | centre | `tile_sand` |
 | Person | about 22–24 × 30–32 | between the feet | `sharpshooter`, `welldigger` |
 | Animal | sized to the animal: a coyote is 26 × 18, a longhorn or horse larger | between the feet | `coyote` |
-| Wagon | 56–64 × 42–48 | centre of the wheel footprint | `wagon_core`, `wagon_plain` |
+| Wagon | about 84 × 62 | centre of the wheel footprint | `wagon_core`, `wagon_plain` (drawn at 64 × 48; the owner asked for bigger wagons on 2026-10-20 because people must look as if they could ride inside) |
 | Fence segment | 30 × 24, along a cell edge at the 2:1 slope | centre of the edge | `fence_rail` |
 | Trap | about 18 × 10, flat on the ground | centre | `trap_jaw` |
-| Small prop | about 14 px wide | base | `cactus`, `rock`, `sagebrush` |
+| Small prop | about 14 px wide | base | `rock`, `sagebrush` |
+| Tall prop | a saguaro towers over a person: about 20 × 44 | base | `cactus` (drawn at 14 × 24, too small; to redo) |
+
+**Characters stay 24 × 32** (owner's pick, 2026-10-20, over 30 × 40). Props are sized to the
+characters, not the other way round: anything people ride, enter or hide behind must look
+big enough for them.
 
 The two wagons in the look test had to be rebuilt to the same scale; a class that drifts in
 scale reads as a collage. The camera is the game's 2:1 isometric view. Characters face
@@ -167,7 +176,15 @@ Code adds the second outline pixel, the contact shadow and the side marks when d
 Because the build enforces scale, palette and line, two images from different sources still
 match.
 
-**Generating sources (to be confirmed by the first Wiro test):** ask for a clean, flat-colour
+**The house generator** (owner's pick after the first Wiro pass, 2026-10-20) is **GPT Image 2
+with a reference image**: it read clean while following the theme. Pass the closest
+in-house sprite as the reference, so new assets inherit its line, palette and proportions.
+Nano Banana 2.1 was a close second; FLUX 2 Pro drifted off-model. In the second pass, **GPT
+Image 2.5 (Flare)** matched that look at about a quarter of the price ($0.013 against $0.053
+per medium 1k image) and returned a real transparent background, so it is the default for
+production runs. GPT Image 2 on a solid magenta backdrop also keys cleanly and is the fallback.
+
+**Generating sources:** ask for a clean, flat-colour
 illustration at large size, not for "pixel art". Generators draw fake pixels that sit off the
 grid, and downscaling clean flat art works better. A prompt names the subject and its one
 exaggerated feature, then: "isometric three-quarter view facing down-right, whole object
