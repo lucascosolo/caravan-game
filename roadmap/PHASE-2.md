@@ -1359,6 +1359,30 @@ code (`@caravan/circle` guide.ts and guideLayout.ts).
 Open for telemetry: whole raised rosters from band 2 up; 8 × L3 one fight under the band-5
 break-even; D1 fast runners (Timberline Gang 11 / 28); D3 week-1 unlock pace; the pass-5 items.
 
+**Balance pass 8 (2026-10-20; RESOLVER_VERSION unchanged at 9; BALANCE-LOG.md pass 8).**
+- The authored-only phase: bands 0–1 re-authored (set v7). At most a third of a band is
+  core-stance-heavy; it is now one outfit per band. Every band 0–1 outfit is held ≥ 60 % by the
+  guided layout of the guide's pack.
+- The guide's raise: `SUGGESTED_PARTY_MAX` 5 → 3, taken round-robin over unit types, with a dash
+  type raised `nearest`.
+- The harness models trip 1 and trip 2 with the attrition carried, the encounter-aware advice and
+  `raiseUnits`.
+
+| target | before | after |
+|---|---|---|
+| trip 2 delivered, authored-only, guided (≥ 50 %) | 69 % | 94 % |
+| encounter 1 guided (≥ 70 %); pushed encounter 2 (≥ 60 %) | 86 %; 90 % | 100 %; 93 % |
+| band 0–1 outfits under 60 % guided | 8 | 0 |
+| the guide's raise held by a fresh guided circle, desert / high plains / mountain / badlands | 0 / 30 / 22 / 41 % | 73 / 76 / 71 / 85 % |
+| Coin per guided trip, the encounter-aware advice (the encounter-1 rule) | 1,231 | 1,374 (2,462) |
+| trip EV L1 / L2 / L3 | +5,960 / +9,485 / +5,783 | +5,960 / +9,486 / +5,785 |
+
+Open for telemetry:
+- Coin per guided trip under the round-4 advice;
+- the guided step into band 2;
+- The Cistern Gang;
+- round 4 D3 (strong parties passed over) and D5 (idle Coin, merges that do not stick).
+
 **Definition of done.** No single type predicts outcomes above threshold in the sweep,
 the alpha's bank-versus-push curve shows real decisions at encounters two through five,
 and the grind-wall dashboard shows the paid path as optional across deciles.

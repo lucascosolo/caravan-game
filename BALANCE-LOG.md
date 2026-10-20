@@ -18,6 +18,8 @@ what the server would resolve.
 | `unlock-pace.ts` | The week model read for ladder points: the days of play until the first tier-2 living unlock, at 15 / 30 / 42 trips a week and bank points 1–3 (`--costs` evaluates another cost curve). Pass 2, D8. |
 | `party-rating.ts` | The Reputation equilibrium check on a sweep's `--json` matrix: each caravan roster's equilibrium band, and a standing party's siege-Reputation drift per strike by strength and band, under the current and the old party-loss rule. Pass 2, D6. |
 | `first-trip.ts --raised` | The later trips' gate (play-test review round 2, S2): every region's raised starter parties (each pair of its starters, ranged pairs included, and since pass 6 the whole roster plus its refugee, 7 units) against every fresh guided roster, the guided layout and the best skilled one, and which of them a bands 0–1 search can serve against the five-post circle. Pass 4; the CI slice runs half of it. |
+| `low-bands.ts` | The bands 0–1 gate (pass 8): every band 0–1 authored outfit against the 56 fresh guided packs (each region × refugee × rotation of who stays home), the guided layout; flags any under 60 % and a band with more than a third core-stance-heavy. `--variants` also fights each outfit's stance / size variants. |
+| `first-trip.ts --phase` | The authored-only phase (pass 8): trip 1 then trip 2 with the attrition carried, the guide's pick, Arrange for me and encounter-aware advice throughout; delivery, Coin per trip, overruns by outfit. `--old-advice` replays the encounter-1 rule at every encounter. |
 | `outliers.ts` | Authored outliers (round 3, D2): every authored party's hold rate for the best skilled layout against its band's typical rosters (and, in bands 0–1, the fresh guided pack); flags any under 20 %. `--bands` limits it. Pass 6. |
 | `fast-runners.ts` | Fast core- and trap-stance runners (round 2, D1): band-0/1 authored outfits with such raiders against fresh rosters; overrun share, overruns within 20 s, units lost per fast overrun. `--explore` tries a lever. Pass 4. |
 | `cold-start.ts` | The cold-start raider cap (S1; keyed on the roster since pass 3, and in bands 0–1 on the caravan's own band since pass 7) re-checked: rebuilt 1–4 unit caravans, with the cap on and off, against the authored pool. `--rating` sets the caravan's living Reputation (default REPUTATION_START). Passes 2 and 3. |
@@ -39,6 +41,187 @@ upper bound on what one reading of the scout gets. "Naive" layouts ignore the sc
 A roster's **equilibrium band** is the highest band whose skilled encounter-1 hold rate is at least
 the Reputation break-even. The break-even is 20 / (8 + 20) ≈ 71 % since change #27 (20 / (10 + 20) ≈ 67 % from #16; 20 / (15 + 20) = 57 % before), because a hold earns +8 and an
 overrun costs −20.
+
+---
+
+## Pass 8 — 2026-10-20 (the authored-only phase: bands 0–1 re-authored; the guide's raise). RESOLVER_VERSION unchanged at 9.
+
+No resolver code changed, and no unit stat or tunable that a fight reads changed. The goldens and
+work counters are unchanged. The authored set moves to v7 (bands 0–1 only). The guide's one-tap
+raise changes in two ways: a smaller size, and a different order and stance. That folds in pass 7's
+open item. The harness now models the whole authored-only phase with the round-4 rules: the
+encounter-aware advice and `raiseUnits`.
+
+### What changed
+
+| # | number | from → to | why |
+|---|---|---|---|
+| 33 | `AUTHORED_REAUTHORED`, bands 0–1 (`AUTHORED_SET_VERSION` 6 → 7) | 12 band 0–1 outfits re-authored (table below) | Re-plays showed trip 2 banking about 1 in 4 during the authored-only phase, with the guide's help. Almost every loss was to a core-stance outfit, or to Prairie Wolf Pack, in bands 0–1. The decision: at most a third of each band core-stance-heavy (half or more raiders on `core`). Every band 0–1 outfit must be held ≥ 60 % by the guided layout of the guide's default pack. Variety and rising difficulty stay. New override fields `edgeCount`, `types` and `siege`: each region keeps a 1-, 2- and 4-edge party in each band, and an edge split only moves between two of a region's own outfits. |
+| 34 | `SUGGESTED_PARTY_MAX` | 5 → **3** | Pass 7's open item, re-measured under round 4's raise (`raiseUnits`: two starter edges, stance by role). A raise of 5 was held by a fresh guided five-post circle only 0 % (desert), 30 % (high plains), 22 % (mountain) and 41 % (badlands) of the time. It is served to such circles from a caravan's third trip. See "The raise" below for why 3 and not 4. |
+| 35 | the raise's order (`@caravan/circle` `raiseOrder`, inside `raiseUnits`) | roster order → **round-robin over unit types** | With 3 raised from a fresh roster (3 + 3 of two starter types, then the refugee), roster order raises A, A, A, for example three Dust Riders or three Grizzlies. Round-robin raises A, B, A. Measured, it is the stronger lever at every size (below). |
+| 36 | the raise's stance for a `dash` type (`raiseStance`) | `core` → **`nearest`** | Under round 4's rule a desert raise (Dust Rider dash → `core`, Well Digger → `traps`) was held 0–12 % at every size, and high plains (Prairie Wolf dash) 17–53 %. Core runners from two sides beat a guided circle whatever its size. Breakers and bursts still raise `traps`, and both starter edges stay, so the population of raised parties still varies (round 4 D2). A player who wants runners sets `core` in the builder. |
+| — | the harness (`first-trip.ts`, `sweep.ts`) | — | `guideAdvice` passes the encounter just survived (round 4 D1). `raisedStarterParty` raises through `raiseUnits`; the raised gate fights the raises of 4 caravans, one per starter-edge pair. New `first-trip.ts --phase`: the whole authored-only phase, trip 1 then trip 2, with the attrition carried. It uses the guide's pick, "Arrange for me" (`guidedFormation`) and the advice at every encounter, plus Coin per trip (`--old-advice` replays the encounter-1 rule at every encounter). New `low-bands.ts`: the bands 0–1 gate. Both have a CI slice. |
+
+**#33 — bands 0–1** (`low-bands.ts`: the guided layout against 56 fresh guided packs, i.e. each
+region × each refugee × every rotation of who stays home; held before → after):
+
+| outfit | was | now | held |
+|---|---|---|---|
+| Dry Gulch Boys (b0, desert) | 2 nearest | **core**: band 0's core-stance outfit | 56 → 56 |
+| Grizzly Creek Trappers (b0) | 2 core | traps | 30 → 56 |
+| Timberline Gang (b0) | 2 core | mixed (nearest + traps) | 28 → 56 |
+| Prairie Wolf Pack (b0) | 2 traps | nearest | 50 → 56 (the guide's most frequent encounter-1 pick, and the phase's top overrunner) |
+| Windmill Gang (b0) | 4 traps, 4 edges | nearest | 19 → 52 |
+| Claim Jumpers' League (b0) | 4 mixed, 4 edges | traps | 5 → 54 |
+| The Cistern Gang (b1, desert) | 3 traps | **core**: band 1's core-stance outfit | 56 → 52 |
+| Sodbusters' Levy (b1) | 4 core | traps | 34 → 56 |
+| Buffalo Wallow Crew (b1) | 4 core | nearest | 0 → 56 |
+| The Grange Riders (b1) | 4 core, 4 edges | traps | 7 → 56 |
+| The Avalanche Club (b1, mountain) | 3 mixed, 2 edges | 4 Trappers, nearest, no siege, **4 edges** | 13 → 46. A Grizzly party from four sides held ≤ 6 whatever its stance or siege. |
+| Mule Skinner Mafia (b1, mountain) | 4 mixed, 4 edges | 3 mixed, **2 edges** | 0 → 56 |
+| *(Hardrock Hirelings, b0, pass 6: 4 nearest)* | | unchanged | 46 |
+
+- Every band 0–1 outfit now clears the bar. The lowest are Hardrock Hirelings 46 / 56 (82 %) and
+  The Avalanche Club 46 / 56.
+- Band 0 is held 76 % → **97 %** overall, and band 1 61 % → **93 %**.
+- Core-stance-heavy: band 0 2 / 12 → 1 / 12, band 1 3 / 12 → 1 / 12.
+- Raiders per band are unchanged (32 · 44), and so is every band above.
+- Variety: ranged-only outfits (Gunslinger's Dozen, Bounty Board Riders, Rattler Den Gang, Vulture
+  Roost, Snake Oil, Avalanche) and trap-runners (Homestead Holdouts, Grizzly Creek, Claim Jumpers,
+  Sodbusters, Grange Riders, Sidewinder, Mesa Line) stay. So do siege pieces, the two core
+  outfits, and every stance pattern in each band.
+
+**Difficulty still rises, but less steeply into band 1.**
+- Guided against the guide's pack: band 0 97 %, band 1 93 %.
+- Sweep, fresh roster (7 units): skilled 100 / 100 / 92 % and guided 100 / 100 / 63 % at bands
+  0 / 1 / 2 (before: skilled 100 / 90 / 92 %).
+- The step into band 2 is steep for the guided layout. A caravan meets band 2 only after leaving the
+  floor, with live parties served by then (open item 2).
+
+### Before → after
+
+"Before" is main at e0a40ab (set v6, `SUGGESTED_PARTY_MAX` 5, round 4's raise). Every number is
+measured with the round-4 rules: encounter-aware advice and `raiseUnits`.
+
+**The authored-only phase** (`first-trip.ts --phase`, 200 fresh caravans; trip 1 then trip 2 with
+the attrition carried; the guide's pick, Arrange for me and advice throughout; at most 5 encounters):
+
+| | before | **after** | after, the encounter-1 advice rule throughout (`--old-advice`) |
+|---|---|---|---|
+| trip 1 delivered | 156 / 200 = 78 % | **189 / 200 = 95 %** | 183 / 200 = 92 % |
+| **trip 2 delivered (target ≥ 50 %)** | 137 / 200 = 69 % | **188 / 200 = 94 %** | 187 / 200 = 94 % |
+| trip 2, by region (desert / high plains / mountain / badlands) | 20 / 19 / 50 / 48 of 50 | 49 / 43 / 50 / 46 | 47 / 42 / 50 / 48 |
+| trip 2 after an overrun on trip 1 | 6 / 44 | 2 / 11 | 7 / 17 |
+| Coin delivered per trip (mean, overruns 0), trip 1 / trip 2 | 1,231 / 1,072 | **1,374 / 1,397** | 2,462 / 2,515 |
+| encounters per trip (mean); share that reaches encounter 3 | 1.79; 1 % | 1.79; 1 % | 2.61; 44–49 % |
+| top overrunners (both trips) | Prairie Wolf Pack 37, Timberline Gang 31, Sodbusters' Levy 19 | The Cistern Gang 11, Deadfall Crew 4, Prairie Wolf Pack 3 | Cistern 10, Deadfall 9, Prairie Wolf 3 |
+
+- **The two advice rules** (round 4 D1, measured as asked):
+  - Delivery is about the same under both: 95 % / 94 % against 92 % / 94 %.
+  - The new rule banks almost every guided trip at encounter 2, because a circle is rarely
+    untouched. So it delivers about **half the Coin per trip**: 1,374 against 2,462.
+  - The old rule pushed 44–49 % of trips to encounter 3, and lost few more of them.
+- **The outfits the re-plays named** (overruns in the phase before → after):
+  - Prairie Wolf Pack 37 → 3. As the encounter-1 pick it is now held 110 / 110 (was 99 / 110).
+  - Timberline Gang 31 → 2. As the pick it is held 28 / 28 (was 11 / 28).
+  - Grizzly Creek Trappers 6 → 0.
+  - The remaining overruns are mostly The Cistern Gang. It is band 1's one core-stance outfit, so
+    some outfit has to fill that role, and Cistern is the best-held core variant in band 1. It
+    overruns hurt circles on trip 2.
+
+**Target 1 — the guided first trip** (`first-trip.ts`, 200 caravans):
+
+| | before | after |
+|---|---|---|
+| encounter 1, guided (target ≥ 70 %) | 172 / 200 = 86 % | **200 / 200 = 100 %** |
+| pushed encounter 2, the guide's pick and layout (target ≥ 60 %) | 140 / 156 = 90 % | **145 / 156 = 93 %**; best skilled 151 / 156 = 97 % |
+| first trip delivered (one hold, then an advised bank, or a hold, a push and a hold) | 156 / 200 = 78 % | 189 / 200 = 95 % |
+
+**The raise** (pass 7's open item; the guided layout against the fresh guided packs, raised by
+`raiseUnits` for 4 caravans, one per starter-edge pair; 112 fights per cell):
+
+| raise | desert | high plains | mountain | badlands |
+|---|---|---|---|---|
+| **before**: 5, roster order, dash → core | **0 %** | **30 %** | **22 %** | **41 %** |
+| 4, roster order (pass 7's `SUGGESTED_PARTY_MAX` 4 lever) | 0 % | 50 % | 32 % | 66 % |
+| 3, roster order | 0 % | 85 % | 48 % | 69 % |
+| 4, round-robin | 6 % | 17 % | 54 % | 79 % |
+| 3, round-robin | 12 % | 53 % | 71 % | 85 % |
+| 4, round-robin, dash → nearest | 66 % | 57 % | 54 % | 79 % |
+| 4, round-robin, dash → nearest, one edge | 100 % | 100 % | 72 % | 83 % |
+| **after: 3, round-robin, dash → nearest** (#34–36) | **73 %** | **76 %** | **71 %** | **85 %** |
+
+- Pass 7's two levers do not reach 60 % on their own. With "fewer ranged units first", mountain
+  gets worse: its Trappers are the easy half and its Grizzlies the hard one. With 4, desert stays
+  at 0 %.
+- With round 4's raise, the core stance is what decides: desert and high plains start with a dash
+  type.
+- 4 with a single edge also clears the bar, but it undoes round 4 D2's spread across two edges. 3
+  keeps both edges and every role but dash, and clears 60 % in every region.
+- The passive side stays live. A 3-raider party is served to every circle that packs 3 or more, in
+  bands 0–1 too.
+
+The later trips' gate (`first-trip.ts --raised`, 768 fights: 24 raised parties × 8 fresh packs × 4
+caravans; all 76 layouts):
+- The suggested party (3), guided / best: desert 26 / 32, 32 / 32; high plains 24 / 32, 32 / 32;
+  mountain 28 / 32, 32 / 32; badlands 28 / 32, 32 / 32.
+- **What a bands 0–1 search can serve: guided 416 / 512 = 81 %, best 512 / 512 = 100 %** (targets
+  60 / 70 %).
+- The weakest pair a player could still raise by hand is two Well Diggers, held 18 / 32 guided.
+- Whole rosters of 7 are never served in bands 0–1 against 5 posts. Mountain holds them 2 / 32 and
+  0 / 32, Badlands 6 / 32 and 2 / 32.
+
+**Targets 2–4** (the full sweep, 6,528 matchups; `measured-ev.ts`):
+| | before (passes 6–7) | after |
+|---|---|---|
+| band-typical at its own band, skilled / guided / naive: b0; b1 | 100/89/90; 90/74/85 | 100/100/100; 100/97/94 (b2–b7 unchanged) |
+| skilled − naive at the band-typical diagonal | 26 pts | 25 pts |
+| stalemates (corpus; turtle) | 0; 0 / 96 | 0; 0 / 96 (turtle 83 held / 13 overrun, healing offset 44 %) |
+| fight length median; share in 20–90 s | 21.8 s; 59 % | 21.8 s; 58 % |
+| overruns in the corpus | 1730 | 1701 |
+| flagged within band × stance | 7 | 6, none above 32 pts |
+| held share of core-stance parties, b0…b7 | 100 92 89 56 39 40 20 26 | 100 100 89 56 39 40 20 26 |
+| equilibrium band, fresh / L1 / L2 / L3 / L4 | 3 / 3 / 4 / 4 / 7 | 3 / 3 / 4 / 4 / 7 |
+| **trip EV best bank point L1 / L2 / L3** | +5,960 / +9,485 / +5,783 | **+5,960 / +9,486 / +5,785** (L4 still negative) |
+
+**The cap and the runners:**
+- `cold-start.ts` at 400: a rebuilt caravan packing 1 / 2 / 3 / 4 units, guided with the cap on,
+  holds 48 / 69 / 90 / 90 %.
+- `fast-runners.ts`: no band 0–1 outfit with a core- or trap-stance raider overruns a fresh guided
+  pack. That is 0 of 112 fights; pass 6 had 38 % of 136.
+  The phase's remaining overruns are against hurt circles on later encounters, which this probe
+  does not model.
+
+### Tests whose pins moved
+
+- server `balance-sweep` (the CI slice), two new gates:
+  - the bands 0–1 gate: core-heavy ≤ a third per band, and every band 0–1 outfit ≥ 60 % over 16
+    packs;
+  - the authored-only phase: trip 2 delivered ≥ 50 % over 32 caravans.
+  - The raised gate fights one caravan's raise.
+- server `final-review-r4`: the suggested party is 3, round-robin (Grizzly, Trapper, Grizzly).
+- server `final-playtest-r4`: the raise rule is checked by its place in `raiseOrder`.
+- web `guideModel`: the raise's expected order is `raiseOrder`.
+- circle `raise.test`: dash raises `nearest`; a `raiseOrder` case.
+
+### Open — for the play test's telemetry
+
+1. **Coin per guided trip under the round-4 advice**: about half of what the encounter-1 rule
+   delivered (1,374 against 2,462), with the same delivery rate. Watch push rate and Coin per trip
+   by encounter index on guided trips.
+2. **The step into band 2** for a circle arranged the guide's way: the fresh roster's guided hold
+   goes 100 % → 63 %.
+3. **The Cistern Gang**, band 1's one core-stance outfit, is now the phase's top overrunner, with 11
+   of 400 trips.
+4. **Round 4 D3**: the defender picks from three, so a strong party is rarely chosen, and the
+   passive hook rewards looking weak. Watch strikes per live party by party size and strength, and
+   the share of menus where the largest party is passed over.
+5. **Round 4 D5**: a week of steady play ends about where it started, with Coin idle. Watch merge
+   levels lost per week against merge levels bought, Coin balance at day 7 by decile, and the share
+   of merged units posted at the gap.
+6. Still open from passes 6–7: whole raised rosters above band 1, 8 × L3 one fight under the band-5
+   break-even, healing in the four-healer turtle, 8 × L4 trip EV, and core-stance dominance from
+   band 3 up.
 
 ---
 
