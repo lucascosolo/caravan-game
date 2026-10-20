@@ -19,9 +19,9 @@ describe("round 4 D2: the raise", () => {
     expect(seen.size).toBe(ENTRY_EDGES.length);
   });
 
-  it("each unit's stance comes from its ability: dash runs at the core, breakers and bursts take the traps", () => {
+  it("each unit's stance comes from its ability: breakers and bursts take the traps, everything else (dash too, since BALANCE-LOG pass 8) the nearest", () => {
     for (const t of LIVING_UNIT_TYPES) {
-      const want = t.ability.archetype === "dash" ? "core" : t.ability.archetype === "structure_breaker" || t.ability.archetype === "burst_radius" ? "traps" : "nearest";
+      const want = t.ability.archetype === "structure_breaker" || t.ability.archetype === "burst_radius" ? "traps" : "nearest";
       expect(raiseStance(t.id), t.id).toBe(want);
     }
     expect(raiseStance("no.such_type")).toBe("nearest");

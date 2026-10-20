@@ -11,9 +11,12 @@
  *     clockwise is the second. Raised units alternate between them by their place in the party
  *     (even places the first edge, odd the second), so a refill continues the alternation.
  *   - STANCE from the unit type's role (`raiseStance`), read off its one ability:
- *       dash                               -> `core`   (a runner: straight for the wagons)
  *       structure_breaker, burst_radius    -> `traps`  (it clears what is laid in the circle)
- *       anything else                      -> `nearest`
+ *       anything else, dash included       -> `nearest`
+ *     (BALANCE-LOG pass 8: dash raised `core` until then. A raise with core runners from two sides
+ *     was held by a fresh guided five-post circle 0–20 % of the time — desert and high plains, which
+ *     start with a dash type — and those raises are served to fresh circles from a caravan's third
+ *     trip. A player who wants runners sets `core` in the builder.)
  *   - CELL: spread along the edge's outer row, as the party builder places a unit
  *     (`raiseCell`, the builder's defaultCell).
  *
@@ -52,8 +55,6 @@ export function starterEdges(caravanId: string): readonly [EntryEdge, EntryEdge]
 export function raiseStance(typeId: string): TargetingStance {
   const t = LIVING_UNIT_TYPES.find((x) => x.id === typeId);
   switch (t?.ability.archetype) {
-    case "dash":
-      return "core";
     case "structure_breaker":
     case "burst_radius":
       return "traps";
@@ -81,10 +82,10 @@ export function raiseCell(edge: EntryEdge, n: number): Cell {
  * BALANCE-LOG pass 8 (folds pass 7's open item): the order "Raise my party" (the guide) and the
  * server's `suggested` party take roster units in — round-robin over the roster's unit types, in
  * the order each type first appears, each type's own units in roster order. With
- * SUGGESTED_PARTY_MAX 4 a fresh roster (3 + 3 of two starter types, plus the refugee) raises 2 + 2
- * instead of 3 + 1: a Mountain raise is 2 Grizzlies and 2 Trappers, not 3 Grizzlies; a Badlands
- * raise mixes Gunslingers and Bounty Hunters. Measured with the guided layout against the 56 fresh
- * guided packs of `scripts/balance/low-bands.ts` (BALANCE-LOG pass 8). Pure and stable.
+ * SUGGESTED_PARTY_MAX 3 a fresh roster (3 + 3 of two starter types, plus the refugee) raises
+ * A, B, A instead of A, A, A: a Mountain raise is not three Grizzlies, a desert one not three Dust
+ * Riders. Measured with the guided layout against the 56 fresh guided packs of
+ * `scripts/balance/low-bands.ts` (BALANCE-LOG pass 8). Pure and stable.
  */
 export function raiseOrder<T extends { readonly typeId: string }>(roster: readonly T[]): T[] {
   const types: string[] = [];
