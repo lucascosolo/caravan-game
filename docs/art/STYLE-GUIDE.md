@@ -92,6 +92,20 @@ sprite files use.
 | `b` | Denim, lit | `#6086c2` | `B` | Denim, shadow | `#3c5c94` |
 | `y` | Sand | `#f2c970` | `Y` | Sand, shadow | `#dba654` |
 | `z` | Sand, light | `#fddf93` | `d` | Dry earth | `#c28345` |
+| `a` | Sage, lit | `#a9b48e` | `A` | Sage, shadow | `#6f7c5e` |
+| `r` | Dusty rose, lit | `#d9a196` | `R` | Dusty rose, shadow | `#a46c66` |
+| `u` | Plum, lit | `#8f6b93` | `U` | Plum, shadow | `#5a4363` |
+| `n` | Charcoal, lit | `#5a5058` | `N` | Charcoal, shadow | `#3a3238` |
+| `m` | Moss, lit | `#9a9a4e` | `M` | Moss, shadow | `#686a32` |
+
+The last five pairs were added on 2026-10-20 at the owner's request, to give more variety
+without getting louder. Each was measured with CIELAB distance (ΔE76) and admitted only if it
+sits at least 25 from every side colour (so sides never blur), at least 15 from every sand
+colour (so bodies never melt into the ground), and at least 10 from every existing colour.
+Ochre, sky blue and bone were tried and failed: ochre was too close to the sand, sky blue too
+close to the settler turquoise, and bone's shadow too close to stone. Sage is for sagebrush and
+dry scrub; charcoal is for black hats and horses, distinct from the outline. A new colour must
+pass the same three tests.
 
 **Side colour** (keys `p` / `P`, recoloured by code per side):
 
@@ -104,9 +118,8 @@ The ungraded values the look test started from are in
 `assets/reference/look-test-2026-10-20/palette.json`. The grade is CSS `saturate(1.15)`
 `contrast(1.03)`, computed in sRGB.
 
-**Known gaps:** one green pair makes sagebrush read as a generic shrub, not silvery sage.
-Add a sage pair before the Desert set is final, and run the contrast and colour-blind checks
-on the final palette (ART-PLAN step 1).
+**Still to do:** run the contrast and colour-blind checks on the final palette (ART-PLAN
+step 1).
 
 ## 5. Side identity
 
@@ -141,7 +154,11 @@ Any source is allowed, as long as it ends up looking like one set:
 
 The asset build (PHASE-2 §26) turns every source into the house style the same way:
 
-1. Mask the plain background and trim to the content.
+1. Mask the background and trim to the content. Use the best source available, in this order: a
+   real transparent background from the generator (GPT Image 2.5 on Wiro offers
+   `background: transparent`); otherwise generate on a solid magenta (`#ff00ff`) backdrop,
+   which no palette colour is near, and key it out; otherwise use a matting model once, at
+   intake. A white backdrop is the last resort, because the canvas creams sit close to white.
 2. Downscale to the class's art size (§3), keeping the ground-contact point fixed.
 3. Snap every pixel to the §4 palette.
 4. Add the 1 px outer outline where the source lacks one. Ground tiles are exempt.
