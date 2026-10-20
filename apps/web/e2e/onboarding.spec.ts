@@ -263,14 +263,17 @@ test("a fresh account: register, the first screen, a refugee, the first trip gui
   await page.getByTestId("push-open").click();
   await page.getByRole("dialog", { name: "Push on to encounter 2?" }).getByTestId("push-confirm").click();
 
-  // ── encounter 2: a free arrangement; post every living unit by hand ──
+  // ── encounter 2: the guided steps are offered again; this walk posts every living unit by hand ──
   await expect(page.getByTestId("trail-unsearched")).toHaveAttribute("data-encounter", "2");
   await expect(page.getByTestId("guide-free")).toBeVisible();
   await page.getByTestId("search").click();
   await page.getByTestId("choose-0").click();
   await expect(page.getByTestId("formation-screen")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("guide-free")).toBeVisible();
-  await expect(page.getByTestId("guide-arrange")).toHaveCount(0);
+  // Final play-test review r3: the guided steps are offered at encounter 2 too (read off this party and the survivors);
+  // the player may still arrange freely, which is what this walk does.
+  await expect(page.getByTestId("guide-arrange")).toBeVisible();
+  await expect(page.getByTestId("guide-do-fence")).toBeVisible();
   const trayUnits = page.locator('[data-testid^="tray-unit-"]');
   const n = await trayUnits.count();
   for (let i = 0; i < n; i++) {
