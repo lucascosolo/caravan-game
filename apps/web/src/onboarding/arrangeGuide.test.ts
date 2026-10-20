@@ -3,7 +3,7 @@ import { TUNABLES } from "@caravan/content";
 import { describe, expect, it } from "vitest";
 import { packedManifest, survivorsManifest } from "../test/circleFixtures.ts";
 import { fixtureScoutFor } from "../screens/trail/scoutFixture.ts";
-import { applyMainFence, applyOpenGap, applyPosts, applyRestOfFence, applyTrap, arrangeStatus, gapSegment, inwardFromGap, mainEdge, raidersByEdge, sideSegments } from "./arrangeGuide.ts";
+import { applyMainFence, applyOpenGap, applyPosts, applyRestOfFence, applyTrap, arrangeStatus, gapSegment, guidedFormation, inwardFromGap, mainEdge, raidersByEdge, sideSegments } from "./arrangeGuide.ts";
 
 const scout = fixtureScoutFor(1); // 2 raiders north, 1 east
 const west = fixtureScoutFor(2); // 4 west, 1 south
@@ -78,5 +78,22 @@ describe("the guided arrangement (chunk 24)", () => {
     expect(f.fences.some((p) => p.ref === "f0")).toBe(false);
     expect(f.fences).toHaveLength(TUNABLES.FENCE_MATERIAL_BUDGET - 1);
     expect(validateFormation(m, f, () => true).ok).toBe(true);
+  });
+
+  it("round 3: guidedFormation (the shared layout the harness models) is exactly the checklist's buttons in order, on survivors and on the chosen party's side", () => {
+    for (const [m, sc] of [
+      [packedManifest(), scout],
+      [survivorsManifest(), scout],
+      [survivorsManifest(), west],
+    ] as const) {
+      const stepwise = applyRestOfFence(m, applyTrap(m, applyPosts(m, applyOpenGap(applyMainFence(m, EMPTY_FORMATION, sc), sc), sc), sc), sc);
+      const whole = guidedFormation(m, sc);
+      expect(whole).toEqual(stepwise);
+      expect(validateFormation(m, whole, () => true).ok).toBe(true);
+      // The gap on the chosen party's main side stays open.
+      expect(whole.fences.some((p) => p.segment === gapSegment(mainEdge(sc)))).toBe(false);
+    }
+    // A pushed encounter from the west: the gap moves to the west side's middle.
+    expect(guidedFormation(survivorsManifest(), west).posts[0]!.cell).toEqual(inwardFromGap("west", 2));
   });
 });

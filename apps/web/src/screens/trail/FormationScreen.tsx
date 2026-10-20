@@ -174,6 +174,9 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
   const [formation, setFormationRaw] = useState<Formation>(() => (initial?.committedAt ? initial.formation : (localDrafts.get(draftKey) ?? initial?.formation ?? clearAll())));
   const [saved, setSaved] = useState<FormationView | null>(initial);
   const [selectedRef, setSelectedRef] = useState<string | null>(null);
+  // Final play-test review r3: the item the selection auto-advanced to. Tapping its card (the natural
+  // next tap) confirms it instead of deselecting it; a second tap deselects as usual.
+  const autoSelected = useRef<string | null>(null);
   const [selectedAttacker, setSelectedAttacker] = useState<string | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [showRadii, setShowRadii] = useState(true);
@@ -411,7 +414,11 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
       setStatus(null);
       // S3: placing something new from the wagon moves the selection on to the next one of its
       // kind, so "Place here" (or a tap) places the next segment instead of moving this one.
-      if (!wasPlaced) setSelectedRef(nextUnplacedOfKind(manifest, next, selectedRef));
+      if (!wasPlaced) {
+        const nextRef = nextUnplacedOfKind(manifest, next, selectedRef);
+        autoSelected.current = nextRef;
+        setSelectedRef(nextRef);
+      }
     },
     [locked, selectedRef, manifest, formation, nameOf, setFormation],
   );
@@ -456,7 +463,9 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
   const onPick = useCallback((ref: string) => {
     setSelectedAttacker(null);
     setRefused(null);
-    setSelectedRef((cur) => (cur === ref ? null : ref));
+    const confirming = autoSelected.current === ref;
+    autoSelected.current = null;
+    setSelectedRef((cur) => (cur === ref && !confirming ? null : ref));
   }, []);
 
   // S14: a tapped attacker's scouting card is scrolled to and focused.
@@ -812,7 +821,10 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
             setFormation((f) => remove(f, ref));
             setStatus(null);
           }}
-          onClose={() => setSelectedRef(null)}
+          onClose={() => {
+            autoSelected.current = null;
+            setSelectedRef(null);
+          }}
         />
       )}
       {selectedRef && !locked && selectedUnplaced && (

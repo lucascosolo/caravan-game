@@ -222,6 +222,19 @@ describe("FormationScreen", () => {
     expect(screen.getByTestId("gaps-line")).toHaveTextContent("28 open positions");
   });
 
+  it("round 3: tapping the auto-selected next unit's card keeps it selected; a second tap deselects it", async () => {
+    const user = userEvent.setup();
+    render(screenWith(fakeApi()));
+    await user.click(within(screen.getByTestId("tray-unit-u-rider")).getByRole("button"));
+    await user.click(screen.getByText("tap-12-12"));
+    expect(screen.getByTestId("tap-to-place-hint")).toHaveTextContent("Canteen Carrier selected");
+    await user.click(within(screen.getByTestId("tray-unit-u-canteen")).getByRole("button"));
+    expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-placing", "post");
+    expect(screen.getByTestId("tap-to-place-hint")).toHaveTextContent("Canteen Carrier selected");
+    await user.click(within(screen.getByTestId("tray-unit-u-canteen")).getByRole("button"));
+    expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-placing", "none");
+  });
+
   it("places by tap: select a unit, tap a cell; stance picker appears; stance changes; take back", async () => {
     const user = userEvent.setup();
     render(screenWith(fakeApi()));
