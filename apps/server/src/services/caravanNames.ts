@@ -29,8 +29,14 @@ const SECOND = [
 
 /** The generated name for a caravan of `accountId` (salt 0) or a re-roll (`salt` > 0). Within CARAVAN_NAME_MAX by construction. */
 export function generatedCaravanName(accountId: string, salt = 0): string {
-  const h = fnv1a32(salt === 0 ? accountId.toLowerCase() : `${accountId.toLowerCase()}#${salt}`);
-  return `${FIRST[h % FIRST.length]!} ${SECOND[(h >>> 8) % SECOND.length]!}`;
+  const seed = salt === 0 ? accountId.toLowerCase() : `${accountId.toLowerCase()}#${salt}`;
+  // A few combinations equal a reserved name (an authored outfit is called "High Lonesome
+  // Riders"): step to the next deterministic combination, so a generated name is never reserved.
+  for (let k = 0; ; k++) {
+    const h = fnv1a32(k === 0 ? seed : `${seed}~${k}`);
+    const name = `${FIRST[h % FIRST.length]!} ${SECOND[(h >>> 8) % SECOND.length]!}`;
+    if (!isReservedCaravanName(name)) return name;
+  }
 }
 
 /** How many re-rolls a generated name gets before it takes an ordinal suffix. */
