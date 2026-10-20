@@ -366,3 +366,21 @@ Tags: **S**: blocks the external play test. **D**: design question for the orche
 - **Grind walls:** none in the first hour.
   - The relief floor and the raider cap rebuilt g2, g9 and g10 within minutes.
   - g10, down to 2 units, went on to bank 2,041 on its third trip.
+
+## Orchestrator decisions (2026-10-20)
+
+The pattern across rounds: a new player's early fights must be fair against what they are actually served, measured the way the client actually behaves. The fixes below close that, and the harness must model the client exactly so the numbers stop drifting from play.
+
+- **S2: two protections, both tunable.**
+  - **(a)** A caravan meets authored outfits only until it has banked `AUTHORED_ONLY_UNTIL_BANKS` trips (default 2; this replaces "first trip"). A voided or overrun trip does not count.
+  - **(b)** In bands 0–1, the raider cap compares against the caravan's packed units, whatever its roster size, so a whole raised roster is never served against a smaller packed circle at low bands. Above band 1 the roster-based rule stays as it is.
+  - Re-measure with 7-unit raised rosters, the size "Raise my party" actually makes.
+- **S1: the guide sees what the player needs at every guided encounter.**
+  - Show the scout reading at every encounter of the guided trips, not only encounter 1.
+  - Every party card shows a ranged count, for example "2 of 3 shoot from range", by shape and word, not by colour alone (closes N9).
+  - The guide's pick rule, which passes over ranged-only parties and then takes the smallest, applies at every guided encounter.
+  - The bank-or-push advice must not recommend a push when every candidate is ranged-heavy and the circle is hurt.
+  - `first-trip.ts` and the CI slice reproduce the client's pick and advice exactly: one shared function, or a test that pins the harness to the client's rule. The 70 % encounter-1 target and a new 60 % pushed-encounter-2 target apply to that real behaviour.
+- **D2: re-author outliers.** Any authored party that the best layout of its band's typical roster holds less than 20 % of the time is re-authored (Hardrock Hirelings, for one), keeping the band's difficulty rising. Record it in BALANCE-LOG.
+- **D1, D3: no change before the play test.** Both are in BALANCE-LOG as telemetry questions, with this round's numbers.
+- **Every N item is in scope.** N6: strangers see the caravan name, never a username.
