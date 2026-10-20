@@ -347,7 +347,7 @@ export function PartyScreen(props: PartyScreenProps = {}): JSX.Element {
                 ))}
               </div>
               <div className="row" style={{ marginTop: "0.5rem" }}>
-                <label className="field" style={{ flex: 1, marginBottom: 0 }}>
+                <label className="field" style={{ flex: "1 1 8rem", minWidth: 0, marginBottom: 0 }}>
                   <span className="field__label">{T.startAlong(T.edgeName(u.edge))}</span>
                   <select value={alongOf(u.cell, u.edge)} disabled={busy} onChange={(ev) => edit((c) => setStart(c, u.ref, Number(ev.target.value), depthOf(u.cell, u.edge)))} data-testid="member-along">
                     {Array.from({ length: edgeLength(u.edge) }, (_, i) => (
@@ -357,7 +357,7 @@ export function PartyScreen(props: PartyScreenProps = {}): JSX.Element {
                     ))}
                   </select>
                 </label>
-                <label className="field" style={{ flex: 1, marginBottom: 0 }}>
+                <label className="field" style={{ flex: "1 1 8rem", minWidth: 0, marginBottom: 0 }}>
                   <span className="field__label">{T.startDepth}</span>
                   <select value={depthOf(u.cell, u.edge)} disabled={busy} onChange={(ev) => edit((c) => setStart(c, u.ref, alongOf(u.cell, u.edge), Number(ev.target.value)))} data-testid="member-depth">
                     {Array.from({ length: ENTRY_BAND_DEPTH }, (_, i) => (

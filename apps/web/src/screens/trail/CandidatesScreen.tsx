@@ -21,6 +21,7 @@ import type { CaravanLoadoutView, CandidateMenuView, CandidateView } from "../..
 import { monotonic, useAnchoredCountdown } from "../../shell/countdown.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { STRINGS } from "../../strings.ts";
+import { rangedCount } from "../../onboarding/guideRule.ts";
 import { ScoutPanel } from "./ScoutPanel.tsx";
 import type { ScoutedParty } from "./scoutTypes.ts";
 
@@ -31,7 +32,7 @@ const T = STRINGS.trail;
  * targeting stance, total HP, the siege and what it counters, and the approach by side. Every
  * number is the scout's own; the full report stays one tap away below it.
  */
-export function scoutSummary(scout: ScoutedParty, loadout: CaravanLoadoutView | null = null): { readonly stances: string; readonly hp: number; readonly siege: string; readonly approach: string } {
+export function scoutSummary(scout: ScoutedParty, loadout: CaravanLoadoutView | null = null): { readonly stances: string; readonly ranged: string; readonly rangedCount: number; readonly hp: number; readonly siege: string; readonly approach: string } {
   const by = (s: string) => scout.units.filter((u) => u.stance === s).length;
   const stances = (["core", "nearest", "traps"] as const)
     .filter((s) => by(s) > 0)
@@ -50,7 +51,9 @@ export function scoutSummary(scout: ScoutedParty, loadout: CaravanLoadoutView | 
     .filter((x) => x.n > 0)
     .map((x) => `${T.edgeName(x.e)} ${x.n}`)
     .join(", ");
-  return { stances, hp, siege, approach };
+  // Round 3 S1 / N9: how many raiders shoot from range, by shape and word (guideRule's reading).
+  const r = rangedCount(scout);
+  return { stances, ranged: T.summaryRanged(r.ranged, r.total), rangedCount: r.ranged, hp, siege, approach };
 }
 
 function ScoutSummary({ scout, index, loadout }: { scout: ScoutedParty; index: number; loadout: CaravanLoadoutView | null }): JSX.Element {
@@ -59,6 +62,10 @@ function ScoutSummary({ scout, index, loadout }: { scout: ScoutedParty; index: n
     <dl className="scout-summary" data-testid={`scout-summary-${index}`}>
       <dt>{T.summaryRaiders(scout.units.length)}</dt>
       <dd>{s.stances}</dd>
+      <dt>{T.summaryRangedLabel}</dt>
+      <dd data-testid={`scout-ranged-${index}`} data-ranged={s.rangedCount}>
+        {s.ranged}
+      </dd>
       <dt>{T.summaryHpLabel}</dt>
       <dd>{s.hp}</dd>
       <dt>{T.summarySiegeLabel}</dt>

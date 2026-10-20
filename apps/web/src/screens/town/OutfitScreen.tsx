@@ -321,7 +321,8 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked, onRodeOu
                 <button type="button" className="btn" disabled={n === 0} onClick={() => setDraft((d) => removeTrap(d, id))}>
                   {T.trapRemove(name)}
                 </button>
-                <button type="button" className="btn" onClick={() => setDraft((d) => addTrap(d, id))}>
+                {/* Final play-test review r3 N7: no Add past the trap slot cap (the server refuses it, 422 slot_cap_traps). */}
+                <button type="button" className="btn" disabled={meters.traps.chosen >= meters.traps.cap} onClick={() => setDraft((d) => addTrap(d, id))}>
                   {T.trapAdd(name)}
                 </button>
               </div>

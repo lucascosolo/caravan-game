@@ -230,6 +230,10 @@ export const STRINGS = {
     // Final play-test review N5: the candidate summary line.
     summaryRaiders: (n: number): string => `${n} raider${n === 1 ? "" : "s"}`,
     summaryStance: (s: string, n: number): string => `${({ core: "◆ core", nearest: "◉ nearest", traps: "▼ traps" } as Record<string, string>)[s] ?? s} ${n}`,
+    /** Round 3 S1 / N9: range, by shape and word — the property that most decides an early fight. */
+    summaryRangedLabel: "Shoot from range",
+    summaryRanged: (ranged: number, total: number): string =>
+      ranged === 0 ? "○ none: every raider fights up close" : ranged === total && total > 1 ? `◎ all ${total}: can hit posts from outside the fence` : `◎ ${ranged} of ${total}: can hit posts from outside the fence`,
     summaryHpLabel: "Total HP",
     summarySiegeLabel: "Siege",
     summaryNoSiege: "none: fences and traps work at full effect",
@@ -304,6 +308,9 @@ export const STRINGS = {
     abilityDuration: "Duration",
     abilityDistance: "Distance",
     abilityFenceDamage: "Fence damage",
+    /** Final play-test review r3 N11: an ability that only acts when the unit raids. */
+    abilityRaidOnlyName: (name: string): string => `${name} (raiding only)`,
+    abilityRaidOnlyNote: "Breaks fences when this unit rides in a standing party. Posted in your own circle it never fires.",
     abilityOneHit: (mult: string): string => `×${mult} one hit`,
     // chunk 12 QA S5: the display-ready ability numbers
     abilitySeconds: (s: string): string => `${s} s`,
@@ -1146,6 +1153,9 @@ export const STRINGS = {
         ? `This was an authored outfit: it keeps nothing. ${lost !== null && lost > 0 ? `Your ${lost} unbanked Coin was lost to the trail.` : "Your unbanked Coin was lost to the trail."}`
         : "This was an authored outfit: it keeps nothing, whatever the fight.",
     lootOwner: (coin: number): string => `Your party's loot from this fight: ${coin} Coin, as reported.`,
+    /** Final play-test review r3 N5: the credited total, and the overrun caravan's Coin as its own line. */
+    lootOwnerEarned: (earned: number): string => `Your party earned ${earned} Coin from this fight.`,
+    lootOwnerTransferred: (transferred: number): string => `${transferred} of it was the caravan's unbanked Coin, taken when it was overrun.`,
     // QA S8 / D3: what the encounter settled, itemized from the ledger (the server's `settled`).
     settledHeading: "What it settled",
     settledNotYet: "Not settled yet: the trip has not folded this fight in. Open it again once the results are in.",
@@ -1398,12 +1408,18 @@ export const STRINGS = {
     searchTitle: "Encounter 1: find who is coming",
     searchBody: "Search to be served three raiding parties. On this first trip they are authored outfits, labelled as such and kept fair for a new caravan. From your next trip on you also meet other players' standing parties; their owners are never there.",
     scoutTitle: "Scout before you choose",
-    scoutBody: "Each party below leads with a summary: its raiders by stance, their total HP, its siege and the sides they come from. Tap Full scouting report for every unit, its HP, its ability and its start cell. Nothing is hidden. Compare the three, then choose the one you will face.",
+    scoutBody: "Each party below leads with a summary: its raiders by stance, how many shoot from range, their total HP, its siege and the sides they come from. Tap Full scouting report for every unit, its HP, its ability and its start cell. Nothing is hidden. Compare the three, then choose the one you will face.",
+    /** Final play-test review N13: the how-to-read body sits one tap away so the parties start on the first screen. */
+    scoutHowTitle: "How to read a party",
+    /** Round 3 S1: the scout reading at every guided encounter, not only the first. */
+    scoutTitleLater: (n: number): string => `Encounter ${n}: scout before you choose`,
+    scoutPickLater: (name: string, raiders: number, hp: number, siege: number, passedOverRanged = false): string =>
+      `Of these, ${name} is the smallest of the ${passedOverRanged ? "parties not made up only of shooters" : "three"}: ${hp} HP in all, ${siege === 0 ? "no siege" : siege === 1 ? "1 siege piece" : `${siege} siege pieces`}, ${raiders === 1 ? "1 raider" : `${raiders} raiders`}. The same reading as before; it is not a promise.`,
     scoutPick: (name: string, raiders: number, hp: number, siege: number, passedOverRanged = false): string =>
-      `For a first fight, ${name} is the smallest of the ${passedOverRanged ? "parties that fight up close" : "three"}: ${hp} HP in all, ${siege === 0 ? "no siege" : siege === 1 ? "1 siege piece" : `${siege} siege pieces`}, ${raiders === 1 ? "1 raider" : `${raiders} raiders`}. That is a reading of the scout, not a promise.`,
+      `For a first fight, ${name} is the smallest of the ${passedOverRanged ? "parties not made up only of shooters" : "three"}: ${hp} HP in all, ${siege === 0 ? "no siege" : siege === 1 ? "1 siege piece" : `${siege} siege pieces`}, ${raiders === 1 ? "1 raider" : `${raiders} raiders`}. That is a reading of the scout, not a promise.`,
     /** Final play-test review r2 S2: why a smaller, all-ranged party was not the guide's pick. */
     scoutRangedNote: (names: string): string =>
-      `It passes over ${names}: every raider there shoots from range, and can stand outside your fence where posted units do not reach. Check "Range (cells)" in the full report.`,
+      `It passes over ${names}: every raider there shoots from range, and can stand outside your fence where posted units do not reach. Each card's "Shoot from range" line says how many.`,
     // ── trail: the guided arrangement ──
     arrangeTitle: "Arrange the wagon circle",
     arrangeBody: (edge: string, n: number, of: number): string =>
@@ -1455,11 +1471,16 @@ export const STRINGS = {
     decideReading: "Reading what is at stake…",
     decideAdviseBank: (reasons: string, coin: number): string =>
       `Your circle is badly hurt: ${reasons}. Nothing is repaired before the next encounter, and pushing risks ${coin > 0 ? `the ${coin} unbanked Coin` : "this trip's Coin"} and every unit still standing. The guide suggests banking this time.`,
+    /** Round 3 S1: a scratched circle against a menu of shooters. */
+    decideAdviseBankRanged: (reason: string, coin: number): string =>
+      `Think before pushing: ${reason}. Pushing risks ${coin > 0 ? `the ${coin} unbanked Coin` : "this trip's Coin"} and every unit still standing. The guide suggests banking this time; your call.`,
     decideAdvisePush: (coin: number): string =>
       `Your circle came through in fair shape. One push shows how encounters escalate: the next party is harder and pays more. Pushing risks ${coin > 0 ? `the ${coin} unbanked Coin` : "this trip's Coin"} and the units you packed; banking keeps them. Your call.`,
     reasonHurt: (name: string, hp: number, max: number): string => `${name} is at ${hp} of ${max} HP`,
     reasonNoneStanding: "no packed unit is still standing",
     reasonNoTrap: "no trap is left to lay",
+    /** Round 3 S1: a hurt circle against a menu of shooters. */
+    reasonRangedMenu: (n: number): string => `the circle has taken losses, and every one of the ${n} parties you were just offered is mostly raiders that shoot from range, which can hit your posts from outside the fence; the next search is a step harder`,
     reasonFence: (destroyed: number, intact: number): string => `${destroyed} fence segment${destroyed === 1 ? " is" : "s are"} broken and ${intact} still stand${intact === 1 ? "s" : ""}`,
     freeTitle: "Encounter 2: your arrangement",
     freeBody: "No list this time. Search, scout the party, then arrange the circle yourself. What broke or was spent at encounter 1 is still broken or spent.",

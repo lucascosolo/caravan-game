@@ -78,10 +78,13 @@ describe("OutfitScreen", () => {
     expect(screen.queryByTestId("outfit-units-over")).toBeNull();
     // Traps: only unlocked types; one per click.
     const trap = within(screen.getByTestId("outfit-traps"));
-    for (let i = 0; i <= TUNABLES.TRAP_SLOT_CAP; i++) await user.click(trap.getByRole("button", { name: "Add Spike Pit" }));
-    expect(screen.getByTestId("outfit-traps-over")).toHaveTextContent("1 too many");
-    await user.click(trap.getByRole("button", { name: "Remove Spike Pit" }));
+    for (let i = 0; i < TUNABLES.TRAP_SLOT_CAP; i++) await user.click(trap.getByRole("button", { name: "Add Spike Pit" }));
     expect(screen.getByTestId("outfit-traps-meter")).toHaveTextContent(`${TUNABLES.TRAP_SLOT_CAP} of ${TUNABLES.TRAP_SLOT_CAP} trap slots`);
+    // Final play-test review r3 N7: at the cap every Add is disabled, so the loadout never goes over.
+    expect(trap.getByRole("button", { name: "Add Spike Pit" })).toBeDisabled();
+    expect(screen.queryByTestId("outfit-traps-over")).toBeNull();
+    await user.click(trap.getByRole("button", { name: "Remove Spike Pit" }));
+    expect(trap.getByRole("button", { name: "Add Spike Pit" })).toBeEnabled();
     // Fence: the full budget by default, which is below the ring, so gaps are forced.
     await user.selectOptions(screen.getByTestId("outfit-fence-tier"), "fence.brush_pile");
     expect(screen.getByTestId("outfit-fence-meter")).toHaveTextContent(`${TUNABLES.FENCE_MATERIAL_BUDGET} of ${TUNABLES.FENCE_MATERIAL_BUDGET} segments (the ring has 28 positions, so gaps are forced)`);

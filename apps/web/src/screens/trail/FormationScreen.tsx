@@ -428,6 +428,13 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
           placeSelected(cell);
           return;
         }
+        // Final play-test review r3 N3: a unit or trap being placed never loses its selection to a
+        // fence segment it was tapped onto. The tap is treated as an attempt on that cell, so the
+        // refusal says why (the ring is reserved), and the selection stays for the next tap.
+        if (kindOfRef(manifest, selectedRef) !== "fence") {
+          placeSelected(cell);
+          return;
+        }
       }
       if (hit.kind === "attacker") {
         setSelectedAttacker(hit.id);
@@ -671,8 +678,8 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
   const issueList = (issues: readonly IssueView[]) => (
     <ul className="issues">
       {issues.map((i, n) => (
-        <li key={`${i.code}-${n}`}>
-          {humanizeIssue(i, names)} <span className="error__code">{T.issueCode(i.code)}</span>
+        <li key={`${i.code}-${n}`} data-code={i.code}>
+          {humanizeIssue(i, names)}
           {i.subject && names.has(i.subject) && kindOfRef(manifest, i.subject) && !locked && (
             <>
               {" "}
@@ -736,7 +743,7 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
 
       {refused && (
         <p className="notice" role="status" data-testid="drop-refused" data-code={refused.refusal.code}>
-          {T.refusedDrop(refused.name, refused.refusal.message)} <span className="error__code">{T.refusalCode(refused.refusal.code)}</span>
+          {T.refusedDrop(refused.name, refused.refusal.message)}
         </p>
       )}
 

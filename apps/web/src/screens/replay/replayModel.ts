@@ -136,6 +136,8 @@ export const REPLAY_MIN_CELL_PX = 32;
 export const REPLAY_OPENING_MIN_CELL_PX = 12;
 /** r2 N14: the camera moves in this long (fight seconds) before the first engagement. Presentation. */
 export const CLOSE_LEAD_SECONDS = 1;
+/** r3 N12: the opening frame (every start cell in view) is held at most this long (fight seconds). Presentation. */
+export const OPENING_HOLD_SECONDS = 2;
 
 /** The wagon circle's lattice and fixed features, from the resolver's geometry (the same source the trail's circle uses). */
 export const REPLAY_GEOMETRY: SceneGeometry = {
@@ -407,7 +409,9 @@ function buildModel(view: ReplayView, replay: Replay): ReplayModel {
   const frameRect: FrameRect = { x: ox0, y: oy0, w: ox1 - ox0, h: oy1 - oy0, minCellPx: REPLAY_OPENING_MIN_CELL_PX };
   // The first engagement (a hit, a fence hit, a trap, an ability), a beat early: the camera moves in then.
   const firstEngagement = replay.events.find((e) => ["hit", "fence_hit", "trap_fired", "trap_nullified", "ability", "unit_died", "core_reached"].includes(e.k));
-  const closeTick = Math.max(0, (firstEngagement?.t ?? 0) - Math.round(CLOSE_LEAD_SECONDS * log.tickRate));
+  // Final play-test review r3 N12: the wide opening is held only long enough to see where the raiders
+  // start (OPENING_HOLD_SECONDS), then the camera moves in, however long the walk to the first engagement.
+  const closeTick = Math.min(Math.round(OPENING_HOLD_SECONDS * log.tickRate), Math.max(0, (firstEngagement?.t ?? 0) - Math.round(CLOSE_LEAD_SECONDS * log.tickRate)));
 
   const cache = new Map<number, ReplayFrame>();
   const frame = (tick: number): ReplayFrame => {

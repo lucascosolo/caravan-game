@@ -102,7 +102,7 @@ export function SessionProvider({ children, fetchImpl, autoResume = fetchImpl ==
   const [resumeError, setResumeError] = useState<ApiError | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const autoResumes = useRef<number[]>([]);
-  const resumeInFlight = useRef<Promise<AuthResponse> | null>(null);
+  const resumeInFlight = useRef<Promise<AuthResponse | null> | null>(null);
   // The api reads the token through a ref so one client instance serves every render.
   const tokenRef = useRef<string | null>(null);
   tokenRef.current = session?.token ?? null;
@@ -153,6 +153,8 @@ export function SessionProvider({ children, fetchImpl, autoResume = fetchImpl ==
     inFlight.then(clear, clear);
     inFlight
       .then((auth) => {
+        // r3 N10a: `{ session: null }` is "nothing to resume here", exactly like the old 401 no_device.
+        if (auth === null) return;
         // A sign-in that landed meanwhile wins: never replace a session the player just made.
         if (live) setSession((prev) => prev ?? { token: auth.token, account: auth.account });
       })
