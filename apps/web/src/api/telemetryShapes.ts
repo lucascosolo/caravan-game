@@ -86,5 +86,13 @@ export const dashboardShape: Guard<DashboardView> = object({
         ROWS,
       ),
     }),
+    // Final guardrail review r4 D1 (optional: older servers do not send it).
+    partyStrikes: optional(
+      object({
+        suggestedPartyMax: n,
+        lowBandMax: integer({ min: -1 }),
+        rows: array(object({ size: n, liveParties: n, strikes: n, lowBandStrikes: n, overran: n, perPartyPerDayMilli: rate }), ROWS),
+      }),
+    ),
   }),
 });

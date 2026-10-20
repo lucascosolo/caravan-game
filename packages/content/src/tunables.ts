@@ -609,14 +609,25 @@ export const TUNABLES = {
    */
   COLD_START_ROSTER_MAX: 6,
   /**
-   * TUNABLE (final play-test review r3 S2(b)). While the search centre is in Reputation band this
-   * or lower (bands 0–1 by default), the raider cap above applies WHATEVER the roster size: no
-   * party with more raiders than the caravan packed living units is offered (relaxing only to fill
-   * a menu, as above). A whole raised roster of 7 is then never served against a 5-post circle at
-   * low bands. Above this band the roster rule (COLD_START_ROSTER_MAX) stays as it is. Stored on the
-   * menu row with the cap. −1 turns the band rule off.
+   * TUNABLE (final play-test review r3 S2(b); final guardrail review r4 D1). While the CARAVAN's own
+   * Reputation band (bandOf its living Reputation, never the search centre) is this or lower
+   * (bands 0–1 by default), the raider cap above applies WHATEVER the roster size: no party with
+   * more raiders than the caravan packed living units is offered (relaxing only to fill a menu, as
+   * above). A whole raised roster of 7 is then never served against a 5-post circle at low bands.
+   * Keyed on the caravan's band since r4 D1: keyed on the centre, a band-2 caravan (×2.0 Coin)
+   * searched 150 below itself at encounter 1 was capped too. Above this band the roster rule
+   * (COLD_START_ROSTER_MAX) stays as it is. Stored on the menu row with the cap. −1 turns it off.
    */
   COLD_START_PACKED_CAP_MAX_BAND: 1,
+  /**
+   * TUNABLE (final guardrail review r4 D1). "Raise my party" (the guide) and the server's
+   * `suggested` party add roster units only up to this many (the saved party is never cut), the
+   * size the guide packs (roster 7 − GUIDE_RESERVE 2). With COLD_START_PACKED_CAP_MAX_BAND a party
+   * bigger than a new player's packed circle is never served to them in bands 0–1, so a suggested
+   * whole roster of 7 was hardly ever served while most testers live there; at 5 it is. A player
+   * can still raise a bigger party by hand, up to PARTY_SLOT_CAP.
+   */
+  SUGGESTED_PARTY_MAX: 5,
   /**
    * TUNABLE (final play-test review r2 S2; r3 S2(a)). Cold-start fairness, same family: a caravan
    * meets AUTHORED outfits only, at every encounter, until it has BANKED this many trips (live

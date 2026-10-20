@@ -127,7 +127,8 @@ export interface RaisedGateResult {
 /**
  * The raised parties of a region: each pair of its starter types, and the WHOLE roster as the guide's
  * "Raise my party from my roster" raises it once the first refugee is in (final play-test review r3
- * S2: the starting roster plus the refugee, 7 units; one variant per starter type as the refugee).
+ * S2: the starting roster plus the refugee, 7 units; one variant per starter type as the refugee), and
+ * since r4 D1 the suggested party the guide raises now: the first SUGGESTED_PARTY_MAX of that roster.
  */
 export function raisedParties(region: (typeof REGION_IDS)[number]): { label: string; typeIds: string[] }[] {
   const [a, b] = starterTypes(region) as [string, string];
@@ -138,6 +139,9 @@ export function raisedParties(region: (typeof REGION_IDS)[number]): { label: str
     { label: `${region}: ${short(a)} + ${short(b)}`, typeIds: [a, b] },
     { label: `${region}: ${short(b)} + ${short(b)}`, typeIds: [b, b] },
     ...[a, b].map((r) => ({ label: `${region}: the whole roster + ${short(r)} (${wholeWith(r).length})`, typeIds: wholeWith(r) })),
+    // Final guardrail review r4 D1: "Raise my party" adds roster units only up to SUGGESTED_PARTY_MAX, in
+    // roster order (the starting roster first, so the refugee never makes the cut at 5).
+    { label: `${region}: the suggested party (${TUNABLES.SUGGESTED_PARTY_MAX})`, typeIds: wholeWith(a).slice(0, TUNABLES.SUGGESTED_PARTY_MAX) },
   ];
 }
 

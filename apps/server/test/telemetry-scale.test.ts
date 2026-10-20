@@ -177,11 +177,13 @@ function cases(days: number): [string, string, unknown[], string[]][] {
     ["sessions", q.SESSIONS_SQL, [...ww, 1_800_000], []],
     ["retention", q.RETENTION_SQL, [...cohort, [...q.ACTIVITY_EVENT_TYPES]], ["account_analytics"]],
     ["pool-served", q.POOL_SERVED_SQL, ww, []],
+    ["party-strikes", q.PARTY_STRIKES_SQL, [...ww, ...floorSpan], []],
     // "Now" panels: one row per owner / party / caravan / account — O(players).
     ["near-cap", q.NEAR_CAP_SQL, [90], ["account"]],
     ["ladder-levels", q.LADDER_LEVELS_SQL, [], ["pool_progress", "caravan", "account"]],
     ["pool-parties", q.POOL_PARTIES_SQL, floorSpan, ["standing_party", "account", "pool_progress"]],
     ["pool-caravans", q.POOL_CARAVANS_SQL, floorSpan, ["pool_progress", "caravan", "account"]],
+    ["party-sizes", q.PARTY_SIZES_SQL, [], ["standing_party", "account"]],
   ];
 }
 

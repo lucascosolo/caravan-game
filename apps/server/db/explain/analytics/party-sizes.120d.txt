@@ -1,0 +1,12 @@
+-- chunk 32: party-sizes over the synthetic history in test/telemetry-scale.test.ts (120-day window)
+Sort
+  Sort Key: (jsonb_array_length((sp.composition -> 'units'::text)))
+  ->  HashAggregate
+        Group Key: jsonb_array_length((sp.composition -> 'units'::text))
+        ->  Hash Join
+              Hash Cond: (a.id = sp.account_id)
+              ->  Seq Scan on account a
+                    Filter: (NOT is_system)
+              ->  Hash
+                    ->  Seq Scan on standing_party sp
+                          Filter: ((slot = 0) AND (jsonb_array_length((composition -> 'units'::text)) > 0))

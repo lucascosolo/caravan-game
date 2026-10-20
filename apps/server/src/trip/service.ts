@@ -56,7 +56,7 @@ import { JOB_KIND_ENCOUNTER_RESOLUTION, encounterJobId, getJob } from "../jobs/q
 import type { JsonObject, LedgerEventRow } from "../ledger/events.js";
 import { appendEvents, listEventsByCausation, lockAccountForAppend, lockAccountsForAppend, lockCaravanForResolution } from "../ledger/ledger.js";
 import { ESCALATION_PER_ENCOUNTER, bandOf, centreOffsetFor } from "../matchmaking/band.js";
-import { chosenCandidate, enqueueChosenEncounter } from "../matchmaking/service.js";
+import { PoolEmptyError, chosenCandidate, enqueueChosenEncounter, findChosenSearch, findLatestSearch, isStaleMenu, searchCandidates } from "../matchmaking/service.js";
 import { createTrip, endTrip, findOpenTrip, findTripById, type TripRow } from "../matchmaking/trips.js";
 import { applyEncounterOutcome, progressionCausationId } from "../progression/outcome.js";
 import { setCaravanState } from "../repo/caravans.js";
@@ -406,8 +406,10 @@ export interface TripVoidedPayload extends JsonObject {
   /** The encounter whose resolution parked: discarded, nothing of it applies. */
   voidedEncounter: number;
   jobId: string;
-  /** The parked job's last error. */
+  /** The parked job's last error, or (r4 S1, `cause: "no_menu"`) why the player was let return. */
   reason: string;
+  /** Final guardrail review r4 S1: "parked" (the encounter's job parked) or "no_menu" (no menu could be served; the player returned to town). Absent on older events (= parked). */
+  cause?: "parked" | "no_menu";
   /** Banked as of this encounter (0: nothing survived, nothing credited). */
   encountersSurvived: number;
   unbankedCoin: number;
@@ -431,7 +433,7 @@ export interface TripVoidedPayload extends JsonObject {
  * them), the refit, manifest closed, caravan in town. With k = 0 nothing is credited and no
  * unit changes. The trip-cap use is not refunded. `trip_voided` records it, with the reason.
  */
-async function voidTripTx(client: pg.PoolClient, caravan: CaravanRow, tripId: string, n: number, nowMs: number): Promise<SettleState> {
+async function voidTripTx(client: pg.PoolClient, caravan: CaravanRow, tripId: string, n: number, nowMs: number, cause: "parked" | "no_menu" = "parked"): Promise<SettleState> {
   const jobId = encounterJobId(tripId, n);
   await lockCaravanForResolution(client, caravan.id);
   await lockAccountForAppend(client, caravan.account_id);
@@ -440,7 +442,8 @@ async function voidTripTx(client: pg.PoolClient, caravan: CaravanRow, tripId: st
   if (trip?.end_reason === "voided") return { state: "voided", tripId, encounterIndex: n, jobId, created: false, voided: null };
   const manifest = trip ? await findManifestById(client, trip.manifest_id, true) : null;
   const job = await getJob(client, jobId);
-  if (!trip || trip.ended_at || !manifest || manifest.encounters_resolved + 1 !== n || !job || job.status !== "parked") {
+  const jobOk = cause === "parked" ? job !== null && job.status === "parked" : job === null;
+  if (!trip || trip.ended_at || !manifest || manifest.encounters_resolved + 1 !== n || !jobOk) {
     throw conflict("trip_moved", "the trip changed while it was being voided; read it again");
   }
   if (await findTripEncounter(client, tripId, n)) throw new Error(`trip ${tripId}: encounter ${n} is settled and parked at once`);
@@ -467,7 +470,8 @@ async function voidTripTx(client: pg.PoolClient, caravan: CaravanRow, tripId: st
     manifestId: manifest.id,
     voidedEncounter: n,
     jobId,
-    reason: job.last_error ?? "the resolution job parked",
+    reason: cause === "no_menu" ? NO_MENU_VOID_REASON : job?.last_error ?? "the resolution job parked",
+    cause,
     encountersSurvived: k,
     unbankedCoin: unbanked,
     deliveryBonus,
@@ -480,6 +484,50 @@ async function voidTripTx(client: pg.PoolClient, caravan: CaravanRow, tripId: st
   };
   await appendEvents(client, tripCausation.voided(tripId), [{ type: "trip_voided", accountId: caravan.account_id, caravanId: caravan.id, payload: voided }, ...deMergeDrafts]);
   return { state: "voided", tripId, encounterIndex: n, jobId, created: true, voided };
+}
+
+/** r4 S1: the reason a `no_menu` void records (the voided-trip summary shows it). */
+export const NO_MENU_VOID_REASON =
+  "No raiding party could be served to this caravan for this encounter, so you returned to town. Nothing of the encounter applied; the trip ended as a bank after the last encounter you survived.";
+
+/**
+ * Final guardrail review r4 S1 — "Return to town": a caravan whose current encounter has no
+ * committed fight, and for which no menu can be filled at all, is never stranded on the trail. The
+ * server proves the menu cannot be filled by running the search itself inside a savepoint (rolled
+ * back either way, so nothing is stored and no reroll wait starts), and only on PoolEmptyError voids
+ * the trip through the existing void path: banked as of the last survived encounter, nothing of
+ * this encounter applies, the trip-cap use is not refunded. When parties can be served it is 409
+ * `menu_available` (search instead), so this is never a way out of a push the player regrets.
+ */
+export async function returnToTown(client: pg.PoolClient, caravan: CaravanRow, req: DecisionRequest, nowMs: number): Promise<SettleState> {
+  await lockCaravanForResolution(client, caravan.id);
+  await lockAccountForAppend(client, caravan.account_id);
+  const t = await client.query<TripRow>("SELECT * FROM trip WHERE id = $1 FOR UPDATE", [req.tripId]);
+  const trip = t.rows[0];
+  if (!trip || trip.caravan_id !== caravan.id) throw notFound("no_trip", "trip not found");
+  if (trip.ended_at) throw conflict("trip_ended", "this trip has ended");
+  const manifest = await findManifestById(client, trip.manifest_id, true);
+  const n = (manifest?.encounters_resolved ?? -1) + 1;
+  if (!manifest || req.encounterIndex !== n) throw conflict("not_current", `the open encounter is ${n}, not ${req.encounterIndex}`);
+  if (await getJob(client, encounterJobId(trip.id, n))) throw conflict("encounter_committed", `encounter ${n} is committed; its fight resolves as usual`);
+  const chosen = await findChosenSearch(client, trip.id, n);
+  const latest = await findLatestSearch(client, trip.id, n);
+  if ((chosen && !isStaleMenu(chosen)) || (latest && !isStaleMenu(latest))) throw conflict("menu_available", `encounter ${n} has a menu; choose from it`);
+  await client.query("SAVEPOINT return_to_town_probe");
+  let filled: boolean;
+  try {
+    await searchCandidates(client, caravan, n, { nowMs });
+    filled = true;
+  } catch (err) {
+    if (!(err instanceof PoolEmptyError)) {
+      await client.query("ROLLBACK TO SAVEPOINT return_to_town_probe");
+      throw err;
+    }
+    filled = false;
+  }
+  await client.query("ROLLBACK TO SAVEPOINT return_to_town_probe");
+  if (filled) throw conflict("menu_available", `raiding parties can be served for encounter ${n} now; search again`);
+  return voidTripTx(client, caravan, trip.id, n, nowMs, "no_menu");
 }
 
 async function settleLocked(

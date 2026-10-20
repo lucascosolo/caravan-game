@@ -8,6 +8,8 @@
  *   GET  /me/caravans/:caravanId/trip/preview                 the bank-or-push stakes, itemized
  *   POST /me/caravans/:caravanId/trip/push   { tripId, encounterIndex }
  *   POST /me/caravans/:caravanId/trip/bank   { tripId, encounterIndex }
+ *   POST /me/caravans/:caravanId/trip/return { tripId, encounterIndex }  "Return to town" (r4 S1): only when no menu can be
+ *        filled for the open, uncommitted encounter; voids the trip through the void path
  *
  * Search / candidates / choose are chunk 14's routes (/me/caravans/:id/encounters/:n/…) and
  * arranging is chunk 07's (PUT /caravans/:id/encounters/:n/formation). There is no route that
@@ -21,7 +23,7 @@ import type { CaravanRow } from "../db/types.js";
 import { findCaravanById } from "../repo/caravans.js";
 import { AppError, badRequest } from "../services/errors.js";
 import { TripCapExhaustedError } from "../trip/cap.js";
-import { bankTrip, commitEncounter, encounterResolverAvailable, parseDecision, pushTrip, settleEncounter, stakesPreview, startTrip, tripStatus } from "../trip/service.js";
+import { bankTrip, commitEncounter, returnToTown, encounterResolverAvailable, parseDecision, pushTrip, settleEncounter, stakesPreview, startTrip, tripStatus } from "../trip/service.js";
 import { isUuid } from "../util/uuid.js";
 import { requireAuth } from "./require-auth.js";
 
@@ -82,6 +84,14 @@ export async function tripRoutes(app: FastifyInstance): Promise<void> {
     const decision = parseDecision(req.body);
     await settleEncounter(app.db, caravan);
     return withTransaction(app.db, (client) => bankTrip(client, caravan, decision));
+  });
+
+  app.post<{ Params: CaravanParams }>("/me/caravans/:caravanId/trip/return", { preHandler: requireAuth }, async (req) => {
+    const caravan = await ownCaravan(req);
+    const decision = parseDecision(req.body);
+    const nowMs = Date.now();
+    const state = await withTransaction(app.db, (client) => returnToTown(client, caravan, decision, nowMs));
+    return { returned: true, voided: state.state === "voided" ? state.voided : null, status: await tripStatus(app.db, caravan, nowMs) };
   });
 
   // The trip cap says exactly when the next start opens; it is time-gated only.

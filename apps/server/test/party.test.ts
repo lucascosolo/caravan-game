@@ -727,7 +727,7 @@ describe("D5 (final play-test review): the server's suggested party brings the o
     const suggested = view.suggested as PartyConfig;
     expect(suggested).not.toBeNull();
     const unlockedUnits = (view.roster as { instanceId: string; unlocked: boolean }[]).filter((u) => u.unlocked).map((u) => u.instanceId);
-    expect(suggested.units.map((u) => u.ref).sort()).toEqual(unlockedUnits.slice(0, TUNABLES.PARTY_SLOT_CAP).sort());
+    expect(suggested.units.map((u) => u.ref).sort()).toEqual(unlockedUnits.slice(0, Math.min(TUNABLES.PARTY_SLOT_CAP, TUNABLES.SUGGESTED_PARTY_MAX)).sort()); // r4 D1
     const unlockedSiege = (view.siegeCatalog as { typeId: string; unlocked: boolean }[]).filter((s) => s.unlocked).map((s) => s.typeId);
     expect(unlockedSiege.length).toBeGreaterThan(0); // the free tier-0 siege piece
     expect(suggested.siege).toEqual(unlockedSiege.slice(0, TUNABLES.SIEGE_SLOT_CAP).sort());

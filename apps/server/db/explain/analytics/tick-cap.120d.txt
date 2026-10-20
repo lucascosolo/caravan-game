@@ -6,9 +6,9 @@ GroupAggregate
           ->  Hash Anti Join
                 Hash Cond: (te.trip_id = st.id)
                 ->  Bitmap Heap Scan on trip_encounter te
-                      Recheck Cond: ((settled_at >= '2026-06-13 23:35:31.636+00'::timestamp with time zone) AND (settled_at < '2026-10-11 23:35:31.636+00'::timestamp with time zone))
+                      Recheck Cond: ((settled_at >= '2026-06-22 11:34:14.291+00'::timestamp with time zone) AND (settled_at < '2026-10-20 11:34:14.291+00'::timestamp with time zone))
                       ->  Bitmap Index Scan on trip_encounter_settled_at_idx
-                            Index Cond: ((settled_at >= '2026-06-13 23:35:31.636+00'::timestamp with time zone) AND (settled_at < '2026-10-11 23:35:31.636+00'::timestamp with time zone))
+                            Index Cond: ((settled_at >= '2026-06-22 11:34:14.291+00'::timestamp with time zone) AND (settled_at < '2026-10-20 11:34:14.291+00'::timestamp with time zone))
                 ->  Hash
                       ->  Nested Loop
                             ->  Nested Loop
@@ -24,8 +24,9 @@ GroupAggregate
           SubPlan 1
             ->  Limit
                   ->  Nested Loop
-                        ->  Index Scan using encounter_candidates_chosen_recent_idx on encounter_candidates ec
+                        ->  Index Scan Backward using encounter_candidates_pkey on encounter_candidates ec
                               Index Cond: ((trip_id = te.trip_id) AND (encounter_index = te.encounter_index))
+                              Filter: (chosen_at IS NOT NULL)
                         ->  Function Scan on jsonb_array_elements c
                               Filter: ((value ->> 'candidateId'::text) = ec.chosen_candidate_id)
   ->  Sort
