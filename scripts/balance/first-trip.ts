@@ -91,6 +91,124 @@ export function firstTripTasks(seeds: number, traps: number, reserve: number = T
   return tasks;
 }
 
+// ── Balance pass 8: the whole authored-only phase — trip 1, then trip 2 with the attrition carried ──
+//
+// Until a caravan has banked AUTHORED_ONLY_UNTIL_BANKS trips it meets authored outfits only and the
+// guide helps at every encounter (main since round 3). Each trip here plays the guide's way end to
+// end: the guide's default pack (roster − GUIDE_RESERVE, the units left home rotated by the seed),
+// one trap and a full fence; at every encounter the server's menu (authored pool, the raider cap),
+// the guide's pick, its "Arrange for me" (`guidedFormation`), and after every hold its
+// bank-or-push advice (`pushAdvice` over the menu just faced), until an overrun, an advised bank or
+// PHASE_MAX_ENCOUNTERS holds (then a bank). Between trips (PROJECT.md §14, chunk 19): on a bank
+// every packed unit comes home (the dead de-merged, floored at L1); on an overrun the units still
+// standing are destroyed and the dead come home. A roster under REFUGEE_ROSTER_FLOOR takes free
+// refugee claims (the region's starter types, alternating) up to it. Reputation moves by the
+// server's reputationDelta after every fight.
+
+/** Tunable (pass 8): a guided trip that is never advised to bank banks after this many holds. */
+export const PHASE_MAX_ENCOUNTERS = 5;
+
+export interface PhaseTrip {
+  readonly end: "banked" | "overrun";
+  readonly encounters: number;
+  readonly packed: number;
+  readonly parties: readonly string[];
+  /** The outfit that overran the caravan, if any. */
+  readonly overrunBy: string | null;
+}
+export interface PhaseResult {
+  readonly region: string;
+  readonly trips: readonly PhaseTrip[];
+}
+
+type Unit = { readonly typeId: string; readonly mergeLevel: number };
+
+function guidedTripOf(region: (typeof REGION_IDS)[number], roster: readonly Unit[], rating: number, id: string, seed: number, reserve: number, traps: number): { trip: PhaseTrip; home: Unit[]; rating: number } {
+  const keep = Math.max(1, Math.min(TUNABLES.DEPLOYMENT_SLOT_CAP, roster.length - reserve));
+  const rot = seed % roster.length;
+  const rotated = [...roster.slice(rot), ...roster.slice(0, rot)];
+  const packedUnits = rotated.slice(0, keep);
+  const leftHome = rotated.slice(keep);
+  const fresh = freshRoster(region, null, traps);
+  let m = manifestOf({ ...fresh, label: `${id} packs ${keep}`, units: packedUnits });
+  const cap = { packedUnits: keep, rosterLevels: roster.map((u) => u.mergeLevel) };
+  const parties: string[] = [];
+  let end: "banked" | "overrun" = "banked";
+  let overrunBy: string | null = null;
+  let j = 0;
+  for (j = 1; j <= PHASE_MAX_ENCOUNTERS; j++) {
+    const { menu } = servedMenu(`caravan-${id}`, `trip-${id}`, rating, j, 1, cap);
+    const sp = guidePick(menu);
+    parties.push(sp.spec.outfit.name);
+    const r = oneFight(m, sp, GUIDED);
+    if (!r) throw new Error(`guided layout refused for ${id} at encounter ${j}`);
+    rating += reputationDelta("caravan", r.kind, rating, sp.spec.rating).delta;
+    if (r.kind === "caravan_overrun") {
+      end = "overrun";
+      overrunBy = sp.spec.outfit.name;
+      m = r.survivors;
+      break;
+    }
+    m = r.survivors;
+    if (guideAdvice(m, menu).kind === "bank") break;
+  }
+  const encounters = Math.min(j, PHASE_MAX_ENCOUNTERS);
+  // Who comes home: everyone on a bank (de-merged, floored at L1); on an overrun only the dead.
+  const back = m.units.filter((u) => end === "banked" || u.hp === 0).map((u) => ({ typeId: u.typeId, mergeLevel: u.hp === 0 ? Math.max(TUNABLES.MERGE_LEVEL_MIN, u.mergeLevel - 1) : u.mergeLevel }));
+  const home: Unit[] = [...leftHome, ...back];
+  const starters = starterTypes(region);
+  for (let k = 0; home.length < TUNABLES.REFUGEE_ROSTER_FLOOR; k++) home.push({ typeId: starters[k % starters.length]!, mergeLevel: 1 });
+  return { trip: { end, encounters, packed: keep, parties, overrunBy }, home, rating };
+}
+
+/** The authored-only phase for one fresh caravan: guided trips until AUTHORED_ONLY_UNTIL_BANKS banks, at most `maxTrips`. */
+export function authoredPhase(t: FirstTripTask & { readonly maxTrips?: number }): PhaseResult {
+  let roster: Unit[] = freshRoster(t.region, t.refugee, t.traps).units.map((u) => ({ typeId: u.typeId, mergeLevel: u.mergeLevel }));
+  let rating: number = TUNABLES.REPUTATION_START;
+  const trips: PhaseTrip[] = [];
+  const id = `${t.region}-${t.refugee}-${t.seed}`;
+  for (let n = 1; n <= (t.maxTrips ?? 2); n++) {
+    const r = guidedTripOf(t.region, roster, rating, n === 1 ? id : `${id}-t${n}`, t.seed + n - 1, t.reserve, t.traps);
+    trips.push(r.trip);
+    roster = r.home;
+    rating = r.rating;
+  }
+  return { region: t.region, trips };
+}
+
+export interface PhaseSummary {
+  readonly caravans: number;
+  readonly trip1Banked: number;
+  readonly trip2Banked: number;
+  readonly trip2AfterBank: { readonly n: number; readonly banked: number };
+  readonly trip2AfterOverrun: { readonly n: number; readonly banked: number };
+  readonly overrunBy: Record<string, number>;
+  readonly trip2ByRegion: Record<string, { n: number; banked: number }>;
+}
+export function summarizePhase(rs: readonly PhaseResult[]): PhaseSummary {
+  const overrunBy: Record<string, number> = {};
+  const trip2ByRegion: Record<string, { n: number; banked: number }> = {};
+  for (const r of rs) {
+    for (const t of r.trips) if (t.overrunBy) overrunBy[t.overrunBy] = (overrunBy[t.overrunBy] ?? 0) + 1;
+    const e = (trip2ByRegion[r.region] ??= { n: 0, banked: 0 });
+    e.n++;
+    if (r.trips[1]?.end === "banked") e.banked++;
+  }
+  const after = (end: string) => {
+    const xs = rs.filter((r) => r.trips[0]!.end === end);
+    return { n: xs.length, banked: xs.filter((r) => r.trips[1]?.end === "banked").length };
+  };
+  return {
+    caravans: rs.length,
+    trip1Banked: rs.filter((r) => r.trips[0]!.end === "banked").length,
+    trip2Banked: rs.filter((r) => r.trips[1]?.end === "banked").length,
+    trip2AfterBank: after("banked"),
+    trip2AfterOverrun: after("overrun"),
+    overrunBy,
+    trip2ByRegion,
+  };
+}
+
 // ── Final play-test review r2 S2: the second trip's gate — raised starter parties ─────────────
 //
 // A caravan meets authored outfits only until it has banked TUNABLES.AUTHORED_ONLY_UNTIL_BANKS trips
@@ -241,6 +359,23 @@ export function summarize(rs: readonly FirstTripResult[]): FirstTripSummary {
 
 const isMain = process.argv[1]?.endsWith("first-trip.ts") ?? false;
 const raisedMode = process.argv.includes("--raised");
+const phaseMode = process.argv.includes("--phase");
+if (isMain && phaseMode && !serveIfChild(authoredPhase)) {
+  const arg = (n: string, d: number) => {
+    const i = process.argv.indexOf(`--${n}`);
+    return i >= 0 ? Number(process.argv[i + 1]) : d;
+  };
+  const tasks = firstTripTasks(arg("seeds", 25), arg("traps", 1), arg("reserve", TUNABLES.GUIDE_RESERVE));
+  const rs = await runParallel(process.argv[1]!, tasks, authoredPhase, arg("jobs", 4));
+  const s = summarizePhase(rs);
+  console.log(`Authored-only phase (pass 8) — ${s.caravans} fresh caravans, trip 1 then trip 2 with the attrition carried; the guide's pick, Arrange for me and advice at every encounter (≤ ${PHASE_MAX_ENCOUNTERS} encounters)`);
+  console.log(`trip 1 delivered (banked): ${s.trip1Banked}/${s.caravans} = ${pct(share(s.trip1Banked, s.caravans))}`);
+  console.log(`trip 2 delivered (banked): ${s.trip2Banked}/${s.caravans} = ${pct(share(s.trip2Banked, s.caravans))} (target ≥ 50 %)   after a banked trip 1: ${s.trip2AfterBank.banked}/${s.trip2AfterBank.n}   after an overrun: ${s.trip2AfterOverrun.banked}/${s.trip2AfterOverrun.n}`);
+  console.log("trip 2 by region: " + Object.entries(s.trip2ByRegion).map(([k, v]) => `${k} ${v.banked}/${v.n}`).join(", "));
+  const enc = (k: number) => rs.map((r) => r.trips[k]!.encounters);
+  console.log(`encounters per trip (mean): trip 1 ${(enc(0).reduce((a, b) => a + b, 0) / rs.length).toFixed(2)}, trip 2 ${(enc(1).reduce((a, b) => a + b, 0) / rs.length).toFixed(2)}; packed on trip 2 (mean) ${(rs.reduce((a, r) => a + r.trips[1]!.packed, 0) / rs.length).toFixed(2)}`);
+  console.log("overruns by outfit (both trips): " + Object.entries(s.overrunBy).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(", "));
+}
 if (isMain && raisedMode && !serveIfChild(raisedGate)) {
   const ji = process.argv.indexOf("--jobs");
   const jobs = ji >= 0 ? Number(process.argv[ji + 1]) : 4;
@@ -254,7 +389,7 @@ if (isMain && raisedMode && !serveIfChild(raisedGate)) {
   console.log(`ALL raised parties: guided held ${s.guidedHeld}/${s.fights} = ${pct(share(s.guidedHeld, s.fights))}   best skilled held ${s.bestHeld}/${s.fights} = ${pct(share(s.bestHeld, s.fights))}`);
   console.log(`those a bands 0–1 search can serve (r3 S2(b)): guided held ${s.servedGuidedHeld}/${s.servedFights} = ${pct(share(s.servedGuidedHeld, s.servedFights))} (target ≥ 60 %)   best skilled held ${s.servedBestHeld}/${s.servedFights} = ${pct(share(s.servedBestHeld, s.servedFights))} (target ≥ 70 %)`);
 }
-if (isMain && !raisedMode && !serveIfChild(firstTrip)) {
+if (isMain && !raisedMode && !phaseMode && !serveIfChild(firstTrip)) {
   const arg = (n: string, d: number) => {
     const i = process.argv.indexOf(`--${n}`);
     return i >= 0 ? Number(process.argv[i + 1]) : d;
