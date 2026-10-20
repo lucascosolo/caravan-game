@@ -566,3 +566,12 @@ Migration **030** (`030_menu_version_stamp`) carries N4.
 - e2e failed once, on `onboarding.spec.ts` pinning the raised party at 7 ("Your standing party is up:
   5 units", D1 as decided). With the spec pinned to `SUGGESTED_PARTY_MAX`, `pnpm check -- --from e2e`
   → "all 2 steps passed": e2e 12 passed, e2e:hosting 14 passed.
+- `git merge roadmap/phase-2-spec` (the client fixer's assist guide; it merged cleanly). Then the full
+  `pnpm check` → "all 11 steps passed in 20.7 min":
+  - content 82, resolver 587, circle 113, web 496, server 828 (+1 skipped);
+  - determinism 366, perf 15, build, migrate, smoke;
+  - e2e 12 passed, e2e:hosting 14 passed.
+- The contract test re-records `apps/web/src/test/contract/*.json` on every run. That drift is not
+  committed.
+- Clean-up: every server I started is stopped. `caravan_test_r4g` and `caravan_dev_r4g` are kept,
+  `caravan_dev_r4g` re-seeded (v6).
