@@ -199,7 +199,7 @@ security headers, never serves `*.map` under `NODE_ENV=production`, and mounts e
 `/api` (`/health` answers at both); without it the routes are at the root, as listed here and in the tests.
 **Store mode (final review D1):** `STORE_MODE=off` (the default under `NODE_ENV=production`) previews packs
 but answers `POST /me/store/purchase` with 409 `store_unavailable`, and the dashboard's pack funnel is not
-counted; `sandbox` (the default elsewhere) is chunk 20's $0 backend. `GET /me/store` carries `mode`. Party-owner
+counted; `sandbox` (the default elsewhere) is chunk 20's $0 backend, refused under production unless `STORE_SANDBOX_IN_PRODUCTION=1` is also set (final review r3 N4). `GET /me/store` carries `mode`. Party-owner
 views never carry the defender's caravan id (final review N4). Server routes so far: `POST /auth/register`,
 `POST /auth/login`, `POST /auth/logout`, `GET /me`, `GET /health` (bearer token auth), plus
 the ledger, progression, circle, economy and unlock routes of chunks 02–07 and 16
@@ -228,7 +228,7 @@ the app with `encounterWorker: true`: `jobs/inProcessWorker.ts` drains the job q
 with the REAL resolver (`DEFAULT_HANDLERS`), kicked by every `POST …/trip/encounters/:n/commit`
 and polled every second (retries, expired leases, jobs committed through another process). Any
 number of server processes may run it (the queue's lease and completion fence make concurrent
-workers safe). Tests build apps without it and call `drain` themselves.
+workers safe). Each pass (at boot and on every poll) first parks every job of ANOTHER resolver version (queued, or leased with an expired lease) and voids its trip, so an upgrade that bumps `RESOLVER_VERSION` without a drain strands no caravan (final guardrail review r3 S1, migration 029; drain first, docs/PLAYTEST-HOSTING.md step 12). Plain `drain` / `runOnce` never do this. Tests build apps without it and call `drain` themselves.
 
 **`CARAVAN_TEST_RESOLVER=double` (dev / test only, chunk 23).** Swaps chunk 15's deterministic
 test double (`apps/server/src/dev/tripDouble.ts`, via `src/dev/testResolver.ts`) in for the real

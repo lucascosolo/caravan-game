@@ -120,6 +120,13 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
           onOutcome: (o) => {
             if (o.kind === "failed" || o.kind === "parked") app.log.warn({ job: o.jobId, error: o.error }, `encounter job ${o.kind}`);
           },
+          // Final guardrail review r3 S1: fights committed under another resolver version (an upgrade
+          // without a drain, or a crash during one): parked, and each trip voided.
+          onParkedOtherVersion: (jobs) =>
+            app.log.warn(
+              { jobs: jobs.map((j) => ({ job: j.id, resolverVersion: (j.input as { resolverVersion?: unknown }).resolverVersion })) },
+              `${jobs.length} job(s) of another resolver version parked and their trips voided (docs/PLAYTEST-HOSTING.md step 12: drain before an upgrade that bumps RESOLVER_VERSION)`,
+            ),
         });
   app.decorate("encounterWorker", loop);
   if (loop) {

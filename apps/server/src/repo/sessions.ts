@@ -38,6 +38,23 @@ export async function purgeExpiredSessions(db: Queryable, accountId: string): Pr
   return res.rowCount ?? 0;
 }
 
+/** Operational, not balance (final guardrail review r3 N1): how long a just-issued, not-yet-used session is protected from eviction. */
+export const SESSION_PENDING_PROTECT_SECONDS = 30;
+
+/**
+ * Which sessions a cap keeps, best first:
+ *   0. issued in the last SESSION_PENDING_PROTECT_SECONDS and not used yet: a concurrent resume's
+ *      answer still on its way to its tab (final guardrail review r3 N1);
+ *   1. in use (authenticated in the last 5 minutes, QA-30 S4);
+ *   2. everything else;
+ * then the most recently used / issued. An orphaned resume (never used) loses its protection
+ * after the window and ranks below every session in use.
+ */
+const EVICTION_ORDER = `ORDER BY CASE
+         WHEN last_used_at <= created_at AND created_at > now() - interval '${SESSION_PENDING_PROTECT_SECONDS} seconds' THEN 0
+         WHEN last_used_at > created_at AND last_used_at > now() - interval '5 minutes' THEN 1
+         ELSE 2 END, last_used_at DESC, created_at DESC, id DESC`;
+
 /** Keep only the `cap` newest sessions for an account (oldest evicted). Returns how many went. */
 export async function evictSessionsBeyondCap(db: Queryable, accountId: string, cap: number, keepId?: string): Promise<number> {
   if (!Number.isInteger(cap) || cap < 1) throw new RangeError(`session cap must be a positive integer, got ${cap}`);
@@ -48,7 +65,9 @@ export async function evictSessionsBeyondCap(db: Queryable, accountId: string, c
        -- Final play-test review r2 S1: the session being issued (keepId) is never a candidate — it is
        -- kept and counts toward the cap, so the others are cut to cap − 1. (Before, a brand-new
        -- session sorted after every session in use and could be deleted the moment it was issued.)
-       ORDER BY (last_used_at > created_at AND last_used_at > now() - interval '5 minutes') DESC, last_used_at DESC, created_at DESC, id DESC OFFSET $2
+       -- Final guardrail review r3 N1: a session issued in the last 30 s and not used yet ranks FIRST: it
+       -- is another tab's resume whose answer is on its way (a concurrent resume used to cut it).
+       ${EVICTION_ORDER} OFFSET $2
      )`,
     [accountId, keepId === undefined ? cap : cap - 1, keepId ?? null],
   );
@@ -65,7 +84,9 @@ export async function evictDeviceSessionsBeyondCap(db: Queryable, deviceId: stri
        -- Final play-test review r2 S1: the session being issued (keepId) is never a candidate — it is
        -- kept and counts toward the cap, so the others are cut to cap − 1. (Before, a brand-new
        -- session sorted after every session in use and could be deleted the moment it was issued.)
-       ORDER BY (last_used_at > created_at AND last_used_at > now() - interval '5 minutes') DESC, last_used_at DESC, created_at DESC, id DESC OFFSET $2
+       -- Final guardrail review r3 N1: a session issued in the last 30 s and not used yet ranks FIRST: it
+       -- is another tab's resume whose answer is on its way (a concurrent resume used to cut it).
+       ${EVICTION_ORDER} OFFSET $2
      )`,
     [deviceId, keepId === undefined ? cap : cap - 1, keepId ?? null],
   );

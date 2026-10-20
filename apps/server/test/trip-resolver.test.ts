@@ -661,6 +661,70 @@ describe("S1: the server's in-process worker resolves committed encounters with 
     // Closed: the loop is stopped (nothing left running against the pool).
   });
 
+  /** Rewrites a committed job's resolver version (as the owner, guard off for this one statement): a fight committed before an upgrade. */
+  const stampVersion = async (jobId: string, version: number, extra = "") => {
+    const c = await pool.connect();
+    try {
+      await c.query("BEGIN");
+      await c.query("ALTER TABLE resolution_job DISABLE TRIGGER resolution_job_guard");
+      await c.query(`UPDATE resolution_job SET input = jsonb_set(input, '{resolverVersion}', to_jsonb($2::int))${extra} WHERE id = $1`, [jobId, version]);
+      await c.query("ALTER TABLE resolution_job ENABLE TRIGGER resolution_job_guard");
+      await c.query("COMMIT");
+    } finally {
+      c.release();
+    }
+  };
+
+  it("final guardrail review r3 S1: a fight committed under an older RESOLVER_VERSION is parked at boot and its trip voided — the caravan is back in town", async () => {
+    const d = await makeDefender();
+    expect((await call(d, "POST", `/me/caravans/${d.caravanId}/trip/start`)).statusCode).toBe(201);
+    const { jobId } = await fight(d, 1); // committed through the worker-less app: still queued
+    await stampVersion(jobId, RESOLVER_VERSION - 1);
+    // A second caravan whose old-version fight is LEASED by a process that died (lease expired) …
+    const e = await makeDefender();
+    expect((await call(e, "POST", `/me/caravans/${e.caravanId}/trip/start`)).statusCode).toBe(201);
+    const { jobId: crashed } = await fight(e, 1);
+    await stampVersion(crashed, RESOLVER_VERSION - 1, ", status = 'leased', attempts = 1, leased_by = 'server:old:1', lease_expires_at = now() - interval '1 second'");
+    // … and a third whose old-version fight is still under a LIVE lease: left alone for now.
+    const f = await makeDefender();
+    expect((await call(f, "POST", `/me/caravans/${f.caravanId}/trip/start`)).statusCode).toBe(201);
+    const { jobId: live1 } = await fight(f, 1);
+    await stampVersion(live1, RESOLVER_VERSION - 1, ", status = 'leased', attempts = 1, leased_by = 'server:old:2', lease_expires_at = now() + interval '1 hour'");
+
+    const live = await buildApp({ db: appRole, encounterWorker: { pollMs: 600_000 } }); // the boot pass alone
+    await live.ready();
+    try {
+      for (const [p, id] of [[d, jobId], [e, crashed]] as const) {
+        const job = await until(id, 15_000);
+        expect(job.status, id).toBe("parked");
+        expect(job.last_error).toContain("The game was updated");
+        expect(job.last_error).toContain(`v${RESOLVER_VERSION - 1} → v${RESOLVER_VERSION}`);
+        const trip = await live.inject({ method: "GET", url: `/me/caravans/${p.caravanId}/trip`, headers: { authorization: `Bearer ${p.token}` } });
+        expect(trip.statusCode, trip.body).toBe(200);
+        expect(trip.json().caravan.state).not.toBe("on_trip");
+        expect(trip.json().trip).toMatchObject({ endReason: "voided" });
+        const voided = await pool.query("SELECT payload FROM ledger_event WHERE caravan_id = $1 AND event_type = 'trip_voided'", [p.caravanId]);
+        expect(voided.rows).toHaveLength(1);
+        expect(voided.rows[0].payload).toMatchObject({ jobId: id, voidedEncounter: 1 });
+        // Nothing of the unresolved fight applied: no resolution events under the job.
+        expect((await pool.query("SELECT count(*)::int n FROM ledger_event WHERE causation_id = $1", [id])).rows[0].n).toBe(0);
+      }
+      // The live lease is not this process's to break …
+      expect((await getJob(pool, live1))!).toMatchObject({ status: "leased", leased_by: "server:old:2" });
+      // … until it expires; then the next poll parks it too.
+      await stampVersion(live1, RESOLVER_VERSION - 1, ", lease_expires_at = now() - interval '1 second'");
+      await live.encounterWorker!.runNow();
+      expect((await getJob(pool, live1))!).toMatchObject({ status: "parked" });
+      // A current-version fight is still resolved as usual by the same loop.
+      const g = await makeDefender();
+      expect((await call(g, "POST", `/me/caravans/${g.caravanId}/trip/start`)).statusCode).toBe(201);
+      const { jobId: current } = await fight(g, 1, live);
+      expect((await until(current, 15_000)).status).toBe("completed");
+    } finally {
+      await live.close();
+    }
+  });
+
   it("is off unless asked for (tests drain by hand)", async () => {
     expect(app.encounterWorker).toBeNull();
   });

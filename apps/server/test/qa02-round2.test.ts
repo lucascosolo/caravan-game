@@ -238,7 +238,7 @@ describe("R2-S3: job state moves only through the owner's writers", () => {
           ORDER BY p.proname`,
       )
     ).rows;
-    expect(fns.map((f) => f.proname)).toEqual(["resolution_job_complete", "resolution_job_fail", "resolution_job_lease", "resolution_job_park", "resolution_job_requeue"]);
+    expect(fns.map((f) => f.proname)).toEqual(["resolution_job_complete", "resolution_job_fail", "resolution_job_lease", "resolution_job_park", "resolution_job_park_other_version", "resolution_job_requeue"]);
     const tableOwner = (await owner.query<{ o: string }>("SELECT pg_get_userbyid(relowner) AS o FROM pg_class WHERE relname = 'resolution_job'")).rows[0]!.o;
     for (const f of fns) {
       expect(f.fowner, f.proname).toBe(tableOwner);

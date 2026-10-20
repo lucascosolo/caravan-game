@@ -13,6 +13,7 @@ import { ACCOUNT_POOLS, createAccountPoolProgress } from "../repo/poolProgress.j
 import { SYSTEM_USERNAME_PREFIX, hasSystemUsernamePrefix } from "../matchmaking/reservedUsername.js";
 import { enrollOnboarding } from "../onboarding/service.js";
 import { createCaravanForAccount } from "./caravans.js";
+import { isReservedCaravanName } from "./caravanNames.js";
 import { badRequest, conflict } from "./errors.js";
 
 const USERNAME_RE = /^[a-z0-9_]+$/;
@@ -43,6 +44,10 @@ export function normalizeCaravanName(raw: string): string {
       "invalid_caravan_name",
       `caravanName must be ${CARAVAN_NAME_MIN}-${CARAVAN_NAME_MAX} characters after trimming, with no control characters`,
     );
+  }
+  // Final guardrail review r3 N2: content labels, authored outfits and the generic names are not caravan names.
+  if (isReservedCaravanName(name)) {
+    throw badRequest("reserved_caravan_name", `'${name}' is the name of a unit, a trap, a siege engine, an outfit or a placeholder; choose another caravan name`);
   }
   return name;
 }

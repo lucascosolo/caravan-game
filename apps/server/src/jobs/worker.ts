@@ -41,6 +41,7 @@ import {
   markJobCompleted,
   markJobFailed,
   markJobParked,
+  parkOtherVersionJobs,
   retryBackoffMs,
   type LeaseFence,
 } from "./queue.js";
@@ -228,6 +229,19 @@ async function runParkedHook(pool: pg.Pool, opts: WorkerOptions, job: Resolution
   } catch (err) {
     opts.onHookError?.(err, job, "afterParked");
   }
+}
+
+/**
+ * Final guardrail review r3 S1: park the queue's jobs of other resolver versions (queued, or
+ * leased with an expired lease) and run the afterParked hook on each — the trip loop voids the
+ * trip, so a caravan whose fight was committed before an upgrade comes back to town instead of
+ * "resolving" forever. Returns the parked rows. The in-process loop calls it at boot and on
+ * every poll; plain `drain` does not (a version-scoped worker never parks another version).
+ */
+export async function parkOtherVersions(pool: pg.Pool, opts: Pick<WorkerOptions, "workerId" | "afterParked" | "onHookError">): Promise<ResolutionJobRow[]> {
+  const parked = await parkOtherVersionJobs(pool, opts.workerId, RESOLVER_VERSION);
+  for (const job of parked) await runParkedHook(pool, opts as WorkerOptions, job);
+  return parked;
 }
 
 /**

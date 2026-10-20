@@ -223,6 +223,21 @@ describe("guest-first", () => {
     expect((await pool.query("SELECT count(*)::int AS n FROM session WHERE account_id = $1", [g.accountId])).rows[0].n).toBe(10);
   });
 
+  it("final guardrail review r3 N1: two tabs resuming at once on a device at its cap both stay signed in (issuance is serialized per device and account)", async () => {
+    for (let trial = 0; trial < 8; trial++) {
+      const g = await guest();
+      for (let i = 0; i < 9; i++) await app.inject({ method: "POST", url: "/auth/resume", payload: {}, headers: { cookie: g.cookie } });
+      // Every one of the device's sessions in use (the round-3 repro: 9–10 tabs used in the last 5 minutes).
+      await pool.query("UPDATE session SET created_at = now() - interval '2 minutes', last_used_at = now() - interval '1 minute' WHERE account_id = $1", [g.accountId]);
+      const race = await Promise.all([0, 1].map(() => app.inject({ method: "POST", url: "/auth/resume", payload: {}, headers: { cookie: g.cookie } })));
+      for (const r of race) {
+        expect(r.statusCode, `trial ${trial}`).toBe(200);
+        expect((await call({ token: r.json().token }, "GET", "/me")).statusCode, `trial ${trial}: a token a concurrent resume issued`).toBe(200);
+      }
+      expect((await pool.query("SELECT count(*)::int AS n FROM session WHERE account_id = $1", [g.accountId])).rows[0].n).toBe(10);
+    }
+  });
+
   it("final play-test review r2 S1: a resume ignores (never fails on) a previous token that is another account's, another device's, expired or junk", async () => {
     const a = await guest();
     const b = await guest();
@@ -246,7 +261,12 @@ describe("guest-first", () => {
     // The first tab keeps working; every other session of the device is older in USE.
     await pool.query("UPDATE session SET last_used_at = now() - interval '1 hour' WHERE account_id = $1", [p.accountId]);
     await pool.query("UPDATE session SET last_used_at = now() WHERE token_hash = encode(sha256(convert_to($1, 'UTF8')), 'hex')", [p.token]);
-    for (let i = 0; i < 11; i++) await app.inject({ method: "POST", url: "/auth/resume", payload: {}, headers: { cookie: p.cookie } });
+    for (let i = 0; i < 11; i++) {
+      await app.inject({ method: "POST", url: "/auth/resume", payload: {}, headers: { cookie: p.cookie } });
+      // r3 N1: these resumes are never used — orphans, older than the pending window (a session
+      // issued moments ago and not yet used is protected: its tab's answer is on its way).
+      await pool.query("UPDATE session SET created_at = created_at - interval '1 minute', last_used_at = last_used_at - interval '1 minute' WHERE account_id = $1 AND last_used_at <= created_at", [p.accountId]);
+    }
     expect((await call(p, "GET", "/me")).statusCode).toBe(200);
     expect((await pool.query("SELECT count(*)::int AS n FROM session WHERE account_id = $1", [p.accountId])).rows[0].n).toBe(10);
     // N7: a resume must be a JSON request (a CORS preflight); a cookie-only simple POST is refused and spends nothing.

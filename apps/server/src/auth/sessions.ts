@@ -3,7 +3,8 @@
  * is stored. Authorization header: `Bearer <token>`.
  */
 import { createHash, randomBytes } from "node:crypto";
-import type pg from "pg";
+import pg from "pg";
+import { withTransaction } from "../db/pool.js";
 import { SESSIONS_PER_ACCOUNT_MAX, SESSION_TTL_MS } from "../config.js";
 import type { AccountRow } from "../db/types.js";
 import { findAccountById } from "../repo/accounts.js";
@@ -39,6 +40,9 @@ export class SystemAccountSessionError extends Error {
   }
 }
 
+/** Advisory lock namespace (first key of pg_advisory_xact_lock(int, int); see ledger.ts for the others): one account's session issuance. */
+export const LOCK_NS_SESSIONS = 30;
+
 export interface IssuedSession {
   token: string;
   expiresAt: Date;
@@ -57,6 +61,27 @@ export async function issueSession(
   db: pg.Pool | pg.PoolClient,
   accountId: string,
   opts: { deviceId?: string; label?: string; replacesSessionId?: string } = {},
+): Promise<IssuedSession> {
+  // Final guardrail review r3 N1: a session is issued in ONE transaction, under a row lock on the
+  // device it joins (a resume) and the account's session lock, so two tabs resuming at once are
+  // serialized: neither's eviction can see (and cut) the other's session in the moment between
+  // its insert and its return. The account lock also covers the account-wide cap, which a resume
+  // on one device and a sign-in on another both trim. (A caller that passes its own client owns
+  // the transaction; every route passes the pool.)
+  if (db instanceof pg.Pool) {
+    return withTransaction(db, async (client) => {
+      await client.query("SELECT pg_advisory_xact_lock($1, hashtext($2))", [LOCK_NS_SESSIONS, accountId]);
+      if (opts.deviceId !== undefined) await client.query("SELECT id FROM device WHERE id = $1 FOR UPDATE", [opts.deviceId]);
+      return issueSessionIn(client, accountId, opts);
+    });
+  }
+  return issueSessionIn(db, accountId, opts);
+}
+
+async function issueSessionIn(
+  db: pg.Pool | pg.PoolClient,
+  accountId: string,
+  opts: { deviceId?: string; label?: string; replacesSessionId?: string },
 ): Promise<IssuedSession> {
   const account = await findAccountById(db, accountId);
   if (!account) throw new Error(`account ${accountId} not found; cannot issue a session`);

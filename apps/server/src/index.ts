@@ -38,6 +38,10 @@ if (settings.length > 0) app.log.warn(`the database role has role-level settings
 if (inlineEncounterWorker) app.log.warn(`CARAVAN_TEST_RESOLVER: encounters resolve with the ${inlineEncounterWorker.name} (dev/test only)`);
 else app.log.info(`encounter worker ${app.encounterWorker?.workerId ?? "(none)"}: encounters resolve in-process with the real resolver`);
 app.log.info(`store: ${app.storeMode === "off" ? "off (packs previewed, not sold)" : "sandbox ($0 purchases)"}`);
+// Final guardrail review r3 N4: only reachable with STORE_SANDBOX_IN_PRODUCTION=1 (config.ts refuses it otherwise).
+if (app.storeMode === "sandbox" && process.env["NODE_ENV"] === "production") {
+  app.log.warn("WARNING: STORE_MODE=sandbox under NODE_ENV=production (STORE_SANDBOX_IN_PRODUCTION=1): every pack is sold for $0 — players get free Coin. Never for a play test.");
+}
 if (serveWeb) app.log.info(`serving the client from ${serveWeb.dir}; API under /api${serveWeb.production ? "; source maps not served" : ""}`);
 const port = Number(process.env["PORT"] ?? 3000);
 const host = process.env["HOST"] ?? "127.0.0.1";
