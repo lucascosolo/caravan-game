@@ -2734,3 +2734,13 @@ The user asked for a stopping point. Main (`roadmap/phase-2-spec`) is consistent
   Naive and guided layouts hold 10–40 points less than the search, so skill matters. Band 1 is harder than band 2 for most rosters, so the authored curve is not monotone.
 - At equal size, defense loses: 3 L1 raiders beat 3 L1 posts (5 % guided, 13 % best). Raiders on the core stance reach the core in about 7 s, mostly before posts engage.
 - Levers on a 5-post case (guided / best, %): baseline 33 / 65; fence HP ×2 or ×3 33 / 65 (no effect, because runners path to gaps); trap damage ×1.5 38 / 73; raider speed ×0.7 42 / 73; post aggro +2 cells 44 / 65; raider HP ×0.7 40 / 77. The lever that matters is time-to-kill versus time-to-core: unit HP, speed and trap numbers, plus re-authoring the low bands, together with the fresh account's starting band. Fence HP is not it.
+
+## 2026-10-20 — play-test ready; studio reviews; handoff to the owner's PC
+
+Decision: the game is ready for the closed play test. Four rounds of final play-test and guardrail reviews, each with a fix round, ended in two confirmation reviews that both say READY at e002854 (`roadmap/qa/confirmation-playtest.md`, `confirmation-guardrails.md`). Every WIP branch in the "stopping point" table above is now merged into `roadmap/phase-2-spec`, so that table is history, not state.
+
+The owner then asked what a studio experienced in endlessly replayable mobile games would still find missing. Three studio reviews ran on the play-test build: design depth (`roadmap/review/studio-design.md`), feel and presentation (`studio-feel.md`), and live-ops and economy (`studio-liveops.md`). All three say not ready for a soft launch, for overlapping reasons. `roadmap/review/STUDIO-REVIEW.md` merges them into one ranked plan, from tier 0 to tier 3, and lists the decisions only the owner can make. Rejected: starting tier 1 in this session. Most of it needs PROJECT.md amendments the owner has not made yet, and the play test should measure the economy and balance questions before they are tuned.
+
+Art direction was set with the owner. The world and units are painted through Wiro; code owns readability, motion and a full fallback set; Kenney is greybox only (`roadmap/review/ART-PLAN.md`). The art bible is `docs/art/STYLE-GUIDE.md`, from the owner's style board and ten principles. No art was generated in this session.
+
+The session ends here. The next one runs on the owner's PC. Start from `roadmap/HANDOFF.md` and `roadmap/state.json`.
