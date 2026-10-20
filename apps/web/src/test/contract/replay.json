@@ -6,7 +6,7 @@
     "viewer": "caravan",
     "tripId": "00000000-0000-4000-8000-000000000001",
     "encounterIndex": 1,
-    "currentResolverVersion": 8,
+    "currentResolverVersion": 9,
     "outcome": {
       "kind": "caravan_held",
       "loot": 172,
@@ -75,7 +75,7 @@
       "reputation": [
         {
           "pool": "living",
-          "delta": 10
+          "delta": 8
         }
       ],
       "ladder": [
@@ -101,7 +101,7 @@
         "unbankedCoin": 600
       }
     },
-    "resolverVersion": 8,
+    "resolverVersion": 9,
     "logFormat": 2,
     "renderable": true,
     "reason": null,
@@ -245,7 +245,7 @@
       ]
     },
     "stored": {
-      "rawBytes": 4097,
+      "rawBytes": 4098,
       "storedBytes": 1229,
       "encoding": "gzip",
       "sha256": "a000000000000000000000000000000000000000000000000000000000000002",
@@ -255,7 +255,7 @@
     "log": {
       "format": "caravan-replay",
       "v": 2,
-      "resolverVersion": 8,
+      "resolverVersion": 9,
       "tickRate": 20,
       "tickCap": 3600,
       "keyframeInterval": 100,
@@ -1237,7 +1237,7 @@
         ]
       ],
       "count": 81,
-      "check": 3808703668
+      "check": 3538558253
     }
   }
 }

@@ -6,7 +6,7 @@
     "viewer": "party_owner",
     "tripId": null,
     "encounterIndex": 1,
-    "currentResolverVersion": 8,
+    "currentResolverVersion": 9,
     "outcome": {
       "kind": "caravan_held",
       "loot": 172,
@@ -51,7 +51,7 @@
       "destroyed": [],
       "trip": null
     },
-    "resolverVersion": 8,
+    "resolverVersion": 9,
     "logFormat": 2,
     "renderable": true,
     "reason": null,
@@ -198,7 +198,7 @@
     "log": {
       "format": "caravan-replay",
       "v": 2,
-      "resolverVersion": 8,
+      "resolverVersion": 9,
       "tickRate": 20,
       "tickCap": 3600,
       "keyframeInterval": 100,
@@ -1180,7 +1180,7 @@
         ]
       ],
       "count": 81,
-      "check": 2108739882
+      "check": 489623615
     }
   }
 }

@@ -143,8 +143,8 @@ describe("the replay player, the caravan's side (the server's recorded fight)", 
     const settled = screen.getByTestId("replay-settled");
     expect(settled).toHaveAttribute("data-applied", "true");
     expect(settled).toHaveTextContent("600 Coin earned here, not banked yet: it is at risk until the trip banks.");
-    // REPUTATION_CARAVAN_HELD 15 → 10 (chunk 37), gap-scaled: +10 since the final play-test review D6 (the party's rating no longer falls, so the gap is level).
-    expect(settled).toHaveTextContent("Reputation (caravan): +10.");
+    // REPUTATION_CARAVAN_HELD 15 → 10 (chunk 37) → 8 (balance pass 5); the gap is level since the final play-test review D6, so the full +8.
+    expect(settled).toHaveTextContent("Reputation (caravan): +8.");
     expect(settled).toHaveTextContent("Ladder (caravan): +25 points.");
     expect(settled).toHaveTextContent("Ladder (trap): +25 points.");
     expect(settled).toHaveTextContent("Units that fell here are de-merged one level when the trip ends; that is not written yet.");
