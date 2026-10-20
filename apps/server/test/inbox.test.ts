@@ -592,6 +592,9 @@ describe("QA D2 / N1 / S4: the horizon, the 30-batch limit, and a bounded read",
     expect(JSON.stringify(lines.json())).not.toContain(defender.accountId);
     expect(JSON.stringify(lines.json())).not.toContain(defender.caravanId);
     expect((await call(o, "GET", "/me/inbox/strikes/nope")).statusCode).toBe(400);
+    // Confirmation review N2: a window after the current one (or one so large its timestamp overflows) is a 400, never a 500.
+    expect((await call(o, "GET", "/me/inbox/strikes/2600000000")).statusCode).toBe(400);
+    expect((await call(o, "GET", "/me/inbox/strikes/999999999999999")).statusCode).toBe(400);
     // "Mark all read" over a full inbox fits one request.
     expect((await call(o, "POST", "/me/inbox/read", { marks: body.items.map((i) => ({ key: i.key, version: i.version })) })).json().unreadCount).toBe(0);
   });

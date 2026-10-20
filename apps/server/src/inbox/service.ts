@@ -263,9 +263,12 @@ export interface StrikeLinesView {
 }
 
 /** GET /me/inbox/strikes/:window — one batch's lines, for a batch the inbox read sent without them (QA S4). The caller's own ledger only. */
-export async function readStrikeLines(db: Queryable, accountId: string, window: unknown): Promise<StrikeLinesView> {
+export async function readStrikeLines(db: Queryable, accountId: string, window: unknown, nowMs = Date.now()): Promise<StrikeLinesView> {
   const w = typeof window === "string" && /^[0-9]{1,15}$/.test(window) ? Number(window) : NaN;
   if (!Number.isSafeInteger(w)) throw badRequest("invalid_request", "the window must be a non-negative integer");
+  // Confirmation review N2: a window past the current one has no strikes, and a huge one overflowed
+  // the timestamp (a 500). Refuse anything after the window that contains now.
+  if (w > Math.floor(nowMs / INBOX_STRIKE_BATCH_WINDOW_MS)) throw badRequest("invalid_request", "the window has not started yet");
   return { window: w, strikes: windowLines(w, await listedStrikes(db, accountId, [w])) };
 }
 
