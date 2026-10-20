@@ -250,6 +250,12 @@ export const STRINGS = {
         : `None fields more raiders than the ${packed} ${packed === 1 ? "unit" : "units"} you packed.`,
     searchButton: "Search for parties",
     searching: "Searching…",
+    /** Final guardrail review r4 S1: no menu can be filled for this encounter. */
+    returnToTownBody: "No raiding party can be served to your caravan right now. Search again in a little while, or return to town: the trip ends as a bank after your last survived encounter, nothing of this encounter applies, and the trip you rode out on is not given back.",
+    returnToTown: "Return to town",
+    returningToTown: "Returning…",
+    /** Final guardrail review r4 N4: the chosen menu was drawn before a game update. */
+    menuStale: "The game was updated after this menu was drawn, so its scouting report may be out of date. Search again: it is free and there is no wait.",
     rerollButton: "Search again (free)",
     rerollIn: (s: number): string => `Search again in ${s}s (free, time-gated)`,
     rerollRefused: (s: number): string => `The next free search opens in ${s}s.`,
@@ -1576,6 +1582,7 @@ export const STRINGS = {
       screens: "Screen views",
       crashes: "Crash reports (class, stack hash, screen)",
       poolHealth: "Pool health: live versus authored parties by band",
+      partyStrikes: "Passive side: strikes per live party, by party size",
     } as Record<string, string>,
   },
 } as const;

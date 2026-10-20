@@ -205,6 +205,29 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
     }
   };
 
+  /** Final guardrail review r4 N4: a menu drawn before a game update — back to a free search, with no wait. */
+  const staleMenu = (caravanId: string, encounterIndex: number): void => {
+    setActionError(null);
+    setNotice(T.menuStale);
+    setState({ kind: "unsearched", caravanId, encounterIndex });
+  };
+
+  /** Final guardrail review r4 S1: no menu can be filled; the server voids the trip through the void path. */
+  const returnToTown = async (caravanId: string, encounterIndex: number): Promise<void> => {
+    setBusy(true);
+    try {
+      const st = await api.tripStatus(caravanId);
+      if (!st.trip) throw new ApiError(0, "bad_payload", STRINGS.app.badPayload, "GET trip: no open trip to return from");
+      await api.returnToTown(caravanId, st.trip.id, encounterIndex);
+      setActionError(null);
+      await load();
+    } catch (err) {
+      setActionError(asApiError(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const choose = async (caravanId: string, encounterIndex: number, candidate: CandidateView): Promise<void> => {
     setBusy(true);
     setActionError(null);
@@ -212,6 +235,10 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
       await api.chooseCandidate(caravanId, encounterIndex, candidate.candidateId);
       await load();
     } catch (err) {
+      if (err instanceof ApiError && err.code === "menu_stale") {
+        staleMenu(caravanId, encounterIndex);
+        return;
+      }
       setActionError(asApiError(err));
     } finally {
       setBusy(false);
@@ -325,10 +352,18 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
           {guiding && (isFirst ? <SearchGuide /> : <FreeGuide />)}
           <h2>{T.candidatesHeading}</h2>
           <p className="hint">{T.candidatesIntro}</p>
-          {actionError && <ErrorBox error={actionError} />}
+          {actionError && actionError.code !== "pool_empty" && <ErrorBox error={actionError} />}
           <button type="button" className="btn btn--primary btn--block" disabled={busy} onClick={() => void search(state.caravanId, state.encounterIndex)} data-testid="search">
             {busy ? T.searching : T.searchButton}
           </button>
+          {actionError?.code === "pool_empty" && (
+            <div className="notice" role="alert" data-testid="pool-empty">
+              <p>{T.returnToTownBody}</p>
+              <button type="button" className="btn btn--block" disabled={busy} onClick={() => void returnToTown(state.caravanId, state.encounterIndex)} data-testid="return-to-town">
+                {busy ? T.returningToTown : T.returnToTown}
+              </button>
+            </div>
+          )}
         </section>
       );
     case "menu":
@@ -374,6 +409,7 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
               committedJustNow.current = true;
               void load();
             }}
+            onStaleMenu={() => staleMenu(state.caravanId, state.encounterIndex)}
             {...((guiding || guideStep !== null)
               ? { guide: (g: FormationGuideContext) => <ArrangeGuide {...g} scout={state.scout.scout} /> }
               : {

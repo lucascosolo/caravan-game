@@ -79,6 +79,13 @@ CREATE ROLE caravan_pt_app LOGIN PASSWORD '<app pw>' NOSUPERUSER NOCREATEDB NOCR
 ```
 
 The app role must carry no role-level setting; the server refuses one in production.
+
+Either way, step 4's `migrate.js up` (through `apps/server/db/roles.sql`) revokes CONNECT on the
+database and EXECUTE on every function in it from PUBLIC, and grants them to `caravan` and
+`caravan_app` only, so the two login roles above (members of those) work and every other login on
+the instance can neither connect nor call the SECURITY DEFINER functions (final guardrail review r4
+N1). Check it after step 4: `psql -h "$PT_PG_HOST" -p "$PT_PG_PORT" -U postgres -d "$PT_DB" -Atc
+"SELECT datacl FROM pg_database WHERE datname = current_database()"` shows no `=c/` entry (PUBLIC).
 The passwords `caravan` and `caravan_app` from the repo are refused in production (step 4 shows
 the error).
 
@@ -140,8 +147,10 @@ ENV_FILE="$PT_ENV" node apps/server/dist/seed.js
 ```
 
 This loads the 96 authored standing parties (12 per Reputation band) that a fresh database needs
-to serve three scoutable candidates at every band. Expect `Authored parties (set v5): 96 created …`
-and `No login accounts were created`. It is idempotent. `--dev` (the dev / e2e fixture account
+to serve three scoutable candidates at every band. Expect `Authored parties (set vN): 96 created …`,
+where N is the commit's set version
+(`grep -o 'AUTHORED_SET_VERSION = [0-9]*' apps/server/src/matchmaking/authored.ts`), and
+`No login accounts were created`. It is idempotent. `--dev` (the dev / e2e fixture account
 with a published password) is refused here: `seed --dev is refused when NODE_ENV=production`.
 
 ## 6. Run the server
@@ -368,6 +377,11 @@ better: it gives those players their fight instead of a called-off trip.
 
 Old replays keep rendering after a version bump: a replay is the stored log of the fight, read
 as it was written, never re-simulated.
+
+A menu a tester chose but did not commit before the upgrade was drawn, and its scouting report
+derived, under the old rules. If the version or the content changed, committing it is refused with
+409 `menu_stale` and the client sends the tester back to search, which is free and has no wait
+(final guardrail review r4 N4). Nothing is lost: no trip-cap use, no unit, no Coin.
 
 An open tab keeps running the old client until it reloads. Ask testers to reload after an upgrade.
 

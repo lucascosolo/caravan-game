@@ -1,0 +1,25 @@
+-- chunk 32: party-strikes over the synthetic history in test/telemetry-scale.test.ts (30-day window)
+GroupAggregate
+  Group Key: (jsonb_array_length((((resolution_job.input -> 'party'::text) -> 'composition'::text) -> 'units'::text)))
+  ->  Sort
+        Sort Key: (jsonb_array_length((((resolution_job.input -> 'party'::text) -> 'composition'::text) -> 'units'::text)))
+        ->  Nested Loop
+              ->  Nested Loop
+                    ->  Nested Loop
+                          ->  Bitmap Heap Scan on trip_encounter te
+                                Recheck Cond: ((settled_at >= '2026-09-20 11:34:14.172+00'::timestamp with time zone) AND (settled_at < '2026-10-20 11:34:14.172+00'::timestamp with time zone))
+                                ->  Bitmap Index Scan on trip_encounter_settled_at_idx
+                                      Index Cond: ((settled_at >= '2026-09-20 11:34:14.172+00'::timestamp with time zone) AND (settled_at < '2026-10-20 11:34:14.172+00'::timestamp with time zone))
+                          ->  Limit
+                                ->  Index Scan using resolution_job_pkey on resolution_job
+                                      Index Cond: (id = te.job_id)
+                    ->  Limit
+                          ->  Index Scan Backward using encounter_candidates_pkey on encounter_candidates
+                                Index Cond: ((trip_id = te.trip_id) AND (encounter_index = te.encounter_index))
+                                Filter: (chosen_at IS NOT NULL)
+              ->  Memoize
+                    Cache Key: ((resolution_job.input ->> 'partyOwnerAccountId'::text))::uuid
+                    Cache Mode: logical
+                    ->  Index Scan using account_pkey on account oa
+                          Index Cond: (id = ((resolution_job.input ->> 'partyOwnerAccountId'::text))::uuid)
+                          Filter: (NOT is_system)

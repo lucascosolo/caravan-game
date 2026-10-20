@@ -165,6 +165,8 @@ export const tripStatusShape: Guard<TripStatusView> = object({
   nowMs: MS,
 });
 
+/** Final guardrail review r4 S1: POST …/trip/return ("Return to town"). */
+export const returnToTownShape: Guard<{ readonly returned: boolean; readonly status: TripStatusView }> = object({ returned: boolean(), status: tripStatusShape });
 export const tripStartShape: Guard<TripStartResult> = object({ tripId: ID, manifestId: ID, cap: tripCapShape, status: tripStatusShape });
 
 export const tripCapRefusalShape: Guard<TripCapRefusal> = object({ cap: tripCapShape, retryAfterSeconds: integer({ min: 0, max: 86_400 }) });

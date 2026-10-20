@@ -151,5 +151,13 @@ export interface DashboardView {
     readonly screens: readonly { readonly screen: string; readonly views: number; readonly viewers: number }[];
     readonly crashes: readonly { readonly errorName: string; readonly stackHash: string; readonly screen: string; readonly reports: number; readonly reporters: number }[];
     readonly poolHealth: { readonly candidatesPerSearch: number; readonly maxAuthoredShareBp: number; readonly bands: readonly PoolBandView[]; readonly alarms: number };
+    /** Final guardrail review r4 D1: strikes per live party, by party size. Absent from older servers. */
+    readonly partyStrikes?:
+      | {
+          readonly suggestedPartyMax: number;
+          readonly lowBandMax: number;
+          readonly rows: readonly { readonly size: number; readonly liveParties: number; readonly strikes: number; readonly lowBandStrikes: number; readonly overran: number; readonly perPartyPerDayMilli: number | null }[];
+        }
+      | undefined;
   };
 }

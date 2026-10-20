@@ -145,6 +145,8 @@ export interface FormationScreenProps {
    * frozen AND queued for resolution); the Trail moves on to the fight.
    */
   readonly onCommitted?: () => void;
+  /** Final guardrail review r4 N4: the commit was refused 409 `menu_stale` (the menu was drawn before a game update); the Trail sends the player back to search. */
+  readonly onStaleMenu?: () => void;
   /**
    * Chunk 24: the first-session guide's panel (encounter 1's guided arrangement), drawn under
    * the circle. It edits through `apply`, i.e. the same placement model and autosave as a drop.
@@ -168,7 +170,7 @@ interface Drag {
 
 type Focus = "notice" | "issues" | null;
 
-export function FormationScreen({ api, caravanId, trip, encounterIndex, initial, scout, autosaveMs = AUTOSAVE_DEBOUNCE_MS, onCommitted, guide }: FormationScreenProps): JSX.Element {
+export function FormationScreen({ api, caravanId, trip, encounterIndex, initial, scout, autosaveMs = AUTOSAVE_DEBOUNCE_MS, onCommitted, onStaleMenu, guide }: FormationScreenProps): JSX.Element {
   const manifest = trip.survivors;
   const draftKey = `${caravanId}:${encounterIndex}:${scout.candidateId}`;
   const [formation, setFormationRaw] = useState<Formation>(() => (initial?.committedAt ? initial.formation : (localDrafts.get(draftKey) ?? initial?.formation ?? clearAll())));
@@ -620,6 +622,10 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
       onCommitted?.();
     } catch (err) {
       setConfirming(false);
+      if (err instanceof ApiError && err.code === "menu_stale" && onStaleMenu) {
+        onStaleMenu();
+        return;
+      }
       fail(err);
       setFocusAfter("issues");
     } finally {

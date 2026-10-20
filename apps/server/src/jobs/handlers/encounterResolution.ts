@@ -117,7 +117,8 @@ export async function enqueueEncounterResolution(
     `SELECT c -> 'snapshot' AS snapshot, c -> 'owner' ->> 'accountId' AS owner_account_id
        FROM encounter_candidates ec CROSS JOIN LATERAL jsonb_array_elements(ec.candidates) c
       WHERE ec.trip_id::text = $1 AND ec.encounter_index = $2 AND ec.chosen_at IS NOT NULL
-        AND c ->> 'candidateId' = ec.chosen_candidate_id`,
+        AND c ->> 'candidateId' = ec.chosen_candidate_id
+      ORDER BY ec.search_seq DESC LIMIT 1`, // r4 N4: the latest chosen menu (a stale one may precede it)
     [input.tripId, input.encounterIndex],
   );
   const chosenRow = chosen.rows[0];

@@ -45,6 +45,7 @@ export function fakeApi(over: Partial<Api> = {}): Api {
     tripPreview: notCalled,
     pushTrip: notCalled,
     bankTrip: notCalled,
+    returnToTown: notCalled,
     economy: notCalled,
     previewMerge: notCalled,
     commitMerge: notCalled,

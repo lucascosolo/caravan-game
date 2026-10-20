@@ -1275,6 +1275,28 @@
           }
         ],
         "alarms": 7
+      },
+      "partyStrikes": {
+        "suggestedPartyMax": 5,
+        "lowBandMax": 1,
+        "rows": [
+          {
+            "size": 1,
+            "liveParties": 2,
+            "strikes": 0,
+            "lowBandStrikes": 0,
+            "overran": 0,
+            "perPartyPerDayMilli": 0
+          },
+          {
+            "size": 2,
+            "liveParties": 2,
+            "strikes": 4,
+            "lowBandStrikes": 4,
+            "overran": 1,
+            "perPartyPerDayMilli": 67
+          }
+        ]
       }
     }
   }

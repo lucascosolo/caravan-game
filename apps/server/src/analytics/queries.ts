@@ -94,7 +94,7 @@ export const OVERRUN_BY_BAND_SQL = `SELECT ${bandExpr("ec.caravan_rating", "$3",
        count(*) FILTER (WHERE te.outcome_kind = 'stalemate')::int AS stalemate
   FROM trip_encounter te
   CROSS JOIN LATERAL (SELECT caravan_rating FROM encounter_candidates
-                       WHERE trip_id = te.trip_id AND encounter_index = te.encounter_index AND chosen_at IS NOT NULL LIMIT 1) ec
+                       WHERE trip_id = te.trip_id AND encounter_index = te.encounter_index AND chosen_at IS NOT NULL ORDER BY search_seq DESC LIMIT 1) ec
  WHERE te.settled_at >= $1 AND te.settled_at < $2 AND ${notAuthoredTrip("te.trip_id")}
  GROUP BY 1
  ORDER BY 1`;
@@ -126,7 +126,7 @@ const ENC_CTE = `WITH enc AS MATERIALIZED (
          coalesce((SELECT (c -> 'owner' ->> 'authored')::boolean
                      FROM encounter_candidates ec CROSS JOIN LATERAL jsonb_array_elements(ec.candidates) c
                     WHERE ec.trip_id = te.trip_id AND ec.encounter_index = te.encounter_index AND ec.chosen_at IS NOT NULL
-                      AND c ->> 'candidateId' = ec.chosen_candidate_id LIMIT 1), false) AS authored
+                      AND c ->> 'candidateId' = ec.chosen_candidate_id ORDER BY ec.search_seq DESC LIMIT 1), false) AS authored
     FROM trip_encounter te
     CROSS JOIN LATERAL (SELECT input, result FROM resolution_job WHERE id = te.job_id LIMIT 1) j
    WHERE te.settled_at >= $1 AND te.settled_at < $2 AND ${notAuthoredTrip("te.trip_id")}
@@ -870,6 +870,67 @@ export async function sessionLength(db: Queryable, win: Window): Promise<Session
 export async function retention(db: Queryable, cohort: Window): Promise<{ day: number; eligible: number; returned: number; rateBp: number | null }[]> {
   const res = await db.query<{ day: number; eligible: number; returned: number }>(RETENTION_SQL, [...w(cohort), [...ACTIVITY_EVENT_TYPES]]);
   return res.rows.map((r) => ({ ...r, rateBp: bp(r.returned, r.eligible) }));
+}
+
+// ── final guardrail review r4 D1: strikes per live party, by party size ─────────────────
+
+/** Live standing parties now (slot 0, at least one unit), by their unit count. Aggregate, like pool health. */
+export const PARTY_SIZES_SQL = `SELECT jsonb_array_length(sp.composition -> 'units')::int AS size, count(*)::int AS parties
+  FROM standing_party sp
+  JOIN account a ON a.id = sp.account_id
+ WHERE sp.slot = 0 AND NOT a.is_system AND jsonb_array_length(sp.composition -> 'units') > 0
+ GROUP BY 1 ORDER BY 1`;
+
+/**
+ * Encounters settled in the window against a LIVE (player-owned) party, by the party's size as it
+ * was fought (the job's party snapshot), and how many of them were fought by caravans in bands 0–1
+ * (of the caravan rating stored on the chosen menu, the band COLD_START_PACKED_CAP_MAX_BAND keys on).
+ */
+export const PARTY_STRIKES_SQL = `SELECT jsonb_array_length(j.input -> 'party' -> 'composition' -> 'units')::int AS size,
+       count(*)::int AS strikes,
+       count(*) FILTER (WHERE ec.caravan_rating < $3 + 2 * $4)::int AS low_band_strikes,
+       count(*) FILTER (WHERE te.outcome_kind = 'caravan_overrun')::int AS overran
+  FROM trip_encounter te
+  CROSS JOIN LATERAL (SELECT input FROM resolution_job WHERE id = te.job_id LIMIT 1) j
+  CROSS JOIN LATERAL (SELECT caravan_rating FROM encounter_candidates
+                       WHERE trip_id = te.trip_id AND encounter_index = te.encounter_index AND chosen_at IS NOT NULL
+                       ORDER BY search_seq DESC LIMIT 1) ec
+ WHERE te.settled_at >= $1 AND te.settled_at < $2
+   AND EXISTS (SELECT 1 FROM account oa WHERE oa.id = (j.input ->> 'partyOwnerAccountId')::uuid AND NOT oa.is_system)
+ GROUP BY 1 ORDER BY 1`;
+
+export interface PartyStrikesRow {
+  /** Units in the party. */
+  size: number;
+  /** Live standing parties of this size now. */
+  liveParties: number;
+  /** Encounters fought against a live party of this size in the window. */
+  strikes: number;
+  /** Of them, against caravans in bands 0–1. */
+  lowBandStrikes: number;
+  /** Of them, the caravan was overrun. */
+  overran: number;
+  /** strikes ÷ liveParties ÷ window days, ×1000 (null when no party of this size stands now). */
+  perPartyPerDayMilli: number | null;
+}
+
+export async function partyStrikes(db: Queryable, win: Window, days: number): Promise<PartyStrikesRow[]> {
+  const sizes = (await db.query<{ size: number; parties: number }>(PARTY_SIZES_SQL)).rows;
+  const strikes = (await db.query<{ size: number; strikes: number; low_band_strikes: number; overran: number }>(PARTY_STRIKES_SQL, [...w(win), TUNABLES.REPUTATION_FLOOR, BAND_SPAN])).rows;
+  const all = [...new Set([...sizes.map((r) => r.size), ...strikes.map((r) => r.size)])].sort((a, b) => a - b);
+  return all.map((size) => {
+    const liveParties = sizes.find((r) => r.size === size)?.parties ?? 0;
+    const s = strikes.find((r) => r.size === size);
+    const n = s?.strikes ?? 0;
+    return {
+      size,
+      liveParties,
+      strikes: n,
+      lowBandStrikes: s?.low_band_strikes ?? 0,
+      overran: s?.overran ?? 0,
+      perPartyPerDayMilli: liveParties > 0 && days > 0 ? Math.round((n * 1000) / liveParties / days) : null,
+    };
+  });
 }
 
 export async function poolHealth(db: Queryable, win: Window): Promise<PoolBandRow[]> {

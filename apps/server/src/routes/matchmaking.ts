@@ -15,7 +15,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { withTransaction } from "../db/pool.js";
 import type { CaravanRow } from "../db/types.js";
-import { RerollCooldownError, chooseCandidate, notFound, readCandidatesOrEmpty, searchCandidates } from "../matchmaking/service.js";
+import { PoolEmptyError, RerollCooldownError, chooseCandidate, notFound, readCandidatesOrEmpty, searchCandidates } from "../matchmaking/service.js";
 import { findCaravanById } from "../repo/caravans.js";
 import { badRequest } from "../services/errors.js";
 import { isUuid } from "../util/uuid.js";
@@ -65,7 +65,13 @@ export async function matchmakingRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // The reroll gate says exactly when the next free search opens; nothing else is attached.
-  app.setErrorHandler((err: Error, _req, reply) => {
+  app.setErrorHandler((err: Error, req, reply) => {
+    // Final guardrail review r4 S1: no menu can be filled. The player may return to town; the
+    // operator's log says how many parties were servable (a seeded database always has 96).
+    if (err instanceof PoolEmptyError) {
+      req.log.warn({ found: err.found }, `pool_empty: only ${err.found} servable part${err.found === 1 ? "y" : "ies"} for this search (if the authored parties are missing, run seed.js)`);
+      return reply.code(err.statusCode).send({ error: err.code, message: err.message, returnToTown: true });
+    }
     if (err instanceof RerollCooldownError) {
       return reply
         .code(err.statusCode)
