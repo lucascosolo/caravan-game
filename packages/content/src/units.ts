@@ -61,6 +61,15 @@ export interface LivingUnitType {
   readonly ability: Ability;
 }
 
+/**
+ * Balance pass 5 (BALANCE-LOG.md): every unit's posted engagement — its aggro radius and its leash —
+ * carries TUNABLES.POST_ENGAGEMENT_BONUS on top of the authored value, so a post answers a ranged
+ * raider shooting from outside the fence instead of standing idle. One number, every type: the
+ * authored literals below stay the per-type profile (and its distinctness), the bonus is the dial.
+ * Posted-only fields: a raider never reads aggro or leash.
+ */
+const engage = (v: Fixed): Fixed => (v + TUNABLES.POST_ENGAGEMENT_BONUS) as Fixed;
+
 export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
   // ══════════════════════════════════════════ DESERT ══════════════════════════════════
   {
@@ -75,8 +84,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(1820),
     attackRange: fp(1),
     attackCooldown: ms(800),
-    aggroRadius: fp(5),
-    leashDistance: fp(7),
+    aggroRadius: engage(fp(5)),
+    leashDistance: engage(fp(7)),
     ability: {
       archetype: "dash",
       displayName: "Spur On",
@@ -97,8 +106,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(700),
     attackRange: fp(1),
     attackCooldown: ms(1400),
-    aggroRadius: fp(3),
-    leashDistance: fp(4),
+    aggroRadius: engage(fp(3)),
+    leashDistance: engage(fp(4)),
     ability: {
       archetype: "structure_breaker",
       displayName: "Pick Swing",
@@ -119,8 +128,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(840),
     attackRange: fpMilli(4500),
     attackCooldown: ms(1800),
-    aggroRadius: fpMilli(5500),
-    leashDistance: fp(5),
+    aggroRadius: engage(fpMilli(5500)),
+    leashDistance: engage(fp(5)),
     ability: {
       archetype: "heavy_strike",
       displayName: "Long Shot",
@@ -141,8 +150,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(1540),
     attackRange: fp(1),
     attackCooldown: ms(1200),
-    aggroRadius: fp(3),
-    leashDistance: fpMilli(3500),
+    aggroRadius: engage(fp(3)),
+    leashDistance: engage(fpMilli(3500)),
     ability: {
       archetype: "heal_radius",
       displayName: "Water Round",
@@ -165,8 +174,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(2100),
     attackRange: fp(1),
     attackCooldown: ms(500),
-    aggroRadius: fp(6),
-    leashDistance: fp(8),
+    aggroRadius: engage(fp(6)),
+    leashDistance: engage(fp(8)),
     ability: {
       archetype: "self_buff",
       displayName: "Frenzy",
@@ -188,8 +197,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(1260),
     attackRange: fpMilli(2500),
     attackCooldown: seconds(1),
-    aggroRadius: fp(4),
-    leashDistance: fp(5),
+    aggroRadius: engage(fp(4)),
+    leashDistance: engage(fp(5)),
     ability: {
       archetype: "burst_radius",
       displayName: "Satchel Charge",
@@ -211,8 +220,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(980),
     attackRange: fp(1),
     attackCooldown: seconds(2),
-    aggroRadius: fpMilli(3500),
-    leashDistance: fp(5),
+    aggroRadius: engage(fpMilli(3500)),
+    leashDistance: engage(fp(5)),
     ability: {
       archetype: "structure_breaker",
       displayName: "Horn Charge",
@@ -233,8 +242,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(1540),
     attackRange: fpMilli(1500),
     attackCooldown: ms(900),
-    aggroRadius: fpMilli(4500),
-    leashDistance: fpMilli(6500),
+    aggroRadius: engage(fpMilli(4500)),
+    leashDistance: engage(fpMilli(6500)),
     ability: {
       archetype: "heavy_strike",
       displayName: "Rope and Drag",
@@ -257,8 +266,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(770),
     attackRange: fp(1),
     attackCooldown: ms(1300),
-    aggroRadius: fp(3),
-    leashDistance: fp(4),
+    aggroRadius: engage(fp(3)),
+    leashDistance: engage(fp(4)),
     ability: {
       archetype: "self_buff",
       displayName: "Dig In",
@@ -280,8 +289,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(1960),
     attackRange: fp(1),
     attackCooldown: ms(600),
-    aggroRadius: fpMilli(6500),
-    leashDistance: fp(9),
+    aggroRadius: engage(fpMilli(6500)),
+    leashDistance: engage(fp(9)),
     ability: {
       archetype: "dash",
       displayName: "Lope",
@@ -302,8 +311,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(1120),
     attackRange: fp(1),
     attackCooldown: ms(2200),
-    aggroRadius: fp(3),
-    leashDistance: fpMilli(4500),
+    aggroRadius: engage(fp(3)),
+    leashDistance: engage(fpMilli(4500)),
     ability: {
       archetype: "structure_breaker",
       displayName: "Stampede",
@@ -324,8 +333,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(1400),
     attackRange: fpMilli(1500),
     attackCooldown: seconds(1),
-    aggroRadius: fpMilli(4500),
-    leashDistance: fp(7),
+    aggroRadius: engage(fpMilli(4500)),
+    leashDistance: engage(fp(7)),
     ability: {
       archetype: "heavy_strike",
       displayName: "Bullwhip",
@@ -346,8 +355,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(1400),
     attackRange: fpMilli(1500),
     attackCooldown: ms(1200),
-    aggroRadius: fp(4),
-    leashDistance: fp(6),
+    aggroRadius: engage(fp(4)),
+    leashDistance: engage(fp(6)),
     ability: {
       archetype: "heal_radius",
       displayName: "Field Dressing",
@@ -370,8 +379,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(840),
     attackRange: fp(5),
     attackCooldown: ms(2400),
-    aggroRadius: fp(6),
-    leashDistance: fp(4),
+    aggroRadius: engage(fp(6)),
+    leashDistance: engage(fp(4)),
     ability: {
       archetype: "heavy_strike",
       displayName: "Big Fifty",
@@ -392,8 +401,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(910),
     attackRange: fp(1),
     attackCooldown: ms(1500),
-    aggroRadius: fpMilli(3500),
-    leashDistance: fp(5),
+    aggroRadius: engage(fpMilli(3500)),
+    leashDistance: engage(fp(5)),
     ability: {
       archetype: "structure_breaker",
       displayName: "Maul Work",
@@ -414,8 +423,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(1190),
     attackRange: fp(2),
     attackCooldown: ms(1100),
-    aggroRadius: fp(4),
-    leashDistance: fpMilli(5500),
+    aggroRadius: engage(fp(4)),
+    leashDistance: engage(fpMilli(5500)),
     ability: {
       archetype: "burst_radius",
       displayName: "Both Barrels",
@@ -439,8 +448,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(1050),
     attackRange: fpMilli(1200),
     attackCooldown: ms(1600),
-    aggroRadius: fp(4),
-    leashDistance: fpMilli(5500),
+    aggroRadius: engage(fp(4)),
+    leashDistance: engage(fpMilli(5500)),
     ability: {
       archetype: "self_buff",
       displayName: "Roused",
@@ -462,8 +471,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(980),
     attackRange: fp(4),
     attackCooldown: ms(1600),
-    aggroRadius: fp(5),
-    leashDistance: fp(6),
+    aggroRadius: engage(fp(5)),
+    leashDistance: engage(fp(6)),
     ability: {
       archetype: "heavy_strike",
       displayName: "Dead Rest",
@@ -484,8 +493,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(630),
     attackRange: fp(1),
     attackCooldown: ms(1600),
-    aggroRadius: fpMilli(2500),
-    leashDistance: fpMilli(3500),
+    aggroRadius: engage(fpMilli(2500)),
+    leashDistance: engage(fpMilli(3500)),
     ability: {
       archetype: "structure_breaker",
       displayName: "Double Jack",
@@ -506,8 +515,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(2030),
     attackRange: fp(1),
     attackCooldown: ms(700),
-    aggroRadius: fp(7),
-    leashDistance: fpMilli(9500),
+    aggroRadius: engage(fp(7)),
+    leashDistance: engage(fpMilli(9500)),
     ability: {
       archetype: "dash",
       displayName: "Pounce",
@@ -528,8 +537,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(770),
     attackRange: fp(3),
     attackCooldown: seconds(2),
-    aggroRadius: fp(4),
-    leashDistance: fpMilli(4500),
+    aggroRadius: engage(fp(4)),
+    leashDistance: engage(fpMilli(4500)),
     ability: {
       archetype: "burst_radius",
       displayName: "Fire in the Hole",
@@ -551,8 +560,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(910),
     attackRange: fpMilli(1200),
     attackCooldown: ms(1400),
-    aggroRadius: fpMilli(3500),
-    leashDistance: fp(5),
+    aggroRadius: engage(fpMilli(3500)),
+    leashDistance: engage(fp(5)),
     ability: {
       archetype: "heavy_strike",
       displayName: "Felling Cut",
@@ -573,8 +582,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(630),
     attackRange: fp(1),
     attackCooldown: ms(1400),
-    aggroRadius: fpMilli(2500),
-    leashDistance: fp(3),
+    aggroRadius: engage(fpMilli(2500)),
+    leashDistance: engage(fp(3)),
     ability: {
       archetype: "heal_radius",
       displayName: "Tincture Round",
@@ -597,8 +606,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(700),
     attackRange: fp(1),
     attackCooldown: ms(2500),
-    aggroRadius: fp(2),
-    leashDistance: fpMilli(2500),
+    aggroRadius: engage(fp(2)),
+    leashDistance: engage(fpMilli(2500)),
     ability: {
       archetype: "self_buff",
       displayName: "Balk",
@@ -622,8 +631,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(1330),
     attackRange: fpMilli(3500),
     attackCooldown: ms(900),
-    aggroRadius: fp(5),
-    leashDistance: fp(6),
+    aggroRadius: engage(fp(5)),
+    leashDistance: engage(fp(6)),
     ability: {
       archetype: "burst_radius",
       displayName: "Fan the Hammer",
@@ -645,8 +654,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(1260),
     attackRange: fp(4),
     attackCooldown: ms(1400),
-    aggroRadius: fp(6),
-    leashDistance: fpMilli(7500),
+    aggroRadius: engage(fp(6)),
+    leashDistance: engage(fpMilli(7500)),
     ability: {
       archetype: "heavy_strike",
       displayName: "Dead or Alive",
@@ -667,8 +676,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(1680),
     attackRange: fp(1),
     attackCooldown: ms(400),
-    aggroRadius: fp(3),
-    leashDistance: fp(3),
+    aggroRadius: engage(fp(3)),
+    leashDistance: engage(fp(3)),
     ability: {
       archetype: "dash",
       displayName: "Strike",
@@ -689,8 +698,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(1470),
     attackRange: fp(1),
     attackCooldown: ms(800),
-    aggroRadius: fpMilli(5500),
-    leashDistance: fp(8),
+    aggroRadius: engage(fpMilli(5500)),
+    leashDistance: engage(fp(8)),
     ability: {
       archetype: "structure_breaker",
       displayName: "Pry Bar",
@@ -711,8 +720,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(2100),
     attackRange: fpMilli(1500),
     attackCooldown: ms(600),
-    aggroRadius: fpMilli(7500),
-    leashDistance: fp(10),
+    aggroRadius: engage(fpMilli(7500)),
+    leashDistance: engage(fp(10)),
     ability: {
       archetype: "self_buff",
       displayName: "Feeding Frenzy",
@@ -734,8 +743,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(1190),
     attackRange: fpMilli(2500),
     attackCooldown: ms(1100),
-    aggroRadius: fpMilli(4500),
-    leashDistance: fp(4),
+    aggroRadius: engage(fpMilli(4500)),
+    leashDistance: engage(fp(4)),
     ability: {
       archetype: "heal_radius",
       displayName: "Miracle Tonic",
@@ -758,8 +767,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(1050),
     attackRange: fp(2),
     attackCooldown: ms(1200),
-    aggroRadius: fp(4),
-    leashDistance: fp(5),
+    aggroRadius: engage(fp(4)),
+    leashDistance: engage(fp(5)),
     ability: {
       archetype: "burst_radius",
       displayName: "Short Fuse",
@@ -781,8 +790,8 @@ export const LIVING_UNIT_TYPES: readonly LivingUnitType[] = deepFreeze([
     moveSpeed: fpMilli(840),
     attackRange: fp(1),
     attackCooldown: ms(1500),
-    aggroRadius: fp(3),
-    leashDistance: fpMilli(4500),
+    aggroRadius: engage(fp(3)),
+    leashDistance: engage(fpMilli(4500)),
     ability: {
       archetype: "heavy_strike",
       displayName: "Club Down",

@@ -603,11 +603,20 @@ export function servedMenu(caravanId: string, tripId: string, rating: number, en
   return { centre, menu: r.picks.map((p) => byId.get(p.partyId)!) };
 }
 
-/** Final play-test review r2 S2: a raider is ranged when its attack range exceeds the melee default — the client guide's rule (TrailGuide isRangedRaider). */
-export const RANGED_ATTACK_RANGE_ABOVE: number = TUNABLES.ATTACK_RANGE_MELEE_DEFAULT;
+/**
+ * The client guide's ranged rule (apps/web TrailGuide `isRangedRaider`, round-2 client opt-ins): a
+ * raider shoots from range when it can hit from at least GUIDE_RANGED_MIN_CELLS cells — far enough
+ * to stand outside the fence ring and reach a post inside it. (Before: any reach above the melee
+ * default, which counted a Grizzly's 1.2-cell swipe as ranged.) Mirrored here, not imported: the
+ * web module is not part of the server's typecheck.
+ */
+export const GUIDE_RANGED_MIN_CELLS = 3;
+export function isRangedRaider(u: { readonly attackRange: number }): boolean {
+  return u.attackRange >= GUIDE_RANGED_MIN_CELLS * TUNABLES.ATTACK_RANGE_MELEE_DEFAULT;
+}
 /** r2 S2: every raider of the party is ranged (it can stand outside the fence and shoot the posts). */
 export function isRangedOnly(party: Party): boolean {
-  return party.units.length > 0 && party.units.every((u) => getUnitType(u.typeId)!.attackRange > RANGED_ATTACK_RANGE_ABOVE);
+  return party.units.length > 0 && party.units.every((u) => isRangedRaider(getUnitType(u.typeId)!));
 }
 
 /**

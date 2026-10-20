@@ -218,6 +218,13 @@ export const TUNABLES = {
   /** TUNABLE (PROJECT.md §9). How far a posted unit chases from its post before returning. 6.0 cells. */
   LEASH_DISTANCE_DEFAULT: fp(6),
   /**
+   * TUNABLE (balance pass 5, BALANCE-LOG.md). Added to EVERY living unit's authored aggro radius and
+   * leash (units.ts `engage`): how much further a posted unit notices and chases a raider. +1 cell
+   * lifts the second trip's ranged starter parties (shooting the circle from outside the fence) from
+   * 37 % guided to the gate. The *_DEFAULT values above are the authored baseline, before it.
+   */
+  POST_ENGAGEMENT_BONUS: fp(1),
+  /**
    * TUNABLE (chunk 11, LEASH_HYSTERESIS). A posted unit that disengaged at its leash must be
    * back within this fraction of its leash distance from its post (×0.80) before it may
    * re-acquire. Prevents per-tick chattering at the boundary; the leash itself is INCLUSIVE
