@@ -432,7 +432,12 @@ export const economyShape: Guard<EconomyView> = object({
     accruedThroughMs: MS,
   }),
   overflow: object({ prospectiveEarn: COIN, wouldCredit: COIN, wouldDiscard: COIN, warn: boolean(), message: string({ maxLength: 1024 }) }),
-  earn: object({ encounterSchedule: array(COIN, { maxLength: 64 }), bankedTripBonus: COIN, partyWin: COIN }),
+  earn: object({
+    encounterSchedule: array(COIN, { maxLength: 64 }),
+    bankedTripBonus: COIN,
+    partyWin: COIN,
+    caravan: optional(object({ caravanId: ID, band: integer({ min: 0, max: 64 }), firstEncounter: COIN, shortestTrip: COIN })),
+  }),
   merge: object({ costPerResultingUnitByLevel: costTable, recipes: array(recipe, { maxLength: 8 }), levelCap: LEVEL, slotCost: integer({ min: 1, max: 64 }) }),
 });
 

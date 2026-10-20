@@ -165,11 +165,27 @@ describe("OutfitScreen", () => {
     });
     render(<OutfitScreen api={api({ packManifest })} caravanId={CARAVAN_ID} units={units} onBack={() => {}} onPacked={() => {}} onRodeOut={() => {}} />);
     await screen.findByTestId("outfit-screen");
+    // r4 N10: with no unit ticked, ride-out is disabled (the hint says why); the server still decides.
+    expect(screen.getByTestId("outfit-ride-out")).toBeDisabled();
+    expect(screen.getByTestId("outfit-screen")).toHaveTextContent("Pack at least one living unit.");
+    await user.click(within(screen.getByTestId("outfit-units")).getAllByRole("checkbox")[0]!);
+    expect(screen.getByTestId("outfit-ride-out")).toBeEnabled();
     await user.click(screen.getByTestId("outfit-ride-out"));
-    expect(screen.getByRole("dialog")).toHaveTextContent("the server will refuse it");
     await user.click(screen.getByTestId("outfit-confirm"));
     const issues = await screen.findByTestId("outfit-issues");
     expect(issues).toHaveTextContent("pack at least one living unit");
     expect(issues.textContent).not.toContain("manifest_empty");
+  });
+
+  it("final play-test review r4 N1: the shortest-trip forecast is the server's figure at this caravan's band", async () => {
+    const economy = vi.fn(async (earn?: number, caravanId?: string) => {
+      const base = economyView(earn ? { overflow: { prospectiveEarn: earn, wouldCredit: earn, wouldDiscard: 0, warn: false, message: "Your store has room for 48800 more Coin right now." } } : {});
+      return caravanId ? { ...base, earn: { ...base.earn, caravan: { caravanId, band: 1, firstEncounter: 600, shortestTrip: 725 } } } : base;
+    });
+    render(<OutfitScreen api={api({ economy })} caravanId={CARAVAN_ID} units={units} onBack={() => {}} onPacked={() => {}} onRodeOut={() => {}} />);
+    await screen.findByTestId("outfit-forecast");
+    expect(economy).toHaveBeenCalledWith(undefined, CARAVAN_ID);
+    expect(economy).toHaveBeenCalledWith(725);
+    expect(screen.getByTestId("outfit-screen")).toHaveTextContent("725 Coin");
   });
 });

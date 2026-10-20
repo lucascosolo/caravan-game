@@ -36,6 +36,8 @@ export interface StrikeDetailView {
   readonly ladderPointsGained: number;
   readonly windowStartMs: number;
   readonly windowEndMs: number;
+  /** r4 N8: the window had not ended when the server answered (older servers omit it). */
+  readonly windowOpen?: boolean | undefined;
   /** False for an older batch sent without its lines: fetch them with `inboxStrikes(window)`. */
   readonly linesIncluded: boolean;
   readonly strikes: readonly InboxStrikeView[];
@@ -71,6 +73,8 @@ export interface PartyChangedDetailView {
   readonly carriedOver: number;
   readonly dropped: number;
   readonly unitsNow: number;
+  /** r4 N6: how many changes this notice folds (older servers omit it: 1). */
+  readonly changes?: number | undefined;
   readonly empty: boolean;
 }
 

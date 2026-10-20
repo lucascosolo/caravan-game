@@ -32,13 +32,6 @@ export function regionStarters(region: string): string {
   return STRINGS.auth.regionStarters(names.join(", "));
 }
 
-/** Final play-test review N8: a guest's caravan gets a name at creation (it can be read as the party's name later). */
-export function generatedCaravanName(rand: () => number = Math.random): string {
-  const a = STRINGS.auth.nameFirst;
-  const b = STRINGS.auth.nameSecond;
-  return `${a[Math.floor(rand() * a.length) % a.length]} ${b[Math.floor(rand() * b.length) % b.length]}`;
-}
-
 function RegionField({ value, onChange }: { value: string; onChange: (v: string) => void }): JSX.Element {
   const s = STRINGS.auth;
   return (
@@ -105,7 +98,8 @@ export function LoginScreen(): JSX.Element {
     try {
       const auth =
         kind === "guest"
-          ? await api.guest(guestRegion, generatedCaravanName(), replaceGuest)
+          ? // r4 N11: no client-side name; the server generates one (1,024 names, re-rolled so it never shares a first part with another caravan's).
+            await api.guest(guestRegion, undefined, replaceGuest)
           : kind === "signIn"
             ? await api.login(username, password, replaceGuest)
             : await api.register({ username, password, region, ...(caravanName.trim() ? { caravanName: caravanName.trim() } : {}) }, replaceGuest);

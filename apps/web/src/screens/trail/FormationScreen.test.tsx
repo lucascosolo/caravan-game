@@ -478,6 +478,24 @@ describe("FormationScreen", () => {
     expect(await screen.findByText("Draft saved automatically.")).toBeInTheDocument();
   });
 
+  it("final play-test review r4 N4: leaving the page inside the debounce flushes the pending draft with a keepalive save", async () => {
+    const user = userEvent.setup();
+    const saveFormation = vi.fn(async (_c: string, _n: number, f: Formation) => formationView(f, null));
+    render(screenWith(fakeApi({ saveFormation }), { autosaveMs: NO_AUTOSAVE }));
+    await user.click(within(screen.getByTestId("tray-unit-u-rider")).getByRole("button"));
+    await user.click(screen.getByText("tap-12-12"));
+    const canteen = within(screen.getByTestId("placement-picker")).getByTestId("picker-select") as HTMLSelectElement;
+    await user.selectOptions(canteen, "12,13");
+    await user.click(within(screen.getByTestId("placement-picker")).getByTestId("picker-place"));
+    expect(saveFormation).not.toHaveBeenCalled();
+    window.dispatchEvent(new Event("pagehide"));
+    expect(saveFormation).toHaveBeenCalledTimes(1);
+    expect(saveFormation).toHaveBeenCalledWith("c1", 3, expect.objectContaining({ v: 2 }), { keepalive: true });
+    // Flushed once: a second pagehide with nothing pending sends nothing.
+    window.dispatchEvent(new Event("pagehide"));
+    expect(saveFormation).toHaveBeenCalledTimes(1);
+  });
+
   it("N8: clearing the ground asks first", async () => {
     const user = userEvent.setup();
     render(screenWith(fakeApi()));

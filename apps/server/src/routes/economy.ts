@@ -6,10 +6,14 @@
  */
 import { TUNABLES } from "@caravan/content";
 import type { FastifyInstance } from "fastify";
-import { coinForDelivery, encounterCoinSchedule, overflowForecast } from "../economy/coin.js";
+import { readOwnedCaravan } from "../acquisition/grant.js";
+import { coinForDelivery, coinForEncounter, encounterCoinSchedule, overflowForecast } from "../economy/coin.js";
 import { UnitInPartyError, UnitPackedError, mergeCostTable, performMerge, previewMerge } from "../economy/merge.js";
 import { accrueTrickle } from "../economy/trickle.js";
+import { bandOf } from "../matchmaking/band.js";
+import { getCaravanPoolProgress } from "../repo/poolProgress.js";
 import { badRequest } from "../services/errors.js";
+import { isUuid } from "../util/uuid.js";
 import { requireAuth } from "./require-auth.js";
 
 /** How many encounters of the earn schedule the overview shows. Presentation, not balance. */
@@ -25,8 +29,22 @@ export async function economyRoutes(app: FastifyInstance): Promise<void> {
    * forecast is "as of now": `room` is the room RIGHT NOW, and the trickle keeps filling
    * the store while the trip runs (QA N5).
    */
-  app.get<{ Querystring: { prospectiveEarn?: unknown } }>("/me/economy", { preHandler: requireAuth }, async (req) => {
+  app.get<{ Querystring: { prospectiveEarn?: unknown; caravanId?: unknown } }>("/me/economy", { preHandler: requireAuth }, async (req) => {
     const account = req.auth!.account;
+    // Final play-test review r4 N1: `?caravanId=` adds that caravan's band-scaled shortest-trip
+    // figure (the outfit's forecast), so the client never scales the schedule itself.
+    const caravanIdRaw = req.query.caravanId;
+    if (caravanIdRaw !== undefined && (typeof caravanIdRaw !== "string" || !isUuid(caravanIdRaw))) throw badRequest("invalid_caravan_id", "caravanId must be a caravan id");
+    let caravanEarn: { caravanId: string; band: number; firstEncounter: number; shortestTrip: number } | null = null;
+    if (typeof caravanIdRaw === "string") {
+      await readOwnedCaravan(app.db, account.id, caravanIdRaw, false);
+      const progress = await getCaravanPoolProgress(app.db, caravanIdRaw);
+      if (progress) {
+        const band = bandOf(progress.reputation).index;
+        const firstEncounter = coinForEncounter(1, band);
+        caravanEarn = { caravanId: caravanIdRaw, band, firstEncounter, shortestTrip: firstEncounter + coinForDelivery(1) };
+      }
+    }
     const prospectiveRaw = req.query.prospectiveEarn;
     const prospectiveEarn = prospectiveRaw === undefined ? 0 : typeof prospectiveRaw === "string" && /^\d{1,16}$/.test(prospectiveRaw) ? Number(prospectiveRaw) : NaN;
     if (!Number.isSafeInteger(prospectiveEarn) || prospectiveEarn < 0) {
@@ -76,6 +94,8 @@ export async function economyRoutes(app: FastifyInstance): Promise<void> {
         bankedTripBonus: coinForDelivery(1),
         deliveryPerEncounter: TUNABLES.COIN_DELIVERY_PER_ENCOUNTER,
         partyWin: TUNABLES.COIN_PER_PARTY_WIN,
+        /** r4 N1: with `?caravanId=`, that caravan's display band and its shortest trip (one encounter, then banked) at that band. */
+        ...(caravanEarn ? { caravan: caravanEarn } : {}),
       },
       merge: {
         costPerResultingUnitByLevel: mergeCostTable(),

@@ -136,6 +136,14 @@ describe("the first session (chunk 24)", () => {
     const card = await screen.findByTestId("guide-roster");
     expect(card).toHaveTextContent("starting roster");
     expect(card).not.toHaveTextContent("Your roster is empty");
+    // r4 N9: on Town the card's button brings the Refugees panel into view.
+    const scrolled = vi.fn();
+    const panel = screen.queryByTestId("refugee-panel") ?? document.body.appendChild(Object.assign(document.createElement("section"), { id: "r4n9" }));
+    panel.setAttribute("data-testid", "refugee-panel");
+    panel.scrollIntoView = scrolled;
+    within(card).getByTestId("guide-roster-show").click();
+    expect(scrolled).toHaveBeenCalled();
+    document.getElementById("r4n9")?.remove();
     // Another tab change re-reads the server: the starting roster is there, no claim yet, still this step.
     window.location.hash = "#/webs";
     await waitFor(() => expect(s.calls.filter((c) => c.path === "/me").length).toBeGreaterThanOrEqual(2));

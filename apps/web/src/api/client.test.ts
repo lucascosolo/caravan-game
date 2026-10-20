@@ -24,6 +24,20 @@ describe("api client", () => {
     expect(unauthorized).toBe(1);
   });
 
+  it("final play-test review r4 N4: a keepalive formation save asks fetch to outlive the page; an ordinary one does not", async () => {
+    const inits: RequestInit[] = [];
+    const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      inits.push(init ?? {});
+      return new Response(JSON.stringify({ error: "x", message: "x" }), { status: 400 });
+    }) as typeof fetch;
+    const api = createApi({ getToken: () => "tok", fetchImpl });
+    const f = { v: 2 as const, fences: [], traps: [], posts: [] };
+    await api.saveFormation("c1", 1, f, { keepalive: true }).catch(() => undefined);
+    await api.saveFormation("c1", 1, f).catch(() => undefined);
+    expect(inits[0]!.keepalive).toBe(true);
+    expect(inits[1]!.keepalive).toBeUndefined();
+  });
+
   it("does not persist the token anywhere", () => {
     const ff = fakeFetch({});
     createApi({ getToken: () => "secret", fetchImpl: ff.fetch });

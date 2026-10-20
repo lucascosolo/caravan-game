@@ -14,7 +14,11 @@
  *   trip_cap_refilled  key trip_cap:<ms>             version = the instant the cap was full again
  *   mine_near_cap      key mine:<last spend seq>     version = 1 (one per stretch between spends)
  *   packs_rotated      key packs:<week index>        version = 1
- *   party_changed      key party:<ledger seq>        version = 1 (one per standing_party_repaired event, S2)
+ *   party_changed      key party:<first ledger seq>  version = how many standing_party_repaired events it
+ *                                                    folds (S2; r4 N6: events of one reason within
+ *                                                    INBOX_PARTY_CHANGE_COALESCE_MS of the previous one are one
+ *                                                    notice with the final count; a lone event keeps key
+ *                                                    party:<seq>, version 1, as before)
  */
 import { INBOX_MINE_NEAR_CAP_PERCENT, INBOX_STRIKES_PER_ITEM, INBOX_STRIKE_BATCH_WINDOW_MS, INBOX_HORIZON_MS, type InboxCategory } from "./tunables.js";
 
@@ -74,6 +78,8 @@ export interface StrikeDetail {
   ladderPointsGained: number;
   windowStartMs: number;
   windowEndMs: number;
+  /** r4 N8: the window has not ended at this read (the client says "Since …", not "Between … and …"). */
+  windowOpen: boolean;
   /**
    * Whether `strikes` was filled in. Only the newest INBOX_ITEMIZED_BATCHES batches carry their
    * lines in the inbox read (QA S4); an older batch's lines come from GET /me/inbox/strikes/:window.
@@ -123,6 +129,8 @@ export interface PartyChangedDetail {
   unitsNow: number;
   /** True when the party is left with no units: it is not served until the owner adds one. */
   empty: boolean;
+  /** r4 N6: how many changes this notice folds (1 for one change). */
+  changes: number;
 }
 
 export interface PacksDetail {
@@ -178,7 +186,7 @@ export function windowLines(window: number, listed: readonly InboxStrike[], wind
  * One batched strike item per window. `listed` are its lines (any order; filtered to the window
  * here), or null when this batch's lines are not part of this read (QA S4).
  */
-export function strikeItem(t: StrikeWindowTotals, listed: readonly InboxStrike[] | null, windowMs: number = INBOX_STRIKE_BATCH_WINDOW_MS): DraftItem {
+export function strikeItem(t: StrikeWindowTotals, listed: readonly InboxStrike[] | null, windowMs: number = INBOX_STRIKE_BATCH_WINDOW_MS, nowMs: number | null = null): DraftItem {
   const lines = listed === null ? [] : windowLines(t.window, listed, windowMs);
   const newest = t.newestAtMs;
   const detail: StrikeDetail = {
@@ -194,6 +202,7 @@ export function strikeItem(t: StrikeWindowTotals, listed: readonly InboxStrike[]
     ladderPointsGained: t.ladderPointsGained,
     windowStartMs: t.window * windowMs,
     windowEndMs: (t.window + 1) * windowMs,
+    windowOpen: nowMs !== null && nowMs < (t.window + 1) * windowMs,
     linesIncluded: listed !== null,
     strikes: lines,
     notListed: Math.max(0, t.count - INBOX_STRIKES_PER_ITEM),
@@ -291,22 +300,58 @@ export function packsItem(week: { index: number; startsAtMs: number; endsAtMs: n
   };
 }
 
+/** One `standing_party_repaired` event, as the inbox reads it. */
+export interface PartyChangeEvent {
+  seq: number;
+  occurredAtMs: number;
+  payload: Record<string, unknown>;
+}
+
 /** S2: one notice per `standing_party_repaired` event (its ledger seq and payload). */
-export function partyChangedItem(e: { seq: number; occurredAtMs: number; payload: Record<string, unknown> }): DraftItem {
+export function partyChangedItem(e: PartyChangeEvent): DraftItem {
+  return partyChangedGroupItem([e]);
+}
+
+/**
+ * r4 N6: the notices for a run of `standing_party_repaired` events. Events in seq order; an event
+ * of the same reason within `windowMs` of the previous one joins its notice (one Town visit with
+ * four merges is one notice), which reports the summed slots moved and dropped and the party's
+ * FINAL size. Newest first.
+ */
+export function partyChangedItems(events: readonly PartyChangeEvent[], windowMs: number): DraftItem[] {
+  const sorted = [...events].sort((a, b) => a.seq - b.seq);
+  const groups: PartyChangeEvent[][] = [];
+  for (const e of sorted) {
+    const g = groups[groups.length - 1];
+    const prev = g?.[g.length - 1];
+    if (g && prev && reasonOf(prev) === reasonOf(e) && e.occurredAtMs - prev.occurredAtMs <= windowMs) g.push(e);
+    else groups.push([e]);
+  }
+  return groups.map(partyChangedGroupItem).reverse();
+}
+
+function reasonOf(e: PartyChangeEvent): "merge" | "trip_loss" {
+  return e.payload["reason"] === "merge" ? "merge" : "trip_loss";
+}
+
+function partyChangedGroupItem(group: readonly PartyChangeEvent[]): DraftItem {
   const n = (v: unknown): number => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : 0);
-  const p = e.payload;
+  const len = (v: unknown): number => (Array.isArray(v) ? v.length : 0);
+  const first = group[0]!;
+  const last = group[group.length - 1]!;
   return {
-    key: `party:${e.seq}`,
+    key: `party:${first.seq}`,
     category: "party_changed",
-    version: 1,
-    occurredAtMs: e.occurredAtMs,
-    occurredAt: iso(e.occurredAtMs),
+    version: group.length,
+    occurredAtMs: last.occurredAtMs,
+    occurredAt: iso(last.occurredAtMs),
     detail: {
-      reason: p["reason"] === "merge" ? "merge" : "trip_loss",
-      carriedOver: Array.isArray(p["repointed"]) ? p["repointed"].length : 0,
-      dropped: Array.isArray(p["dropped"]) ? p["dropped"].length : 0,
-      unitsNow: n(p["units"]),
-      empty: p["empty"] === true,
+      reason: reasonOf(last),
+      carriedOver: group.reduce((a, e) => a + len(e.payload["repointed"]), 0),
+      dropped: group.reduce((a, e) => a + len(e.payload["dropped"]), 0),
+      unitsNow: n(last.payload["units"]),
+      empty: last.payload["empty"] === true,
+      changes: group.length,
     },
   };
 }

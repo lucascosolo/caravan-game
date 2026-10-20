@@ -67,6 +67,7 @@ const details = {
     ladderPointsGained: integer({ min: 0 }),
     windowStartMs: MS,
     windowEndMs: MS,
+    windowOpen: optional(boolean()),
     linesIncluded: boolean(),
     strikes: array(strikeLine, { maxLength: 64 }),
     notListed: COUNT,
@@ -75,7 +76,7 @@ const details = {
   trip_cap_refilled: object({ available: integer({ min: 0, max: 100 }), cap: integer({ min: 0, max: 100 }), fullAtMs: MS }),
   mine_near_cap: object({ balance: COIN, cap: COIN, atCap: boolean(), thresholdPercent: integer({ min: 0, max: 100 }), ratePerHour: COIN, capReachedAtMs: nullable(MS) }),
   packs_rotated: object({ weekIndex: integer(), startsAtMs: MS, endsAtMs: MS }),
-  party_changed: object({ reason: literal("merge", "trip_loss"), carriedOver: COUNT, dropped: COUNT, unitsNow: integer({ min: 0, max: 64 }), empty: boolean() }),
+  party_changed: object({ reason: literal("merge", "trip_loss"), carriedOver: COUNT, dropped: COUNT, unitsNow: integer({ min: 0, max: 64 }), empty: boolean(), changes: optional(integer({ min: 1, max: 10_000 })) }),
 } as const;
 
 const base = object({ key: KEY, category: CATEGORY, version: integer({ min: 0 }), occurredAtMs: MS, occurredAt: TIMESTAMP, unread: boolean() });

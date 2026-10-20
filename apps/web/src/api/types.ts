@@ -306,6 +306,8 @@ export interface EconomyView {
     readonly encounterSchedule: readonly number[];
     readonly bankedTripBonus: number;
     readonly partyWin: number;
+    /** r4 N1: with `?caravanId=`, that caravan's display band and its band-scaled shortest trip. */
+    readonly caravan?: { readonly caravanId: string; readonly band: number; readonly firstEncounter: number; readonly shortestTrip: number } | undefined;
   };
   readonly merge: {
     /** `{ "2": 250, "3": 900, … }` per resulting unit, keyed by the resulting level. */

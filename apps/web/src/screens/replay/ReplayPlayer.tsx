@@ -174,7 +174,8 @@ function lootLine(view: ReplayView, o: { readonly kind: string; readonly loot: n
     if (typeof earned === "number") return T.lootOwnerEarned(earned);
     return T.lootOwner(o.loot);
   }
-  if (view.opponent?.authored === true) return T.lootCaravanAuthored(o.kind === "caravan_overrun", view.settled.coinLost?.amount ?? null);
+  // r4 N2: a settled fight with no Coin lost says so, as the summary does.
+  if (view.opponent?.authored === true) return T.lootCaravanAuthored(o.kind === "caravan_overrun", view.settled.coinLost ? view.settled.coinLost.amount : view.settled.applied ? 0 : null);
   return T.lootCaravan(o.loot, o.kind === "caravan_overrun");
 }
 
