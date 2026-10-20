@@ -1,0 +1,30 @@
+const { open, snap, dump, save, sleep, BASE, OUT } = require("./lib.cjs");
+const { panels } = require("./lib2.cjs");
+const STATE = OUT + "/state-main.json";
+
+(async () => {
+  const { browser, context, page, logs } = await open({ width: 390, height: 844, scheme: "dark", state: STATE, dpr: 2, video: true, tag: "16-bank" });
+  await page.goto(BASE + "/#/trail");
+  await page.getByTestId("to-decision").waitFor({ timeout: 20000 });
+  await page.getByTestId("to-decision").scrollIntoViewIfNeeded();
+  await page.getByTestId("to-decision").tap();
+  await page.getByTestId("bank-open").waitFor({ timeout: 20000 });
+  await sleep(600);
+  await snap(page, "16-decide-e2-top");
+  await page.getByTestId("bank-open").scrollIntoViewIfNeeded();
+  await page.getByTestId("bank-open").tap();
+  await sleep(1000);
+  await snap(page, "16-bank-confirm");
+  const t0 = Date.now();
+  await page.getByTestId("bank-confirm").tap();
+  await snap(page, "16-bank-tap");
+  await page.getByTestId("trip-summary").waitFor({ timeout: 20000 });
+  console.log("bank -> summary", Date.now() - t0);
+  await sleep(500);
+  await panels(page, "16-summary", 8);
+  await dump(page, "16-summary");
+  await save(context, STATE);
+  console.log(logs.filter((l) => !l.includes("WebGL") && !l.includes("GL Driver")).slice(0, 10));
+  await context.close();
+  await browser.close();
+})();

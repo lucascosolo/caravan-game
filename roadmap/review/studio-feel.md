@@ -1,5 +1,7 @@
 # Studio-feel review: what separates Caravan Vaults from a studio-made game
 
+> Screenshots referenced below live in `roadmap/review/feel-shots/` (palette-reduced copies of the reviewer's captures); the Playwright scripts that took them are in `roadmap/review/tools/feel-pw/`.
+
 **Reviewer role:** UX and game-feel lead, top-grossing mobile studio. **Build:** `roadmap/phase-2-spec` @ `0058f0d`.
 **Date:** 2026-10-20. **Scope:** presentation, feel, flow, onboarding, accessibility, performance feel, copy. No code was changed.
 
@@ -50,9 +52,9 @@ weeks need no artist at all.
   Cosmetics screens, plus error, loading and empty states.
 - **Evidence.** In this document, `$SHOTS` means
   `/tmp/claude-0/-home-user-caravan-game/edcaf182-6a4d-5af1-b736-5ca8113d60f8/scratchpad/sf-review/shots`. The
-  Playwright scripts that produced it are in the sibling `pw/` folder. Screen videos are in `$SHOTS/video/<step>/`: the
+  Playwright scripts that produced it are in the sibling `pw/` folder. Screen videos are in `feel-shots/video/<step>/`: the
   first fight is `10-commit`, a 1× replay is `15-e2`, the overrun walk is `21-overrun`, and the merge is `19-merge`.
-  Contact sheets cut from the videos are in `$SHOTS/frames10`, `frames15` and `frames21`. The evidence is not committed.
+  Contact sheets cut from the videos are in `feel-shots/frames10`, `frames15` and `frames21`. The evidence is not committed.
 - **Not observed live:** a strike by my own standing party. My first caravan went on to bank a second trip, but its
   next three searches (one search and two free rerolls) still drew only authored outfits, so my second account's party was
   never served. The passive-side payoff below is judged from the inbox and feed screens and their copy.
@@ -74,9 +76,9 @@ weeks need no artist at all.
 
 <a id="f1"></a>**1. No touch feedback and no motion system.** P0 · M
 - **Evidence:**
-  - `$SHOTS/04-refugee-tap-50ms.png` and `$SHOTS/04-refugee-taken.png`: tapping "Take" makes the offers vanish, the
+  - `feel-shots/04-refugee-tap-50ms.png` and `feel-shots/04-refugee-taken.png`: tapping "Take" makes the offers vanish, the
     guide card swaps and the page jumps.
-  - `$SHOTS/06-ride-confirm.png` → `$SHOTS/07-trail-p0.png`: riding out is a hard cut to a text page.
+  - `feel-shots/06-ride-confirm.png` → `feel-shots/07-trail-p0.png`: riding out is a hard cut to a text page.
   - `apps/web/src/theme.css` has no `:active`, `:hover`, `:focus-visible` for `.btn`, and no `transition`. Its single
     animation is the 160 ms `sheet-in`.
 - **What is wrong:**
@@ -95,11 +97,11 @@ weeks need no artist at all.
 
 <a id="f2"></a>**2. A fight has no anticipation beat, and the first frame is black.** P0 · M
 - **Evidence:**
-  - `$SHOTS/11-post-commit-00.png`: a fully blank screen, captured 250 ms after the "Commit" tap.
-  - `$SHOTS/frames10/sheet-09.png`: "Committing…", then a black canvas, then the fight already running at 0:00 under
+  - `feel-shots/11-post-commit-00.png`: a fully blank screen, captured 250 ms after the "Commit" tap.
+  - `feel-shots/frames10/sheet-09.png`: "Committing…", then a black canvas, then the fight already running at 0:00 under
     "Nothing yet."
-  - `$SHOTS/frames21/sheet-01.png`: "Loading the fight…", then three frames of black canvas.
-  - `$SHOTS/frames15/sheet-03.png`: the opening shows the whole island, then hard-cuts to the close framing.
+  - `feel-shots/frames21/sheet-01.png`: "Loading the fight…", then three frames of black canvas.
+  - `feel-shots/frames15/sheet-03.png`: the opening shows the whole island, then hard-cuts to the close framing.
 - **What is wrong:**
   - The most important tap in the game (commit) leads into a void. The circle the player spent minutes on disappears
     the instant they commit.
@@ -116,10 +118,10 @@ weeks need no artist at all.
 
 <a id="f3"></a>**3. The replay camera is static and frames the ring, not the action.** P0 · M
 - **Evidence:**
-  - `$SHOTS/15-e2-replay-end.png`: the ring is cut off on the right.
-  - `$SHOTS/frames21/sheet-01.png` (overrun at encounter 5): every posted defender and every death happen outside the
+  - `feel-shots/15-e2-replay-end.png`: the ring is cut off on the right.
+  - `feel-shots/frames21/sheet-01.png` (overrun at encounter 5): every posted defender and every death happen outside the
     frame. The player watches four empty wagons until raiders walk into view and touch the core.
-  - `$SHOTS/frames10/sheet-10.png`: the action is a few pixels in a corner.
+  - `feel-shots/frames10/sheet-10.png`: the action is a few pixels in a corner.
 - **What is wrong:**
   - The player is asked to watch the result of their decisions, and is not shown them.
   - Pinch and pan are the only camera, which is wrong for a replay that autoplays at 2×.
@@ -133,14 +135,14 @@ weeks need no artist at all.
 
 <a id="f4"></a>**4. Impacts are diagrams. There is no hit weight, death, trap payoff, slow-motion or stinger.** P0 · M
 - **Evidence:**
-  - `$SHOTS/frames10/hit-02.png` and `$SHOTS/12-replay-005.png` show a hit as a 2.5 px cream line ending in a 3–6 px
+  - `feel-shots/frames10/hit-02.png` and `feel-shots/12-replay-005.png` show a hit as a 2.5 px cream line ending in a 3–6 px
     dot. A death is a grey X, and the unit simply vanishes.
   - In `apps/web/src/iso/scene.ts` `drawMark`:
     - a trap is an orange ellipse outline;
     - a fence break is a green rectangle outline;
     - the core reached is a yellow diamond outline.
   - HP bars are 3 px tall and quantized to 5%.
-  - `$SHOTS/12-replay-end.png` and `$SHOTS/21-replay-end-5.png`: the win and loss end cards are the same bordered box,
+  - `feel-shots/12-replay-end.png` and `feel-shots/21-replay-end-5.png`: the win and loss end cards are the same bordered box,
     with one word different, and the button still says "Skip to result" after the fight has ended.
 - **What is wrong:** the information is all there, which is good legibility, but there is no feel. Nothing tells the
   body that something hit hard, that a plan worked, or that it all fell apart.
@@ -164,8 +166,8 @@ weeks need no artist at all.
 
 <a id="f5"></a>**5. The end of a fight has no stinger, and its controls are mislabeled.** P0 · S
 - **Evidence:**
-  - `$SHOTS/12-replay-end.png`: "Skip to result" is the dialog action even after the end card shows.
-  - `$SHOTS/12-replay-below.png`: the "As it happened" heading overlaps the strip under the pinned stage.
+  - `feel-shots/12-replay-end.png`: "Skip to result" is the dialog action even after the end card shows.
+  - `feel-shots/12-replay-below.png`: the "As it happened" heading overlaps the strip under the pinned stage.
 - **What is wrong:** win and loss carry the same weight. The exit is labeled as if the fight were still running, and
   the end card buries the outcome under depth percentages and an authored-outfit footnote.
 - **What a studio would do:**
@@ -175,12 +177,12 @@ weeks need no artist at all.
 
 <a id="f6"></a>**6. Reward and loss moments are flat text, buried under other prompts.** P0 · M
 - **Evidence:**
-  - **Bank:** `$SHOTS/16-summary-p0.png` and `$SHOTS/16-summary-p1.png`. "1658 Coin banked." is the fourth item,
+  - **Bank:** `feel-shots/16-summary-p0.png` and `feel-shots/16-summary-p1.png`. "1658 Coin banked." is the fourth item,
     below the fold, under a guide card with four buttons and a "Save your progress" card with two.
-  - **Overrun:** `$SHOTS/21-overrun-summary-p0.png`. "3969 unbanked Coin was lost" sits under the same save prompt.
-  - **Merge:** `$SHOTS/19-town-canvas-after.png` and `$SHOTS/19-after-merge.png`. The badge changes from "1" to "2",
+  - **Overrun:** `feel-shots/21-overrun-summary-p0.png`. "3969 unbanked Coin was lost" sits under the same save prompt.
+  - **Merge:** `feel-shots/19-town-canvas-after.png` and `feel-shots/19-after-merge.png`. The badge changes from "1" to "2",
     the marker is identical, and a green notice reads "Merged: 1 × Well Digger level 2. 1454 Coin left."
-  - **Encounter win:** `$SHOTS/13-results-p0.png`, "+600 Coin this encounter, carried unbanked."
+  - **Encounter win:** `feel-shots/13-results-p0.png`, "+600 Coin this encounter, carried unbanked."
   - **Passive side** (not observed live; from `InboxScreen.tsx` and `STRINGS.inbox`): a strike is a text card, "Your
     party struck a caravan", with a "Watch the fight" button, behind a header button that is polled every 60 s and
     has no device push yet (§29). It is the hook the whole asynchronous loop depends on.
@@ -206,7 +208,7 @@ weeks need no artist at all.
     +25 trap per encounter (DB query on `caravan_studio_feel`).
   - Neither the results card nor the trip summary mentions Reputation or the ladder: `13-results.json` and
     `16-summary.json` contain neither word.
-  - Webs then reads "Ladder rung 0 of 20. 50 ladder points to the next rung" (`$SHOTS/18-webs-p0.png`).
+  - Webs then reads "Ladder rung 0 of 20. 50 ladder points to the next rung" (`feel-shots/18-webs-p0.png`).
 - **What is wrong:** the long-term hook (ladders, then the webs) never gets a beat. PHASE-2 §22 asks for "Reputation
   change, ladder progress" in the results summary.
 - **What a studio would do:**
@@ -214,7 +216,7 @@ weeks need no artist at all.
   - A "Rung reached! 1 unlock point" toast that deep-links to the node it can buy.
 
 <a id="f8"></a>**8. The replay layout shifts while it plays.** P1 · S
-- **Evidence:** `$SHOTS/frames10/sheet-10.png`. The event strip grows from 0 to 3 lines and pushes the transport
+- **Evidence:** `feel-shots/frames10/sheet-10.png`. The event strip grows from 0 to 3 lines and pushes the transport
   controls down, and the end card inserts between the stage and the controls.
 - **What a studio would do:** a fixed-height 3-line ticker overlaid on the bottom of the stage (gradient scrim), with
   the controls pinned. The end card overlays the stage after the stinger, and "Look at the field" dismisses it.
@@ -223,11 +225,11 @@ weeks need no artist at all.
 
 <a id="f9"></a>**9. There is no art direction: every visual is a placeholder.** P0 · L
 - **Evidence:**
-  - Units, wagons and fences: `$SHOTS/10-circle-arranged.png` and `$SHOTS/frames10/hit-02.png`. Units are blue or
+  - Units, wagons and fences: `feel-shots/10-circle-arranged.png` and `feel-shots/frames10/hit-02.png`. Units are blue or
     orange rectangles, ellipses and triangles with initials; wagons are cream ellipses on brown boxes; fences are brown
     diamonds with a stick.
-  - Town: `$SHOTS/03-town-canvas.png` is a tan field with flat polygons cut off at its edges.
-  - Party: `$SHOTS/17-party-raised-p2.png` shows the island with raiders as specks.
+  - Town: `feel-shots/03-town-canvas.png` is a tan field with flat polygons cut off at its edges.
+  - Party: `feel-shots/17-party-raised-p2.png` shows the island with raiders as specks.
   - UI: system font, flat cards, unicode tab glyphs ⌂ ⛰ ⚑ ✦ ✉.
   - The app icon is a placeholder wheel (`apps/web/public/icon.svg`).
 - **What is wrong:**
@@ -271,10 +273,10 @@ weeks need no artist at all.
 
 <a id="f10"></a>**10. Unit roles cannot be recognized at a glance.** P0 · M
 - **Evidence:**
-  - `$SHOTS/10-circle-arranged.png`: posts are about 18×9 CSS px markers with 11 px initials, and five of them overlap
+  - `feel-shots/10-circle-arranged.png`: posts are about 18×9 CSS px markers with 11 px initials, and five of them overlap
     on top of each other.
-  - `$SHOTS/09-formation-first.png`: raiders are about 12 px ellipses at the edges, and one of the four is off-screen.
-  - `$SHOTS/29-party-after-save.png`: in the party editor, the raiders are 6×4 px specks.
+  - `feel-shots/09-formation-first.png`: raiders are about 12 px ellipses at the edges, and one of the four is off-screen.
+  - `feel-shots/29-party-after-save.png`: in the party editor, the raiders are 6×4 px specks.
 - **What is wrong:**
   - Reading the incoming party is the skill of the game (guardrail 4), yet "BH" vs "GU" and square vs triangle is a
     memory test.
@@ -300,7 +302,7 @@ weeks need no artist at all.
   | Core yellow | 1.91:1 |
   | Hit and death marks | 2.09:1 |
 
-  `$SHOTS/22-deuteranopia-sim.png` (Machado deuteranopia matrix): the raiders turn khaki and merge with the sand, and
+  `feel-shots/22-deuteranopia-sim.png` (Machado deuteranopia matrix): the raiders turn khaki and merge with the sand, and
   the orange threat bands disappear.
 - **What is wrong:** Okabe–Ito was chosen against the dark DOM, not against the mid-tone terrain. Only the 1.5 px dark
   outline separates the actors from the ground.
@@ -314,11 +316,11 @@ weeks need no artist at all.
 
 <a id="f12"></a>**12. The town is a form with a map in the middle, not a place.** P1 · L
 - **Evidence:**
-  - `$SHOTS/03-town-first-full.png`: 4,498 px tall (5.3 screens), 30 buttons.
-  - `$SHOTS/03-town-canvas.png`: the canvas opens zoomed on the merge board, so the six structures are cut off at the
+  - `feel-shots/03-town-first-full.png`: 4,498 px tall (5.3 screens), 30 buttons.
+  - `feel-shots/03-town-canvas.png`: the canvas opens zoomed on the merge board, so the six structures are cut off at the
     frame edges.
-  - `$SHOTS/03-town-p5.png`: "Elsewhere in town" is a list of eight buttons.
-  - `$SHOTS/03-town-p1.png`: Coin appears only as the sentence "Banked: 0 of 50000 Coin…".
+  - `feel-shots/03-town-p5.png`: "Elsewhere in town" is a list of eight buttons.
+  - `feel-shots/03-town-p1.png`: Coin appears only as the sentence "Banked: 0 of 50000 Coin…".
 - **What is wrong:** the hub has no sense of place, no HUD and no reason to linger. The buildings are labels, not
   destinations.
 - **What a studio would do:**
@@ -337,9 +339,9 @@ weeks need no artist at all.
 
 <a id="f13"></a>**13. There is no light theme, and native controls are unthemed.** P1 · S
 - **Evidence:**
-  - `$SHOTS/01-launch-390-dark.png` and `$SHOTS/01-launch-390-light.png` are byte-identical (same md5); `theme.css`
+  - `feel-shots/01-launch-390-dark.png` and `feel-shots/01-launch-390-light.png` are byte-identical (same md5); `theme.css`
     has no `prefers-color-scheme` rule.
-  - `$SHOTS/20-formation-360.png`: checkboxes render in Chromium blue, not the theme accent.
+  - `feel-shots/20-formation-360.png`: checkboxes render in Chromium blue, not the theme accent.
 - **What a studio would do:**
   - Decide explicitly. Dark-only is a fine choice for a game: declare `color-scheme: dark`, set `accent-color`, and
     style the selects.
@@ -347,7 +349,7 @@ weeks need no artist at all.
 
 <a id="f14"></a>**14. There is no logo, no splash, and the first screen is a sign-in form.** P1 · S
 - **Evidence:**
-  - `$SHOTS/01-launch-390-dark.png`: system-bold "Caravan Vaults", a region `<select>`, then a full username/password
+  - `feel-shots/01-launch-390-dark.png`: system-bold "Caravan Vaults", a region `<select>`, then a full username/password
     form on the same screen.
   - Under 4× CPU and Fast 3G (finding 31), first paint is blank for 2.1 s (FP 1.47 s, FCP 3.62 s).
 - **What a studio would do:**
@@ -414,15 +416,15 @@ weeks need no artist at all.
 ### 4. Information design and flow
 
 <a id="f16"></a>**16. Primary actions sit at the bottom of very long pages.** P0 · M
-- **Evidence:** page heights at 390×844, from the dumps in `$SHOTS/*.json` (`pw/heights.cjs`):
+- **Evidence:** page heights at 390×844, from the dumps in `feel-shots/*.json` (`pw/heights.cjs`):
 
   | Screen | Height | Screens | Buttons | Where the primary action is |
   |---|---|---|---|---|
   | Town | 4,498 px | 5.3 | 30 | "Outfit the caravan" at y = 3,639 |
   | Outfit | 2,028 px | 2.4 | 11 | "Pack and ride out" at the end |
   | Candidates | 2,511 px | 3.0 | 11 | per card |
-  | **Formation** | 5,269 px | **6.2** | 27 | "Commit this arrangement" at y = 5,137 (`$SHOTS/10-commit-button.png`) |
-  | Bank or push | 3,192 px | 3.8 | 9 | "Bank and go home" after the stake prose (`$SHOTS/14-decide-p4.png`) |
+  | **Formation** | 5,269 px | **6.2** | 27 | "Commit this arrangement" at y = 5,137 (`feel-shots/10-commit-button.png`) |
+  | Bank or push | 3,192 px | 3.8 | 9 | "Bank and go home" after the stake prose (`feel-shots/14-decide-p4.png`) |
   | Trip summary | 3,316 px | 3.9 | 16 | n/a |
   | Party | 4,497 px | 5.3 | 44 | "Save party" at y = 4,120 |
 
@@ -438,7 +440,7 @@ weeks need no artist at all.
     horizontal card rail under the map.
 
 <a id="f17"></a>**17. First-session dead end: the guide says "Open Outfit" and gives no button.** P0 · S
-- **Evidence:** `$SHOTS/04-guide-outfit.png`, plus `04-guide-outfit.json`. Every other guide step carries its action
+- **Evidence:** `feel-shots/04-guide-outfit.png`, plus `04-guide-outfit.json`. Every other guide step carries its action
   inline; this one doesn't, and the only Outfit button is at y = 3,639 of 4,511.
 - **What a studio would do:**
   - An inline "Open the outfitter" button on the card.
@@ -466,10 +468,10 @@ weeks need no artist at all.
 
 <a id="f19"></a>**19. Modal, card and prompt fatigue.** P1 · M
 - **Evidence:**
-  - **Dialogs:** `$SHOTS/06-ride-confirm.png`, `$SHOTS/10-commit-dialog.png` and `$SHOTS/16-bank-confirm.png` are
+  - **Dialogs:** `feel-shots/06-ride-confirm.png`, `feel-shots/10-commit-dialog.png` and `feel-shots/16-bank-confirm.png` are
     centered dialogs over a dimmed long page.
-  - **Save prompt:** "Save your progress" appears in four places (`$SHOTS/16-summary-p0.png`,
-    `$SHOTS/21-overrun-summary-p0.png`, `$SHOTS/23-landscape-town.png`, `$SHOTS/23-text150-320-town.png`). It shows on
+  - **Save prompt:** "Save your progress" appears in four places (`feel-shots/16-summary-p0.png`,
+    `feel-shots/21-overrun-summary-p0.png`, `feel-shots/23-landscape-town.png`, `feel-shots/23-text150-320-town.png`). It shows on
     the trip summary, on the town after a trip, on the overrun, and it fills the whole first screen in landscape and at
     150% text.
   - **"Skip the guide":** on every guide card.
@@ -482,11 +484,11 @@ weeks need no artist at all.
 
 <a id="f20"></a>**20. Walls of text and weak hierarchy on the results and stakes screens.** P1 · M
 - **Evidence:**
-  - `$SHOTS/13-results-p1.png`: six h3 headings, several followed only by "None".
-  - `$SHOTS/14-decide-p0.png` through `p4`: 3.8 screens of stake prose.
-  - `$SHOTS/16-bank-confirm.png`: "Dust Rider · stays L1 (level 1 is the floor)" listed under the heading "loses a
+  - `feel-shots/13-results-p1.png`: six h3 headings, several followed only by "None".
+  - `feel-shots/14-decide-p0.png` through `p4`: 3.8 screens of stake prose.
+  - `feel-shots/16-bank-confirm.png`: "Dust Rider · stays L1 (level 1 is the floor)" listed under the heading "loses a
     merge level".
-  - `$SHOTS/21-overrun-summary-p1.png`: that line repeated six times.
+  - `feel-shots/21-overrun-summary-p1.png`: that line repeated six times.
 - **What is wrong:** the itemization guardrail 4 requires is there, but it is presented as a legal disclosure, not a
   game screen. The single most important legibility screen (§23) is the hardest to read.
 - **What a studio would do:**
@@ -499,9 +501,9 @@ weeks need no artist at all.
 
 <a id="f21"></a>**21. Debug-speak on the candidate cards.** P1 · S
 - **Evidence:**
-  - `$SHOTS/08-candidates-p0.png` and `$SHOTS/08-candidates-p1.png`: "Search #1 · centred on 250 · band width 600",
+  - `feel-shots/08-candidates-p0.png` and `feel-shots/08-candidates-p1.png`: "Search #1 · centred on 250 · band width 600",
     "The band was widened to find enough parties.", "Coin earn ×100%".
-  - `$SHOTS/14-decide-p4.png`: "0 Reputation beyond the band searched · Earn multiplier 100%".
+  - `feel-shots/14-decide-p4.png`: "0 Reputation beyond the band searched · Earn multiplier 100%".
 - **What a studio would do:**
   - Each candidate becomes a wanted poster: the outfit's name, the flavour line (already excellent), a strip of raider
     portraits, a threat rating, the bounty (Coin) and a compass of approach edges.
@@ -509,10 +511,10 @@ weeks need no artist at all.
 
 <a id="f22"></a>**22. Navigation and back behaviour.** P1 · M
 - **Evidence:**
-  - `pw/32-back.cjs` log and `$SHOTS/32-back-from-outfit.png`: the system back gesture from Outfit goes to the
+  - `pw/32-back.cjs` log and `feel-shots/32-back-from-outfit.png`: the system back gesture from Outfit goes to the
     previous *tab* (Webs), not to Town. Back with a merge dialog open navigates away to Webs.
-  - `$SHOTS/18-inbox-p0.png`: Inbox and Account light no tab and have no back control.
-  - `$SHOTS/18-packs-p0.png`: Packs and Cosmetics live under the Town tab with an in-page "Back to town".
+  - `feel-shots/18-inbox-p0.png`: Inbox and Account light no tab and have no back control.
+  - `feel-shots/18-packs-p0.png`: Packs and Cosmetics live under the Town tab with an in-page "Back to town".
 - **What a studio would do:**
   - A per-tab route stack (town/outfit, town/packs), with a history entry per sheet so back closes the top sheet
     first.
@@ -521,9 +523,9 @@ weeks need no artist at all.
 
 <a id="f23"></a>**23. Loading, skeletons, optimistic UI and duplicate fetches.** P1 · S
 - **Evidence:**
-  - `$SHOTS/27-slow-trail-loading.png` and `$SHOTS/27-slow-town-loading.png`: at 1.5 s RTT every tab is the word
+  - `feel-shots/27-slow-trail-loading.png` and `feel-shots/27-slow-town-loading.png`: at 1.5 s RTT every tab is the word
     "Loading…" on an empty page.
-  - The canvas host mounts black (`$SHOTS/frames21/sheet-01.png`).
+  - The canvas host mounts black (`feel-shots/frames21/sheet-01.png`).
   - Merges, refugee claims and party saves wait for the server, then re-render the page.
   - Entering the town fetches `/api/me` four times (`pw/24-perf.cjs` request log).
 - **What a studio would do:**
@@ -535,10 +537,10 @@ weeks need no artist at all.
 
 <a id="f24"></a>**24. Error copy and resilience.** P1 · S
 - **Evidence:**
-  - `$SHOTS/27-offline-town.png`: switching tabs offline replaces the *entire shell, tab bar included* with
+  - `feel-shots/27-offline-town.png`: switching tabs offline replaces the *entire shell, tab bar included* with
     "render_error · TypeError: Failed to fetch dynamically imported module: http://localhost:3933/assets/TownScreen-BqZAeaIu.js".
-  - `$SHOTS/27-offline-commit.png`: committing offline shows "Could not reach the server. network", six screens down.
-  - `$SHOTS/27-admin-as-player.png`: a bare "Not found."
+  - `feel-shots/27-offline-commit.png`: committing offline shows "Could not reach the server. network", six screens down.
+  - `feel-shots/27-admin-as-player.png`: a bare "Not found."
 - **What a studio would do:**
   - Keep the shell alive and show a top banner: "No word from the trail. Check your signal; we'll keep trying." It
     retries automatically with backoff.
@@ -547,7 +549,7 @@ weeks need no artist at all.
   - Put errors next to the control that failed.
 
 <a id="f25"></a>**25. Empty states are text only.** P2 · S
-- **Evidence:** `$SHOTS/18-inbox-p0.png` ("Nothing here yet…"); the party feed reads "Not served yet…"
+- **Evidence:** `feel-shots/18-inbox-p0.png` ("Nothing here yet…"); the party feed reads "Not served yet…"
   (`STRINGS.party.feedEmpty`).
 - **What a studio would do:** an illustrated empty state plus the one action that fills it: "Raise your party" or
   "Ride out". The inbox empty state should sell the passive side ("Your raiders are out there; word comes back here").
@@ -559,7 +561,7 @@ weeks need no artist at all.
 
   | Step | Guide words | Words on screen |
   |---|---|---|
-  | Welcome | 240 | 243 (`$SHOTS/02-welcome-full.png`) |
+  | Welcome | 240 | 243 (`feel-shots/02-welcome-full.png`) |
   | Town (take a refugee) | 59 | 667 |
   | Pack and ride out | 74 | 697 |
   | Outfit | 74 | 330 |
@@ -587,11 +589,11 @@ weeks need no artist at all.
 
 <a id="f27"></a>**27. First-session drop-off risks.** P1 · S
 - **Evidence:**
-  - `$SHOTS/05-outfit-p1.png` and `$SHOTS/05-outfit-p2.png`: the fence tier defaults to "No fence" and traps to 0,
+  - `feel-shots/05-outfit-p1.png` and `feel-shots/05-outfit-p2.png`: the fence tier defaults to "No fence" and traps to 0,
     even on the guided first trip whose next step is "fence the side". The fence count is a numeric keyboard field.
-  - The overrun path offers no consolation beat (`$SHOTS/21-overrun-summary-p0.png`).
-  - The save prompt competes with the first bank (`$SHOTS/16-summary-p0.png`).
-  - "Skip the guide" is a full-width button on every card (`$SHOTS/07-trail-p0.png`).
+  - The overrun path offers no consolation beat (`feel-shots/21-overrun-summary-p0.png`).
+  - The save prompt competes with the first bank (`feel-shots/16-summary-p0.png`).
+  - "Skip the guide" is a full-width button on every card (`feel-shots/07-trail-p0.png`).
 - **What a studio would do:**
   - Preselect the first fence tier at the full budget, and one trap, on the guided trip.
   - Fence count becomes a stepper or slider.
@@ -605,14 +607,14 @@ weeks need no artist at all.
   - DOM *text* passes comfortably: fg 14.4:1, muted 6.8–7.7:1, accent 7.7:1, the GUIDE label 6.6:1.
   - Secondary button borders (`--line #3f3b32`) are 1.56:1 on the background and 1.37:1 on raised cards, below the
     3:1 needed for UI components. Secondary buttons read as plain text boxes (for example "Skip the guide" in
-    `$SHOTS/03-town-first.png`).
+    `feel-shots/03-town-first.png`).
   - The canvas palette is covered in finding 11.
 - **What a studio would do:** raise `--line` to about `#6b6455` (3:1), give secondary buttons a raised fill and an
   inner highlight, and give disabled controls a pattern or an icon, not only opacity.
 
 <a id="f29"></a>**29. Text scaling and one-handed reach.** P1 · S
 - **Evidence:**
-  - `$SHOTS/23-text150-320-town.png`: at 150% text and 320 px, the "Guest" chip slides under the Inbox button, and the
+  - `feel-shots/23-text150-320-town.png`: at 150% text and 320 px, the "Guest" chip slides under the Inbox button, and the
     town grows to 8,447 px (15 screens).
   - Inbox and Account sit top-right, the hardest one-handed zone. Primary actions are at the far end of long pages
     (finding 16).
@@ -627,7 +629,7 @@ weeks need no artist at all.
 - **Evidence:**
   - Reduced motion currently only affects the lattice fade and the mine wheel (`iso/scene.ts`, `IsoCanvas.tsx`). The
     replay autoplays at 2× regardless. That is acceptable today, because nothing else moves.
-  - `$SHOTS/23-landscape-town.png`: at 844×390, a centered 720 px column, the 56 px tab bar takes a seventh of the
+  - `feel-shots/23-landscape-town.png`: at 844×390, a centered 720 px column, the 56 px tab bar takes a seventh of the
     height, and the save prompt fills the screen. The manifest locks portrait only when installed.
 - **What a studio would do:**
   - Every effect in findings 1–6 ships with a reduced-motion variant: no shake, no slow-motion or punch-in, crossfades
@@ -682,7 +684,7 @@ weeks need no artist at all.
   - "server" appears 55 times in `apps/web/src/strings.ts` player copy.
   - No frontier vernacular appears anywhere except the authored outfits' one-line flavour, which is genuinely good and
     shows the tone the rest should have: "Teamsters who stopped hauling freight and started taking it."
-    (`$SHOTS/08-candidates-p1.png`).
+    (`feel-shots/08-candidates-p1.png`).
   - Numbers have no separators ("50000", "3969"), although §35 requires locale formatting.
 - **What a studio would do:** a voice guide (laconic trail boss: short, dry, second person), applied in one pass. It
   keeps every guardrail: no "base" or "camp", merges never "stronger", the town never attacked, every stake still
