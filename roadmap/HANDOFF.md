@@ -99,7 +99,7 @@ The plan is `roadmap/review/ART-PLAN.md`. The art bible is `docs/art/STYLE-GUIDE
 
 ## Not verified, or left open
 
-- `pnpm check` was run on the final commit before the push. Its result is recorded in `roadmap/state.json` (`last_check`).
+- `pnpm check` passed all 11 steps on 8e15642 in 14.8 min (2026-10-20, recorded in `roadmap/state.json`, `last_check`). The handoff commits after it change only docs, review tools outside every build and one AGENTS.md number.
 - **Chunk status words in `roadmap/INDEX.md`'s status notes predate the final review rounds.** The play-test gate chunks are 22, 23, 24, 25, 29, 30, 32, 36 and 37. They closed their punch lists and passed the final and confirmation reviews, but nobody has re-labelled them `done`. That is a status call for the next session's QA pass.
 - **Open on purpose, handed to later chunks:**
   - chunk 30 N6 (password change and "sign out everywhere", for chunk 34) and N9 (reserving erased handles);

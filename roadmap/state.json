@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-20T20:20:00Z",
+  "updated_at": "2026-10-20T20:30:00Z",
   "written_by": "cloud orchestrator session, end-of-session handoff",
   "handoff_note": "roadmap/HANDOFF.md",
   "repo": {
@@ -43,48 +43,155 @@
     "command": "DETERMINISM_BASE_REF=3d13921 pnpm check",
     "commit": "8e15642",
     "started_at": "2026-10-20T20:13:52Z",
-    "result": "pending",
-    "duration_min": null,
-    "log": "not committed (cloud scratchpad)"
+    "result": "passed",
+    "duration_min": 14.8,
+    "log": "not committed (cloud scratchpad)",
+    "steps_passed": 11,
+    "steps_total": 11,
+    "finished_at": "2026-10-20T20:28:38Z",
+    "e2e_specs_passed": 14
   },
   "chunks": {
-    "01-20": { "status": "done" },
-    "21": { "status": "done", "note": "no deploy step until a hosting target is chosen" },
-    "22": { "status": "punch_list_closed", "index_label": "built" },
-    "23": { "status": "punch_list_closed", "index_label": "done" },
-    "24": { "status": "punch_list_closed", "index_label": "QA'd" },
-    "25": { "status": "punch_list_closed", "index_label": "built" },
-    "26": { "status": "not_started", "note": "art pipeline; iso/skins.ts throws on kind sprite" },
-    "27": { "status": "not_started", "note": "audio and haptics" },
-    "28": { "status": "partial", "note": "cosmetic data and store exist; no render path, no art (live-ops F14)" },
-    "29": { "status": "punch_list_closed", "index_label": "built", "note": "device push deferred to chunk 34" },
-    "30": { "status": "punch_list_closed", "open_by_decision": ["N6 password change and sign-out-everywhere (chunk 34)", "N9 reserving erased handles"] },
-    "31": { "status": "not_started", "note": "anti-abuse; blocks any player-to-player Coin transfer" },
-    "32": { "status": "punch_list_closed", "index_label": "built" },
-    "33": { "status": "not_started" },
-    "34": { "status": "not_started" },
-    "35": { "status": "not_started" },
-    "36": { "status": "punch_list_closed", "open_by_decision": ["D1", "D3", "D5 (recorded for launch)"] },
-    "37": { "status": "tooling_built_tuning_pass_8", "note": "BALANCE-LOG.md passes 1-8; CI slice apps/server/test/balance-sweep.test.ts" },
-    "38": { "status": "not_started" },
-    "39-45": { "status": "not_started", "note": "each needs a PROJECT.md amendment first" },
-    "46-49": { "status": "out_of_scope_v1" }
+    "01-20": {
+      "status": "done"
+    },
+    "21": {
+      "status": "done",
+      "note": "no deploy step until a hosting target is chosen"
+    },
+    "22": {
+      "status": "punch_list_closed",
+      "index_label": "built"
+    },
+    "23": {
+      "status": "punch_list_closed",
+      "index_label": "done"
+    },
+    "24": {
+      "status": "punch_list_closed",
+      "index_label": "QA'd"
+    },
+    "25": {
+      "status": "punch_list_closed",
+      "index_label": "built"
+    },
+    "26": {
+      "status": "not_started",
+      "note": "art pipeline; iso/skins.ts throws on kind sprite"
+    },
+    "27": {
+      "status": "not_started",
+      "note": "audio and haptics"
+    },
+    "28": {
+      "status": "partial",
+      "note": "cosmetic data and store exist; no render path, no art (live-ops F14)"
+    },
+    "29": {
+      "status": "punch_list_closed",
+      "index_label": "built",
+      "note": "device push deferred to chunk 34"
+    },
+    "30": {
+      "status": "punch_list_closed",
+      "open_by_decision": [
+        "N6 password change and sign-out-everywhere (chunk 34)",
+        "N9 reserving erased handles"
+      ]
+    },
+    "31": {
+      "status": "not_started",
+      "note": "anti-abuse; blocks any player-to-player Coin transfer"
+    },
+    "32": {
+      "status": "punch_list_closed",
+      "index_label": "built"
+    },
+    "33": {
+      "status": "not_started"
+    },
+    "34": {
+      "status": "not_started"
+    },
+    "35": {
+      "status": "not_started"
+    },
+    "36": {
+      "status": "punch_list_closed",
+      "open_by_decision": [
+        "D1",
+        "D3",
+        "D5 (recorded for launch)"
+      ]
+    },
+    "37": {
+      "status": "tooling_built_tuning_pass_8",
+      "note": "BALANCE-LOG.md passes 1-8; CI slice apps/server/test/balance-sweep.test.ts"
+    },
+    "38": {
+      "status": "not_started"
+    },
+    "39-45": {
+      "status": "not_started",
+      "note": "each needs a PROJECT.md amendment first"
+    },
+    "46-49": {
+      "status": "out_of_scope_v1"
+    }
   },
   "chunk_status_note": "punch_list_closed means the punch list is closed and the chunk passed the final review rounds and the confirmation reviews; nobody has re-labelled it done in INDEX.md yet",
   "reviews": [
-    { "file": "roadmap/qa/confirmation-playtest.md", "verdict": "READY", "scope": "play test", "commit": "e002854", "date": "2026-10-20" },
-    { "file": "roadmap/qa/confirmation-guardrails.md", "verdict": "READY", "scope": "guardrails", "commit": "e002854", "date": "2026-10-20" },
-    { "file": "roadmap/review/studio-design.md", "verdict": "NOT_READY_FOR_SOFT_LAUNCH", "scope": "design depth", "commit": "0058f0d", "date": "2026-10-20" },
-    { "file": "roadmap/review/studio-feel.md", "verdict": "NOT_READY_FOR_SOFT_LAUNCH", "scope": "feel and presentation", "commit": "0058f0d", "date": "2026-10-20" },
-    { "file": "roadmap/review/studio-liveops.md", "verdict": "NOT_READY_FOR_SOFT_LAUNCH", "scope": "live-ops and economy", "commit": "0058f0d", "date": "2026-10-20" },
-    { "file": "roadmap/review/STUDIO-REVIEW.md", "verdict": "MERGED_PLAN", "scope": "all of the above, ranked", "date": "2026-10-20" }
+    {
+      "file": "roadmap/qa/confirmation-playtest.md",
+      "verdict": "READY",
+      "scope": "play test",
+      "commit": "e002854",
+      "date": "2026-10-20"
+    },
+    {
+      "file": "roadmap/qa/confirmation-guardrails.md",
+      "verdict": "READY",
+      "scope": "guardrails",
+      "commit": "e002854",
+      "date": "2026-10-20"
+    },
+    {
+      "file": "roadmap/review/studio-design.md",
+      "verdict": "NOT_READY_FOR_SOFT_LAUNCH",
+      "scope": "design depth",
+      "commit": "0058f0d",
+      "date": "2026-10-20"
+    },
+    {
+      "file": "roadmap/review/studio-feel.md",
+      "verdict": "NOT_READY_FOR_SOFT_LAUNCH",
+      "scope": "feel and presentation",
+      "commit": "0058f0d",
+      "date": "2026-10-20"
+    },
+    {
+      "file": "roadmap/review/studio-liveops.md",
+      "verdict": "NOT_READY_FOR_SOFT_LAUNCH",
+      "scope": "live-ops and economy",
+      "commit": "0058f0d",
+      "date": "2026-10-20"
+    },
+    {
+      "file": "roadmap/review/STUDIO-REVIEW.md",
+      "verdict": "MERGED_PLAN",
+      "scope": "all of the above, ranked",
+      "date": "2026-10-20"
+    }
   ],
   "art": {
     "plan": "roadmap/review/ART-PLAN.md",
     "style_guide": "docs/art/STYLE-GUIDE.md",
     "style_board": "assets/reference/style-board-v1.png",
     "primary_source": "wiro",
-    "wiro_env_vars": ["WIRO_API_KEY", "WIRO_API_SECRET"],
+    "wiro_env_vars": [
+      "WIRO_API_KEY",
+      "WIRO_API_SECRET"
+    ],
     "kenney_use": "greybox only",
     "kenney_path": null,
     "accepted_assets": 0,
@@ -119,11 +226,36 @@
     "fast-forward main and delete merged branches"
   ],
   "next_tasks": [
-    { "id": "tier0-playtest-nits", "source": "roadmap/qa/confirmation-playtest.md N1-N6", "size": "S" },
-    { "id": "tier0-feel-week", "source": "roadmap/review/studio-feel.md phase A steps 1, 2, 4, 5, 7", "size": "M" },
-    { "id": "tier0-kpi-instrumentation", "source": "roadmap/review/studio-liveops.md F10, F24", "size": "M" },
-    { "id": "art-step-1-followups", "source": "roadmap/review/ART-PLAN.md step 1", "size": "S" },
-    { "id": "run-play-test", "source": "docs/PLAYTEST-HOSTING.md", "size": "M" },
-    { "id": "tier1-depth-milestone", "source": "roadmap/review/STUDIO-REVIEW.md tier 1", "size": "L", "blocked_on": "owner decisions" }
+    {
+      "id": "tier0-playtest-nits",
+      "source": "roadmap/qa/confirmation-playtest.md N1-N6",
+      "size": "S"
+    },
+    {
+      "id": "tier0-feel-week",
+      "source": "roadmap/review/studio-feel.md phase A steps 1, 2, 4, 5, 7",
+      "size": "M"
+    },
+    {
+      "id": "tier0-kpi-instrumentation",
+      "source": "roadmap/review/studio-liveops.md F10, F24",
+      "size": "M"
+    },
+    {
+      "id": "art-step-1-followups",
+      "source": "roadmap/review/ART-PLAN.md step 1",
+      "size": "S"
+    },
+    {
+      "id": "run-play-test",
+      "source": "docs/PLAYTEST-HOSTING.md",
+      "size": "M"
+    },
+    {
+      "id": "tier1-depth-milestone",
+      "source": "roadmap/review/STUDIO-REVIEW.md tier 1",
+      "size": "L",
+      "blocked_on": "owner decisions"
+    }
   ]
 }
