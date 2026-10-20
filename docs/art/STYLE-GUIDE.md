@@ -106,6 +106,7 @@ sprite files use.
 | `u` | Plum, lit | `#8f6b93` | `U` | Plum, shadow | `#5a4363` |
 | `n` | Charcoal, lit | `#5a5058` | `N` | Charcoal, shadow | `#3a3238` |
 | `m` | Moss, lit | `#9a9a4e` | `M` | Moss, shadow | `#686a32` |
+| `v` | Cactus green, lit | `#7aa66b` | `V` | Cactus green, shadow | `#52703d` |
 
 The last five pairs were added on 2026-10-20 at the owner's request, to give more variety
 without getting louder. Each was measured with CIELAB distance (ΔE76) and admitted only if it
@@ -113,7 +114,10 @@ sits at least 25 from every side colour (so sides never blur), at least 15 from 
 colour (so bodies never melt into the ground), and at least 10 from every existing colour.
 Ochre, sky blue and bone were tried and failed: ochre was too close to the sand, sky blue too
 close to the settler turquoise, and bone's shadow too close to stone. Sage is for sagebrush and
-dry scrub; charcoal is for black hats and horses, distinct from the outline. A new colour must
+dry scrub; charcoal is for black hats and horses, distinct from the outline. Cactus green
+(added the same day, at the owner's suggestion) exists so desert greens stop falling onto the
+settler turquoise: its shadow leans yellow, at least 31 from both side colours. **Scenery never
+uses the side colours at all**: the pixel step only lets units snap to `p`/`P`. A new colour must
 pass the same three tests.
 
 **Side colour** (keys `p` / `P`, recoloured by code per side):
@@ -159,7 +163,14 @@ Any source is allowed, as long as it ends up looking like one set:
 
 - **Generated** (Wiro, using any image model; nothing that spends credits runs without the owner's yes);
 - **Hand-drawn** in a pixel editor such as Aseprite, which is the norm for animation frames;
-- **Bought or free packs** (licences recorded; Kenney is greybox only).
+- **Kenney packs:** the owner bought them on itch.io for production use (CC0). They are a real
+  source for props, terrain, fences, rocks and plants, always baked through the steps below and
+  never shipped raw. Look in Kenney first for non-character pieces, before generating. A pale
+  render can be warmed with a tint before the palette snap (sandstone for rocks, weathered wood
+  for fences). Record the Kenney source file in each asset's provenance. The searchable catalogue
+  of every pack is on the storage server, next to the packs (see `roadmap/state.json`,
+  `art.kenney_catalog`).
+- **Other bought or free packs:** record their licences.
 
 The asset build (PHASE-2 §26) turns every source into the house style the same way:
 

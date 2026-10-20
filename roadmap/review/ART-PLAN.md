@@ -9,6 +9,10 @@
 > pixelized by the build step" (style guide §7). Animation moves to drawn frames (idle 2, walk 4,
 > attack 2–3) with code motion on top (style guide §6). The order of work and the budget rules
 > below still stand.
+>
+> **Later the same day:** the owner bought the Kenney packs for production use, so the "Kenney: greybox only, not shipped art"
+> row below is superseded. Kenney art is baked into the house style and shipped (style guide §7). GPT Image 2.5 with a
+> reference image is the generator for characters and anything Kenney lacks.
 
 Status: plan only, nothing built. Written 2026-10-20 for the next session, which runs on the
 owner's PC with access to the Kenney library and to Wiro API credits. It turns the studio feel
