@@ -72,7 +72,7 @@ The plan is `roadmap/review/ART-PLAN.md`. The art bible is `docs/art/STYLE-GUIDE
   - every accepted image recorded in `assets/painted/PROMPTS.md`;
   - the Desert vertical slice must read well in a real replay on a phone before credits go on the full roster.
 
-**Kenney:** use it for greybox and layout stand-ins only. Its neutral look is the opposite of the target. The cloud session never reached the storage VPS, so the library's path there is unknown. Find it or ask the owner.
+**Kenney:** use it for greybox and layout stand-ins only. Its neutral look is the opposite of the target. The owner's complete set is now on the storage VPS at `shared/asset-packs/kenney/` (manifest entries 2026-10-20; details in `roadmap/state.json`, `art.kenney_inventory`).
 
 **Code before art:**
 - **The canvas legibility patch comes first** (feel review step 7 and ART-PLAN step 2): outlines, contact shadows, side badges and a desaturated ground. It needs no art and fixes today's 1.1:1 contrast.

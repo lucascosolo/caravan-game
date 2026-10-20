@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-20T20:30:00Z",
-  "written_by": "cloud orchestrator session, end-of-session handoff",
+  "updated_at": "2026-10-20T21:15:00Z",
+  "written_by": "PC session, Phase 1 (initialization for art integration and asset pipeline)",
   "handoff_note": "roadmap/HANDOFF.md",
   "repo": {
     "branch": "roadmap/phase-2-spec",
@@ -193,7 +193,7 @@
       "WIRO_API_SECRET"
     ],
     "kenney_use": "greybox only",
-    "kenney_path": null,
+    "kenney_path": "storage:/root/workspaces/storage/shared/asset-packs/kenney/",
     "accepted_assets": 0,
     "next_steps": [
       "collect public-domain references into assets/reference with SOURCES.md",
@@ -203,7 +203,44 @@
       "PHASE-2 section 26: make iso/skins.ts draw sprites",
       "key art explorations via Wiro, lock one",
       "Desert vertical slice, gate before the full roster"
-    ]
+    ],
+    "kenney_inventory": {
+      "bundles_zip": [
+        "kenney-game-assets-1-v42.zip",
+        "kenney-isometric-2.zip (true name: Kenney Game Assets 2 version 22)",
+        "gridlock_assets.zip (true name: Kenney Isometric Assets version 3)"
+      ],
+      "most_relevant_packs": [
+        "Game Assets 2: Isometric Medieval Town, Isometric Modular Buildings, Isometric Nature, Isometric Tower Defense, RTS Medieval",
+        "Game Assets 1: Isometric Tiles Base/Buildings/City/Vehicles, UI packs, 11 audio packs incl. 30 music loops"
+      ],
+      "manifest_entries_date": "2026-10-20",
+      "extract_on": "this PC under ~/.cache/scratch (storage has no unzip)"
+    },
+    "other_owned_packs": [
+      {
+        "path": "storage:/root/workspaces/storage/shared/asset-packs/1bitproject/cards.zip",
+        "what": "1bitProject pixel-art playing cards",
+        "licence": "purchased, not CC0, do not redistribute"
+      }
+    ],
+    "wiro_credentials_present": false,
+    "spec_conflicts_pending_owner": [
+      "PHASE-2 section 26 asks for idle, 8-direction walk, attack and death animations per unit; ART-PLAN uses one painted pose per type, mirrored, with code tweens and at most two extra poses per archetype",
+      "PHASE-2 section 26 wants art sources in a separate assets repo or LFS; ART-PLAN commits accepted assets into this repo",
+      "PHASE-2 section 26 says missing assets fail the build; ART-PLAN keeps a flat fallback set so the game builds with no generated art (reconcilable: fallback counts as the asset entry)",
+      "PHASE-2 section 26 payload budget (town under 8 MB, battle under 4 MB more) is not yet enforced in CI"
+    ],
+    "pipeline_findings": {
+      "sprite_refusal": "apps/web/src/iso/scene.ts:802 throws on kind sprite",
+      "skin_seam": "apps/web/src/iso/skins.ts, SkinRegistry keyed by type id; SpriteSkin is only {textureId}",
+      "renderer": "pixi.js 8.6.6",
+      "recommended_loading": "one packed atlas per scene (town, battle) so the payload budget is measurable; scale and ground-line check in the atlas script from day one",
+      "image_tools_on_pc": [
+        "ImageMagick /usr/bin/magick",
+        "Pillow 12.1.1"
+      ]
+    }
   },
   "open_balance_questions": [
     "8x L4 trip EV negative",
@@ -223,7 +260,9 @@
     "store product: cosmetic-first",
     "town grows from Coin, progression, or both (grants nothing, mine excluded)",
     "hosting target for a CI deploy step",
-    "fast-forward main and delete merged branches"
+    "fast-forward main and delete merged branches",
+    "reconcile PHASE-2 section 26 with ART-PLAN (art.spec_conflicts_pending_owner)",
+    "install pnpm packages and provide Postgres on this PC"
   ],
   "next_tasks": [
     {
@@ -244,7 +283,9 @@
     {
       "id": "art-step-1-followups",
       "source": "roadmap/review/ART-PLAN.md step 1",
-      "size": "S"
+      "size": "S",
+      "status": "next",
+      "note": "Phase 1 (comprehension) done 2026-10-20; this is the first coding step, no credits needed"
     },
     {
       "id": "run-play-test",
@@ -257,5 +298,17 @@
       "size": "L",
       "blocked_on": "owner decisions"
     }
-  ]
+  ],
+  "pc_environment": {
+    "checked_at": "2026-10-20T20:40:00Z",
+    "node": "v22.22.1",
+    "pnpm_enabled": false,
+    "node_modules_installed": false,
+    "postgres_installed": false,
+    "docker_socket_reachable_from_sandbox": false,
+    "playwright_chromium_cached": true,
+    "env_file_present": false,
+    "branch_upstream_set": true,
+    "note": "pnpm check and server tests need Postgres 16: system install needs owner sudo, or sandbox access to the Docker socket"
+  }
 }
