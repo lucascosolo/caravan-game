@@ -32,7 +32,7 @@ function menu(seedId: string, packed: number, capped: boolean): ServedParty[] {
   const centre = escalatedCentre(RATING, 1);
   const counted = parties.map((p) => ({ ...p.pool, raiders: p.party.units.length }));
   // The rebuilt roster is exactly what was packed (unmerged): `packed` starting-unit equivalents.
-  const cap = capped ? coldStartRaiderCap(counted, centre, packed, packed) : null;
+  const cap = capped ? coldStartRaiderCap(counted, centre, RATING, packed, packed) : null;
   const out = new Set(cap?.excludedPartyIds ?? []);
   const pool = counted.filter((e) => !out.has(e.partyId)).map(({ raiders: _r, ...e }) => e);
   const r = selectCandidates({ centre, seed: candidateSeed(seedId, `${seedId}-trip`, 1, 1), pool });

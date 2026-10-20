@@ -31,6 +31,7 @@
  */
 import { manifestFromJson, partyFromJson, scoutParty, serializeParty, type PartyScoutView } from "@caravan/circle";
 import { TUNABLES, getFenceTier, getTrapType } from "@caravan/content";
+import { RESOLVER_VERSION } from "@caravan/resolver";
 import { createHash } from "node:crypto";
 import type pg from "pg";
 import { findOpenManifest } from "../circle/repo.js";
@@ -78,6 +79,7 @@ import { authoredServedShare } from "./authoredShare.js";
 import { noLinkedAccounts, type LinkedAccountsResolver } from "./exclusions.js";
 import { findOpenTrip, type TripRow } from "./trips.js";
 import { assertPushedPast } from "../trip/repo.js";
+import { RESOLUTION_CONTENT_HASH } from "../trip/resolverAdapter.js";
 
 export const notFound = (code: string, message: string) => new AppError(404, code, message);
 
@@ -200,6 +202,9 @@ export interface EncounterCandidatesRow {
   authored_weighted_down: boolean | null;
   /** Final play-test review S1: the cold-start raider cap this draw applied (null outside band 0, and on rows older than migration 026). */
   raider_cap: RaiderCap | null;
+  /** Final guardrail review r4 N4 (migration 030): the RESOLVER_VERSION and RESOLUTION_CONTENT_HASH the menu was searched under; null on older rows. */
+  resolver_version: number | null;
+  content_hash: string | null;
   chosen_candidate_id: string | null;
   chosen_at: Date | null;
   created_at: Date;
@@ -386,9 +391,28 @@ export async function findLatestSearch(db: Queryable, tripId: string, encounterI
   return res.rows[0] ?? null;
 }
 
+/**
+ * Final guardrail review r4 N4: a menu is stale when it was searched under another resolver
+ * version or resolution content hash than this process runs (or before migration 030 stamped
+ * menus). Its stored scout was derived under other rules, so it is never committed: the player
+ * searches again, free and without the reroll wait, and chooses from the fresh menu.
+ */
+export function isStaleMenu(row: Pick<EncounterCandidatesRow, "resolver_version" | "content_hash">): boolean {
+  return row.resolver_version !== RESOLVER_VERSION || row.content_hash !== RESOLUTION_CONTENT_HASH;
+}
+
+/** r4 N4: the 409 for a commit or choice from a stale menu. */
+export const menuStale = (encounterIndex: number): AppError =>
+  conflict("menu_stale", `the game was updated after the menu for encounter ${encounterIndex} was drawn, so its scouting report may be out of date; search again (free, no wait) and choose from the fresh menu`);
+
+/**
+ * The chosen menu of an encounter: the LATEST chosen one. There is one per resolver version and
+ * content hash (migration 030's index): a menu chosen before an upgrade is stale (isStaleMenu) and
+ * can be replaced by a menu chosen afterwards, never by a second one under the same rules.
+ */
 export async function findChosenSearch(db: Queryable, tripId: string, encounterIndex: number): Promise<EncounterCandidatesRow | null> {
   const res = await db.query<EncounterCandidatesRow>(
-    "SELECT * FROM encounter_candidates WHERE trip_id = $1 AND encounter_index = $2 AND chosen_at IS NOT NULL",
+    "SELECT * FROM encounter_candidates WHERE trip_id = $1 AND encounter_index = $2 AND chosen_at IS NOT NULL ORDER BY search_seq DESC LIMIT 1",
     [tripId, encounterIndex],
   );
   return res.rows[0] ?? null;
@@ -506,10 +530,14 @@ function viewOf(row: EncounterCandidatesRow, nowMs: number): CandidateMenuView {
   return v;
 }
 
-/** Thrown when even the authored fallback cannot fill a menu: the database holds too few parties. */
+/**
+ * Thrown when even the authored fallback cannot fill a menu (409 `pool_empty`). Final guardrail
+ * review r4 S1: player-facing words, and the route adds `returnToTown: true` — the player can
+ * search again later or return to town (POST …/trip/return). `found` is for the operator's log.
+ */
 export class PoolEmptyError extends AppError {
-  constructor(found: number) {
-    super(503, "pool_empty", `only ${found} servable part${found === 1 ? "y" : "ies"} exist; ${CANDIDATES_PER_SEARCH} are needed — seed the authored parties (pnpm db:seed)`);
+  constructor(public readonly found: number) {
+    super(409, "pool_empty", "No raiding party can be served to your caravan for this encounter right now. Search again in a little while, or return to town: the trip ends as a bank after your last survived encounter, and nothing of this encounter applies.");
     this.name = "PoolEmptyError";
   }
 }
@@ -538,9 +566,11 @@ export async function searchCandidates(client: pg.PoolClient, caravan: CaravanRo
   // Chunk 15: the next attacker is served only after the player chose to PUSH past the
   // encounter they just survived — scouting it is not a free peek before bank-or-push.
   await assertPushedPast(client, trip.id, encounterIndex);
-  if (await findChosenSearch(client, trip.id, encounterIndex)) throw conflict("already_chosen", "a candidate for this encounter is already chosen; arrange the circle against it");
+  const chosenRow = await findChosenSearch(client, trip.id, encounterIndex);
+  if (chosenRow && !isStaleMenu(chosenRow)) throw conflict("already_chosen", "a candidate for this encounter is already chosen; arrange the circle against it");
   const latest = await findLatestSearch(client, trip.id, encounterIndex);
-  if (latest) {
+  // r4 N4: a stale menu (drawn under other rules) is replaced at once, with no reroll wait.
+  if (latest && !isStaleMenu(latest)) {
     const availableAtMs = latest.searched_at_ms + REROLL_COOLDOWN_SECONDS * 1000;
     if (opts.nowMs < availableAtMs) throw new RerollCooldownError(availableAtMs, Math.ceil((availableAtMs - opts.nowMs) / 1000));
   }
@@ -564,21 +594,25 @@ export async function searchCandidates(client: pg.PoolClient, caravan: CaravanRo
     if (recentSet.has(r.party_id)) excludedPartyIds.push(r.party_id);
     else counted.push({ partyId: r.party_id, ownerAccountId: r.owner_account_id, rating: r.reputation, authored: r.is_system, raiders: Number(r.raiders) });
   }
-  // Final play-test review S1 / final guardrail review r2 D1 / r3 S2(b): while the caravan's whole
-  // roster is small (a caravan rebuilding), or the search centre is in bands 0–1, no party with more raiders than it packed units (raised only as
-  // far as it takes to fill a menu). Filtered before the draw; the stored pool and `raider_cap`
-  // replay it.
-  const packedUnits = manifestFromJson((await findOpenManifest(client, caravan.id))!.packed).units.length;
-  const levels = await client.query<{ merge_level: number }>("SELECT merge_level FROM unit_instance WHERE caravan_id = $1", [caravan.id]);
-  const raiderCap = coldStartRaiderCap(counted, centre, packedUnits, rosterEquivalents(levels.rows.map((r) => r.merge_level)));
-  const capOut = new Set(raiderCap?.excludedPartyIds ?? []);
   // Final play-test review r2 S2 / r3 S2(a): until a caravan has banked AUTHORED_ONLY_UNTIL_BANKS
   // trips it meets authored outfits only, at every encounter — a cold-start rule in the same family as the nearest-N
   // authored fill (testers' raised starter parties, ranged pairs included, are not served into a
   // first trips). Filtered before the draw; the stored pool and `draw_rules.authoredOnlyTrip` replay it.
+  // Final guardrail review r4 S1: applied BEFORE the raider cap, so the cap relaxes over exactly the
+  // parties the draw can serve (three live one-raider parties used to hold the cap at 1 and then
+  // be dropped here, leaving an authored-only caravan that packed one unit with nothing to draw).
   const authoredOnly = await isAuthoredOnlyTrip(client, caravan.id, trip.id);
-  const pool: PoolEntry[] = counted
-    .filter((e) => !capOut.has(e.partyId) && (!authoredOnly || e.authored))
+  const servable = counted.filter((e) => !authoredOnly || e.authored);
+  // Final play-test review S1 / final guardrail review r2 D1 / r3 S2(b) / r4 D1: while the caravan's
+  // whole roster is small (a caravan rebuilding), or the caravan's OWN band is 0–1, no party with
+  // more raiders than it packed units (raised only as far as it takes to fill a menu). Filtered
+  // before the draw; the stored pool and `raider_cap` replay it.
+  const packedUnits = manifestFromJson((await findOpenManifest(client, caravan.id))!.packed).units.length;
+  const levels = await client.query<{ merge_level: number }>("SELECT merge_level FROM unit_instance WHERE caravan_id = $1", [caravan.id]);
+  const raiderCap = coldStartRaiderCap(servable, centre, caravanRating, packedUnits, rosterEquivalents(levels.rows.map((r) => r.merge_level)));
+  const capOut = new Set(raiderCap?.excludedPartyIds ?? []);
+  const pool: PoolEntry[] = servable
+    .filter((e) => !capOut.has(e.partyId))
     .map(({ raiders: _raiders, ...e }) => e);
   // N8 / r2 N16: every player's party rides under its caravan's name (public: the results feed shows it).
   const guestNames = await caravanNamesOf(client, rows.filter((r) => !r.is_system).map((r) => r.owner_account_id));
@@ -630,9 +664,9 @@ export async function searchCandidates(client: pg.PoolClient, caravan: CaravanRo
     return candidateFromSnapshot(ids, p, who, caravanRating, result.bandWidthUsed, snapshots.get(p.partyId)!, centre);
   });
   const res = await client.query<EncounterCandidatesRow>(
-    `INSERT INTO encounter_candidates (trip_id, encounter_index, search_seq, seed, caravan_rating, centre, band_width_used, pool, excluded_party_ids, skipped_party_ids, candidates, searched_at_ms, authored_served, band, draw_rules, authored_weighted_down, raider_cap)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::jsonb, $14, $15::jsonb, $16, $17::jsonb) RETURNING *`,
-    [trip.id, encounterIndex, searchSeq, seed, caravanRating, centre, result.bandWidthUsed, JSON.stringify(stored), JSON.stringify(excludedPartyIds), JSON.stringify([...skipped]), canonicalJson(candidates as unknown as Json), opts.nowMs, JSON.stringify(authoredServed), band.index, JSON.stringify(rules), result.authoredWeightedDown, raiderCap === null ? null : JSON.stringify(raiderCap)],
+    `INSERT INTO encounter_candidates (trip_id, encounter_index, search_seq, seed, caravan_rating, centre, band_width_used, pool, excluded_party_ids, skipped_party_ids, candidates, searched_at_ms, authored_served, band, draw_rules, authored_weighted_down, raider_cap, resolver_version, content_hash)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::jsonb, $14, $15::jsonb, $16, $17::jsonb, $18, $19) RETURNING *`,
+    [trip.id, encounterIndex, searchSeq, seed, caravanRating, centre, result.bandWidthUsed, JSON.stringify(stored), JSON.stringify(excludedPartyIds), JSON.stringify([...skipped]), canonicalJson(candidates as unknown as Json), opts.nowMs, JSON.stringify(authoredServed), band.index, JSON.stringify(rules), result.authoredWeightedDown, raiderCap === null ? null : JSON.stringify(raiderCap), RESOLVER_VERSION, RESOLUTION_CONTENT_HASH],
   );
   return { ...viewOf(res.rows[0]!, opts.nowMs), caravanLoadout: await caravanLoadout(client, caravan.id) };
 }
@@ -659,7 +693,10 @@ export async function isAuthoredOnlyTrip(db: Queryable, caravanId: string, tripI
 export async function readCandidates(db: Queryable, caravan: CaravanRow, encounterIndex: number, nowMs: number): Promise<CandidateMenuView> {
   const { trip } = await openTripFor(db, caravan, false);
   if (!Number.isInteger(encounterIndex) || encounterIndex < 1) throw badRequest("bad_encounter", "encounter index must be a positive integer");
-  const row = (await findChosenSearch(db, trip.id, encounterIndex)) ?? (await findLatestSearch(db, trip.id, encounterIndex));
+  // r4 N4: a chosen menu that went stale in an upgrade and was superseded by a later search is not the current one.
+  const chosenRow = await findChosenSearch(db, trip.id, encounterIndex);
+  const latestRow = await findLatestSearch(db, trip.id, encounterIndex);
+  const row = chosenRow && (!isStaleMenu(chosenRow) || chosenRow.search_seq === latestRow?.search_seq) ? chosenRow : latestRow;
   if (!row) throw notFound("no_search", `no candidates have been searched for encounter ${encounterIndex}`);
   return { ...viewOf(row, nowMs), caravanLoadout: await caravanLoadout(db, caravan.id) };
 }
@@ -694,13 +731,15 @@ export async function chooseCandidate(client: pg.PoolClient, caravan: CaravanRow
   if (typeof candidateId !== "string" || !/^[0-9a-f]{32}$/.test(candidateId)) throw badRequest("bad_candidate", "candidateId must be the id of an offered candidate");
   const { trip, manifest } = await openTripFor(client, caravan, true);
   requireNextEncounter(manifest, encounterIndex);
-  const chosen = await findChosenSearch(client, trip.id, encounterIndex);
+  const chosenAny = await findChosenSearch(client, trip.id, encounterIndex);
+  const chosen = chosenAny && !isStaleMenu(chosenAny) ? chosenAny : null;
   if (chosen) {
     if (chosen.chosen_candidate_id === candidateId) return { menu: { ...viewOf(chosen, nowMs), caravanLoadout: await caravanLoadout(client, caravan.id) }, chosen: candidateView(chosen.candidates.find((c) => c.candidateId === candidateId)!) };
     throw conflict("already_chosen", "a different candidate for this encounter is already chosen");
   }
   const latest = await findLatestSearch(client, trip.id, encounterIndex);
   if (!latest) throw notFound("no_search", `no candidates have been searched for encounter ${encounterIndex}`);
+  if (isStaleMenu(latest)) throw menuStale(encounterIndex);
   const candidate = latest.candidates.find((c) => c.candidateId === candidateId);
   if (!candidate) {
     const older = await client.query<{ n: string }>(
@@ -740,6 +779,12 @@ export async function enqueueChosenEncounter(
   partyLootFull?: number,
 ): Promise<{ job: ResolutionJobRow; created: boolean; candidate: Candidate }> {
   const { trip } = await openTripFor(client, caravan, true);
+  // r4 N4: a chosen menu drawn under other rules is never fought, unless its fight was already queued under them.
+  const chosenRow = await findChosenSearch(client, trip.id, encounterIndex);
+  if (chosenRow && isStaleMenu(chosenRow)) {
+    const queued = await client.query("SELECT 1 FROM resolution_job WHERE id = $1", [`encounter:${trip.id}:${encounterIndex}`]);
+    if ((queued.rowCount ?? 0) === 0) throw menuStale(encounterIndex);
+  }
   const candidate = await chosenCandidate(client, trip.id, encounterIndex);
   if (!candidate) throw conflict("no_candidate_chosen", `no candidate is chosen for encounter ${encounterIndex}; search and choose first`);
   // Self-check: the stored snapshot still parses and serializes to itself (it is canonical).

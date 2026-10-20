@@ -181,6 +181,26 @@ export function AdminScreen(props: { readonly api?: Api } = {}): JSX.Element {
         />
       </Panel>
 
+      {p.partyStrikes ? (
+        <Panel id="partyStrikes">
+          <p className="hint">
+            SUGGESTED_PARTY_MAX {p.partyStrikes.suggestedPartyMax}; the packed-unit raider cap runs for caravans in bands 0–{p.partyStrikes.lowBandMax}.
+          </p>
+          <Table
+            testId="party-strikes"
+            rows={p.partyStrikes.rows}
+            columns={[
+              { label: "Party size", value: (r) => r.size },
+              { label: "Live parties", value: (r) => r.liveParties },
+              { label: "Strikes", value: (r) => r.strikes },
+              { label: "Of them vs bands 0–1", value: (r) => r.lowBandStrikes },
+              { label: "Overran", value: (r) => r.overran },
+              { label: "Per party per day (×1000)", value: (r) => r.perPartyPerDayMilli ?? "–" },
+            ]}
+          />
+        </Panel>
+      ) : null}
+
       <Panel id="grindWall">
         <p className="hint">
           Week {p.grindWall.weekIndex} ({p.grindWall.weekFrom.slice(0, 10)}): WEEKLY_PAY_CEILING {p.grindWall.weeklyPayCeiling}, FREE_WEEKLY_EARN_ESTIMATE {p.grindWall.freeWeeklyEarnEstimate}

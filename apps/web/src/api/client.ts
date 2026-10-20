@@ -52,7 +52,7 @@ import {
   storeShape,
   unequipResultShape,
 } from "./shapes.ts";
-import { bankResultShape, encounterCommitShape, pushResultShape, stakesPreviewShape, tripStartShape, tripStatusShape } from "./tripShapes.ts";
+import { bankResultShape, encounterCommitShape, pushResultShape, returnToTownShape, stakesPreviewShape, tripStartShape, tripStatusShape } from "./tripShapes.ts";
 import { recentFightsShape, replayShape } from "./replayShapes.ts";
 import { inboxMarkResultShape, inboxShape, inboxStrikeLinesShape, inboxUnreadShape } from "./inboxShapes.ts";
 import { analyticsSettingsShape, dashboardShape, telemetryIngestShape } from "./telemetryShapes.ts";
@@ -194,6 +194,8 @@ export interface Api {
   tripPreview(caravanId: string): Promise<StakesPreview>;
   pushTrip(caravanId: string, tripId: string, encounterIndex: number): Promise<PushResult>;
   bankTrip(caravanId: string, tripId: string, encounterIndex: number): Promise<BankResult>;
+  /** Final guardrail review r4 S1: "Return to town" when no menu can be filled for the open, uncommitted encounter (409 `pool_empty` said `returnToTown`). Voids the trip. */
+  returnToTown(caravanId: string, tripId: string, encounterIndex: number): Promise<{ readonly returned: boolean; readonly status: TripStatusView }>;
   // Economy & merging (chunk 16 routes), read by the Town tab (chunk 17). The preview is the
   // legibility contract: cost, balance (with pending trickle) and resulting stats before commit.
   // `prospectiveEarn` asks for the overflow forecast of a trip expected to earn that much.
@@ -359,6 +361,7 @@ export function createApi(opts: ApiOptions): Api {
     tripPreview: (caravanId) => request("GET", `/me${caravans(caravanId)}/trip/preview`, stakesPreviewShape),
     pushTrip: (caravanId, tripId, encounterIndex) => request("POST", `/me${caravans(caravanId)}/trip/push`, pushResultShape, { tripId, encounterIndex }),
     bankTrip: (caravanId, tripId, encounterIndex) => request("POST", `/me${caravans(caravanId)}/trip/bank`, bankResultShape, { tripId, encounterIndex }),
+    returnToTown: (caravanId, tripId, encounterIndex) => request("POST", `/me${caravans(caravanId)}/trip/return`, returnToTownShape, { tripId, encounterIndex }),
     economy: (prospectiveEarn) => request("GET", prospectiveEarn === undefined ? "/me/economy" : `/me/economy?prospectiveEarn=${Math.trunc(prospectiveEarn)}`, economyShape),
     previewMerge: (caravanId, instanceIds) => request("POST", `/me${caravans(caravanId)}/merge/preview`, mergePreviewShape, { instanceIds }),
     commitMerge: (caravanId, req) => request("POST", `/me${caravans(caravanId)}/merge`, mergeResultShape, req),

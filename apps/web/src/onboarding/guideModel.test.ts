@@ -115,10 +115,13 @@ describe("the guide's step model (chunk 24)", () => {
     // The recorded party (which the starting roster, chunk 24 QA D1, outnumbers) keeps its own and adds the rest.
     const topped = prefillParty(view)!;
     expect(topped.units.slice(0, view.config.units.length)).toEqual(view.config.units);
-    expect(new Set(topped.units.map((u) => u.ref))).toEqual(new Set(view.roster.filter((r) => r.unlocked).map((r) => r.instanceId).slice(0, view.caps.units)));
+    // r4 D1: the saved units, then unlocked roster units not in it, up to SUGGESTED_PARTY_MAX (never cutting the saved ones).
+    const saved = view.config.units.map((u) => u.ref);
+    const adds = view.roster.filter((r) => r.unlocked && !saved.includes(r.instanceId)).map((r) => r.instanceId);
+    expect(new Set(topped.units.map((u) => u.ref))).toEqual(new Set([...saved, ...adds].slice(0, Math.max(saved.length, Math.min(view.caps.units, TUNABLES.SUGGESTED_PARTY_MAX)))));
     const empty = { ...view, config: { ...view.config, units: [] } };
     const filled = prefillParty(empty)!;
-    expect(filled.units.map((u) => u.ref)).toEqual(view.roster.filter((r) => r.unlocked).map((r) => r.instanceId).slice(0, view.caps.units));
+    expect(filled.units.map((u) => u.ref)).toEqual(view.roster.filter((r) => r.unlocked).map((r) => r.instanceId).slice(0, Math.min(view.caps.units, TUNABLES.SUGGESTED_PARTY_MAX)));
     expect(filled.units.every((u) => u.stance === "nearest" && u.edge === "north")).toBe(true);
     const locked = { ...empty, roster: empty.roster.map((r) => ({ ...r, unlocked: false })) };
     expect(prefillParty(locked)).toBeNull();

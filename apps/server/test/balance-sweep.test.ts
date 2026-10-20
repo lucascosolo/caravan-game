@@ -103,7 +103,7 @@ describe("balance sweep — the CI slice (PHASE-2 §37)", () => {
     expect(s.trip2Banked / s.caravans, JSON.stringify(s)).toBeGreaterThanOrEqual(0.5);
   }, SWEEP_BUDGET_MS);
 
-  it("final play-test review r2 S2 / r3 S2, the later trips' gate: raised parties of every region (ranged pairs, and whole 7-unit rosters with the refugee) — over what a bands 0–1 search can serve against the 5-post circle, guided ≥ 60 %, best skilled ≥ 70 %", async () => {
+  it("final play-test review r2 S2 / r3 S2, the later trips' gate: raised parties of every region (ranged pairs, whole 7-unit rosters with the refugee, and since r4 D1 the 5-unit suggested party) — over what a bands 0–1 search can serve against the 5-post circle, guided ≥ 60 %, best skilled ≥ 70 %", async () => {
     // The full gate is `first-trip.ts --raised` (all 76 skilled layouts; BALANCE-LOG pass 6).
     // The slice: one fresh roster per region (refugee = its first starter type) and the first 24 skilled layouts.
     const defenders = (["desert", "high_plains", "mountain", "badlands"] as const).map((region) => ({ region, refugee: starterTypes(region)[0]! }));
@@ -113,10 +113,10 @@ describe("balance sweep — the CI slice (PHASE-2 §37)", () => {
       await yieldLoop();
     }
     const s = summarizeRaised(rs);
-    expect(s.fights).toBe(80);
+    expect(s.fights).toBe(96); // r4 D1: + the suggested party (SUGGESTED_PARTY_MAX) of each region
     // r3 S2(b): a 7-raider whole roster is never served against 5 posts in bands 0–1.
     for (const [label, e] of Object.entries(s.byParty)) if (/whole roster/.test(label)) expect(e.servedLowBands, label).toBe(0);
-    expect(s.servedFights).toBe(48);
+    expect(s.servedFights).toBe(64); // the 5-raider suggested party IS served against the 5-post circle
     expect(s.servedGuidedHeld / s.servedFights, JSON.stringify(s.byParty)).toBeGreaterThanOrEqual(0.6);
     expect(s.servedBestHeld / s.servedFights, JSON.stringify(s.byParty)).toBeGreaterThanOrEqual(0.7);
   }, SWEEP_BUDGET_MS);

@@ -428,8 +428,9 @@ export const COLD_START_ROSTER_MAX: number = TUNABLES.COLD_START_ROSTER_MAX;
 if (!Number.isInteger(COLD_START_ROSTER_MAX) || COLD_START_ROSTER_MAX < 0) throw new Error("TUNABLES.COLD_START_ROSTER_MAX must be a non-negative integer");
 
 /**
- * TUNABLES.COLD_START_PACKED_CAP_MAX_BAND (final play-test review r3 S2(b)): while the search
- * centre's band index is at most this, the rule applies whatever the roster size. −1 turns it off.
+ * TUNABLES.COLD_START_PACKED_CAP_MAX_BAND (final play-test review r3 S2(b); final guardrail review
+ * r4 D1): while the CARAVAN's own band (bandOf of its living Reputation, never the search centre)
+ * is at most this, the rule applies whatever the roster size. −1 turns it off.
  */
 export const COLD_START_PACKED_CAP_MAX_BAND: number = TUNABLES.COLD_START_PACKED_CAP_MAX_BAND;
 if (!Number.isInteger(COLD_START_PACKED_CAP_MAX_BAND) || COLD_START_PACKED_CAP_MAX_BAND < -1) throw new Error("TUNABLES.COLD_START_PACKED_CAP_MAX_BAND must be an integer of at least -1");
@@ -459,8 +460,10 @@ export interface RaiderCap {
   readonly rosterSize: number;
   /** COLD_START_ROSTER_MAX in force. */
   readonly rosterMax: number;
-  /** r3 S2(b): the search centre's band index (the rule runs while ≤ bandMax, whatever the roster). Absent on menus searched before it. */
+  /** r3 S2(b), menus searched before r4 D1 only: the search centre's band index the rule was keyed on then. */
   readonly centreBand?: number;
+  /** r4 D1: the caravan's own band index (bandOf its living Reputation); the rule runs while ≤ bandMax, whatever the roster. Absent on older menus. */
+  readonly caravanBand?: number;
   /** r3 S2(b): COLD_START_PACKED_CAP_MAX_BAND in force. Absent on menus searched before it. */
   readonly bandMax?: number;
   /** Living units the caravan packed for this trip. */
@@ -474,11 +477,15 @@ export interface RaiderCap {
 }
 
 /**
- * PURE. The cold-start raider cap for a search at `centre` by a caravan whose whole roster is
- * `rosterSize` starting-unit equivalents and which packed `packedUnits` living units, or null when
- * the roster is above COLD_START_ROSTER_MAX (a caravan rebuilding) AND the centre's band is above
- * COLD_START_PACKED_CAP_MAX_BAND (r3 S2(b): in bands 0–1 a whole raised roster is never served
- * against a smaller packed circle, whatever the caravan's roster). The cap starts at packedUnits and rises one raider at a time
+ * PURE. The cold-start raider cap for a search at `centre` by a caravan rated `caravanRating`
+ * (living Reputation) whose whole roster is `rosterSize` starting-unit equivalents and which
+ * packed `packedUnits` living units, or null when the roster is above COLD_START_ROSTER_MAX (a
+ * caravan rebuilding) AND the caravan's own band is above COLD_START_PACKED_CAP_MAX_BAND (r3
+ * S2(b): in bands 0–1 a whole raised roster is never served against a smaller packed circle,
+ * whatever the caravan's roster; r4 D1: keyed on the caravan's band, not the centre's, so a band-2
+ * caravan searched 150 below itself at encounter 1 is not capped). `entries` must be exactly the
+ * parties the draw can serve (r4 S1: after every pool exclusion, the authored-only rule included),
+ * or the cap can stop relaxing on parties that are then dropped and leave nothing to draw. The cap starts at packedUnits and rises one raider at a time
  * (never past PARTY_SLOT_CAP) until at least `count` parties within ±REPUTATION_BAND_WIDTH_MAX of
  * the centre fit under it, so the rule can thin a menu but never empty one. Deterministic: the
  * entries' order does not matter.
@@ -486,17 +493,18 @@ export interface RaiderCap {
 export function coldStartRaiderCap(
   entries: readonly RaiderCountedEntry[],
   centre: number,
+  caravanRating: number,
   packedUnits: number,
   rosterSize: number,
   count: number = CANDIDATES_PER_SEARCH,
   rosterMax: number = COLD_START_ROSTER_MAX,
   bandMax: number = COLD_START_PACKED_CAP_MAX_BAND,
 ): RaiderCap | null {
-  if (!Number.isInteger(centre) || !Number.isInteger(packedUnits) || packedUnits < 0 || !Number.isInteger(rosterSize) || rosterSize < 0) {
-    throw new RangeError("centre, packedUnits and rosterSize must be integers, packedUnits and rosterSize ≥ 0");
+  if (!Number.isInteger(centre) || !Number.isInteger(caravanRating) || !Number.isInteger(packedUnits) || packedUnits < 0 || !Number.isInteger(rosterSize) || rosterSize < 0) {
+    throw new RangeError("centre, caravanRating, packedUnits and rosterSize must be integers, packedUnits and rosterSize ≥ 0");
   }
-  const centreBand = bandOf(centre).index;
-  if (rosterSize > rosterMax && centreBand > bandMax) return null;
+  const caravanBand = bandOf(caravanRating).index;
+  if (rosterSize > rosterMax && caravanBand > bandMax) return null;
   const near = entries.filter((e) => Math.abs(e.rating - centre) <= REPUTATION_BAND_WIDTH_MAX);
   const start = Math.max(1, packedUnits);
   let cap = start;
@@ -505,7 +513,7 @@ export function coldStartRaiderCap(
     .filter((e) => e.raiders > cap)
     .map((e) => e.partyId)
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  return { rosterSize, rosterMax, centreBand, bandMax, packedUnits, cap, relaxed: cap > start, excludedPartyIds };
+  return { rosterSize, rosterMax, caravanBand, bandMax, packedUnits, cap, relaxed: cap > start, excludedPartyIds };
 }
 
 /**

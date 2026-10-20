@@ -40,6 +40,7 @@ export const PANEL_IDS = [
   "screens",
   "crashes",
   "poolHealth",
+  "partyStrikes",
 ] as const;
 export type PanelId = (typeof PANEL_IDS)[number];
 
@@ -75,6 +76,7 @@ export const PANEL_SUBSYSTEMS: Readonly<Record<PanelId, readonly Subsystem[]>> =
   screens: [],
   crashes: [],
   poolHealth: [],
+  partyStrikes: [],
 };
 
 export interface TuningEntry {
@@ -242,6 +244,8 @@ export interface Dashboard {
     screens: Awaited<ReturnType<typeof q.screens>>;
     crashes: Awaited<ReturnType<typeof q.crashes>>;
     poolHealth: { candidatesPerSearch: number; maxAuthoredShareBp: number; bands: q.PoolBandRow[]; alarms: number };
+    /** Final guardrail review r4 D1: is the passive side served? Strikes per live party, by party size. */
+    partyStrikes: { suggestedPartyMax: number; lowBandMax: number; rows: q.PartyStrikesRow[] };
   };
 }
 
@@ -345,6 +349,7 @@ async function buildPanels(db: Queryable, opts: DashboardOptions): Promise<Dashb
         bands: pool,
         alarms: pool.filter((b) => b.alarm !== "ok").length,
       },
+      partyStrikes: { suggestedPartyMax: TUNABLES.SUGGESTED_PARTY_MAX, lowBandMax: TUNABLES.COLD_START_PACKED_CAP_MAX_BAND, rows: await q.partyStrikes(db, win, opts.days) },
     },
   };
 }

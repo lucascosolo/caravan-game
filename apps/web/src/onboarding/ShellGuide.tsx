@@ -9,6 +9,7 @@
  * account's guide on when the roster has a unit or a trip is out.
  */
 import { PARTY_CONFIG_VERSION, type PartyConfig } from "@caravan/circle";
+import { TUNABLES } from "@caravan/content";
 import { useCallback, useEffect, useState } from "react";
 import type { Api } from "../api/client.ts";
 import type { TripEndingView } from "../api/tripTypes.ts";
@@ -28,7 +29,7 @@ export const GUIDE_POLL_MS = 3000;
 
 /**
  * The standing party the guide offers to raise: the saved one plus every unlocked roster unit
- * not in it yet, up to the slot cap, with the builder's own defaults (partyModel.addUnit), plus
+ * not in it yet, up to SUGGESTED_PARTY_MAX (r4 D1; the saved party is never cut), with the builder's own defaults (partyModel.addUnit), plus
  * (final play-test review D5) every siege type the server says this account has unlocked, up to
  * the siege cap — so the passive side's siege ladder grows by default. The same rule as the
  * server's `suggested` read. Siege rides only with at least one unit (an empty party is never
@@ -36,8 +37,10 @@ export const GUIDE_POLL_MS = 3000;
  */
 export function prefillParty(view: PartyView): PartyConfig | null {
   let config: PartyConfig = { v: PARTY_CONFIG_VERSION, units: view.config.units, siege: view.config.siege };
+  // Final guardrail review r4 D1: the raised party stops at SUGGESTED_PARTY_MAX (the guide's packed size), as the server's `suggested` does.
+  const max = Math.min(view.caps.units, TUNABLES.SUGGESTED_PARTY_MAX);
   for (const r of view.roster) {
-    if (config.units.length >= view.caps.units) break;
+    if (config.units.length >= max) break;
     if (!r.unlocked || config.units.some((u) => u.ref === r.instanceId)) continue;
     config = addUnit(config, r.instanceId);
   }

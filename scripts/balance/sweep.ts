@@ -590,14 +590,14 @@ export interface CapInput {
 /**
  * The menu `selectCandidates` serves from the authored pool alone (an authored-only trip, r3 S2(a);
  * a cold start), for one search — with the server's cold-start raider cap applied first when `cap`
- * is given (r3 S2(b): in bands 0–1 it always runs), exactly as searchCandidates filters the pool
+ * is given (r3 S2(b) / r4 D1: while the caravan's own band is 0–1 it always runs), exactly as searchCandidates filters the pool
  * before the seeded draw. `extra` adds live parties to the pool (a trip past the authored-only rule).
  */
 export function servedMenu(caravanId: string, tripId: string, rating: number, encounterIndex: number, searchSeq = 1, cap: CapInput | null = null, extra: readonly ServedParty[] = []): { centre: number; menu: ServedParty[] } {
   const parties = [...authoredParties(), ...extra];
   const centre = escalatedCentre(rating, encounterIndex);
   const counted = parties.map((p) => ({ ...p.pool, raiders: p.party.units.length }));
-  const rc = cap ? coldStartRaiderCap(counted, centre, cap.packedUnits, rosterEquivalents(cap.rosterLevels)) : null;
+  const rc = cap ? coldStartRaiderCap(counted, centre, rating, cap.packedUnits, rosterEquivalents(cap.rosterLevels)) : null;
   const out = new Set(rc?.excludedPartyIds ?? []);
   const pool = parties.filter((p) => !out.has(p.pool.partyId)).map((p) => p.pool);
   const r = selectCandidates({ centre, seed: candidateSeed(caravanId, tripId, encounterIndex, searchSeq), pool });

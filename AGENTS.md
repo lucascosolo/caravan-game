@@ -182,7 +182,7 @@ pnpm check                   # EVERY gate, exactly what CI runs: typecheck, lint
 Migrations are plain SQL pairs in `apps/server/migrations/NNN_name.{up,down}.sql`, run by
 `apps/server/src/db/migrate.ts`. Chunk 30 (account lifecycle, PHASE-2 §30 build notes): guest-first
 `POST /auth/guest`, `POST /auth/resume` (the server's HttpOnly `caravan_device` cookie — the client
-stores nothing), `GET /me/account`, `POST /me/account/link`, (a resume REPLACES the session it is given as `Authorization: Bearer …` or `{ previousToken }`, and the session a resume issues is never evicted — play-test review r2 S1; a caravan meets authored outfits only until it has banked `TUNABLES.AUTHORED_ONLY_UNTIL_BANKS` trips, voided and overrun trips not counted, r2 S2 / r3 S2(a); in Reputation bands 0–1 no party with more raiders than the caravan packed is offered, `TUNABLES.COLD_START_PACKED_CAP_MAX_BAND`, r3 S2(b)) `GET|DELETE /me/devices[/:id]`,
+stores nothing), `GET /me/account`, `POST /me/account/link`, (a resume REPLACES the session it is given as `Authorization: Bearer …` or `{ previousToken }`, and the session a resume issues is never evicted — play-test review r2 S1; a caravan meets authored outfits only until it has banked `TUNABLES.AUTHORED_ONLY_UNTIL_BANKS` trips, voided and overrun trips not counted, r2 S2 / r3 S2(a); while the CARAVAN's own Reputation band is 0–1 no party with more raiders than it packed is offered, `TUNABLES.COLD_START_PACKED_CAP_MAX_BAND`, r3 S2(b) / r4 D1 — computed over exactly the parties the draw can serve, after the authored-only filter, r4 S1; "Raise my party" and the server's `suggested` party stop at `TUNABLES.SUGGESTED_PARTY_MAX` = 5, r4 D1; a search that cannot fill a menu answers 409 `pool_empty` with `returnToTown: true`, and `POST /me/caravans/:id/trip/return {tripId, encounterIndex}` then voids the trip through the void path, only while the open encounter is uncommitted and no menu can be filled, r4 S1; a menu stores the RESOLVER_VERSION and content hash it was drawn under, migration 030, and choosing or committing a menu drawn under others is 409 `menu_stale`, then a free search with no reroll wait, r4 N4; `db/roles.sql` revokes CONNECT on the database and EXECUTE on every function from PUBLIC, r4 N1) `GET|DELETE /me/devices[/:id]`,
 `POST /me/devices/revoke-others`, `GET /me/export`, `POST /me/account/delete` (through the
 `account_erase` SECURITY DEFINER function, which anonymizes shared records to a tombstone). Auth
 routes are rate-limited (`TUNABLES.ACCOUNT_RATE_LIMITS`; counted IN MEMORY PER PROCESS, so N server
@@ -256,7 +256,10 @@ and Node, `pnpm install --frozen-lockfile` and Playwright's Chromium. `pnpm chec
 `typecheck`, `lint` (resolver isolation rules plus their self-test), `test:boundary`, `test`
 (every package, the server against `TEST_DATABASE_URL`), `determinism`, `perf:resolver`, `build`,
 migrates the test database, then `smoke`, `e2e` and `e2e:hosting` against the built server
-connected as `caravan_app` (final review N8). The recursive `typecheck` / `test` / `build` steps
+connected as `caravan_app` (final review N8). The job's timeout is 45 min (final guardrail review r4
+N3): `pnpm check` took 15.3 → 17.6 → 19.9 min on 4 cores across review rounds 3–4, e2e:hosting alone
+4.3 min; if a run nears 35 min, look at the per-step times `pnpm check` prints last before raising it
+again. The recursive `typecheck` / `test` / `build` steps
 include the web client. Locally it is the same command with the same order; `pnpm check -- --from
 <step>` resumes after a fix. The resolver lint rules live in `packages/resolver/eslint.config.js`;
 `packages/resolver/lint-fixtures/` must stay in sync with them (every line of

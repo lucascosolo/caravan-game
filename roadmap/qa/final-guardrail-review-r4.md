@@ -232,7 +232,7 @@ each by pid after checking its working directory.
 
 ## Should-fix
 
-S1. **A caravan on an authored-only trip that packs one unit can be served an empty pool, and is
+S1. **[closed: fixr4g]** **A caravan on an authored-only trip that packs one unit can be served an empty pool, and is
 then stuck on the trail.**
 
 - **Cause.**
@@ -292,7 +292,7 @@ then stuck on the trail.**
 
 ## Design-level
 
-D1. **Round 2's D1 is reopened, wider: in bands 0–1 the cap keys on the search centre and the packed
+D1. **[closed: fixr4g]** **Round 2's D1 is reopened, wider: in bands 0–1 the cap keys on the search centre and the packed
 count for any roster, and it hides whole raised parties from most low-band menus.**
 
 - **Cause.** `band.ts:499`: `if (rosterSize > rosterMax && centreBand > bandMax) return null`, with
@@ -330,7 +330,7 @@ count for any roster, and it hides whole raised parties from most low-band menus
 
 ## Nits
 
-N1. **PUBLIC can EXECUTE every SECURITY DEFINER function, so in the runbook's shared-instance mode any
+N1. **[closed: fixr4g]** **PUBLIC can EXECUTE every SECURITY DEFINER function, so in the runbook's shared-instance mode any
 other login on the cluster can mint a session for a known account id, or void every fight in
 flight.**
 - PostgreSQL grants EXECUTE on new functions to PUBLIC, and CONNECT on a new database to PUBLIC. Only
@@ -357,7 +357,7 @@ flight.**
   - test, from a role with no grants: CONNECT is refused, and EXECUTE of each SECURITY DEFINER
     function is refused.
 
-N2. **The guide still promises live parties "from your next trip on".**
+N2. **[open: the client fixer's branch]** **The guide still promises live parties "from your next trip on".**
 - Since `AUTHORED_ONLY_UNTIL_BANKS` = 2, with overrun and voided trips not counted, three strings are
   wrong:
   - `apps/web/src/strings.ts:1409` (`searchBody`): "From your next trip on you also meet other
@@ -369,13 +369,13 @@ N2. **The guide still promises live parties "from your next trip on".**
 - Fix: "Until you have banked two trips, every party is an authored outfit …". The candidate list
   could also show the rule when `authoredOnlyTrip` is set.
 
-N3. **CI's time margin is shrinking.**
+N3. **[closed: fixr4g]** **CI's time margin is shrinking.**
 - `pnpm check` took 15.3 min (round 3), then 17.6 min (round 3's fix round), then 19.9 min now, on 4
   cores. `ci.yml` has `timeout-minutes: 30`.
 - e2e:hosting alone grew to 4.3 min, and a slower runner would get close.
 - Fix: raise the timeout to 45 min, or record the per-step times in the job summary and watch them.
 
-N4. **A menu chosen before a resolver bump, and committed after it, resolves under the new rules
+N4. **[closed: fixr4g]** **A menu chosen before a resolver bump, and committed after it, resolves under the new rules
 against the old stored scout.**
 - Observed: P chose Salt Flat Drifters on v8 and committed on v9. The job ran v9 on the stored
   snapshot, which is correct and replayable, while the scout shown was derived under v8 content.
@@ -385,7 +385,7 @@ against the old stored scout.**
   commit, refuse a menu whose stored scout's content hash differs from the running content (409
   `menu_outdated`, search again). The second is cheap: the job input already carries `contentHash`.
 
-N5. **The runbook's step 5 expects "(set v5)".** `docs/PLAYTEST-HOSTING.md:143`. The seed prints
+N5. **[closed: fixr4g]** **The runbook's step 5 expects "(set v5)".** `docs/PLAYTEST-HOSTING.md:143`. The seed prints
 "Authored parties (set v6)". Fix: say "(set vN)", or v6.
 
 ## Accepted, not findings
@@ -452,3 +452,126 @@ Clean-up:
 - **N3:** raise the CI job timeout to 45 minutes, and note the trend in AGENTS.md.
 - **N4:** a commit whose chosen menu was stored under another resolver version or content hash is refused with 409 `menu_stale`. The client sends the player back to search, which is free. Add a test.
 - **N5:** fix the runbook's expected seed version, and make the step read the version rather than hard-coding it.
+
+## Fix round (branch `fixr4g`, 2026-10-20): S1, D1, N1, N3, N4 and N5 closed as decided; N2 left to the client fixer
+
+Migration **030** (`030_menu_version_stamp`) carries N4.
+
+- **S1, closed.**
+  - `matchmaking/service.ts` `searchCandidates` applies the authored-only filter first (`servable`)
+    and computes the raider cap over exactly those parties. The cap now relaxes over what the draw can
+    serve.
+  - A menu that cannot be filled is **409 `pool_empty`**, not 503. Its message is player-facing ("No
+    raiding party can be served to your caravan for this encounter right now. Search again in a
+    little while, or return to town …") and the body carries `returnToTown: true`. The operator's log
+    gets a warn line: "pool_empty: only N servable parties for this search (if the authored parties are
+    missing, run seed.js)".
+  - **"Return to town"** is `POST /me/caravans/:id/trip/return {tripId, encounterIndex}`
+    (`trip/service.ts` `returnToTown`). It is allowed only when:
+    - the encounter is the open one, uncommitted, and has no current menu;
+    - the server's own search, run in a savepoint and always rolled back, raises `PoolEmptyError`.
+      Nothing is stored and no reroll wait starts.
+
+    It then voids the trip through the existing void path (`voidTripTx`, `cause: "no_menu"`): it banks
+    as of the last survived encounter, nothing of this encounter applies, and the cap use is not
+    refunded. If a menu can be served, the answer is 409 `menu_available`, so a return is never a way
+    out of a push. A pushed encounter 2 is covered the same way.
+  - Client (the only `apps/web` edits besides N4's):
+    - the Trail's unsearched screen shows the reason and a one-tap **Return to town**
+      (`data-testid="return-to-town"`) on `pool_empty`;
+    - `api.returnToTown`.
+  - Tests:
+    - `final-review-r4.test.ts`:
+      - three live one-raider parties at the centre and a 1-unit caravan before 2 banks → a full
+        authored menu (3 × 2-raider, cap 2 relaxed, `caravanBand: 1`);
+      - with no authored set: 409 `pool_empty` with `returnToTown`, then a return → voided
+        (`cause: "no_menu"`, 0 credited, cap not refunded), `in_town`, and re-packable;
+      - with a menu available → `menu_available`, and the refused probe stored no menu.
+    - web `ReturnToTown.test.tsx`.
+  - **The S1 reproduction re-run live** (the fixr4g build, `caravan_dev_r4g`, real resolver):
+    1. Three guests `PUT /me/party` with one raider each. A fresh guest packs 1 unit and starts a
+       trip.
+    2. Its search → **201**, `raiderCap {"packedUnits":1,"cap":2,"relaxed":true,"excluded":88}`, with
+       Salt Flat Drifters, Prairie Wolf Pack and Bounty Board Riders, all authored, 2 raiders each. The
+       same steps answered 503 `pool_empty` before the fix.
+    3. Return to town → 409 `menu_available`.
+    4. I then deleted the authored set as the owner role (`DELETE FROM account WHERE is_system` → 96)
+       to force an unfillable menu. A fresh guest's search → 409 `pool_empty` with the player
+       message, and **return → 200**. The trip is `{"caravan":"in_town","phase":"ended",
+       "endReason":"voided"}`, `trip_voided` has `cause no_menu, credited 0, tripCapRefunded false`,
+       and a re-pack → 201. The server log had the operator warn line and 0 level-50 lines. I reseeded
+       afterwards (v6, 96 created).
+- **D1, closed: the caravan-band key, `SUGGESTED_PARTY_MAX`, the panel.**
+  - `band.ts` `coldStartRaiderCap(entries, centre, caravanRating, …)` keys the bands 0–1 rule on
+    `bandOf(caravanRating)`. `raider_cap.caravanBand` is recorded, and older rows keep `centreBand`.
+  - `TUNABLES.SUGGESTED_PARTY_MAX = 5`:
+    - the server's `suggestParty` adds roster units only up to it, and never cuts a saved party;
+    - the guide's `prefillParty` (`apps/web/src/onboarding/ShellGuide.tsx`, a two-line change, flagged
+      because the onboarding fixer works nearby) does the same.
+  - Dashboard panel `partyStrikes`: live parties now, and strikes fought in the window by party size,
+    with the bands 0–1 share, overruns, and strikes per party per day. The admin screen renders it
+    when present, and `telemetry-scale.test.ts` covers its two SQLs with checked-in plans.
+  - **BALANCE-LOG pass 7**:
+    - `first-trip.ts` is identical to pass 6: encounter 1 86 %, pushed encounter 2 90 %, delivered
+      78 %;
+    - `first-trip.ts --raised`, with the suggested party of 5 added: served fights 128, guided 91 %,
+      best 95 %. The targets (60 / 70 %) hold;
+    - `cold-start.ts` at ratings 400 / 700 / 840 is recorded.
+
+    Open item: a raised Mountain or Badlands party of 5 is now served to fresh 5-post circles from
+    their third trip on, and the guided layout holds it 2 of 8 times.
+- **N1, closed.**
+  - `db/roles.sql` revokes CONNECT on the database from PUBLIC and grants it to `caravan` and
+    `caravan_app`.
+  - It revokes EXECUTE on every function in schema public from PUBLIC, and grants it to
+    `caravan_app`. The owner-only `account_erasure_core` and `encounter_log_compact_rows` are revoked
+    from the app.
+  - Default privileges keep both rules for later migrations.
+  - The runbook's step 2 says so and gives the check.
+  - Test: a fresh login with no grants cannot connect (42501). `has_function_privilege` is false for
+    PUBLIC and for it on every function. Under `SET ROLE` it cannot call
+    `resolution_job_park_other_version` (42501). The app keeps `session_issue`, the park writer,
+    `account_erase` and the others.
+  - Live on `caravan_dev_r4g`: `datacl` is `{caravan=CTc/caravan,caravan_app=c/caravan}`.
+- **N3, closed.** `ci.yml` `timeout-minutes: 45`, and AGENTS.md records the 15.3 → 17.6 → 19.9 min
+  trend.
+- **N4, closed.**
+  - Migration 030 adds `encounter_candidates.resolver_version` and `content_hash`. Both join the
+    immutability guard (the catalogue-enumerating test covers them).
+  - The one-chosen index becomes per stamp: `(trip_id, encounter_index, coalesce(resolver_version,
+    0), coalesce(content_hash, ''))`.
+  - `isStaleMenu` checks the stored stamps against this process's RESOLVER_VERSION and
+    RESOLUTION_CONTENT_HASH; rows from before 030 count as stale.
+  - Choosing from a stale menu, or committing a stale chosen one with no fight queued yet, is 409
+    `menu_stale`. A search then replaces it at once, with no reroll wait and no `already_chosen`. The
+    fresh choice commits against the fresh snapshot.
+  - The latest-chosen readers (the resolution handler's snapshot check, analytics) read
+    `ORDER BY search_seq DESC`.
+  - Client: a `menu_stale` choose or commit returns the Trail to the search screen, with the notice
+    "The game was updated after this menu was drawn …".
+  - Down refuses while an encounter holds both a stale chosen menu and a fresh one.
+  - Tests: `final-review-r4.test.ts` (commit → 409, nothing queued, immediate re-search, fresh choice
+    → 202 against its party; choose on a stale menu → 409), and web `ReturnToTown.test.tsx`.
+  - The runbook's step 12 explains it.
+- **N5, closed.** Step 5 expects "(set vN)", and the step names the `grep` that reads N from
+  `authored.ts`.
+- **Migrations down and up** (`caravan_dev_r4g`): "Rolled back: 30_menu_version_stamp" (columns gone,
+  009's index back), then "Applied: 30_menu_version_stamp" (the per-stamp index).
+
+### Gates (observed)
+
+- `pnpm check` on `caravan_test_r4g`, ports 3943/4243.
+- The first run: content 82, resolver 587, circle 113, web 493, server 828 (+1 skipped), determinism,
+  perf, build, migrate and smoke all passed.
+- e2e failed once, on `onboarding.spec.ts` pinning the raised party at 7 ("Your standing party is up:
+  5 units", D1 as decided). With the spec pinned to `SUGGESTED_PARTY_MAX`, `pnpm check -- --from e2e`
+  → "all 2 steps passed": e2e 12 passed, e2e:hosting 14 passed.
+- `git merge roadmap/phase-2-spec` (the client fixer's assist guide; it merged cleanly). Then the full
+  `pnpm check` → "all 11 steps passed in 20.7 min":
+  - content 82, resolver 587, circle 113, web 496, server 828 (+1 skipped);
+  - determinism 366, perf 15, build, migrate, smoke;
+  - e2e 12 passed, e2e:hosting 14 passed.
+- The contract test re-records `apps/web/src/test/contract/*.json` on every run. That drift is not
+  committed.
+- Clean-up: every server I started is stopped. `caravan_test_r4g` and `caravan_dev_r4g` are kept,
+  `caravan_dev_r4g` re-seeded (v6).

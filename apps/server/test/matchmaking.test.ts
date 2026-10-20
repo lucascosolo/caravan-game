@@ -691,11 +691,12 @@ describe("DB guards hold against the app role", () => {
     expect(rechoose?.code).toBe("23514");
     const unchoose = await expectDbError(appRole, "UPDATE encounter_candidates SET chosen_candidate_id = NULL, chosen_at = NULL WHERE trip_id = $1", [d.tripId]);
     expect(unchoose?.code).toBe("23514");
-    // A second chosen row for the same encounter cannot exist (even if inserted then chosen).
+    // A second chosen row for the same encounter cannot exist under the same rules (even if inserted then chosen;
+    // r4 N4: one chosen menu per resolver version and content hash, so the row carries the first one's stamps).
     await appRole.query(
-      `INSERT INTO encounter_candidates (trip_id, encounter_index, search_seq, seed, caravan_rating, centre, band_width_used, pool, excluded_party_ids, skipped_party_ids, candidates, searched_at_ms)
-       VALUES ($1, 1, 2, 1, 1150, 1150, 150, '[]', '[]', '[]', $2::jsonb, 0)`,
-      [d.tripId, JSON.stringify(row.candidates)],
+      `INSERT INTO encounter_candidates (trip_id, encounter_index, search_seq, seed, caravan_rating, centre, band_width_used, pool, excluded_party_ids, skipped_party_ids, candidates, searched_at_ms, resolver_version, content_hash)
+       VALUES ($1, 1, 2, 1, 1150, 1150, 150, '[]', '[]', '[]', $2::jsonb, 0, $3, $4)`,
+      [d.tripId, JSON.stringify(row.candidates), row.resolver_version, row.content_hash],
     );
     const twice = await expectDbError(appRole, "UPDATE encounter_candidates SET chosen_candidate_id = $2, chosen_at = now() WHERE trip_id = $1 AND search_seq = 2", [d.tripId, row.candidates[0]!.candidateId]);
     expect(twice?.code).toBe("23505");
@@ -772,7 +773,7 @@ describe("final play-test review: the band-0 raider cap (S1), the centre's basis
     // ... but in band 0 it packed one unit, so it meets no party bigger than that (r3 S2(b)).
     const below = await strongAt(low);
     expect(below.m.raiderCap).toMatchObject({ packedUnits: 1, cap: 1, relaxed: false });
-    expect(below.row.raider_cap).toMatchObject({ rosterSize: 16, centreBand: 0, bandMax: TUNABLES.COLD_START_PACKED_CAP_MAX_BAND, packedUnits: 1, cap: 1 });
+    expect(below.row.raider_cap).toMatchObject({ rosterSize: 16, caravanBand: bandOf(low - TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET).index, bandMax: TUNABLES.COLD_START_PACKED_CAP_MAX_BAND, packedUnits: 1, cap: 1 });
     for (const c of below.m.candidates) expect(c.scout.units.length).toBe(1);
     expect(replaySearch(below.row).partyIds).toEqual(below.row.candidates.map((c) => c.partyId));
   });

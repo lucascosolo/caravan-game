@@ -29,8 +29,8 @@ function startingRosterSize(region: "desert" | "high_plains" | "mountain" | "bad
 }
 /** The whole roster the guide packs: the starting roster and the one refugee it claims. */
 const PACKED = startingRosterSize() + 1;
-/** What "raise my party" fills: every roster unit up to the party cap. */
-const RAISED = Math.min(PACKED, TUNABLES.PARTY_SLOT_CAP);
+/** What "raise my party" fills: roster units up to SUGGESTED_PARTY_MAX (r4 D1) and the party cap. */
+const RAISED = Math.min(PACKED, TUNABLES.PARTY_SLOT_CAP, TUNABLES.SUGGESTED_PARTY_MAX); // final guardrail review r4 D1
 
 /** Every control at least a touch target tall, and no sideways scroll (chunk 17's check). */
 async function fitsPortrait(page: Page): Promise<void> {

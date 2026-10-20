@@ -216,3 +216,35 @@ BEGIN
   END IF;
 END
 $$;
+
+-- ---------------------------------------------------------------------------------
+-- Final guardrail review r4 N1: nothing for PUBLIC
+-- ---------------------------------------------------------------------------------
+-- PostgreSQL grants CONNECT on a new database and EXECUTE on every new function to PUBLIC. On a
+-- shared instance (docs/PLAYTEST-HOSTING.md step 2) that let ANY other login connect and call the
+-- SECURITY DEFINER functions as the owner: session_issue minted a working bearer token for a known
+-- account id, and resolution_job_park_other_version could void every fight in flight. So: CONNECT
+-- for the two roles only (their login members inherit it), EXECUTE for the app role on every
+-- function except the owner-only internals, and nothing for PUBLIC, now and for functions later
+-- migrations create (default privileges).
+DO $$
+BEGIN
+  EXECUTE format('REVOKE CONNECT ON DATABASE %I FROM PUBLIC', current_database());
+  EXECUTE format('GRANT CONNECT ON DATABASE %I TO caravan, caravan_app', current_database());
+END
+$$;
+REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO caravan_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE caravan REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE caravan IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO caravan_app;
+-- Owner-only internals (reached only through the definer functions above): never the app's.
+DO $$
+BEGIN
+  IF to_regprocedure('public.account_erasure_core(uuid, text)') IS NOT NULL THEN
+    REVOKE EXECUTE ON FUNCTION account_erasure_core(uuid, text) FROM caravan_app;
+  END IF;
+  IF to_regprocedure('public.encounter_log_compact_rows(text[])') IS NOT NULL THEN
+    REVOKE EXECUTE ON FUNCTION encounter_log_compact_rows(text[]) FROM caravan_app;
+  END IF;
+END
+$$;

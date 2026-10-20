@@ -20,7 +20,7 @@ what the server would resolve.
 | `first-trip.ts --raised` | The later trips' gate (play-test review round 2, S2): every region's raised starter parties (each pair of its starters, ranged pairs included, and since pass 6 the whole roster plus its refugee, 7 units) against every fresh guided roster, the guided layout and the best skilled one, and which of them a bands 0–1 search can serve against the five-post circle. Pass 4; the CI slice runs half of it. |
 | `outliers.ts` | Authored outliers (round 3, D2): every authored party's hold rate for the best skilled layout against its band's typical rosters (and, in bands 0–1, the fresh guided pack); flags any under 20 %. `--bands` limits it. Pass 6. |
 | `fast-runners.ts` | Fast core- and trap-stance runners (round 2, D1): band-0/1 authored outfits with such raiders against fresh rosters; overrun share, overruns within 20 s, units lost per fast overrun. `--explore` tries a lever. Pass 4. |
-| `cold-start.ts` | The cold-start raider cap (S1; keyed on the roster since pass 3) re-checked: rebuilt 1–4 unit caravans, with the cap on and off, against the authored pool. `--rating` sets the caravan's living Reputation (default REPUTATION_START). Passes 2 and 3. |
+| `cold-start.ts` | The cold-start raider cap (S1; keyed on the roster since pass 3, and in bands 0–1 on the caravan's own band since pass 7) re-checked: rebuilt 1–4 unit caravans, with the cap on and off, against the authored pool. `--rating` sets the caravan's living Reputation (default REPUTATION_START). Passes 2 and 3. |
 | `apps/server/test/balance-sweep.test.ts` | The CI slice, with a time budget of 150 s. It checks that encounter 1 is searched in band 0, that the guided layout holds ≥ 70 %, that the encounter 2 the guide pushes into is held ≥ 60 % (pass 6), that the harness's pick is the client's shared rule, the raised gate over what can be served, that skill beats naive, and that the sweep is deterministic. |
 
 **The corpus and its assumptions.** Each region gets a fresh caravan and eight "band-typical"
@@ -39,6 +39,94 @@ upper bound on what one reading of the scout gets. "Naive" layouts ignore the sc
 A roster's **equilibrium band** is the highest band whose skilled encounter-1 hold rate is at least
 the Reputation break-even. The break-even is 20 / (8 + 20) ≈ 71 % since change #27 (20 / (10 + 20) ≈ 67 % from #16; 20 / (15 + 20) = 57 % before), because a hold earns +8 and an
 overrun costs −20.
+
+---
+
+## Pass 7 — 2026-10-20 (final guardrail review round 4: S1, D1). RESOLVER_VERSION unchanged at 9.
+
+No resolver code, no unit stat and no tunable a fight reads changed, so the goldens and work counters
+are unchanged and the authored set stays at v6. Two matchmaking rules changed and one new tunable
+shapes what the guide raises.
+
+### What changed
+
+| # | number | from → to | why |
+|---|---|---|---|
+| 31 | `COLD_START_PACKED_CAP_MAX_BAND` (#29) | keyed on the **search centre's** band → keyed on the **caravan's own** band (bandOf its living Reputation) | Round-4 D1. Keyed on the centre, every caravan rated below 850 was capped at encounter 1 (searched 150 below it), band-2 caravans paid ×2.0 included: a 7-unit caravan at 840 packing one unit met only 2-raider floor outfits. The rule is for low-band caravans, so it now reads their band. The menu row records `raider_cap.caravanBand` (older rows keep `centreBand`). |
+| 32 | `SUGGESTED_PARTY_MAX` (new) | — → **5**: "Raise my party" and the server's `suggested` party add roster units only up to 5 (a saved party is never cut; a bigger one can still be built by hand) | Round-4 D1, the passive side. With #29 a party bigger than a new player's packed circle (5, the guide's pack) is never served to them in bands 0–1, so the guide's whole-roster party of 7 was hardly ever served while most testers live there. At 5 it is. |
+| — | the cap's input (round-4 S1, a fix, not a tunable) | computed over every party near the centre → computed over the parties the draw can serve, **after** the authored-only filter | Three live one-raider parties held the cap at 1, the authored-only rule then dropped them, and a 1-unit caravan before its second bank had nothing to draw (503, stuck on the trail). Against the authored pool alone nothing a harness measures moves: the cap relaxes over the same authored parties as before. |
+
+### Measured (all at this pass; `first-trip.ts` and `cold-start.ts` read the caravan-band key through `sweep.ts servedMenu`)
+
+**Target 1 — the guided first trip** (`first-trip.ts`, 200 caravans): **identical to pass 6.** A new
+caravan (400, band 1) searches encounter 1 at 250 and encounter 2 at about 405: both the old key and
+the new one put it under the cap.
+
+| | pass 6 | **pass 7** |
+|---|---|---|
+| encounter 1, guided (target ≥ 70 %) | 172 / 200 = 86 % | **172 / 200 = 86 %** |
+| the guide's advice after a hold | bank 16, push 156 | bank 16, push 156 |
+| pushed encounter 2, guide's layout (target ≥ 60 %) | 140 / 156 = 90 % | **140 / 156 = 90 %**; best skilled 145 / 156 = 93 % |
+| first trip delivered | 156 / 200 = 78 % | **156 / 200 = 78 %** |
+
+**The later trips' gate** (`first-trip.ts --raised`, now 192 fights: the 160 of pass 6 plus each
+region's **suggested party of 5**, the first five of its starting roster, against the 8 fresh guided
+packs; all 76 layouts):
+
+| raised party | guided / best | served in bands 0–1 against 5 posts? |
+|---|---|---|
+| every region's pairs (12 parties) | 96 / 96, 96 / 96 | yes |
+| whole rosters + refugee (7) | unchanged from pass 6 (desert 12 / 16, high plains 16 / 16, mountain 2 / 16, badlands 0 / 16) | no |
+| desert suggested (5) | 8 / 8, 8 / 8 | **yes (new)** |
+| high plains suggested (5) | 8 / 8, 8 / 8 | **yes (new)** |
+| mountain suggested (5) | **2 / 8, 4 / 8** | **yes (new)** |
+| badlands suggested (5) | **2 / 8, 6 / 8** | **yes (new)** |
+| **what can be served** (targets 60 / 70 %) | pass 6: 96, 100 % / 100 % | **128: guided 116 = 91 %, best 122 = 95 %** |
+| everything | pass 6: 160, 79 % / 83 % | 192: guided 146 = 76 %, best 158 = 82 % |
+
+The targets hold. The CI slice (`balance-sweep.test.ts`: one fresh pack per region, 24 layouts) now
+scores 64 served fights of 96 and passes. The cost is visible in two rows: a tester's raised Mountain
+or Badlands party of 5 is now served to a fresh 5-post circle after its second bank, and the guided
+layout holds it 2 of 8 times (the best layout 4 and 6 of 8). That is the passive side being served, as
+decided; it is the open item below.
+
+**The cap re-checked** (`cold-start.ts`, 4 regions × 25 seeds; rebuilt rosters of 1–4 unmerged
+starters, which the roster rule caps at any band):
+
+| packed | rating 400: cap off / on (guided, skilled) | rating 700: off / on | rating 840: off / on |
+|---|---|---|---|
+| 1 | 48 / 67 %, 48 / 67 % | 12 / 12 %, **48 / 67 %** | 0 / 0 %, **48 / 67 %** |
+| 2 | 58 / 88 %, 54 / 83 % | 46 / 49 %, **54 / 83 %** | 0 / 0 %, **54 / 83 %** |
+| 3 | 71 / 82 %, 68 / 78 % | 56 / 58 %, 35 / 43 % | 1 / 25 %, 35 / 43 % |
+| 4 | 81 / 93 %, 81 / 93 % | 61 / 67 %, 61 / 67 % | 9 / 40 %, 31 / 55 % |
+
+A rebuilding caravan keeps the band-0 rebuild odds at any rating, as pass 3 decided (the rows move
+from pass 3's only through pass 6's re-authored outfits). The 3-packed cell that the cap makes worse at
+700 (pass 3 named it) is unchanged.
+
+**What #31 stops** (live, round-4 review, recorded there): a 7-unit caravan at 840 packing one unit
+was capped to three 2-raider outfits; it now meets the 4–5-raider parties of its search. The tanked
+one-unit pack was not a Coin farm (round-4 table: +181 to +725 a trip against +5 960 for honest
+8 × L1 play), so no EV number here moves.
+
+### Tests whose pins moved
+
+- server `matchmaking-pure`: `coldStartRaiderCap` takes the caravan's rating (third argument); the
+  record field is `caravanBand`; a new case: centre in band 1, caravan in band 2 → not capped, and the
+  reverse → capped.
+- server `matchmaking`: the r3 S2(b) test reads `caravanBand`.
+- server `party`: the suggested party is the first `min(PARTY_SLOT_CAP, SUGGESTED_PARTY_MAX)` units.
+- server `balance-sweep`: the raised gate is 96 fights, 64 served.
+- web `guideModel` / `Onboarding`: the guide's raise stops at `SUGGESTED_PARTY_MAX`.
+
+### Open — for the play test's telemetry
+
+1. **Raised Mountain and Badlands parties of 5 against fresh 5-post circles** (guided 2 / 8 each).
+   They are served from a caravan's third trip on. Watch the new dashboard panel
+   `partyStrikes` (strikes per live party by party size, and how many were against bands 0–1) next to
+   overrun-by-band for bands 0–1: if those parties overrun most caravans they meet, the lever is the
+   guide's raise (fewer ranged units first) or `SUGGESTED_PARTY_MAX` 4, not the cap.
+2. Everything still open from pass 6.
 
 ---
 
