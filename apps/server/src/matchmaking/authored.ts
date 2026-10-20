@@ -280,17 +280,29 @@ function chooseTypes(web: UnlockWeb, maxTier: number, want: number, offset: numb
  * validateSpecs still holds: every band keeps a party of every stance pattern, and the band
  * difficulty (tier, merge level, raiders in the band) still rises.
  */
-export const AUTHORED_REAUTHORED: Readonly<Record<string, { readonly stancePattern?: StancePattern; readonly dropRaiders?: number }>> = {
-  "Hardrock Hirelings": { stancePattern: "mixed" }, // b0: typical 3/8, fresh-5 0/8 → 8/8, 6/8
-  "Boot Hill Society": { stancePattern: "mixed" }, // b3: 0/8 → 3/8
-  "The Cirque Company": { stancePattern: "mixed" }, // b4: 1/8 → 5/8
-  "Prairie Doctor's Party": { stancePattern: "mixed" }, // b5: 0/8 → 8/8
-  "Buffalo Hunter Cooperative": { stancePattern: "mixed" }, // b5: 0/8 → 6/8
-  "Lumberjack Levy": { dropRaiders: 1 }, // b5 (mixed already): 0/8 → 3/8
-  "Copper Canyon Cartel": { dropRaiders: 1 }, // b6: 0/8 → 2/8 (mixed: 1/8)
-  "Sand Ridge Wranglers": { stancePattern: "mixed" }, // b6: 0/8 → 8/8
-  "Cyclone Cellar Boys": { stancePattern: "nearest" }, // b6 (mixed already; one fewer: 1/8): 0/8 → 7/8
-  "The Ocotillo Ring": { stancePattern: "nearest" }, // b6 (mixed, one or two fewer: 0/8): 0/8 → 8/8
+export const AUTHORED_REAUTHORED: Readonly<Record<string, { readonly stancePattern?: StancePattern; readonly dropRaiders?: number; readonly addRaiders?: number }>> = {
+  // The outliers (each was under 20 %):
+  "Hardrock Hirelings": { stancePattern: "nearest" }, // b0: typical 3/8, fresh-5 0/8 (mixed: fresh-5 6/8, and lost pushed encounter 2)
+  "Boot Hill Society": { stancePattern: "mixed" }, // b3: 0/8
+  "The Cirque Company": { stancePattern: "mixed" }, // b4: 1/8
+  "Prairie Doctor's Party": { stancePattern: "mixed", dropRaiders: 1 }, // b5: 0/8
+  "Buffalo Hunter Cooperative": { stancePattern: "mixed", addRaiders: 1 }, // b5: 0/8
+  "Lumberjack Levy": { dropRaiders: 1 }, // b5 (mixed already): 0/8
+  "Copper Canyon Cartel": { dropRaiders: 1 }, // b6: 0/8 (mixed: 1/8)
+  "Sand Ridge Wranglers": { stancePattern: "mixed" }, // b6: 0/8
+  "Cyclone Cellar Boys": { stancePattern: "nearest" }, // b6 (mixed already; one fewer: 1/8): 0/8
+  "The Ocotillo Ring": { stancePattern: "nearest" }, // b6 (mixed, one or two fewer: 0/8): 0/8
+  // Bands 5 and 6 made harder again elsewhere, so lifting their outliers does not flatten the
+  // difficulty curve (band 5 must stay under the Reputation break-even for the 8 × L3 circle):
+  "Coffin Ridge Riders": { stancePattern: "mixed" }, // b5
+  "Scorpion Pass Toll": { stancePattern: "mixed" }, // b5
+  "Pine Marten Crew": { addRaiders: 1 }, // b5
+  "Badwater Toll Company": { stancePattern: "mixed", addRaiders: 1 }, // b5
+  "Boulder Field Boys": { stancePattern: "mixed" }, // b6
+  "Icefall Irregulars": { stancePattern: "mixed" }, // b6
+  "Pack Mule Brigade": { stancePattern: "core" }, // b6
+  "Gallows Gulch Gang": { stancePattern: "mixed" }, // b6
+  "Dead Man's Draw Outfit": { stancePattern: "mixed" }, // b6
 };
 
 let cachedSpecs: AuthoredPartySpec[] | undefined;
@@ -322,7 +334,7 @@ export function authoredPartySpecs(): AuthoredPartySpec[] {
       const size = Math.min(TUNABLES.PARTY_SLOT_CAP, Math.max(edgeCount, bandPartySize(ordinal, i)));
       const base = baseMergeLevel(ordinal);
       const re = AUTHORED_REAUTHORED[outfit.name];
-      const fielded = Math.max(edgeCount, size - (re?.dropRaiders ?? 0));
+      const fielded = Math.min(TUNABLES.PARTY_SLOT_CAP, Math.max(edgeCount, size - (re?.dropRaiders ?? 0) + (re?.addRaiders ?? 0)));
       const units: { typeId: string; mergeLevel: number }[] = [];
       for (let u = 0; u < fielded; u++) {
         const leader = ordinal >= AUTHORED_LEADER_FROM_ORDINAL && i % 3 === 0 ? 1 : 0;
