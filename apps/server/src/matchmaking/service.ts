@@ -564,18 +564,18 @@ export async function searchCandidates(client: pg.PoolClient, caravan: CaravanRo
     if (recentSet.has(r.party_id)) excludedPartyIds.push(r.party_id);
     else counted.push({ partyId: r.party_id, ownerAccountId: r.owner_account_id, rating: r.reputation, authored: r.is_system, raiders: Number(r.raiders) });
   }
-  // Final play-test review S1 / final guardrail review r2 D1: while the caravan's whole roster is
-  // small (a caravan rebuilding), no party with more raiders than it packed units (raised only as
+  // Final play-test review S1 / final guardrail review r2 D1 / r3 S2(b): while the caravan's whole
+  // roster is small (a caravan rebuilding), or the search centre is in bands 0–1, no party with more raiders than it packed units (raised only as
   // far as it takes to fill a menu). Filtered before the draw; the stored pool and `raider_cap`
   // replay it.
   const packedUnits = manifestFromJson((await findOpenManifest(client, caravan.id))!.packed).units.length;
   const levels = await client.query<{ merge_level: number }>("SELECT merge_level FROM unit_instance WHERE caravan_id = $1", [caravan.id]);
   const raiderCap = coldStartRaiderCap(counted, centre, packedUnits, rosterEquivalents(levels.rows.map((r) => r.merge_level)));
   const capOut = new Set(raiderCap?.excludedPartyIds ?? []);
-  // Final play-test review r2 S2: a caravan's first AUTHORED_ONLY_FIRST_TRIPS trip(s) meet authored
-  // outfits only, at every encounter — a cold-start rule in the same family as the nearest-N
+  // Final play-test review r2 S2 / r3 S2(a): until a caravan has banked AUTHORED_ONLY_UNTIL_BANKS
+  // trips it meets authored outfits only, at every encounter — a cold-start rule in the same family as the nearest-N
   // authored fill (testers' raised starter parties, ranged pairs included, are not served into a
-  // first trip). Filtered before the draw; the stored pool and `draw_rules.authoredOnlyTrip` replay it.
+  // first trips). Filtered before the draw; the stored pool and `draw_rules.authoredOnlyTrip` replay it.
   const authoredOnly = await isAuthoredOnlyTrip(client, caravan.id, trip.id);
   const pool: PoolEntry[] = counted
     .filter((e) => !capOut.has(e.partyId) && (!authoredOnly || e.authored))
@@ -637,20 +637,22 @@ export async function searchCandidates(client: pg.PoolClient, caravan: CaravanRo
   return { ...viewOf(res.rows[0]!, opts.nowMs), caravanLoadout: await caravanLoadout(client, caravan.id) };
 }
 
-/** TUNABLES.AUTHORED_ONLY_FIRST_TRIPS: how many of a caravan's first trips meet authored outfits only (r2 S2). */
-export const AUTHORED_ONLY_FIRST_TRIPS: number = TUNABLES.AUTHORED_ONLY_FIRST_TRIPS;
-if (!Number.isInteger(AUTHORED_ONLY_FIRST_TRIPS) || AUTHORED_ONLY_FIRST_TRIPS < 0) throw new Error("TUNABLES.AUTHORED_ONLY_FIRST_TRIPS must be a non-negative integer");
+/** TUNABLES.AUTHORED_ONLY_UNTIL_BANKS: a caravan meets authored outfits only until it has banked this many trips (r2 S2, r3 S2(a)). */
+export const AUTHORED_ONLY_UNTIL_BANKS: number = TUNABLES.AUTHORED_ONLY_UNTIL_BANKS;
+if (!Number.isInteger(AUTHORED_ONLY_UNTIL_BANKS) || AUTHORED_ONLY_UNTIL_BANKS < 0) throw new Error("TUNABLES.AUTHORED_ONLY_UNTIL_BANKS must be a non-negative integer");
 
-/** r2 S2: whether `tripId` is among the caravan's first AUTHORED_ONLY_FIRST_TRIPS trips (counted by start, ties by id). */
+/**
+ * r3 S2(a): whether trip `tripId` of the caravan is served authored outfits only — true while the
+ * caravan has banked fewer than AUTHORED_ONLY_UNTIL_BANKS OTHER trips. Only end_reason 'banked'
+ * counts: a voided or overrun trip does not.
+ */
 export async function isAuthoredOnlyTrip(db: Queryable, caravanId: string, tripId: string): Promise<boolean> {
-  if (AUTHORED_ONLY_FIRST_TRIPS === 0) return false;
+  if (AUTHORED_ONLY_UNTIL_BANKS === 0) return false;
   const res = await db.query<{ n: number }>(
-    `SELECT count(*)::int AS n FROM trip t, trip cur
-      WHERE cur.id = $2 AND t.caravan_id = $1 AND t.id <> cur.id
-        AND (t.started_at < cur.started_at OR (t.started_at = cur.started_at AND t.id < cur.id))`,
+    `SELECT count(*)::int AS n FROM trip WHERE caravan_id = $1 AND id <> $2 AND end_reason = 'banked'`,
     [caravanId, tripId],
   );
-  return (res.rows[0]?.n ?? 0) < AUTHORED_ONLY_FIRST_TRIPS;
+  return (res.rows[0]?.n ?? 0) < AUTHORED_ONLY_UNTIL_BANKS;
 }
 
 /** The current menu for the encounter (the latest search; the chosen one, if any, is always the latest). */

@@ -1,10 +1,11 @@
 /**
- * Final play-test review round 3 S1: the guide's pick and advice as pure functions. These pin the
- * rule the balance harness runs too (packages/circle/src/guide.ts copies it rule for rule).
+ * Final play-test review round 3 S1: the guide's pick and advice as pure functions, shared with the
+ * balance harness through @caravan/circle (packages/circle/src/guide.ts): the client and the harness
+ * run the same code, and these pin it from the client's side.
  */
 import { TUNABLES } from "@caravan/content";
 import { describe, expect, it } from "vitest";
-import { circleHurt, guidePick, isRangedHeavy, isRangedOnly, pushAdvice, rangedCount, type ScoutPartyLike, type StakesLike } from "./guideRule.ts";
+import { circleHurt, guidePick, isRangedHeavy, isRangedOnly, pushAdvice, rangedCount, type ScoutPartyLike, type StakesLike } from "@caravan/circle";
 
 const M = TUNABLES.ATTACK_RANGE_MELEE_DEFAULT;
 const party = (hp: number[], range: number[], siege = 0): ScoutPartyLike => ({ units: hp.map((h, i) => ({ hp: h, attackRange: range[i]! })), siege: Array.from({ length: siege }, () => ({})) });

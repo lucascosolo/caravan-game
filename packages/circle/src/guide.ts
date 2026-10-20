@@ -1,13 +1,19 @@
 /**
- * The guide's reading of the scout and its bank-or-push advice, as PURE functions (final play-test
- * review round 3, S1). No React, no DOM, no client types: every input is a plain structural shape
- * the server's own scout and stakes preview already carry, so this module can be lifted into a
- * shared package (packages/circle) and the balance harness can run the very same rule.
+ * The onboarding guide's reading of the scout and its bank-or-push advice (final play-test review
+ * round 3, S1), as PURE functions shared by the web client (apps/web onboarding TrailGuide) and the
+ * balance harness (scripts/balance/first-trip.ts and the CI slice apps/server/test/balance-sweep.test.ts),
+ * so the harness measures exactly what the guide tells a new player to do.
+ *
+ * Every input is a plain structural shape the server's own scout view (`scoutParty`, what a
+ * candidate card shows) and stakes preview (GET …/trip/preview) already carry. `guideStakesOf`
+ * builds the preview's units / traps / fences from a survivors manifest, the same projection the
+ * server's preview makes.
  *
  * Presentation only. Nothing here changes a fight, picks for the player or decides anything the
  * server decides: it reads what the player is shown and says what the guide would do.
  */
 import { TUNABLES } from "@caravan/content";
+import type { Manifest } from "./manifest.js";
 
 /** A raider as the scout shows it: its reach (fixed-point, 1024 = 1 cell) and its HP. */
 export interface ScoutRaiderLike {
@@ -61,7 +67,7 @@ export interface GuidePick {
 /**
  * The guide's pick from a served menu: pass over ranged-only parties whenever another candidate
  * exists, then the smallest by the scout alone — least total HP, then fewest siege pieces, then
- * fewest raiders, then menu order. Null for an empty menu.
+ * fewest raiders, then menu order. Null for an empty menu. Applied at every guided encounter.
  */
 export function guidePick(menu: readonly ScoutPartyLike[]): GuidePick | null {
   const anyNotRanged = menu.some((c) => !isRangedOnly(c));
@@ -72,7 +78,7 @@ export function guidePick(menu: readonly ScoutPartyLike[]): GuidePick | null {
     const raiders = c.units.length;
     const siege = c.siege.length;
     const hp = c.units.reduce((n, u) => n + u.hp, 0);
-    const b = best;
+    const b: GuidePick | null = best;
     if (!b || hp < b.hp || (hp === b.hp && (siege < b.siege || (siege === b.siege && raiders < b.raiders)))) best = { index, raiders, hp, siege, passedOver };
   });
   return best;
@@ -83,6 +89,15 @@ export interface StakesLike {
   readonly units: readonly { readonly ref: string; readonly alive: boolean; readonly hp: number; readonly maxHp: number }[];
   readonly traps: { readonly remaining: readonly unknown[]; readonly spent: readonly unknown[] };
   readonly fences: { readonly intact: readonly unknown[]; readonly destroyed: readonly unknown[] };
+}
+
+/** The preview's units / traps / fences for a survivors manifest, as the server's preview builds them. */
+export function guideStakesOf(survivors: Manifest): StakesLike {
+  return {
+    units: survivors.units.map((u) => ({ ref: u.ref, alive: u.hp > 0, hp: u.hp, maxHp: u.maxHp })),
+    traps: { remaining: survivors.traps.filter((t) => !t.spent).map((t) => t.ref), spent: survivors.traps.filter((t) => t.spent).map((t) => t.ref) },
+    fences: { intact: survivors.fences.filter((f) => f.hp > 0).map((f) => f.ref), destroyed: survivors.fences.filter((f) => f.hp === 0).map((f) => f.ref) },
+  };
 }
 
 export type AdviceReason =

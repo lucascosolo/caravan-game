@@ -1,4 +1,5 @@
 import type pg from "pg";
+import { TUNABLES } from "@caravan/content";
 import { createPool } from "../src/db/pool.js";
 import { appRoleUrl, resolveTestDatabaseUrl } from "./db-url.js";
 
@@ -73,21 +74,24 @@ export async function commitFormationInTown(db: pg.Pool, ownCaravanId: string, m
 }
 
 /**
- * TEST FIXTURE (final play-test review r2 S2): give a caravan one finished trip a day ago, so the
- * trip a test then starts is its SECOND and matchmaking serves live parties as well as authored
- * ones (a caravan's first trip meets authored outfits only, TUNABLES.AUTHORED_ONLY_FIRST_TRIPS).
- * An empty, closed manifest and an ended trip, written as the owner role; nothing else reads them.
+ * TEST FIXTURE (final play-test review r2 S2 / r3 S2(a)): give a caravan AUTHORED_ONLY_UNTIL_BANKS
+ * banked trips a day ago, so the trip a test then starts meets live parties as well as authored ones
+ * (a caravan meets authored outfits only until it has banked TUNABLES.AUTHORED_ONLY_UNTIL_BANKS
+ * trips). Empty, closed manifests and ended trips (end_reason 'banked'), written as the owner role;
+ * nothing else reads them.
  */
 export async function seasonCaravan(db: pg.Pool, caravanId: string): Promise<void> {
   const empty = JSON.stringify({ v: 1, units: [], traps: [], fences: [] });
-  await db.query(
-    `WITH m AS (
-       INSERT INTO wagon_manifest (caravan_id, packed, survivors, closed_at, created_at)
-       VALUES ($1, $2::jsonb, $2::jsonb, now() - interval '1 day', now() - interval '1 day') RETURNING id
-     )
-     INSERT INTO trip (caravan_id, manifest_id, started_at, ended_at) SELECT $1, m.id, now() - interval '1 day', now() - interval '1 day' FROM m`,
-    [caravanId, empty],
-  );
+  for (let i = 0; i < Math.max(1, TUNABLES.AUTHORED_ONLY_UNTIL_BANKS); i++) {
+    await db.query(
+      `WITH m AS (
+         INSERT INTO wagon_manifest (caravan_id, packed, survivors, closed_at, created_at)
+         VALUES ($1, $2::jsonb, $2::jsonb, now() - interval '1 day', now() - interval '1 day') RETURNING id
+       )
+       INSERT INTO trip (caravan_id, manifest_id, started_at, ended_at, end_reason) SELECT $1, m.id, now() - interval '1 day', now() - interval '1 day', 'banked' FROM m`,
+      [caravanId, empty],
+    );
+  }
 }
 
 /**

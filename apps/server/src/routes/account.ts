@@ -112,7 +112,7 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     return sendSignedIn(req, reply, account, { code: 201, extra: { caravan } });
   });
 
-  app.post("/auth/resume", async (req, reply) => {
+  app.post<{ Querystring: { ifNone?: string } }>("/auth/resume", async (req, reply) => {
     app.rateLimiter.hit("resumePerIp", req.ip);
     // QA-30 N7: a JSON content type forces a CORS preflight, so no page of another origin — or a
     // same-SITE sibling — can make the browser spend this device's sessions with a simple POST.
@@ -122,6 +122,10 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     const account = device ? await findAccountById(app.db, device.account_id) : null;
     if (!device || !account || account.is_system) {
       if (raw) clearDeviceCookie(req, reply);
+      // Final play-test review r3 N10: a cold load on a device that is not signed in is an empty
+      // state, not an error. A client that asks for it (`?ifNone=null`) gets 200 `{ session: null }`;
+      // without the parameter the answer stays the 401 `no_device` current clients expect.
+      if ((req.query as { ifNone?: string } | undefined)?.ifNone === "null") return reply.code(200).send({ session: null });
       throw new AppError(401, "no_device", "no signed-in device here");
     }
     // Slide the cookie's own lifetime with the device's.

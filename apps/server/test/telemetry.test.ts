@@ -250,7 +250,13 @@ afterAll(async () => {
 
 describe("chunk 32: every panel against the seeded history", () => {
   it("trip length: two trips banked after 1 encounter, one overrun at encounter 2", () => {
-    expect(dash.panels.tripLength).toEqual([
+    // r3 S2(a): every player here is seasoned with AUTHORED_ONLY_UNTIL_BANKS banked trips of no
+    // encounter (helpers.seasonCaravan); the panel counts them as such, apart from the real ones.
+    const seasoned = dash.panels.tripLength.filter((r: { encounters: number }) => r.encounters === 0);
+    expect(seasoned).toHaveLength(1);
+    expect(seasoned[0]).toMatchObject({ endReason: "banked" });
+    expect(seasoned[0]!.trips % TUNABLES.AUTHORED_ONLY_UNTIL_BANKS).toBe(0);
+    expect(dash.panels.tripLength.filter((r: { encounters: number }) => r.encounters > 0)).toEqual([
       { endReason: "banked", encounters: 1, trips: 2 },
       { endReason: "overrun", encounters: 2, trips: 1 },
     ]);

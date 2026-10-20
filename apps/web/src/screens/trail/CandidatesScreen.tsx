@@ -21,7 +21,7 @@ import type { CaravanLoadoutView, CandidateMenuView, CandidateView } from "../..
 import { monotonic, useAnchoredCountdown } from "../../shell/countdown.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { STRINGS } from "../../strings.ts";
-import { rangedCount } from "../../onboarding/guideRule.ts";
+import { rangedCount } from "@caravan/circle";
 import { ScoutPanel } from "./ScoutPanel.tsx";
 import type { ScoutedParty } from "./scoutTypes.ts";
 
@@ -51,7 +51,7 @@ export function scoutSummary(scout: ScoutedParty, loadout: CaravanLoadoutView | 
     .filter((x) => x.n > 0)
     .map((x) => `${T.edgeName(x.e)} ${x.n}`)
     .join(", ");
-  // Round 3 S1 / N9: how many raiders shoot from range, by shape and word (guideRule's reading).
+  // Round 3 S1 / N9: how many raiders shoot from range, by shape and word (@caravan/circle rangedCount).
   const r = rangedCount(scout);
   return { stances, ranged: T.summaryRanged(r.ranged, r.total), rangedCount: r.ranged, hp, siege, approach };
 }

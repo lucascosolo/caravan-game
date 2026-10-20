@@ -338,8 +338,10 @@ describe("party strikes in the owner's inbox", () => {
     // Each strike: what happened, where, what it earned, and the replay link.
     const lines = item.detail.strikes!;
     expect(lines.map((l) => l["jobId"])).toEqual([overran.jobId, held.jobId]);
-    expect(lines[0]).toMatchObject({ outcomeKind: "caravan_overrun", encounterIndex: 1, defender: { username: overran.defender.username, caravanName: overran.defender.caravanName, regionId: "desert" } });
-    expect(lines[1]).toMatchObject({ outcomeKind: "caravan_held", defender: { username: held.defender.username } });
+    expect(lines[0]).toMatchObject({ outcomeKind: "caravan_overrun", encounterIndex: 1, defender: { username: null, caravanName: overran.defender.caravanName, regionId: "desert" } });
+    // Final play-test review r3 N6: a stranger's caravan name, never their username.
+    expect(lines[1]).toMatchObject({ outcomeKind: "caravan_held", defender: { username: null, caravanName: held.defender.caravanName } });
+    for (const l of lines) expect(JSON.stringify(l)).not.toContain(overran.defender.username);
     // The strike's Coin is what the feed credited for that very job.
     for (const l of lines) expect(l["coinEarned"]).toBe(feed.find((e) => e.jobId === l["jobId"])!.coinEarned);
   });

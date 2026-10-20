@@ -24,7 +24,7 @@ export interface PartyFeedEntry {
   /** Which encounter of the defender's trip this was: how deep into the trail the party struck. */
   encounterIndex: number | null;
   /**
-   * Who the party struck: the username (a public handle) and the caravan's name and region. Never an account
+   * Who the party struck: the caravan's name and region. `username` is always null (r3 N6: a stranger sees the caravan name, never a username). Never an account
    * or caravan id (final review N4: in v1 a caravan id is a stable per-player key)
    * (chunk 19 QA S1, chunk 14 QA N4: account ids are not public).
    */
@@ -118,9 +118,11 @@ export async function partyFeedEntries(db: Queryable, accountId: string, served:
   const caravans = caravanIds.length
     ? await db.query<{ id: string; name: string; region_id: string; username: string | null; departed: boolean }>(
         // Chunk 30: a caravan whose player deleted their account is the erasure tombstone's (a
-        // system account): the strike stays in the feed, with nothing about who it was.
+        // system account): the strike stays in the feed, with nothing about who it was. Final
+        // play-test review r3 N6: the defender is a stranger to the party's owner, so the feed names
+        // the caravan only, never the player's username (the field stays, always null).
         `SELECT c.id, CASE WHEN a.is_system THEN NULL ELSE c.name END AS name, CASE WHEN a.is_system THEN NULL ELSE c.region_id END AS region_id,
-                CASE WHEN a.is_system THEN NULL ELSE a.username END AS username,
+                NULL::text AS username,
                 coalesce(a.is_system, true) AS departed
          FROM caravan c LEFT JOIN account a ON a.id = c.account_id
          WHERE c.id = ANY($1::uuid[])`,

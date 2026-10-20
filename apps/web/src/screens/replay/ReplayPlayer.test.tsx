@@ -323,7 +323,9 @@ describe("the replay player, the party owner's side", () => {
     expect(screen.getByTestId("replay-outcome")).toHaveTextContent("Your party was stopped: the caravan held.");
     expect(screen.getByTestId("replay-depth")).toHaveTextContent("Depth: your party got");
     expect(screen.getByTestId("replay-depth")).toHaveTextContent("Deepest: your Dust Rider.");
-    expect(screen.getByTestId("replay-loot")).toHaveTextContent(`Your party's loot from this fight: ${view.outcome!.loot} Coin, as reported.`);
+    // Final play-test review r3 N5: the recorded server sends settled.coinEarned, so the card shows the credited total (here the held fight's loot).
+    expect(view.settled.coinEarned).toBe(view.outcome!.loot);
+    expect(screen.getByTestId("replay-loot")).toHaveTextContent(`Your party earned ${view.outcome!.loot} Coin from this fight.`);
     // The ledger's itemization wins over the feed's figures.
     const settled = screen.getByTestId("replay-settled");
     expect(settled).toHaveTextContent(`+${view.outcome!.loot} Coin loot credited.`);

@@ -11,16 +11,17 @@ what the server would resolve.
 | script | what it measures |
 |---|---|
 | `matchup-sweep.ts` | Every authored party against the defending corpus. Per matchup: the best of 76 skilled layouts, the guided arrangement, and the best of 3 naive layouts. Reports hold rate by band × roster, fight length, depth, healing offset, owner income, presence flags and pushed-trip curves by encounter index. `--quick` runs desert + mountain only (≈ 17 min at 2 jobs); the full run takes ≈ 75 min. `--json` writes the matrix and trip curves out. |
-| `first-trip.ts` | A fresh account's first trip, as the server serves it: the bands searched, the guide's pick, the guided layout at encounter 1, a free layout at encounter 2. This is chunk 24 QA D1's acceptance probe. |
+| `first-trip.ts` | A fresh account's first trip, as the server serves it (authored-only, the raider cap applied): the bands searched, and the guide's pick, layout and bank-or-push advice from the client's own code (`@caravan/circle` `guide.ts` / `guideLayout.ts`, since pass 6) at encounter 1 and at the encounter 2 the guide pushes into. This is chunk 24 QA D1's acceptance probe; pass 6 adds the pushed-encounter-2 target. |
 | `probes.ts` | The two standing probes from chunk 12: the healer stalemate turtle, and structure-breaker stacking. |
 | `measured-ev.ts` | Feeds the sweep's trip curves into the trip EV model (`model.ts`): EV at each roster's equilibrium band, plus the weekly free earn. |
 | `trip-ev.ts` | The EV model with hand-entered rates (chunk 19). Unchanged apart from the weekly-earn band. |
 | `unlock-pace.ts` | The week model read for ladder points: the days of play until the first tier-2 living unlock, at 15 / 30 / 42 trips a week and bank points 1–3 (`--costs` evaluates another cost curve). Pass 2, D8. |
 | `party-rating.ts` | The Reputation equilibrium check on a sweep's `--json` matrix: each caravan roster's equilibrium band, and a standing party's siege-Reputation drift per strike by strength and band, under the current and the old party-loss rule. Pass 2, D6. |
-| `first-trip.ts --raised` | The second trip's gate (play-test review round 2, S2): every region's raised starter parties (each pair of its starters, ranged pairs included, and the whole starting roster) against every fresh guided roster, the guided layout and the best skilled one. Pass 4; the CI slice runs a quarter of it. |
+| `first-trip.ts --raised` | The later trips' gate (play-test review round 2, S2): every region's raised starter parties (each pair of its starters, ranged pairs included, and since pass 6 the whole roster plus its refugee, 7 units) against every fresh guided roster, the guided layout and the best skilled one, and which of them a bands 0–1 search can serve against the five-post circle. Pass 4; the CI slice runs half of it. |
+| `outliers.ts` | Authored outliers (round 3, D2): every authored party's hold rate for the best skilled layout against its band's typical rosters (and, in bands 0–1, the fresh guided pack); flags any under 20 %. `--bands` limits it. Pass 6. |
 | `fast-runners.ts` | Fast core- and trap-stance runners (round 2, D1): band-0/1 authored outfits with such raiders against fresh rosters; overrun share, overruns within 20 s, units lost per fast overrun. `--explore` tries a lever. Pass 4. |
 | `cold-start.ts` | The cold-start raider cap (S1; keyed on the roster since pass 3) re-checked: rebuilt 1–4 unit caravans, with the cap on and off, against the authored pool. `--rating` sets the caravan's living Reputation (default REPUTATION_START). Passes 2 and 3. |
-| `apps/server/test/balance-sweep.test.ts` | The CI slice, with a time budget of 150 s. It checks that encounter 1 is searched in band 0, that the guided layout holds ≥ 70 %, that encounter 2 is held more often than not, that skill beats naive, and that the sweep is deterministic. |
+| `apps/server/test/balance-sweep.test.ts` | The CI slice, with a time budget of 150 s. It checks that encounter 1 is searched in band 0, that the guided layout holds ≥ 70 %, that the encounter 2 the guide pushes into is held ≥ 60 % (pass 6), that the harness's pick is the client's shared rule, the raised gate over what can be served, that skill beats naive, and that the sweep is deterministic. |
 
 **The corpus and its assumptions.** Each region gets a fresh caravan and eight "band-typical"
 rosters. A band-typical roster is a stated assumption of the sweep, not something measured in play.
@@ -36,8 +37,194 @@ For band ordinal o:
 upper bound on what one reading of the scout gets. "Naive" layouts ignore the scout.
 
 A roster's **equilibrium band** is the highest band whose skilled encounter-1 hold rate is at least
-the Reputation break-even. The break-even is 20 / (10 + 20) ≈ 67 % since change #16 (it was 20 / (15 + 20) = 57 %), because a hold earns +10 and an
+the Reputation break-even. The break-even is 20 / (8 + 20) ≈ 71 % since change #27 (20 / (10 + 20) ≈ 67 % from #16; 20 / (15 + 20) = 57 % before), because a hold earns +8 and an
 overrun costs −20.
+
+---
+
+## Pass 6 — 2026-10-20 (final play-test review round 3: S1's harness, S2, D1–D3). RESOLVER_VERSION unchanged at 9.
+
+No resolver code changed, and no unit stat or tunable that a fight reads changed, so the goldens
+and work counters are unchanged. Two matchmaking rules changed, 19 authored outfits were
+re-authored (10 outliers, plus 9 that put the difficulty of bands 5–6 back), and the harness now
+runs the client's own guide code.
+
+### What changed
+
+| # | number | from → to | why |
+|---|---|---|---|
+| 28 | `AUTHORED_ONLY_FIRST_TRIPS` → **`AUTHORED_ONLY_UNTIL_BANKS`** | the first trip → **until the caravan has banked 2 trips**; a voided or overrun trip does not count | Round-3 S2(a). Trip 2 was serving other testers' whole raised rosters, 7 raiders against 5 posts. Badlands held 0 of 16 and Mountain 2 of 16. A caravan now meets authored outfits only, at every encounter, until it has banked twice. The menu still records `draw_rules.authoredOnlyTrip`. |
+| 29 | `COLD_START_PACKED_CAP_MAX_BAND` (new) | — → **1**: while the search centre is in band 0 or 1, the raider cap applies whatever the roster size | Round-3 S2(b). In bands 0–1, no party with more raiders than the caravan packed is offered. The cap relaxes only to fill a menu, as before. It is stored on the menu row (`raider_cap.centreBand` / `bandMax`), so menus replay. Above band 1 the roster rule (`COLD_START_ROSTER_MAX`, #23) is unchanged. |
+| 30 | `AUTHORED_REAUTHORED` (new, authored.ts; `AUTHORED_SET_VERSION` 5 → 6) | 19 outfits; table below | Round-3 D2. Every authored party whose best skilled layout held its band's typical rosters less than 20 % of the time was re-authored. In bands 0–1 the fresh five-post pack counts as a typical roster too. Lifting the six band-5/6 outliers made those bands easy: band 5 at its own band went from 67 % to 84 %. That moved 8 × L3 up to band 5, where its trip EV is negative. Nine other outfits there were made harder to put the curve back. |
+| — | the harness's guide (`sweep.ts guidePick` / `GUIDED`, `first-trip.ts`) | its own mirror of the client, at encounter 1 only → **the client's code from `@caravan/circle`**: `guide.ts` (the pick and the bank-or-push advice, new) and `guideLayout.ts` (`guidedFormation`, the client's), at every guided encounter | Round-3 S1. The pick passes over ranged-only parties, then takes the smallest. The advice never suggests a push when every candidate is ranged-heavy and the circle is hurt. Encounter 2 is arranged with the guide's layout over the survivors. `first-trip.ts` and the CI slice measure pushed encounter 2 only where the guide advises the push. Before the switch, the old `GUIDED` port and `guidedFormation` built byte-identical formations in all 6,528 sweep matchups and in 444 pushed-encounter survivor manifests, so no earlier number moves. A CI test pins the harness's pick to the shared function. apps/web imports the same module; its own `guideRule.ts` is gone. |
+| — | `first-trip.ts --raised` | the whole starting roster (6) → **the whole roster plus the refugee (7)**, one variant per starter type as the refugee | Round-3 S2: 7 is what "Raise my party from my roster" actually makes. The gate's targets are read over the fights a bands 0–1 search can still serve against the five-post circle. Every fight is still reported. |
+
+**#30 — the re-authored outfits** (`outliers.ts`, the best of 76 skilled layouts. "Typical" means
+the band's 8 typical rosters; "fresh-5" means the 8 fresh guided packs):
+
+| outfit (band) | was | change | typical held, before → after |
+|---|---|---|---|
+| Hardrock Hirelings (b0) | 4 core, mountain | stance → nearest | 3/8 → 8/8; fresh-5 **0/8 → 8/8**. Mixed gave 6/8 fresh-5 and still lost pushed encounter 2. |
+| Boot Hill Society (b3) | 6 core | stance → mixed | 0/8 → 3/8 |
+| The Cirque Company (b4) | 6 core | stance → mixed | 1/8 → 5/8 |
+| Prairie Doctor's Party (b5) | 7 core | mixed, 6 raiders | 0/8 → 7/8 |
+| Buffalo Hunter Cooperative (b5) | 7 core | mixed, 8 raiders | 0/8 → 2/8 |
+| Lumberjack Levy (b5) | 7 mixed | 6 raiders | 0/8 → 3/8 |
+| Copper Canyon Cartel (b6) | 8 core | 7 raiders (mixed held 1/8) | 0/8 → 2/8 |
+| Sand Ridge Wranglers (b6) | 8 core | stance → mixed | 0/8 → 8/8 |
+| Cyclone Cellar Boys (b6) | 8 mixed | stance → nearest (one or two fewer held 1/8) | 0/8 → 7/8 |
+| The Ocotillo Ring (b6) | 8 core | stance → nearest (mixed or fewer held 0/8) | 0/8 → 8/8 |
+| *harder, to keep the curve:* Coffin Ridge Riders (b5) | 7 nearest | stance → mixed | 8/8 → 2/8 |
+| Scorpion Pass Toll (b5) | 7 traps | stance → mixed | 8/8 → 6/8 |
+| Pine Marten Crew (b5) | 7 mixed | 8 raiders | 8/8 → 6/8 |
+| Badwater Toll Company (b5) | 7 nearest | mixed, 8 raiders | 8/8 → 7/8 |
+| Boulder Field Boys (b6) | 8 nearest | stance → mixed | 8/8 → 4/8 |
+| Icefall Irregulars (b6) | 8 nearest | stance → mixed | 7/8 → 2/8 |
+| Pack Mule Brigade (b6) | 8 nearest | stance → core | 7/8 → 6/8 |
+| Gallows Gulch Gang (b6) | 8 traps | stance → mixed | 7/8 → 6/8 |
+| Dead Man's Draw Outfit (b6) | 8 traps | stance → mixed | 8/8 → 7/8 |
+
+- After the change, no authored party is below the bar. The lowest are 2/8 (25 %): Buffalo
+  Hunter, Coffin Ridge, Copper Canyon and Icefall. Claim Jumpers' League (b0) holds 8/8 typical
+  and 4/8 fresh-5, so it stays as it was.
+- Band-typical held at its own band, b0…b7: before 95 · 90 · 100 · 84 · 84 · 67 · 60 · 92 % →
+  after **100 · 90 · 100 · 88 · 89 · 68 · 74 · 92 %**.
+- The set still passes `validateSpecs`. Tier, base merge level and raiders in the band never fall,
+  and one of them rises at every step. Raiders per band: 32 · 44 · 54 · 66 · 72 · 85 · 95 · 96.
+- Every band still fields every stance pattern. Band 5's core-stance outfit is Tallgrass Toll
+  Riders; band 6's are Copper Canyon Cartel and Pack Mule Brigade.
+- For one roster, a band up is still harder. The 8 × L3 circle (b4-typical defensive) holds
+  92 · 90 · **71 · 40** % at bands 3–6.
+
+### Before → after
+
+"Before" is main at e73a8ab. The first-trip and raised numbers come from the round-3 reviewer's
+probes (`probes/probe1-25.txt`, `_r3probe2.ts`) and the client behaviour seen in play. The sweep
+numbers come from pass 5's full sweep. `outliers.ts` was also run on main's content. "After" is
+this pass. The full sweep has 6,528 matchups.
+
+**Target 1 — the guided first trip** (`first-trip.ts`, 200 caravans):
+
+| | before (the client in play) | after |
+|---|---|---|
+| encounter 1, guided (target ≥ 70 %) | 172 / 200 = 86 % | **172 / 200 = 86 %** |
+| the guide's advice after a hold | push, every time | bank 16, push 156 |
+| pushed encounter 2, guide's layout (new target ≥ 60 %) | 97 / 172 = **56 %**: the smallest party, the scout reading not shown, a free layout | **140 / 156 = 90 %**: the guide's pick and layout; best skilled 145 / 156 = 93 % |
+| encounter 2 over every hold, guide's pick: guide's layout / best skilled | 148 / 172 = 86 % / 154 / 172 = 90 % (the reviewer's guidePick row) | 154 / 172 = 90 % / 160 / 172 = 93 % |
+| first trip delivered | ≈ 48 % (0.86 × 0.56) | **156 / 200 = 78 %** (a hold then the advised bank, or a hold, a push and a hold) |
+
+The guide's picks at pushed encounter 2, as guide's layout / best / fights:
+
+- Deadfall Crew 77/77/78.
+- The Cistern Gang 28/28/28.
+- Sodbusters' Levy 31/36/46.
+- Hardrock Hirelings 4/4/4 (before #30: 0/0/4). Against Badlands, the case the client fixer's
+  re-play lost, Hardrock now loses to every fresh Badlands pack (14 of 14 rotations, guided and
+  best) and to all 3 Badlands circles pushed into it.
+
+**The later trips' gate** (`first-trip.ts --raised`: 160 fights, 7-unit whole rosters, all 76
+layouts):
+
+| raised party | guided / best (the same fights before and after) | served in bands 0–1 against 5 posts? |
+|---|---|---|
+| every region's pairs (12 parties) | 96 / 96, 96 / 96 | yes |
+| desert whole + refugee (7) | 12 / 16, 16 / 16 | before yes; **after no** (#29) |
+| high plains whole (7) | 16 / 16, 16 / 16 | before yes; **after no** |
+| mountain whole (7) | **2 / 16, 4 / 16** | before yes; **after no** |
+| badlands whole (7) | **0 / 16, 0 / 16** | before yes; **after no** |
+| **what can be served** (targets 60 / 70 %) | before: all 160, guided 126 = 79 %, best 132 = 83 % | **after: 96, guided 96 = 100 %, best 96 = 100 %** |
+
+No fight input changed. What changed is what is served. Before 2 banks, no tester's party is
+served at all (#28). In bands 0–1, a 7-raider roster is never offered against a 5-post circle
+(#29).
+
+**Target 2 — skilled vs naive** (band-typical roster at its own band; skilled / guided / naive %):
+
+| | b0 | b1 | b2 | b3 | b4 | b5 | b6 | b7 |
+|---|---|---|---|---|---|---|---|---|
+| before (pass 5) | 95/80/83 | 90/74/85 | 100/77/90 | 84/54/67 | 84/61/63 | 67/42/46 | 60/38/38 | 92/49/54 |
+| after | 100/89/90 | 90/74/85 | 100/77/90 | 88/54/67 | 89/61/64 | 68/28/25 | 74/24/18 | 92/49/54 |
+
+Skilled beats naive by 26 points on average, up from 18. The re-authored band-5/6 outfits are mixed-stance
+parties, which a scout reading answers and a scout-blind layout does not.
+
+**Target 3 — stalemates, fight length, dominance:**
+
+| | before (pass 5) | after |
+|---|---|---|
+| stalemates in the corpus | 0 of 6528 | 0 of 6528 |
+| healer turtle (`probes.ts`, 96 fights): held / stalemate / overrun; healing offset | 73 / 0 / 23; 47 % | 83 / 0 / 13; 44 % |
+| fight length p10 / median / p90; share in 20–90 s | 12.2 / 21.4 / 33.8 s; 56 % | 12.7 / 21.8 / 33.4 s; 59 % |
+| overruns in the corpus | 1706 | 1730 |
+| flagged within band × stance (\|Δ\| > 25 points) | 5 | 7, none above 32: raiding Rail Bull +32, posted Rail Bull +27, posts with heal radius +27, heavy strike +27, posted Vaquero, Snake Oil Peddler, Powder Thief +26 |
+| held share of core-stance parties, b0…b7 | 96 92 89 48 35 16 1 26 | 100 92 89 56 39 40 20 26 |
+| fast runners (`fast-runners.ts`), guided: overrun; within 20 s; units lost per fast overrun | 42 %; 90 %; 4.8 (144 fights) | 38 %; 88 %; 4.7 (136 fights: Hardrock is no longer a runner) |
+| the same, best skilled | 25 %; 72 %; 4.8 | 21 %; 71 %; 4.7 |
+
+**Target 4 — trip EV for L1–L3** (`measured-ev.ts`; best bank point at each roster's equilibrium
+band; skilled):
+
+| circle | before (pass 5) | after #30's outliers alone | **after** |
+|---|---|---|---|
+| 8 × L1 | band 3: +5,930 at k = 4 | band 3: +5,983 at k = 4 | band 3: **+5,960 at k = 4** |
+| 8 × L2 | band 3–4: +3,752 at k = 4 / +9,475 at k = 5 | band 4: +9,500 at k = 5 | band 4: **+9,485 at k = 5** |
+| 8 × L3 | band 4: +5,761 at k = 5 | **band 5: −631, no positive bank point** | band 4: **+5,783 at k = 5** |
+| 8 × L4 | band 7: −3,699 | band 7: −3,699 | band 7: −4,163 (still open) |
+
+The 8 × L3 circle holds 70.8 % (34 of 48) at band 5. That is one fight under the 71 % break-even,
+so it settles in band 4. The margin is thin, and the play test's live hold rates should show where
+it really sits.
+
+### D1 and D3 — recorded, no change before the play test (orchestrator decision)
+
+- **D1, fast core and trap runners.**
+  - Round 3: 3 of 11 guided first fights were decided by them. g2 lost to Timberline Gang (2
+    core-stance raiders, 4 units lost outright). g9 and g10 lost to Prairie Wolf Pack (traps
+    stance, Lope); g9 lost 5 units with 0 killed.
+  - This pass, the guide's encounter-1 pick held: Timberline Gang 11 / 28 (39 %), Prairie Wolf
+    Pack 99 / 110 (90 %), Salt Flat Drifters 54 / 54, Alkali Freighters 8 / 8.
+  - `fast-runners.ts` (above): 38 % of guided fights against band-0/1 runners are overrun, 88 %
+    of those within 20 s.
+  - Still open: should the guide pass over core-stance-only parties too? Or should Timberline Gang
+    and Grizzly Creek Trappers (fresh-5 6 / 8 each) leave band 0?
+  - Telemetry: hold rate and time to overrun, by the raiders' stance, in guided first fights.
+- **D3, unlock pace in week 1.**
+  - Round 3: after g4's 11 trips (9 banked), its living ladder stood at rung 1 of 20.
+  - It had been granted 3 unlock points in all, and bought Claim Jumper and Tripwire Snare.
+    Tier-3 living nodes cost 8 points each.
+  - It had 20 L1 units and 9,937 Coin, and had never merged.
+  - Pass 2 D8 measured the first tier-2 node at 2–3 days.
+  - Telemetry: the Webs' share of screen flow, and points granted per banked trip in week 1.
+
+### Tests whose pins moved
+
+- server `matchmaking-pure`: the raider-cap tests take a band-2 centre, where the roster rule
+  alone applies. A new test covers the bands 0–1 rule (#29).
+- server `matchmaking`:
+  - the r2 S2 test now covers 2 banks, with overrun and voided trips not counting (#28);
+  - the r2 D1 test covers band 2, and band 0 for a merged-down roster (#29).
+- server `helpers.seasonCaravan` gives `AUTHORED_ONLY_UNTIL_BANKS` banked trips.
+- server `balance-sweep` (the CI slice):
+  - pushed encounter 2 must reach ≥ 60 % on the guide's advice;
+  - the pick is pinned to `@caravan/circle` `guidePick`;
+  - the raised gate is 80 fights, scored over the 48 a bands 0–1 search can serve.
+- circle `guide.test` (new): the shared rule. web `guideRule.test` now imports it from `@caravan/circle`.
+- server `inbox`, `party`, `replay-ledger`, `account-lifecycle`: the round-3 N5, N6 and N10 server
+  changes (not balance).
+
+### Open — for the play test's telemetry
+
+1. **Whole raised rosters above band 1.** Mountain holds 2 / 16 and Badlands 0 / 16 against five
+   posts. Such a roster is never served before 2 banks, and never in bands 0–1 against a smaller
+   packed circle. From band 2 up, a caravan whose roster is past 6 can meet one. Watch the hold
+   rate by raider party size from band 2.
+2. **8 × L3 sits one fight under the band-5 break-even** (70.8 %).
+3. D1 and D3 above.
+4. Still open from pass 5:
+   - healing in the four-healer turtle (now 44 %);
+   - 8 × L4 trip EV;
+   - core-stance dominance. #30 re-authored only the worst core-stance outfits, and core is still
+     the weakest-held stance from band 3 up.
 
 ---
 

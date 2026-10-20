@@ -145,8 +145,8 @@ export interface AuthoredDrawRules {
   /** AUTHORED_FILL_NEAREST_N: authored parties that FILL a menu come seeded from the N nearest the centre. */
   readonly fillNearestN: number;
   /**
-   * Final play-test review r2 S2: true when this search was for one of the caravan's first
-   * AUTHORED_ONLY_FIRST_TRIPS trips, so its pool held authored outfits only. A record of the rule
+   * Final play-test review r2 S2 / r3 S2(a): true when this search was for a trip begun before the
+   * caravan had banked AUTHORED_ONLY_UNTIL_BANKS trips, so its pool held authored outfits only. A record of the rule
    * (the stored pool already replays it); absent on every other menu.
    */
   readonly authoredOnlyTrip?: true;
@@ -428,6 +428,13 @@ export const COLD_START_ROSTER_MAX: number = TUNABLES.COLD_START_ROSTER_MAX;
 if (!Number.isInteger(COLD_START_ROSTER_MAX) || COLD_START_ROSTER_MAX < 0) throw new Error("TUNABLES.COLD_START_ROSTER_MAX must be a non-negative integer");
 
 /**
+ * TUNABLES.COLD_START_PACKED_CAP_MAX_BAND (final play-test review r3 S2(b)): while the search
+ * centre's band index is at most this, the rule applies whatever the roster size. −1 turns it off.
+ */
+export const COLD_START_PACKED_CAP_MAX_BAND: number = TUNABLES.COLD_START_PACKED_CAP_MAX_BAND;
+if (!Number.isInteger(COLD_START_PACKED_CAP_MAX_BAND) || COLD_START_PACKED_CAP_MAX_BAND < -1) throw new Error("TUNABLES.COLD_START_PACKED_CAP_MAX_BAND must be an integer of at least -1");
+
+/**
  * PURE. A roster's size in starting-unit (level-1) equivalents: Σ 2^(level − 1). A merged unit is
  * the units it took to make it (2 → 1 per level), so merging a roster down to a few strong units
  * never makes it look like a caravan that is rebuilding from a wipe.
@@ -452,6 +459,10 @@ export interface RaiderCap {
   readonly rosterSize: number;
   /** COLD_START_ROSTER_MAX in force. */
   readonly rosterMax: number;
+  /** r3 S2(b): the search centre's band index (the rule runs while ≤ bandMax, whatever the roster). Absent on menus searched before it. */
+  readonly centreBand?: number;
+  /** r3 S2(b): COLD_START_PACKED_CAP_MAX_BAND in force. Absent on menus searched before it. */
+  readonly bandMax?: number;
   /** Living units the caravan packed for this trip. */
   readonly packedUnits: number;
   /** The most raiders an offered party may field: packedUnits, raised only as far as needed to fill a menu. */
@@ -465,8 +476,9 @@ export interface RaiderCap {
 /**
  * PURE. The cold-start raider cap for a search at `centre` by a caravan whose whole roster is
  * `rosterSize` starting-unit equivalents and which packed `packedUnits` living units, or null when
- * the roster is above COLD_START_ROSTER_MAX (the rule is for a caravan rebuilding, whatever its
- * Reputation or the search band). The cap starts at packedUnits and rises one raider at a time
+ * the roster is above COLD_START_ROSTER_MAX (a caravan rebuilding) AND the centre's band is above
+ * COLD_START_PACKED_CAP_MAX_BAND (r3 S2(b): in bands 0–1 a whole raised roster is never served
+ * against a smaller packed circle, whatever the caravan's roster). The cap starts at packedUnits and rises one raider at a time
  * (never past PARTY_SLOT_CAP) until at least `count` parties within ±REPUTATION_BAND_WIDTH_MAX of
  * the centre fit under it, so the rule can thin a menu but never empty one. Deterministic: the
  * entries' order does not matter.
@@ -478,11 +490,13 @@ export function coldStartRaiderCap(
   rosterSize: number,
   count: number = CANDIDATES_PER_SEARCH,
   rosterMax: number = COLD_START_ROSTER_MAX,
+  bandMax: number = COLD_START_PACKED_CAP_MAX_BAND,
 ): RaiderCap | null {
   if (!Number.isInteger(centre) || !Number.isInteger(packedUnits) || packedUnits < 0 || !Number.isInteger(rosterSize) || rosterSize < 0) {
     throw new RangeError("centre, packedUnits and rosterSize must be integers, packedUnits and rosterSize ≥ 0");
   }
-  if (rosterSize > rosterMax) return null;
+  const centreBand = bandOf(centre).index;
+  if (rosterSize > rosterMax && centreBand > bandMax) return null;
   const near = entries.filter((e) => Math.abs(e.rating - centre) <= REPUTATION_BAND_WIDTH_MAX);
   const start = Math.max(1, packedUnits);
   let cap = start;
@@ -491,7 +505,7 @@ export function coldStartRaiderCap(
     .filter((e) => e.raiders > cap)
     .map((e) => e.partyId)
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  return { rosterSize, rosterMax, packedUnits, cap, relaxed: cap > start, excludedPartyIds };
+  return { rosterSize, rosterMax, centreBand, bandMax, packedUnits, cap, relaxed: cap > start, excludedPartyIds };
 }
 
 /**
