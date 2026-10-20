@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-20T22:14:00Z",
+  "updated_at": "2026-10-20T22:48:00Z",
   "written_by": "PC session, Phase 2 start (art direction reopened before building the pipeline)",
   "handoff_note": "roadmap/HANDOFF.md",
   "repo": {
@@ -297,7 +297,38 @@
       }
     },
     "spec_conflicts_note": "parked: answers depend on the new look (animation scope especially); proposals were given in the 2026-10-20 session",
-    "phase_2_pipeline_status": "paused by owner: settle the look first"
+    "phase_2_pipeline_status": "paused by owner: settle the look first",
+    "generation_passes": [
+      {
+        "id": "pass-1",
+        "date": "2026-10-20",
+        "approved_by_owner_usd": 0.99,
+        "charged_usd": 0.9928,
+        "charge_source": "sum of Wiro totalcost per task (ledger ~/.cache/caravan/wiro/gen-2026-10-20/ledger.jsonl)",
+        "images": 24,
+        "design": "4 subjects (sharpshooter, welldigger, coyote, wagon_core) x 3 models (openai/gpt-image-2 medium 1k, google/nano-banana-2-1 1K, black-forest-labs/flux-2-pro 1024) x 2 variants (text only; with the hand-drawn sprite as a reference image)",
+        "accepted": 0,
+        "where": "raw images ~/.cache/caravan/wiro/gen-2026-10-20/ (not committed; none accepted yet, so nothing goes to assets/painted or storage)",
+        "findings": [
+          "all 24 came back on brief; GPT Image 2 with the reference image follows the house style most closely, Nano Banana 2.1 close behind, FLUX 2 Pro weakest (an upright cartoon coyote; noisy off-white backdrops on the reference variant)",
+          "automatic pixelizing to the look-test sizes (person 24x32) loses faces and leaves dark noise; at 30x40 or 36x48 the face, hat and rifle survive. Character size relative to tiles and wagons is the owner's call (page has a Normal / Bigger switch)",
+          "single painted poses still need frames; drawn animation frames will likely need hand finishing",
+          "Wiro allows one concurrent task at the account's balance ($18.90 at the time); FLUX caps seed at 9999999; Cloudflare blocks Python's default User-Agent"
+        ],
+        "tooling": "~/.cache/caravan/wiro: gen.py (ledgered, capped, resumable, never resubmits an accepted job), pixelize.py (cutout from real alpha, magenta key or white flood; trim; 4x intermediate; CIELAB palette snap; block vote; noise cleanup; 1px outline), pixall.py, compare.py; not yet in the repo"
+      }
+    ],
+    "transparent_background_models": {
+      "openai/gpt-image-2.5-flare and -sunburst": "background: transparent; 1k square low $0.006, medium $0.013, high $0.053",
+      "openai/gpt-image-1-5": "background: transparent; 1:1 low $0.009, medium $0.034, high $0.133",
+      "matting at intake": "briaai/RMBG-2.0 ~$0.0017, wiro/remove-background ~$0.0012, ZhengPeng7/BiRefNet ~$0.0072, ideogram/remove-background $0.01"
+    },
+    "palette_additions_2026_10_20": "sage a/A, dusty rose r/R, plum u/U, charcoal n/N, moss m/M (style guide \u00a74)",
+    "look_test": {
+      "url": "https://claude.ai/artifact/EGHs2F88GqNcDEN2xh3hgy",
+      "version": 3,
+      "shows": "hand-drawn scene; an Art switch for the six AI sets in the live fight; AI size Normal/Bigger; gallery of all 24 raw images beside their pixel versions"
+    }
   },
   "open_balance_questions": [
     "8x L4 trip EV negative",
@@ -319,7 +350,9 @@
     "hosting target for a CI deploy step",
     "fast-forward main and delete merged branches",
     "reconcile PHASE-2 section 26 with ART-PLAN (art.spec_conflicts_pending_owner)",
-    "the art look: picks made 2026-10-20 (art.direction_change.owner_picks); confirm the rewritten style guide"
+    "art: which model/variant to continue with (GPT Image 2 + reference leads)",
+    "art: character size relative to tiles and wagons (24x32 vs 30x40)",
+    "art: a pass-2 spend with GPT Image 2.5 transparent backgrounds (cost to be quoted before running)"
   ],
   "next_tasks": [
     {
