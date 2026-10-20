@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-20T21:15:00Z",
-  "written_by": "PC session, Phase 1 (initialization for art integration and asset pipeline)",
+  "updated_at": "2026-10-20T22:08:00Z",
+  "written_by": "PC session, Phase 2 start (art direction reopened before building the pipeline)",
   "handoff_note": "roadmap/HANDOFF.md",
   "repo": {
     "branch": "roadmap/phase-2-spec",
@@ -224,7 +224,7 @@
         "licence": "purchased, not CC0, do not redistribute"
       }
     ],
-    "wiro_credentials_present": false,
+    "wiro_credentials_present": true,
     "spec_conflicts_pending_owner": [
       "PHASE-2 section 26 asks for idle, 8-direction walk, attack and death animations per unit; ART-PLAN uses one painted pose per type, mirrored, with code tweens and at most two extra poses per archetype",
       "PHASE-2 section 26 wants art sources in a separate assets repo or LFS; ART-PLAN commits accepted assets into this repo",
@@ -240,7 +240,57 @@
         "ImageMagick /usr/bin/magick",
         "Pillow 12.1.1"
       ]
-    }
+    },
+    "wiro_auth_verified": {
+      "at": "2026-10-20T21:59:00Z",
+      "call": "POST /Tool/List (read-only, no spend)",
+      "signature": "x-api-key, x-nonce (unix seconds), x-signature = hex HMAC-SHA256(key=API_KEY, msg=API_SECRET+nonce)",
+      "gotcha": "Cloudflare returns 403 'error code: 1010' to Python's default User-Agent; send a normal User-Agent",
+      "models_listed": 3544,
+      "dedicated_pixel_art_model": false,
+      "example_prices_usd_per_image": {
+        "openai/gpt-image-2 low 1k": 0.006,
+        "wiro/FLUX.2-dev": 0.006,
+        "black-forest-labs/flux-2-pro": 0.03,
+        "google/nano banana 2.1 1K": 0.0336,
+        "black-forest-labs/flux-kontext-pro": 0.04,
+        "google/nano-banana-pro 1K": 0.14
+      },
+      "licence_terms": "not stated in Wiro docs; check per model before shipping"
+    },
+    "direction_change": {
+      "date": "2026-10-20",
+      "owner_said": [
+        "I do want it to feel alive and animated",
+        "forget the glossy 3d clash of clans look",
+        "I like clean 2d pixel art and the bold lines of a storybook style drawing",
+        "I kinda like a stardew valley vibe",
+        "I don't really worry too much about it being true pixel art"
+      ],
+      "status": "exploring",
+      "consequence": "docs/art/STYLE-GUIDE.md (gouache storybook, bans pixel art) and ART-PLAN.md are superseded in direction until rewritten; the owner chose to settle the look before the pipeline is built",
+      "look_test": {
+        "url": "https://claude.ai/artifact/EGHs2F88GqNcDEN2xh3hgy",
+        "what": "animated mock battle in Stardew-like pixel art with a bold dark outline; knobs for pixel size, outline, colour, side marks",
+        "sources": "~/.cache/caravan/looktest (palette.json, sprites/*.json, render.py, template.html, build.py); not committed, throwaway",
+        "sprites": [
+          "sharpshooter",
+          "welldigger",
+          "coyote",
+          "wagon_core",
+          "wagon_plain",
+          "tile_sand",
+          "cactus",
+          "sagebrush",
+          "rock",
+          "fence_rail",
+          "trap_jaw"
+        ]
+      },
+      "pipeline_idea": "build step pixelizes any source image: downscale to a fixed grid per class, snap to one palette, add the outline in code, so generated art stays consistent"
+    },
+    "spec_conflicts_note": "parked: answers depend on the new look (animation scope especially); proposals were given in the 2026-10-20 session",
+    "phase_2_pipeline_status": "paused by owner: settle the look first"
   },
   "open_balance_questions": [
     "8x L4 trip EV negative",
@@ -262,7 +312,7 @@
     "hosting target for a CI deploy step",
     "fast-forward main and delete merged branches",
     "reconcile PHASE-2 section 26 with ART-PLAN (art.spec_conflicts_pending_owner)",
-    "install pnpm packages and provide Postgres on this PC"
+    "the art look: Stardew-like pixel art with bold outlines is the current lead; settle it with the look test before the pipeline"
   ],
   "next_tasks": [
     {
@@ -300,15 +350,44 @@
     }
   ],
   "pc_environment": {
-    "checked_at": "2026-10-20T20:40:00Z",
+    "checked_at": "2026-10-20T22:08:00Z",
     "node": "v22.22.1",
     "pnpm_enabled": false,
-    "node_modules_installed": false,
-    "postgres_installed": false,
+    "node_modules_installed": true,
+    "postgres_installed": true,
     "docker_socket_reachable_from_sandbox": false,
-    "playwright_chromium_cached": true,
-    "env_file_present": false,
+    "playwright_chromium_cached": false,
+    "env_file_present": true,
     "branch_upstream_set": true,
-    "note": "pnpm check and server tests need Postgres 16: system install needs owner sudo, or sandbox access to the Docker socket"
+    "note": "pnpm check and server tests need Postgres 16: system install needs owner sudo, or sandbox access to the Docker socket",
+    "pnpm": "10.28.0 via corepack (corepack enable cannot write /usr/bin); shim ~/.cache/caravan/bin/pnpm, COREPACK_HOME=~/.cache/corepack, store ~/.cache/pnpm-store",
+    "postgres": "16.14 from @embedded-postgres/linux-x64@16.14.0-beta.17 in ~/.cache/caravan/pg16, scram auth over TCP 127.0.0.1:5432; run DB-bound commands through ~/.cache/caravan/with-pg.sh <cmd>, which starts and stops it per command",
+    "sandbox_limits": "each Bash command gets its own network namespace and AF_UNIX sockets are blocked (no Docker socket, no headless Chrome), so a database cannot outlive the command that starts it",
+    "env_file_holds": "WIRO_API_KEY and WIRO_API_SECRET only (mode 600)",
+    "playwright_note": "Playwright 1.56.1 refuses to install browsers on ubuntu26.04-x64, and its installer removed the stale cached chromium_headless_shell-1234 and webkit-2336 from ~/.cache/ms-playwright on 2026-10-20. e2e and e2e:hosting cannot run on this PC until that is solved (PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64 untested)",
+    "test_fixture_drift": "the test run rewrites apps/web/src/test/contract/replay.json and replay-compacted.json (storedBytes +2, this PC's zlib output differs); restored, not committed"
+  },
+  "local_check": {
+    "command": "DETERMINISM_BASE_REF=3d13921 ~/.cache/caravan/with-pg.sh pnpm check",
+    "commit": "ba3c073",
+    "finished_at": "2026-10-20T21:42:00Z",
+    "passed": [
+      "typecheck",
+      "lint",
+      "test:boundary",
+      "test",
+      "determinism",
+      "perf:resolver",
+      "build",
+      "migrate",
+      "smoke"
+    ],
+    "failed": [
+      "e2e (no Playwright Chromium on this OS)"
+    ],
+    "not_run": [
+      "e2e:hosting"
+    ],
+    "note": "the first run's one server-test failure came from trust auth in the new local cluster; fixed by switching pg_hba to scram"
   }
 }
