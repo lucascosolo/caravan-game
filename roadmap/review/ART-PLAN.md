@@ -57,13 +57,17 @@ The board's hand-painted look cannot come from code-built flat vector art, so th
 
 ## Order of work (follows the feel review's phases)
 
-1. **Art bible, one page:**
-   - this board and the five qualities;
-   - the palette with contrast checks against the ground, and the side pair checked under colour-blind simulation;
-   - the camera angle and light;
-   - per-class scales;
-   - the outline, shadow and badge rules;
-   - the silhouette rule.
+1. **Art bible:** written, in `docs/art/STYLE-GUIDE.md`. It names the tradition (mid-century storybook gouache with a brush-ink contour, built as a tabletop diorama; wood-type broadsides for UI) and covers:
+   - construction rules for line, brushwork, shape, colour, light and materials;
+   - deliberate imperfections and a detail budget;
+   - the reference set, and a composition rule for key art;
+   - an anti-style guide with a banned prompt-word list;
+   - a prompt template, a personality check and a remove-the-cliché iteration loop.
+
+   Still to do before generating:
+   - collect the public-domain references it lists;
+   - run the contrast and colour-blind checks on the palette;
+   - write `scripts/art/prompt-lint`, which enforces the banned words.
 2. **Canvas legibility patch, code only:** outlines, contact shadows, side badges and a desaturated ground, then a colour-blind retest. This is feel review step 7. It ships before any art, because it fixes today's 1.10:1 contrast.
 3. **Key art via Wiro:** about 6 explorations in the board's style, showing the core vault wagon in a circle on the trail at golden hour. Pick one and lock it with the board as the style reference. Record the prompt, model and seed in `assets/painted/PROMPTS.md`.
 4. **One complete vertical slice:** Desert terrain tiles, the core wagon, two wagons, one fence tier, two traps, and 4 unit types (2 settler, 2 raider). Wire them through the `iso/skins.ts` seam, which today throws on `kind: "sprite"`, so PHASE-2 §26 first has to make it draw sprites. Add code motion and badges, and play a replay with them. This proves the pipeline before credits go on the full set.
