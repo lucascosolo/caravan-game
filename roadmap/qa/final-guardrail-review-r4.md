@@ -431,3 +431,24 @@ Clean-up:
   `r4g_stranger`. My dumps, the env file and the password files are deleted.
 - `caravan_app` carries no role setting.
 - `caravan_test_r4g` and `caravan_dev_r4g` are kept for the fix round.
+
+## Orchestrator decisions (2026-10-20)
+
+- **S1: never strand a caravan.**
+  - Apply the authored-only filter before the raider cap is computed. The cap's minimal relaxation, which loosens it only enough to fill a menu, then works on the pool that can really be served.
+  - If no menu can be filled at all, a trip with no committed encounter can be voided by the player. Make "Return to town" one tap, through the existing void path.
+  - Replace the 503 copy that tells the player to seed the database with player-facing words.
+  - Add a test with three one-raider live parties at the centre and a 1-unit caravan before 2 banks, which must still get a full authored menu.
+- **D1: accept the recommendation, and protect the passive side.**
+  - The bands 0–1 packed-unit cap is keyed on the caravan's own band (from its rating), not on the search centre.
+  - "Raise my party" and the server's suggested party build a party of at most `SUGGESTED_PARTY_MAX` units (tunable, default 5, the guide's packed size), so a new player's standing party can be served to other new players. The player can still raise a bigger one by hand.
+  - Add the dashboard panel: strikes per live party, by party size.
+  - Re-run the balance gates. The guided targets must still hold.
+- **N1: fix before any shared-instance play test.**
+  - REVOKE CONNECT on the play-test database from PUBLIC, and REVOKE EXECUTE on every function in schema public from PUBLIC.
+  - Grant explicitly to the owner and app roles in `db/roles.sql`. The runbook's shared-instance step does the same.
+  - Add a test: a login with no grants can neither connect nor execute any definer function.
+- **N2:** leave it to the client fixer, who is rewriting the authored-only copy now.
+- **N3:** raise the CI job timeout to 45 minutes, and note the trend in AGENTS.md.
+- **N4:** a commit whose chosen menu was stored under another resolver version or content hash is refused with 409 `menu_stale`. The client sends the player back to search, which is free. Add a test.
+- **N5:** fix the runbook's expected seed version, and make the step read the version rather than hard-coding it.
