@@ -3,35 +3,74 @@
 Status: plan only, nothing built. Written 2026-10-20 for the next session, which runs on the
 owner's PC with access to the Kenney library and to Wiro API credits. It turns the studio feel
 review (`studio-feel.md`, findings 9–15 and the "Minimum polish pass") into a production plan,
-and records which tool makes which asset.
+and records which tool makes which asset. Revised the same day after the owner's style board: the
+world and units are now painted, and code owns readability, motion and the fallback set.
 
-## The decision: three sources, one art direction
+## The target (owner's direction, 2026-10-20)
 
-The owner finds Kenney assets generic, and they are: they are designed to be neutral. Identity
-in this game must come from the pieces players read every fight and the pieces that sell the
-fantasy. So each asset gets the cheapest source that does not cost the game its personality.
+The reference board is `assets/reference/style-board-v1.png`. It sets the feeling to aim for; none of it is an asset to copy. The ideal screenshot reads like **a page from an illustrated Western adventure book that someone has carefully built into a playable miniature world.** Five qualities define it:
+
+1. **Illustrated, not photorealistic.** Surfaces have brushwork, simplified material detail and deliberate shapes.
+2. **Exaggerated, not distorted beyond readability.** Roofs, porches, signs, chimneys and water towers have appealing silhouettes.
+3. **Lived-in, not cluttered.** Everyday life shows, but buildings and gameplay elements stay easy to identify.
+4. **Playful, not childish.** Expressive characters and visual jokes sit beside convincing timber, canvas, metal, dirt and stone.
+5. **Warm, not uniformly orange.** Sun-baked earth is the base, balanced by cool shadows, blue-green paint, sagebrush and turquoise skies.
+
+**Palette (from the board).** These are the starting tokens. Each must be contrast-checked against the ground before use (feel review finding 11):
+
+| Role | Name | Hex |
+|---|---|---|
+| Base | Trail Dust | `#D8B477` |
+| Base | Weathered Cedar | `#A96E48` |
+| Base | Sunbleached Canvas | `#EBD4A6` |
+| Cool | Sagebrush | `#718365` |
+| Cool | Faded Turquoise | `#4D8584` |
+| Cool | Storm Blue | `#6D7180` |
+| Accent | Brick Red | `#C75E43` |
+| Accent | Brass Gold | `#E5B84F` |
+| Accent | Dark Walnut | `#49372E` |
+
+**Side identity.** Settlers and raiders must be told apart by shape first, colour second (guardrail 4). Faded Turquoise against Brick Red is the natural pair from this palette, but it must pass a deuteranopia and protanopia simulation on Trail Dust ground. Every unit also carries a side badge shape: a round settler badge or a triangular raider bandana tag, drawn by code over the painted sprite.
+
+**What the board shows that the design does not have.** These do not become mechanics without a PROJECT.md change:
+- The board's "Building upgrade" strip (Scrappy → Landmark) and "Build your town" tagline. The town is never attacked and has no building upgrades in PROJECT.md. A purely visual town that grows with the account's progression (ladder rungs, banked trips) fits, if it grants nothing.
+- The board's cast (Cowboy, Prospector, Sheriff, Blacksmith, Scout, Saloon Girl). This is a style target. The game's real roster (Dust Rider, Well Digger and the rest, 32 types in four regions) gets designed in this style.
+- The title "CARAVAN". The game is "Caravan Vaults"; the vault, the strongbox on the core wagon, should appear in the logo.
+
+## The decision: painted art for the world, code for readability and motion
+
+The board's hand-painted look cannot come from code-built flat vector art, so the earlier plan (code-built SVG for everything read mid-fight) is replaced. **Painted, generated art (Wiro) is now the primary source for the world and its units. Code owns readability, motion and every fallback.**
 
 | Source | Use it for | Why |
 |---|---|---|
-| **Code-built SVG** (written in this repo) | Everything read mid-fight: the 6 unit archetype bodies and their type overlays (hat, weapon, mount), the side badges, level stars, wagons and the core "vault" wagon, fence tiers (intact and broken), traps (laid and sprung), effect sprites (hit flash, dust, splinters), the 24 px icon set, stance and affinity icons, UI chrome (parchment card, wanted-poster frame, brass buttons, leather tabs), the logo wordmark and the inline splash | Must stay consistent across angles and frames and readable at scouting zoom (guardrail 4: shape plus colour, never colour alone). Generated images drift between frames; code does not. Zero cost. Animatable directly in the iso renderer. |
-| **Wiro (painted, generated)** | Key art and the store/app-icon source, a painted backdrop behind the logo, one banner per region (Desert, High Plains, Mountain, Badlands), the town main-street backdrop, unit portraits for the scout and party cards (one per unit type, 32), loading-screen paintings, cosmetic and pack art | These carry the "made for this game" feel and are seen still, one at a time, so frame-to-frame consistency does not matter. Credits are spent only here. |
-| **Kenney library (owner's copy)** | Ground tiles, rocks, cacti, barrels, crates, dead trees, generic props and particles, and placeholder UI sounds while the real set is made | Scenery nobody reads closely. Every Kenney sprite is re-coloured into the palette below by a script, so it stops looking like Kenney. |
+| **Wiro, painted** | Buildings and the town diorama; wagons, including the core "vault" wagon and damaged states; unit sprites (32 types, one painted 3/4-iso pose each, mirrored for the opposite facing); fence tiers (intact and broken) and traps (laid and sprung); terrain tiles and props for each region; painted UI chrome (parchment cards, wanted-poster frame, wooden and brass buttons, the round resource badges); icon art; key art, the logo backdrop, region banners, unit portraits, loading screens and cosmetic art | This is the look on the board, and only a painting model gets there. |
+| **Code** | The readability layer on top of every painted sprite: the side badge shape, a level star, an ink outline, a contact shadow, HP bars and the selection ring. Motion: bob, walk lean, attack recoil, hit flash, death topple, wagon sway and dust, done as procedural tweens on single painted poses instead of frame-by-frame animation. Effects: dust, splinters, sparks and number pops from the fight-log rows. The logo wordmark and the inline splash. A complete flat fallback set, so the game builds and plays with no generated art. | Keeps silhouettes, sides and timing consistent and legible whatever the generator does, and costs nothing. |
+| **Kenney library** | Greybox and layout stand-ins while the painted set is made, and possibly placeholder UI sounds. Not shipped art: its neutral look is the opposite of this target. | The owner already has it, and it is useful for blocking out scenes. |
 
-Every source goes through the same final treatment, so they read as one game:
-- **Palette remap.** Sun-bleached ochre, rust, sage and dusk blue for the world. The two sides keep their Okabe–Ito-safe hues, but darkened and outlined so they clear 3:1 against the ground (feel review finding 11: today defenders are 1.10:1 on sand).
-- **Line and light.** A 2 px ink outline, a contact shadow under everything that stands, and one light direction (late afternoon, from the west).
-- **Texture.** A light paper-grain overlay on painted pieces and UI chrome.
-- **Type.** A western woodtype or slab display face for headings and numbers, and a humanist sans for body text. Both are self-hosted, since the CSP is `font-src 'self'`. Use an OFL-licensed pair.
+**Consistency rules for generated sprites.** A sheet of independently generated images looks like a collage, not a game; these rules prevent that:
+- **One camera.** Every world asset is the same isometric angle and the same light direction, late afternoon from the west, with cool shadows. That angle is part of every prompt and of the style reference.
+- **One style reference.** The first accepted key art plus this board is passed as the reference image to every later generation, where the model allows image or style reference.
+- **One scale.** Each class of asset gets a fixed pixel scale (units, wagons, buildings) and a ground-contact line, checked by a script before an asset is accepted.
+- **Clean cut-outs.** Assets are generated on a plain backdrop and masked in code. A shared palette-harmonise pass pulls every accepted asset towards the tokens above.
+- **Animation without frames.** Units are single painted poses animated by code tweens. Where a pose change is essential (attack, death), at most two extra painted poses per archetype are generated, not per type.
+- **Silhouette test.** Every unit type must be identifiable by silhouette alone at scouting zoom, in a half-second glance, with the code badge on. A failing asset is regenerated, not shipped.
 
 ## Order of work (follows the feel review's phases)
 
-1. **Art bible, one page:** the palette swatches with contrast checks, the outline and shadow rules, the silhouette rule (every unit type identifiable by silhouette alone at scouting zoom in a half-second glance), and three reference pieces. Done before anything else.
-2. **Canvas legibility patch, code only:** outlines, contact shadows, side badges and a desaturated ground. Then a deuteranopia retest. This is feel review step 7 and needs no art.
-3. **Splash key art via Wiro:** about 6 explorations, then pick one and lock it as the style reference for every later Wiro piece. Use it as an image-to-image or style reference where the model allows, and keep the prompt and seed in `assets/painted/PROMPTS.md`.
-4. **Code-built unit archetypes and overlays.** Start with the 6 bodies and the 8 directions, then the overlays for the 32 types, wagons, fences and traps, all through the `iso/skins.ts` seam. Today it throws on `kind: "sprite"`, so PHASE-2 §26 has to make it draw sprites first.
-5. **Kenney scenery pass:** a script that palette-remaps and outlines the chosen Kenney tiles into the Desert set first, then High Plains, Mountain and Badlands.
-6. **The rest of the Wiro pieces,** batched against the locked style reference: region banners, the town backdrop, the 32 portraits, loading screens, then cosmetic art. The cosmetics currently have no art and are never drawn (live-ops review F14), so the render path is built first.
-7. **Icon set and UI chrome,** in code.
+1. **Art bible, one page:**
+   - this board and the five qualities;
+   - the palette with contrast checks against the ground, and the side pair checked under colour-blind simulation;
+   - the camera angle and light;
+   - per-class scales;
+   - the outline, shadow and badge rules;
+   - the silhouette rule.
+2. **Canvas legibility patch, code only:** outlines, contact shadows, side badges and a desaturated ground, then a colour-blind retest. This is feel review step 7. It ships before any art, because it fixes today's 1.10:1 contrast.
+3. **Key art via Wiro:** about 6 explorations in the board's style, showing the core vault wagon in a circle on the trail at golden hour. Pick one and lock it with the board as the style reference. Record the prompt, model and seed in `assets/painted/PROMPTS.md`.
+4. **One complete vertical slice:** Desert terrain tiles, the core wagon, two wagons, one fence tier, two traps, and 4 unit types (2 settler, 2 raider). Wire them through the `iso/skins.ts` seam, which today throws on `kind: "sprite"`, so PHASE-2 §26 first has to make it draw sprites. Add code motion and badges, and play a replay with them. This proves the pipeline before credits go on the full set.
+5. **The full unit roster (32 types),** then the remaining fence tiers and traps, against the locked reference.
+6. **The town diorama:** the main street, the mine head-frame and the merge and outfit locations as tappable places (feel review finding 12). Nothing in it may look damaged or attackable (guardrail 0).
+7. **The other three regions:** terrain, props and banners.
+8. **UI chrome, icons, portraits, loading screens,** then cosmetic art. The cosmetics currently have no art and are never drawn (live-ops review F14), so their render path is built first.
 
 ## Wiro usage
 
@@ -58,6 +97,6 @@ The feel review specifies the minimum set and ties each cue to the log event tha
 
 ## Budget guardrails
 
-- **No art in fights may depend on a paid service.** The game must build and play with code-built and Kenney art alone.
-- **Wiro pieces are optional enhancements.** If one is missing, the code-built fallback shows.
+- **No build may depend on a paid service.** The code fallback set keeps the game buildable and playable with no generated art; painted assets are committed files once accepted, never fetched at runtime.
+- **Prove the pipeline before spending.** The vertical slice (step 4) is the gate: credits go on the full roster only after the slice reads well in a real replay on a phone.
 - **Stay inside the size budget.** Keep the initial download small: painted pieces are lazy-loaded per screen, and audio streams after first interaction.
