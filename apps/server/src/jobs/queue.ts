@@ -26,7 +26,9 @@
  * passes the version it runs, and the lease only ever returns jobs enqueued for exactly
  * that version. A job for another version is invisible to this worker — never leased,
  * never charged an attempt, never parked — so a rolling deploy with mixed versions is
- * safe. Every job carries input.resolverVersion (CHECK, QA-02 R2-S1).
+ * safe. Every job carries input.resolverVersion (CHECK, QA-02 R2-S1). The single-process
+ * server is not a rolling deploy, so its in-process loop parks other versions' jobs
+ * explicitly (`parkOtherVersionJobs`, final guardrail review r3 S1).
  */
 import { RESOLVER_VERSION } from "@caravan/resolver";
 import type pg from "pg";
@@ -218,6 +220,30 @@ export async function markJobParked(
     opts.workerId ?? null,
   ]);
   return res.rows[0] ?? null;
+}
+
+/** Final guardrail review r3 S1: the reason recorded on a job parked because its resolver version is not this server's. */
+export const RESOLVER_VERSION_PARK_REASON =
+  "The game was updated while this fight was waiting to be resolved. A fight is never re-run under rules other than the ones it was arranged against, so the trip was called off";
+
+/**
+ * Final guardrail review r3 S1 (migration 029): park every queued job, and every leased job whose
+ * lease has expired, enqueued for a resolver version other than `resolverVersion`. A live lease is
+ * left alone (a process still on that version may be finishing it; it is parked once it expires).
+ * Returns the parked rows; the caller runs the afterParked hook, and the trip loop voids the trip.
+ * Never re-resolves under this version: the formation was committed against the old rules.
+ *
+ * Only the server's in-process loop calls this (at boot and on every poll). `drain` / `runOnce` do
+ * not: a version-scoped worker on its own still never parks another version's job (QA-02 R2-S2).
+ */
+export async function parkOtherVersionJobs(db: Queryable, workerId: string, resolverVersion: number = RESOLVER_VERSION): Promise<ResolutionJobRow[]> {
+  if (!Number.isInteger(resolverVersion)) throw new RangeError("resolverVersion must be an integer");
+  const res = await db.query<ResolutionJobRow>("SELECT * FROM resolution_job_park_other_version($1, $2::int, $3)", [
+    workerId,
+    resolverVersion,
+    RESOLVER_VERSION_PARK_REASON,
+  ]);
+  return res.rows;
 }
 
 /** Who a requeue is recorded as when the caller does not say (QA-02 R2-S3). */

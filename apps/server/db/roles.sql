@@ -206,3 +206,13 @@ BEGIN
   END IF;
 END
 $$;
+
+-- Final guardrail review r3 S1 (migration 029): the in-process worker parks queued / expired jobs
+-- of another RESOLVER_VERSION (the trip is then voided), through this one SECURITY DEFINER writer.
+DO $$
+BEGIN
+  IF to_regprocedure('public.resolution_job_park_other_version(text, integer, text)') IS NOT NULL THEN
+    GRANT EXECUTE ON FUNCTION resolution_job_park_other_version(text, integer, text) TO caravan_app;
+  END IF;
+END
+$$;

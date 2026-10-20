@@ -11,6 +11,7 @@ import { createUnitInstance, listUnitInstancesForCaravan } from "../src/repo/uni
 import { createCaravanForAccount } from "../src/services/caravans.js";
 import { AppError } from "../src/services/errors.js";
 import { registerAccount } from "../src/services/onboarding.js";
+import { generatedCaravanName, isReservedCaravanName } from "../src/services/caravanNames.js";
 import { expectDbError, testPool, truncateAll, unique } from "./helpers.js";
 
 const pool = testPool();
@@ -130,10 +131,12 @@ describe("final play-test review r2 N4: caravan names do not collide", () => {
       names.push(r.caravan.name);
     }
     expect(new Set(names.map((n) => n.toLowerCase())).size).toBe(40);
-    const a = await registerAccount(pool, { username: unique("nm"), password: "password123", regionId: "desert", caravanName: "Juniper Teamsters" });
-    const b = await registerAccount(pool, { username: unique("nm"), password: "password123", regionId: "desert", caravanName: "juniper teamsters" });
-    const c = await registerAccount(pool, { username: unique("nm"), password: "password123", regionId: "desert", caravanName: "Juniper Teamsters" });
-    expect([a.caravan.name, b.caravan.name, c.caravan.name]).toEqual(["Juniper Teamsters", "juniper teamsters II", "Juniper Teamsters III"]);
+    // A name the generator can never produce, so none of the 40 above can already hold it (r3: the
+    // generatable "Juniper Teamsters" made this a ~4 % flake whenever one of the 40 drew it).
+    const a = await registerAccount(pool, { username: unique("nm"), password: "password123", regionId: "desert", caravanName: "Juniper Oak Teamsters" });
+    const b = await registerAccount(pool, { username: unique("nm"), password: "password123", regionId: "desert", caravanName: "juniper oak teamsters" });
+    const c = await registerAccount(pool, { username: unique("nm"), password: "password123", regionId: "desert", caravanName: "Juniper Oak Teamsters" });
+    expect([a.caravan.name, b.caravan.name, c.caravan.name]).toEqual(["Juniper Oak Teamsters", "juniper oak teamsters II", "Juniper Oak Teamsters III"]);
     // Within the length limit: a 40-character name taken already is cut to make room.
     const long = "A".repeat(40);
     const l1 = await registerAccount(pool, { username: unique("nm"), password: "password123", regionId: "desert", caravanName: long });
@@ -141,6 +144,45 @@ describe("final play-test review r2 N4: caravan names do not collide", () => {
     expect(l1.caravan.name).toBe(long);
     expect(l2.caravan.name).toBe(`${"A".repeat(37)} II`);
     expect(l2.caravan.name.length).toBeLessThanOrEqual(40);
+  });
+});
+
+describe("final guardrail review r3 N2: reserved names, no duplicate past the ordinals, and erasure renames only the owner", () => {
+  it("content labels, authored outfit names and the generic names are refused (any case); generated names never land on one", async () => {
+    for (const name of ["Dust Rider", "dust rider", "Spur On", "Spike Pit", "Battering Wagon", "Brush Pile", "Gunslinger's Dozen", "Departed outfit", "DEPARTED CARAVAN", "Unnamed drifter", "Caravan"]) {
+      expect(isReservedCaravanName(name), name).toBe(true);
+      const err = await registerAccount(pool, { username: unique("rs"), password: "password123", regionId: "desert", caravanName: name }).catch((e: unknown) => e);
+      expect(err, name).toBeInstanceOf(AppError);
+      expect((err as AppError).code, name).toBe("reserved_caravan_name");
+    }
+    expect(isReservedCaravanName("Dust Rider Express")).toBe(false);
+    for (let salt = 0; salt < 64; salt++) expect(isReservedCaravanName(generatedCaravanName(unique("acct"), salt))).toBe(false);
+  });
+
+  it("eleven or more requests for one name never produce a duplicate: past X a short hash suffix", async () => {
+    const base = unique("Same Name").slice(0, 30);
+    const names: string[] = [];
+    for (let i = 0; i < 14; i++) names.push((await registerAccount(pool, { username: unique("dup"), password: "password123", regionId: "desert", caravanName: base })).caravan.name);
+    expect(new Set(names.map((n) => n.toLowerCase())).size).toBe(14);
+    expect(names.slice(0, 10)).toEqual([base, ...["II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"].map((o) => `${base} ${o}`)]);
+    for (const n of names.slice(10)) expect(n.startsWith(`${base} `) && /^[0-9a-f]{4}$/.test(n.slice(base.length + 1)), n).toBe(true);
+    for (const n of names) expect(n.length).toBeLessThanOrEqual(40);
+  });
+
+  it("the erasure walk replaces the display name only inside the erased owner's object, never a unit label or another owner's same name", async () => {
+    const erased = "11111111-1111-4111-8111-111111111111";
+    const other = "22222222-2222-4222-8222-222222222222";
+    const tomb = "00000000-0000-4000-8000-0000000000d0";
+    const menu = [
+      { owner: { accountId: erased, displayName: "Shared Name", authored: false }, scout: { units: [{ typeId: "desert.dust_rider", displayName: "Shared Name" }] } },
+      { owner: { accountId: other, displayName: "Shared Name", authored: false }, scout: { units: [{ typeId: "desert.dust_rider", displayName: "Dust Rider" }] } },
+      { ownerAccountId: erased, partyId: "p", displayName: "Old name" },
+    ];
+    const out = (await pool.query("SELECT account_erasure_walk_owner($1::jsonb, $2::jsonb, $3) AS j", [JSON.stringify(menu), JSON.stringify({ [erased]: tomb }), erased])).rows[0].j;
+    expect(out[0].owner).toEqual({ accountId: tomb, displayName: "Departed outfit", authored: false });
+    expect(out[0].scout.units[0].displayName).toBe("Shared Name"); // a unit label, not the owner
+    expect(out[1].owner).toEqual({ accountId: other, displayName: "Shared Name", authored: false }); // another owner of the same name
+    expect(out[2]).toEqual({ ownerAccountId: tomb, partyId: "p", displayName: "Departed outfit" });
   });
 });
 

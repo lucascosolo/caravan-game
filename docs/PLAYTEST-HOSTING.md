@@ -193,6 +193,9 @@ The server refuses to start, and says why in the log, if any of these hold:
 - `CARAVAN_RATE_LIMITS=off`;
 - `TRUST_PROXY=true`;
 - `SERVE_WEB=1` with no built client;
+- `STORE_MODE=sandbox` ($0 packs, free Coin), unless `STORE_SANDBOX_IN_PRODUCTION=1` is also set;
+  with both, it starts and logs a `WARNING: STORE_MODE=sandbox under NODE_ENV=production …` line.
+  Never for a play test;
 - the app role carries a role-level setting (`ALTER ROLE caravan_app RESET ALL` clears it).
 
 A role-level setting is refused with its own message (`refusing to start: the database role has
@@ -202,8 +205,10 @@ query.
 Stopping is graceful. On SIGTERM (`systemctl stop` / `restart`) or Ctrl-C the server logs
 `SIGTERM: shutting down …`, stops accepting connections, finishes the requests in flight, takes no
 new fight but finishes the one it is resolving, then logs `shut down cleanly` and exits 0 (within
-20 s at most). A crash is safe too: a fight whose resolver died holding the job's lease is picked up
-again when the 30 s lease expires, and its trip continues.
+20 s at most). A crash is safe too, **within one resolver version**: a fight whose resolver died
+holding the job's lease is picked up again when the 30 s lease expires, and its trip continues. A
+fight committed under another resolver version is never resolved by this one; step 12 says how an
+upgrade drains them first, and what the server does with any it still finds.
 
 ## 7. HTTPS with Caddy
 
@@ -318,12 +323,53 @@ Testers' devices still hold a cookie for the old database. `POST /api/auth/resum
 
 ## 12. Upgrading during the play test
 
+**First: does the upgrade change the resolver version?** A fight is resolved only by the resolver
+version it was committed under, never re-run under other rules (the player arranged their circle
+against the old ones). A commit that bumps `RESOLVER_VERSION` says so in its message or release note
+with `[resolver-bump]`; the reliable check is the version file itself:
+
 ```sh
-cd "$PT_REPO" && git fetch && git checkout <new commit> && pnpm install --frozen-lockfile && pnpm build
+cd "$PT_REPO" && git fetch
+git diff HEAD <new commit> -- packages/resolver/src/version.ts | grep '^[-+]export const RESOLVER_VERSION'   # no output: same version
+```
+
+**If the version changes, drain before you switch.** Stop taking commits, then let the OLD build
+resolve every fight already committed. It runs on a loopback port Caddy does not proxy, so no tester
+can reach it while it drains:
+
+```sh
+sudo systemctl stop caravan     # graceful: finishes the fight in progress; Caddy now answers 502
+ENV_FILE="$PT_ENV" PORT=$((PT_PORT + 1)) node apps/server/dist/index.js > /tmp/caravan-drain.log 2>&1 &   # the OLD build, still checked out
+DRAIN_PID=$!
+until [ "$(PGPASSWORD="$PT_OWNER_PW" psql -h "$PT_PG_HOST" -p "$PT_PG_PORT" -U "$PT_OWNER_ROLE" -d "$PT_DB" -Atc \
+  "SELECT count(*) FROM resolution_job WHERE status IN ('queued','leased')")" = 0 ]; do sleep 5; done
+kill -TERM $DRAIN_PID; wait $DRAIN_PID
+```
+
+The count reaches 0 within seconds, or at most about 3 minutes when a fight is waiting out a crashed
+lease (30 s) or a retry backoff (up to 60 s, 3 attempts). A fight that cannot be resolved at all
+parks, and its trip is voided as usual. Then upgrade as for any other commit:
+
+```sh
+git checkout <new commit> && pnpm install --frozen-lockfile && pnpm build
 # back up (step 10), then:
 ENV_FILE="$PT_ENV" node apps/server/dist/db/migrate.js up
 ENV_FILE="$PT_ENV" node apps/server/dist/seed.js   # a changed authored set updates in place
-sudo systemctl restart caravan
+sudo systemctl restart caravan  # (start, if you drained)
 ```
 
+If a drain was skipped, or a crash interrupted it, nothing is stuck: at boot and on every poll the
+server parks each fight of another resolver version (queued, or leased with an expired lease) and
+voids its trip through the usual void path. The trip is banked as of the last encounter survived;
+nothing of the unresolved fight applies; the player sees the voided-trip summary ("The game was
+updated while this fight was waiting to be resolved … (resolver v8 → v9)"), and the log says
+`N job(s) of another resolver version parked and their trips voided`. Draining first is still
+better: it gives those players their fight instead of a called-off trip.
+
+Old replays keep rendering after a version bump: a replay is the stored log of the fight, read
+as it was written, never re-simulated.
+
 An open tab keeps running the old client until it reloads. Ask testers to reload after an upgrade.
+
+Never run an older build against a database a newer one has run on: it would void the newer
+build's fights in flight the same way.

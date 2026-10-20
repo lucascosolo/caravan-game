@@ -5,8 +5,10 @@
  * same account always gets the same name) and presentation only: nothing in matchmaking,
  * resolution or the economy reads a caravan's name.
  */
+import { CONTENT } from "@caravan/content";
 import { fnv1a32 } from "../acquisition/refugeeMenu.js";
 import type { Queryable } from "../db/pool.js";
+import { AUTHORED_OUTFITS } from "../matchmaking/authoredOutfits.js";
 
 /** The placeholder every caravan created without a name used to get; still shown as a generic owner name. */
 export const LEGACY_DEFAULT_CARAVAN_NAME = "Caravan";
@@ -35,9 +37,40 @@ export function generatedCaravanName(accountId: string, salt = 0): string {
 const NAME_REROLLS = 32;
 const ORDINALS = ["II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"] as const;
 
+/** The generic names the server itself shows for someone (erasure's tombstone, a nameless owner). */
+export const DEPARTED_DISPLAY_NAME = "Departed outfit"; // = account_erasure_display_name() (migration 020)
+export const SYSTEM_DISPLAY_NAMES: readonly string[] = [DEPARTED_DISPLAY_NAME, "Departed caravan", "Unnamed outfit", "Unnamed drifter", LEGACY_DEFAULT_CARAVAN_NAME];
+
+/**
+ * Final guardrail review r3 N2: names no caravan may take (compared case-insensitively, trimmed):
+ * every unit, ability, trap, siege and fence label in content, every authored outfit's name, and
+ * the generic names above. A caravan named "Dust Rider" read like a unit in a stranger's scout, and
+ * one named "Departed outfit" passed as an erased player.
+ */
+export const RESERVED_CARAVAN_NAMES: ReadonlySet<string> = new Set(
+  [
+    ...CONTENT.units.flatMap((u) => [u.displayName, u.ability.displayName]),
+    ...CONTENT.traps.map((t) => t.displayName),
+    ...CONTENT.siege.map((s) => s.displayName),
+    ...CONTENT.fences.map((f) => f.displayName),
+    ...Object.values(AUTHORED_OUTFITS).flatMap((os) => os.map((o) => o.name)),
+    ...SYSTEM_DISPLAY_NAMES,
+  ].map((n) => n.trim().toLowerCase()),
+);
+
+export function isReservedCaravanName(name: string): boolean {
+  return RESERVED_CARAVAN_NAMES.has(name.trim().toLowerCase());
+}
+
 async function nameTaken(db: Queryable, name: string): Promise<boolean> {
+  if (isReservedCaravanName(name)) return true;
   const res = await db.query("SELECT 1 FROM caravan WHERE lower(name) = lower($1) LIMIT 1", [name]);
   return (res.rowCount ?? 0) > 0;
+}
+
+/** r3 N2: a short, deterministic hex suffix for when the ordinals run out. */
+function hashSuffix(accountId: string, name: string, salt: number, digits: number): string {
+  return fnv1a32(`${accountId.toLowerCase()}#${name}#${salt}`).toString(16).padStart(8, "0").slice(0, digits);
 }
 
 /**
@@ -61,5 +94,11 @@ export async function uniqueCaravanName(db: Queryable, accountId: string, reques
     const name = `${requested.slice(0, maxLength - suffix.length).trimEnd()}${suffix}`;
     if (!(await nameTaken(db, name))) return name;
   }
-  return requested;
+  // r3 N2: past the ordinals, a short hash suffix ("Dusty Teamsters 3fa2"), never the duplicate.
+  for (let salt = 0; salt < NAME_REROLLS; salt++) {
+    const suffix = ` ${hashSuffix(accountId, requested, salt, salt < NAME_REROLLS / 2 ? 4 : 8)}`;
+    const name = `${requested.slice(0, maxLength - suffix.length).trimEnd()}${suffix}`;
+    if (!(await nameTaken(db, name))) return name;
+  }
+  return `${requested.slice(0, maxLength - 9).trimEnd()} ${hashSuffix(accountId, requested, NAME_REROLLS, 8)}`;
 }

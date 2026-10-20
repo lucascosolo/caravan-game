@@ -115,7 +115,11 @@ describe("D1: STORE_MODE", () => {
     expect(storeModeFromEnv({ NODE_ENV: "production" })).toBe("off");
     expect(storeModeFromEnv({})).toBe("sandbox");
     expect(storeModeFromEnv({ NODE_ENV: "test" })).toBe("sandbox");
-    expect(storeModeFromEnv({ NODE_ENV: "production", STORE_MODE: "sandbox" })).toBe("sandbox");
+    // Final guardrail review r3 N4: an explicit sandbox under production needs the second switch.
+    expect(() => storeModeFromEnv({ NODE_ENV: "production", STORE_MODE: "sandbox" })).toThrow(/STORE_MODE=sandbox is refused when NODE_ENV=production/);
+    expect(() => storeModeFromEnv({ NODE_ENV: "production", STORE_MODE: "sandbox", STORE_SANDBOX_IN_PRODUCTION: "true" })).toThrow(/refused/);
+    expect(storeModeFromEnv({ NODE_ENV: "production", STORE_MODE: "sandbox", STORE_SANDBOX_IN_PRODUCTION: "1" })).toBe("sandbox");
+    expect(storeModeFromEnv({ NODE_ENV: "production", STORE_MODE: "off", STORE_SANDBOX_IN_PRODUCTION: "1" })).toBe("off");
     expect(storeModeFromEnv({ STORE_MODE: "off" })).toBe("off");
     expect(() => storeModeFromEnv({ STORE_MODE: "live" })).toThrow(/STORE_MODE/);
   });

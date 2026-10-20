@@ -22,7 +22,8 @@
  */
 import { hostname } from "node:os";
 import type pg from "pg";
-import { drain, type HandlerRegistry, type RunOutcome, type WorkerOptions } from "./worker.js";
+import type { ResolutionJobRow } from "../db/types.js";
+import { drain, parkOtherVersions, type HandlerRegistry, type RunOutcome, type WorkerOptions } from "./worker.js";
 
 /** Operational, not balance: how often an idle server looks for ready jobs. */
 export const ENCOUNTER_WORKER_POLL_MS = 1000;
@@ -43,6 +44,8 @@ export interface EncounterWorkerLoopOptions {
   readonly onLogOverBudget?: (jobId: string, storedBytes: number, budgetBytes: number) => void;
   /** Called with every outcome other than idle (logging). */
   readonly onOutcome?: (outcome: RunOutcome) => void;
+  /** Final guardrail review r3 S1: jobs of another resolver version this pass parked (their trips voided). */
+  readonly onParkedOtherVersion?: (jobs: readonly ResolutionJobRow[]) => void;
 }
 
 export class EncounterWorkerLoop {
@@ -90,6 +93,15 @@ export class EncounterWorkerLoop {
       try {
         do {
           this.again = false;
+          // Final guardrail review r3 S1: at boot (start() runs a pass at once) and on every poll,
+          // a fight committed under another RESOLVER_VERSION is parked and its trip voided — this
+          // single process is the only worker, so nothing else would ever resolve it.
+          const parked = await parkOtherVersions(this.pool, {
+            workerId: this.workerId,
+            ...(this.opts.hooks?.afterParked ? { afterParked: this.opts.hooks.afterParked } : {}),
+            onHookError: (err) => this.opts.onError(err),
+          });
+          if (parked.length > 0) this.opts.onParkedOtherVersion?.(parked);
           const outcomes = await drain(this.pool, {
             workerId: this.workerId,
             handlers: this.opts.handlers,

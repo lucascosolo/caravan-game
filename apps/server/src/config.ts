@@ -149,9 +149,21 @@ export function assertProductionDatabaseUrl(env: NodeJS.ProcessEnv, url: string 
  */
 export type StoreMode = "sandbox" | "off";
 
+/** Final guardrail review r3 N4: the second switch that lets STORE_MODE=sandbox run under NODE_ENV=production. */
+export const STORE_SANDBOX_IN_PRODUCTION_ENV = "STORE_SANDBOX_IN_PRODUCTION";
+
+export function storeSandboxAllowedInProduction(env: NodeJS.ProcessEnv): boolean {
+  return (env[STORE_SANDBOX_IN_PRODUCTION_ENV] ?? "").trim() === "1";
+}
+
 export function storeModeFromEnv(env: NodeJS.ProcessEnv): StoreMode {
   const v = (env["STORE_MODE"] ?? "").trim();
   if (v === "") return env["NODE_ENV"] === "production" ? "off" : "sandbox";
+  // Final guardrail review r3 N4: a play test must never hand out free Coin by accident. Under
+  // production the $0 sandbox needs a second, explicit switch (and the server logs a warning).
+  if (v === "sandbox" && env["NODE_ENV"] === "production" && !storeSandboxAllowedInProduction(env)) {
+    throw new Error(`STORE_MODE=sandbox is refused when NODE_ENV=production: it sells packs for $0 (free Coin). Set STORE_MODE=off, or also set ${STORE_SANDBOX_IN_PRODUCTION_ENV}=1 if that is really meant`);
+  }
   if (v === "sandbox" || v === "off") return v;
   throw new Error(`STORE_MODE must be "sandbox" or "off"; got '${v}'`);
 }

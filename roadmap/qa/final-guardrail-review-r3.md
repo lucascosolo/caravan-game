@@ -227,7 +227,7 @@ pid after checking its working directory.
 
 ## Should-fix
 
-S1. **A fight committed under the previous RESOLVER_VERSION is never resolved after an upgrade, and its
+S1. **[closed: fixr3g]** **A fight committed under the previous RESOLVER_VERSION is never resolved after an upgrade, and its
 caravan is stuck for good.**
 
 - **Cause.**
@@ -290,7 +290,7 @@ None.
 
 ## Nits
 
-N1. **Concurrent cold resumes on a busy device can still hand out a dead token.**
+N1. **[closed: fixr3g]** **Concurrent cold resumes on a busy device can still hand out a dead token.**
 
 - `issueSession` (`apps/server/src/auth/sessions.ts:75-83`) inserts the new session. It then evicts the
   device's others down to cap − 1, excluding only its own id (`repo/sessions.ts:51`, `:68`). A
@@ -315,7 +315,7 @@ N1. **Concurrent cold resumes on a busy device can still hand out a dead token.*
   transaction. Or exclude sessions created in the last few seconds from the eviction candidates. Add a
   test with 9 in-use sessions and 2 concurrent resumes.
 
-N2. **Erasure's name walk rewrites any `displayName` equal to the erased caravan's name, not just the
+N2. **[closed: fixr3g]** **Erasure's name walk rewrites any `displayName` equal to the erased caravan's name, not just the
 owner's, and names can still collide.**
 
 - `account_erasure_walk_names` (`apps/server/migrations/028_caravan_names.up.sql:30`) replaces every
@@ -344,13 +344,13 @@ owner's, and names can still collide.**
   - When the ordinals are exhausted, append a short hash instead of returning the duplicate.
   - Test: erase a caravan named after a unit type and assert that the unit labels survive.
 
-N3. **The runbook's upgrade step says nothing about a resolver version change.** Covered by S1 (a). I
+N3. **[closed: fixr3g]** **The runbook's upgrade step says nothing about a resolver version change.** Covered by S1 (a). I
 list it on its own because the doc fix is worth doing even if S1 is closed in code. Step 12 should say
 which commits bump `RESOLVER_VERSION`; `git diff <old>..<new> -- packages/resolver/src/version.ts` is
 enough. It should also say that old replays keep rendering (observed: 8 / 8 v8 replays `renderable:
 true`).
 
-N4. **`STORE_MODE=sandbox` starts under `NODE_ENV=production`.** `storeModeFromEnv`
+N4. **[closed: fixr3g]** **`STORE_MODE=sandbox` starts under `NODE_ENV=production`.** `storeModeFromEnv`
 (`apps/server/src/config.ts:152-157`) defaults to `off` in production but accepts an explicit `sandbox`.
 Observed: with the play-test env plus `STORE_MODE=sandbox`, the server got past every check and failed
 only on the port in use. The other dev-only switches (test resolver, rate limits off, `TRUST_PROXY=true`)
@@ -413,3 +413,137 @@ Clean-up:
   - Beyond the ordinals, fall back to a short hash suffix.
 - **N3: fix in the runbook.** Say which upgrades bump RESOLVER_VERSION (the release note or the commit carries `[resolver-bump]`), and that old replays keep rendering.
 - **N4:** under `NODE_ENV=production`, refuse an explicit `STORE_MODE=sandbox` unless `STORE_SANDBOX_IN_PRODUCTION=1` is also set, and log a loud warning when it is. A play test must never hand out free Coin by accident.
+
+## Fix round (branch `fixr3g`, 2026-10-20): every item closed as decided
+
+Migration **029** (`029_upgrade_safety`) carries the S1 writer and the N2 rewrite.
+
+- **S1, closed: both halves.**
+  - **(b) Code.** `resolution_job_park_other_version(worker, version, reason)` (SECURITY DEFINER,
+    pinned `search_path`, granted to `caravan_app` by `db/roles.sql`) parks every queued job, and
+    every leased job whose lease has expired, of any other resolver version. The job guard only
+    parks from `leased`, so it first takes a lease in the parking worker's name, a new attempt, as
+    the guard requires. A live lease is left alone: a process still on that version may be
+    finishing it, and the next poll parks it once it expires.
+  - `EncounterWorkerLoop` (`jobs/inProcessWorker.ts`) calls `parkOtherVersions` (`jobs/worker.ts`)
+    at the start of every pass, which means at boot and on every poll, and then runs the
+    `afterParked` hook, so the trip is voided through the existing void path. Plain `drain` and
+    `runOnce` do not, so a version-scoped worker on its own still never parks another version's
+    job (QA-02 R2-S2's tests are unchanged).
+  - The server logs `N job(s) of another resolver version parked and their trips voided (…step 12:
+    drain before …)`.
+  - The reason the player sees under "Why the server could not resolve it": "The game was updated
+    while this fight was waiting to be resolved. A fight is never re-run under rules other than the
+    ones it was arranged against, so the trip was called off (resolver v8 → v9)".
+  - Test (`trip-resolver.test.ts`): three old-version fights — queued, leased with an expired lease,
+    leased with a live lease. After boot the first two are parked and their trips voided: caravan
+    `in_town`, one `trip_voided`, and 0 events under the job. The live one is untouched until its
+    lease expires, then the next pass parks it. A current-version fight still completes on the same
+    loop. `qa02-round2.test.ts` lists the new writer among the SECURITY DEFINER job functions.
+  - **(a) Runbook.** Step 12 now says:
+    - first check whether `RESOLVER_VERSION` changes
+      (`git diff HEAD <new commit> -- packages/resolver/src/version.ts`, or `[resolver-bump]` in
+      the commit or release note);
+    - if it does: `systemctl stop`, run the **old** build on `PT_PORT+1` (loopback, not proxied, so
+      no tester can commit), poll `SELECT count(*) FROM resolution_job WHERE status IN
+      ('queued','leased')` until it is 0, stop it, then upgrade;
+    - what the safety net does if a drain is skipped.
+
+    Step 6's "a crash is safe too" now says "within one resolver version".
+  - **The round-3 reproduction re-run, without a drain** (`caravan_pt_r3f`, shared-instance roles,
+    production env):
+    1. Host 3d13921 (v8). Caravan K holds encounter 1 (600 unbanked), pushes, and commits encounter
+       2. SIGKILL right after the 202: `…:2|leased|1|server:vm:29627:resolver|8`.
+    2. This branch's build: `migrate.js up` → "Applied: 29_upgrade_safety", then `seed.js` → "96
+       already current". Start it.
+    3. 18 s later (the old lease ran out): the job is `parked|2|server:vm:29755:resolver|8|The game
+       was updated …`. The trip is `{"phase":"ended","endReason":"voided","caravanState":"in_town"}`
+       and `trip_voided` has `credited: 725` (banked as of encounter 1). K still owns 6 units and can
+       pack again (201) and unpack (200). Encounter 1's v8 replay → 200 `renderable: true`. The log
+       line: "1 job(s) of another resolver version parked and their trips voided …".
+  - **The runbook drain rehearsed literally** (`caravan_pt_r3f_drain`):
+    1. On 3d13921, K's encounter-2 commit was SIGKILLed before any lease: `…:2|queued|0||8`.
+    2. The version check printed `-export const RESOLVER_VERSION = 8;` / `+… = 9;`. For the same
+       version (6efc311..HEAD) it printed nothing.
+    3. The drain block ran as written, with `PT_PORT=4248` so the drain port is my 4249. The old
+       build listened on 127.0.0.1:4249, the count reached 0 in 5 s (05:10:54 → 05:10:59), and
+       "shut down cleanly" (exit 0). The job was `completed|1|server:vm:29989:resolver`.
+    4. Then `migrate.js up` ("Applied: 29_upgrade_safety"), `seed.js`, and the new build started.
+       K's trip was at `decide` (not voided), nothing was parked, and both v8 replays were
+       renderable. A bank on the new build → 200 `{"encountersSurvived":2,"credited":1658}`.
+- **N1, closed.**
+  - `issueSession` (`auth/sessions.ts`) runs in one transaction, under
+    `pg_advisory_xact_lock(LOCK_NS_SESSIONS = 30, hashtext(account))` and a row lock on the device it
+    joins.
+  - Serializing alone was not enough. The second resume's eviction still cut the first's session,
+    issued but not yet used. So the eviction order (`repo/sessions.ts` `EVICTION_ORDER`) now ranks
+    first a session issued in the last `SESSION_PENDING_PROTECT_SECONDS` (30) and not used yet,
+    then sessions in use, then the rest. The cap is unchanged. An orphaned, never-used resume loses
+    its protection after 30 s.
+  - Test (`account-lifecycle.test.ts`): 8 trials of a device whose 10 sessions are all in use plus 2
+    concurrent resumes. Both new tokens answer `/me`, and the device keeps 10 sessions. QA-30 S4's
+    test now ages its eleven never-used resumes past the window, which is what an orphan is; a tab
+    in use still survives them.
+  - Live, the round-3 probe: 9 in use + 2 concurrent → **0/10** dead tokens (was 7/10); 10 + 2 →
+    0/10 (was 9/10); 10 + 4 → 0/20; 0 + 6 → 0/30.
+- **N2, closed.**
+  - Migration 029's `account_erasure_walk_owner` replaces a `displayName` only inside an object whose
+    `accountId` / `ownerAccountId` is the erased account (the candidate's `owner`).
+    `account_erasure_rewrite` uses it. Unit, ability and siege labels, and another owner of the same
+    name, are never touched.
+  - `services/caravanNames.ts` `RESERVED_CARAVAN_NAMES` covers every unit, ability, trap, siege and
+    fence label, every authored outfit name, "Departed outfit", "Departed caravan", "Unnamed
+    outfit", "Unnamed drifter" and "Caravan", compared case-insensitively. A requested name on the
+    list → 400 `reserved_caravan_name`, and a generated one re-rolls.
+  - Past the ordinals II–X, a 4-hex hash suffix (8 hex after 16 salts) replaces the duplicate.
+  - Tests (`caravans.test.ts`):
+    - reserved names are refused, and no generated name is reserved;
+    - 14 requests for one name give 14 distinct names (base, II–X, then hash suffixes);
+    - the SQL walk replaces the owner object's name only.
+
+    The existing account-erasure test (no table or replay still holds the erased caravan's name)
+    passes on the new walk.
+  - The r2 N4 test's "Juniper Teamsters" could also be *generated*: a 4 % flake, seen once in this
+    round. It now uses a name the generator cannot produce.
+  - Live: guests named "Dust Rider", "departed outfit", "Gunslinger's Dozen" or "Battering Wagon" →
+    400 `reserved_caravan_name`. Twelve requests for one name → base, II…X, "… ad63" and "… bcb3",
+    12 distinct.
+- **N3, closed** in step 12, as above. It now also says that old replays keep rendering: a replay is
+  the stored log, never re-simulated (observed: every v8 replay `renderable: true` after both
+  upgrades). It also warns never to run an older build against a database a newer one has run on.
+- **N4, closed.**
+  - `storeModeFromEnv` refuses `STORE_MODE=sandbox` under production unless
+    `STORE_SANDBOX_IN_PRODUCTION=1`. Only the exact value `1` counts: `true` is refused, as tested.
+    With both set, `index.ts` logs a `WARNING: … every pack is sold for $0 …` line.
+  - Step 6's refusal list names it, and so does AGENTS.md.
+  - Test (`final-review.test.ts`).
+  - Live with the play-test env: `STORE_MODE=sandbox` → "STORE_MODE=sandbox is refused when
+    NODE_ENV=production: it sells packs for $0 (free Coin) …". Adding `STORE_SANDBOX_IN_PRODUCTION=1`
+    → `store: sandbox` followed by the level-40 WARNING line.
+- **Migrations down and up** (`caravan_dev_r3g`):
+  - "Rolled back: 29_upgrade_safety": the writer is gone and the rewrite is back on `walk_names`;
+  - "Applied: 29_upgrade_safety": `caravan_app` can execute the writer, and the rewrite uses
+    `walk_owner`.
+
+### Gates (observed)
+
+- `pnpm check` on `caravan_test_r3g`, ports 3949/4249, after the fixes. The first run failed at
+  `test` on the r2 N4 name flake above (1 failed, 818 passed). After that fix, `pnpm check -- --from
+  test` → "all 8 steps passed in 16.4 min":
+  - server 819 passed + 1 skipped;
+  - determinism 366, perf 15;
+  - smoke refused the repo-default password and answered `/health`, `/api/health` and `/`;
+  - e2e 12 passed, e2e:hosting 14 passed.
+- `git merge roadmap/phase-2-spec` → "Already up to date". Then the full `pnpm check` → "all 11 steps passed in 17.6 min":
+  - content 82, resolver 587, circle 108, web 476, server 819 (+1 skipped);
+  - determinism 366, perf 15, build, migrate, smoke;
+  - e2e 12 passed (3.8 m), e2e:hosting 14 passed (3.7 m).
+- The contract test re-records `apps/web/src/test/contract/*.json` with the current store week and
+  timestamps on every run. That drift is not committed.
+
+Clean-up:
+- Every server I started is stopped.
+- The play-test reviewer's server (3951) answered `/health` throughout.
+- `caravan_pt_r3f`, `caravan_pt_r3f_drain` and the `caravan_r3f_owner` / `caravan_r3f_app` roles are
+  dropped.
+- `caravan_test_r3g` and `caravan_dev_r3g` are kept.
