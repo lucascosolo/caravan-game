@@ -150,8 +150,11 @@ export interface Api {
   // Account lifecycle (chunk 30 routes).
   /** First launch: a guest account (no username or password) with its first caravan in `region`. */
   guest(region: string, caravanName?: string, replaceGuest?: boolean): Promise<AuthResponse>;
-  /** A reload: the server's device cookie for a fresh session. 401 `no_device` when there is none (never drops a session). */
-  resume(): Promise<AuthResponse>;
+  /**
+   * A reload: the server's device cookie for a fresh session. Null when this device is not signed in
+   * (r3 N10a: 200 `{ session: null }`; an older server's 401 `no_device` still rejects). Never drops a session.
+   */
+  resume(): Promise<AuthResponse | null>;
   account(): Promise<AccountView>;
   linkAccount(username: string, password: string): Promise<LinkResult>;
   devices(): Promise<DevicesView>;
@@ -246,6 +249,12 @@ export interface Api {
   adminDashboard(days?: number): Promise<DashboardView>;
 }
 
+/** r3 N10a: `{ session: null }` (this device is not signed in) or the ordinary auth body. */
+const resumeShape: Guard<AuthResponse | null> = (v, path) => {
+  if (typeof v === "object" && v !== null && "session" in v && (v as { session: unknown }).session === null && !("token" in v)) return null;
+  return authShape(v, path);
+};
+
 function isErrorBody(value: unknown): value is ApiErrorBody {
   return typeof value === "object" && value !== null && typeof (value as ApiErrorBody).error === "string";
 }
@@ -312,7 +321,10 @@ export function createApi(opts: ApiOptions): Api {
     guest: (region, caravanName, replaceGuest) =>
       request("POST", "/auth/guest", authShape, { region, ...(caravanName ? { caravanName } : {}), ...(replaceGuest ? { replaceGuest: true } : {}) }),
     // QA-30 N7: a JSON body, so the request is never a "simple" cross-site POST.
-    resume: () => request("POST", "/auth/resume", authShape, {}, { quiet401: true }),
+    // Final play-test review r3 N10a: `?ifNone=null` asks for 200 `{ session: null }` instead of a 401
+    // when this device is not signed in (no crash-panel noise). An older server ignores it and answers
+    // the 401 `no_device`, which the session still treats as "signed out".
+    resume: () => request("POST", "/auth/resume?ifNone=null", resumeShape, {}, { quiet401: true }),
     account: () => request("GET", "/me/account", accountViewShape),
     linkAccount: (username, password) => request("POST", "/me/account/link", linkResultShape, { username, password }),
     devices: () => request("GET", "/me/devices", devicesShape),

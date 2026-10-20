@@ -87,7 +87,7 @@ describe("InboxScreen", () => {
     expect(card).toHaveTextContent("Earned 180 Coin · +9 Reputation · +6 ladder");
     expect(card).toHaveTextContent("Of that, 120 Coin was unbanked Coin the overrun caravans lost to your party.");
     const first = within(screen.getByTestId("inbox-strike-41"));
-    expect(first.getByText("vs alice (Dusty Wheels), encounter 2 of their trip")).toBeInTheDocument();
+    expect(first.getByText("vs Dusty Wheels, encounter 2 of their trip")).toBeInTheDocument();
     expect(first.getByText("Your party overran the caravan.")).toBeInTheDocument();
     expect(within(screen.getByTestId("inbox-strike-40")).getByText("The caravan held; your party was driven off.")).toBeInTheDocument();
     expect(card).toHaveTextContent("1 more in this hour are counted above");
@@ -181,7 +181,7 @@ describe("InboxScreen", () => {
     await userEvent.click(within(card).getByRole("button", { name: "Show the fights" }));
     expect(inboxStrikes).toHaveBeenCalledWith(497200);
     expect(await within(card).findByTestId("inbox-watch-41")).toBeInTheDocument();
-    expect(within(card).getByText("vs bob (Long Haul), encounter 1 of their trip")).toBeInTheDocument();
+    expect(within(card).getByText("vs Long Haul, encounter 1 of their trip")).toBeInTheDocument();
   });
 
   it("QA D2: when batches fall past the 30th or outside the horizon, the list ends by saying so, with the way to the results feed", async () => {

@@ -35,7 +35,7 @@ import { DEFAULT_HANDLERS } from "../src/jobs/handlers/encounterResolution.js";
 import { drain } from "../src/jobs/worker.js";
 import { COMPACTED_OVER_BUDGET_REASON, NO_LOG_REASON } from "../src/routes/replay.js";
 import { pruneEncounterLogs } from "../src/replay/store.js";
-import { TUNABLES } from "@caravan/content";
+import { TUNABLES, weekBounds } from "@caravan/content";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
 import { TRIP_CAP_REGEN_MS, TRIPS_PER_HOUR_CAP } from "../src/trip/cap.js";
 import { appRolePool, testPool, truncateAll, seasonCaravan, servedNameOf } from "./helpers.js";
@@ -62,6 +62,9 @@ const HEX = /^[0-9a-f]{32}$|^[0-9a-f]{64}$/;
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 const TOKEN_KEYS = new Set(["token"]);
 let FROZEN_MS = 0;
+/** Mid-week of pack-rotation week 40: every store recording is made inside this one fixed week. */
+const STORE_WEEK = 40;
+const STORE_WEEK_MS = weekBounds(STORE_WEEK).startsAtMs + Math.floor(TUNABLES.PACK_ROTATION_PERIOD_MS / 2);
 const FIXED_MS = 1_790_000_000_000;
 /** Durations measured against the database's clock: the value jitters by a few ms run to run. */
 const JITTER_KEYS = /InMs$/;
@@ -284,8 +287,12 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     await record("merge-preview", "POST /me/caravans/:id/merge/preview", await call(p, "POST", `/me/caravans/${p.caravanId}/merge/preview`, { instanceIds: riders.slice(0, 2) }), 200);
     await record("refugees", "GET /me/caravans/:id/refugees", await call(p, "GET", `/me/caravans/${p.caravanId}/refugees`), 200);
     await record("recruit", "GET /me/caravans/:id/recruit", await call(p, "GET", `/me/caravans/${p.caravanId}/recruit`), 200);
+    // The store rotates its packs by calendar week (chunk 20). Its recordings are made inside one
+    // FIXED week, so the fixtures do not change with the date the suite happens to run on.
+    vi.setSystemTime(STORE_WEEK_MS);
     const store = (await record("store", "GET /me/store", await call(p, "GET", "/me/store"), 200)) as { week: { index: number }; offers: { tier: number; contentsHash: string }[] };
     await record("cosmetics", "GET /me/cosmetics", await call(p, "GET", "/me/cosmetics"), 200);
+    vi.setSystemTime(FROZEN_MS);
 
     // The trail: pack, ride out (chunk 15's start), search, read, choose, arrange, commit.
     // Chunk 23 QA S4: a merged veteran rides too, so the de-merge it takes for dying shows a
@@ -376,6 +383,7 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     // not shift the sequence-drawn ids (and so the seeds) of the trail fixtures above: buy
     // tier 1, buy it again (the 200 replay), the purchase list, then equip and unequip the
     // first cosmetic the purchase granted.
+    vi.setSystemTime(STORE_WEEK_MS);
     const tier1 = store.offers.find((o) => o.tier === 1)!;
     const buy = { tier: 1, weekIndex: store.week.index, contentsHash: tier1.contentsHash };
     const bought = (await record("store-purchase", "POST /me/store/purchase", await call(p, "POST", "/me/store/purchase", buy), 201)) as { cosmeticsGranted: string[] };
@@ -385,6 +393,7 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     const granted = bought.cosmeticsGranted[0]!;
     const equipped = (await record("cosmetics-equip", "POST /me/cosmetics/equip", await call(p, "POST", "/me/cosmetics/equip", { cosmeticId: granted }), 200)) as { slot: string };
     await record("cosmetics-unequip", "POST /me/cosmetics/unequip", await call(p, "POST", "/me/cosmetics/unequip", { slot: equipped.slot }), 200);
+    vi.setSystemTime(FROZEN_MS);
 
     // Chunk 22: the replay route, recorded after the storefront for the same reason. A fight
     // the test double resolved has no log: 200, renderable false, no log, said why.

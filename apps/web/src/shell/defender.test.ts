@@ -9,7 +9,8 @@ import { defenderLabel } from "./defender.ts";
 describe("r2 N15: who a standing party struck", () => {
   it("reads a departed defender as a caravan that left the trail, never 'someone (someone)'", () => {
     expect(defenderLabel({ username: null, caravanName: null, departed: true })).toBe("a caravan that has since left the trail");
-    expect(defenderLabel({ username: "dev", caravanName: "Dusty Wheels", departed: false })).toBe("dev (Dusty Wheels)");
+    // r3 N6: a username is never shown when the caravan name is known (the server now sends username: null).
+    expect(defenderLabel({ username: "dev", caravanName: "Dusty Wheels", departed: false })).toBe("Dusty Wheels");
     expect(defenderLabel({ username: null, caravanName: "Dusty Wheels" })).toBe("Dusty Wheels");
     expect(defenderLabel({ username: null, caravanName: null })).toBe("someone");
   });

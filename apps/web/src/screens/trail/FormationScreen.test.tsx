@@ -270,9 +270,25 @@ describe("FormationScreen", () => {
     await user.click(screen.getByText("tap-near-fence"));
     expect(screen.getByTestId("tray-unit-u-rider")).toHaveTextContent("Posted at (13, 13)");
     expect(screen.getByTestId("iso-canvas").getAttribute("data-fences")).toBe("1");
-    // The next unit is selected now; a tap on the segment's own cell cannot place it, so it selects the segment.
+    // The next unit is selected now. Round 3 N3: a tap on the segment's own cell cannot place it, so it
+    // says why and KEEPS the unit selected for the next tap; the segment is not selected instead.
+    const placing = screen.getByTestId("iso-canvas").getAttribute("data-placing");
+    expect(placing).not.toBe("none");
     await user.click(screen.getByText("tap-on-fence"));
-    expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-placing", "none");
+    expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-placing", placing!);
+    expect(screen.getByTestId("drop-refused")).toBeInTheDocument();
+    expect(screen.getByTestId("iso-canvas").getAttribute("data-fences")).toBe("1");
+  });
+
+  it("round 3 N3: with a FENCE segment selected, a tap on another segment still selects that segment", async () => {
+    const user = userEvent.setup();
+    render(screenWith(fakeApi()));
+    await user.click(within(screen.getByTestId("tray-fence-next")).getByRole("button"));
+    await user.click(screen.getByText("tap-ring-3"));
+    // The next segment is auto-selected; a tap on the placed one moves the selection to it, without a refusal.
+    expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-placing", "fence");
+    await user.click(screen.getByText("tap-on-fence"));
+    expect(screen.queryByTestId("drop-refused")).toBeNull();
   });
 
   it("final play-test review r2 N11: 'Start from my last arrangement' says when the last party came from other sides", async () => {
@@ -309,7 +325,8 @@ describe("FormationScreen", () => {
     const why = screen.getByTestId("drop-refused");
     expect(why).toHaveAttribute("data-code", "cell_reserved");
     expect(why).toHaveTextContent("Dust Rider was not placed: That cell is reserved");
-    expect(why).toHaveTextContent("(cell_reserved)");
+    // Round 3 N4: the sentence only on screen; the code stays on the element for support and tests.
+    expect(why).not.toHaveTextContent("(cell_reserved)");
     expect(screen.getByTestId("iso-canvas").getAttribute("data-posts")).toBe("0");
   });
 
@@ -330,7 +347,8 @@ describe("FormationScreen", () => {
     // The taken position is listed but refused, with circle's code.
     const taken = within(screen.getByTestId("placement-picker")).getByRole("option", { name: new RegExp(`Ring position 5 \\(${ring5.x}, ${ring5.y}\\)`) });
     expect(taken).toBeDisabled();
-    expect(taken.textContent).toMatch(/duplicate_segment/);
+    expect(taken.textContent).toMatch(/already holds a segment/);
+    expect(taken.textContent).not.toMatch(/duplicate_segment/); // r3 N4: the sentence only
     await user.click(within(screen.getByTestId("tray-unit-u-rider")).getByRole("button"));
     await user.selectOptions(within(screen.getByTestId("placement-picker")).getByTestId("picker-select"), "12,13");
     await user.click(within(screen.getByTestId("placement-picker")).getByTestId("picker-place"));
@@ -402,7 +420,9 @@ describe("FormationScreen", () => {
     expect(box).toHaveTextContent("living unit Canteen Carrier has no post");
     expect(box).toHaveTextContent("living unit Dust Rider has no post");
     expect(box.textContent).not.toMatch(/u-canteen|u-rider/);
-    expect(box).toHaveTextContent("unit_not_posted");
+    // Round 3 N4: the sentence only; the code stays on the element.
+    expect(box).not.toHaveTextContent("unit_not_posted");
+    expect(box.querySelector("[data-code=unit_not_posted]")).not.toBeNull();
     expect(screen.getByTestId("tray-unit-u-canteen")).toHaveClass("chip--issue");
     await user.click(screen.getByTestId("issue-show-u-canteen"));
     expect(screen.getByTestId("tray-unit-u-canteen")).toHaveClass("chip--selected");

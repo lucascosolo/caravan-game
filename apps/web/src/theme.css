@@ -545,9 +545,12 @@ h2 {
   padding: 0;
   margin: 0.5rem 0;
   display: grid;
+  /* Final play-test review r3 N1: a grid track never grows past the screen for its content's sake. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.5rem;
 }
 .card {
+  min-width: 0;
   background: var(--bg-raised);
   border: 1px solid var(--line);
   border-left-width: 0.375rem;
@@ -571,6 +574,7 @@ h2 {
 }
 .card__head {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 0.5rem;
@@ -685,11 +689,15 @@ h2 {
 }
 .stances__row {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.375rem;
   margin: 0.375rem 0;
 }
 .stances__row .btn {
-  flex: 1;
+  flex: 1 1 4.25rem;
+  min-width: 0;
+  padding-left: 0.375rem;
+  padding-right: 0.375rem;
 }
 .stances__btn--on {
   border-color: var(--accent);

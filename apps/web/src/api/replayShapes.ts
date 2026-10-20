@@ -96,6 +96,8 @@ const settled: Guard<ReplaySettledView> = object({
   deMerged: array(object({ typeId: ID, displayName: NAME, fromLevel: LEVEL, toLevel: LEVEL }), ITEMS),
   destroyed: array(object({ typeId: ID, displayName: NAME, mergeLevel: LEVEL }), ITEMS),
   trip: nullable(object({ ended: boolean(), endReason: nullable(WORD), unbankedCoin: nullable(COIN) })),
+  coinEarned: optional(COIN),
+  coinTransferred: optional(COIN),
 });
 
 const COUNT = integer({ min: 0, max: 10_000 });

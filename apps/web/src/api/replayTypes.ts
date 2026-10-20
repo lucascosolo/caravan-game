@@ -98,6 +98,9 @@ export interface ReplaySettledView {
   readonly destroyed: readonly { readonly typeId: string; readonly displayName: string; readonly mergeLevel: number }[];
   /** The caravan's trip (null for the party's owner): `ended` false = the bank credit and de-merges are not written yet. */
   readonly trip: { readonly ended: boolean; readonly endReason: string | null; readonly unbankedCoin: number | null } | null;
+  /** Final play-test review r3 N5 (additive; absent from older servers): the Coin credited to the VIEWER for this encounter, and the part of it that was an overrun caravan's unbanked Coin. */
+  readonly coinEarned?: number | undefined;
+  readonly coinTransferred?: number | undefined;
 }
 
 /** The end-card tally the server kept when it compacted the log (PHASE-2 §36). */

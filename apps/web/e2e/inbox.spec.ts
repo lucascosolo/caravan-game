@@ -108,7 +108,9 @@ test("a party owner learns of their strikes from the badge, reads them, and watc
   await expect(card).toHaveAttribute("data-unread", "true");
   await expect(card).toContainText("Your party struck 2 caravans");
   await expect(card).toContainText("1 overrun by your party · 1 held out");
-  await expect(card).toContainText(`vs ${defender.username} (${LONG_NAME}), encounter 2 of their trip`);
+  // Final play-test review r3 N6: strangers see the caravan name, never a username.
+  await expect(card).toContainText(`vs ${LONG_NAME}, encounter 2 of their trip`);
+  expect((await card.textContent()) ?? "").not.toContain(`vs ${defender.username}`);
   await expect(card).toContainText("Your party overran the caravan.");
   await expect(card).toContainText("The caravan held; your party was driven off.");
   const text = (await page.getByTestId("inbox-screen").textContent()) ?? "";

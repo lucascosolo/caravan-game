@@ -103,8 +103,8 @@ export function CommitDialog({ manifest, formation, gaps, busy, check, names, on
           <div>{T.confirmRefused}</div>
           <ul className="issues">
             {check.issues.map((i, n) => (
-              <li key={`${i.code}-${n}`}>
-                {humanizeIssue(i, names)} <span className="error__code">{T.issueCode(i.code)}</span>
+              <li key={`${i.code}-${n}`} data-code={i.code}>
+                {humanizeIssue(i, names)}
               </li>
             ))}
           </ul>
