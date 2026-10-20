@@ -623,9 +623,12 @@ export function guidePick(menu: readonly ServedParty[]): ServedParty {
   return menu[p.index]!;
 }
 
-/** The guide's bank-or-push advice after a held fight, as the client gives it: the survivors' stakes and the menu just faced. */
-export function guideAdvice(survivors: Manifest, menuJustFaced: readonly ServedParty[]): ReturnType<typeof pushAdvice> {
-  return pushAdvice(guideStakesOf(survivors), menuJustFaced.map((sp) => scoutParty(sp.party)));
+/**
+ * The guide's bank-or-push advice after a held fight, as the client gives it: the survivors' stakes,
+ * the menu just faced and (final play-test review r4 D1) the encounter just survived, 1-based.
+ */
+export function guideAdvice(survivors: Manifest, menuJustFaced: readonly ServedParty[], encounterIndex = 1): ReturnType<typeof pushAdvice> {
+  return pushAdvice(guideStakesOf(survivors), menuJustFaced.map((sp) => scoutParty(sp.party)), encounterIndex);
 }
 
 /**
