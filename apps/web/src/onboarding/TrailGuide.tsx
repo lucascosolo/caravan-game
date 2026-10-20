@@ -89,28 +89,49 @@ function reasonText(r: rule.AdviceReason, p: StakesPreview): string {
       return G.reasonFence(r.destroyed, r.intact);
     case "ranged_menu":
       return G.reasonRangedMenu(r.parties);
+    case "stakes":
+      return [r.worn ? G.reasonLateWorn : "", r.rangedParties > 0 ? G.reasonLateRanged(r.rangedParties) : ""].filter(Boolean).join(" ");
   }
 }
 
+/** The shared rule on the client's types (@caravan/circle pushAdvice). */
+export function adviceFor(p: StakesPreview, menu: readonly CandidateView[] | null, encounterIndex: number): rule.Advice {
+  return rule.pushAdvice(p, menu ? menu.map((c) => c.scout) : null, encounterIndex);
+}
+
 /**
- * QA D2 / r3 S1: the bank-or-push advice, read off the server's stakes preview and the menu the
- * player just faced (@caravan/circle pushAdvice). Advice only: the player chooses.
+ * QA D2 / r3 S1 / r4 D1: the bank-or-push advice, read off the server's stakes preview and the menu
+ * the player just faced, for the decision after encounter `encounterIndex`. Advice only.
  */
-export function pushAdvice(p: StakesPreview, menu: readonly CandidateView[] | null = null): { readonly kind: "bank"; readonly reasons: readonly string[] } | { readonly kind: "push" } {
-  const a = rule.pushAdvice(p, menu ? menu.map((c) => c.scout) : null);
+export function pushAdvice(p: StakesPreview, menu: readonly CandidateView[] | null = null, encounterIndex = 1): { readonly kind: "bank"; readonly reasons: readonly string[] } | { readonly kind: "push" } {
+  const a = adviceFor(p, menu, encounterIndex);
   return a.kind === "bank" ? { kind: "bank", reasons: a.reasons.map((r) => reasonText(r, p)) } : a;
 }
 
-export function DecideAdvice({ preview, menu = null }: { preview: StakesPreview | null; menu?: readonly CandidateView[] | null }): JSX.Element {
-  if (!preview) return <p className="hint">{G.decideReading}</p>;
-  const a = rule.pushAdvice(preview, menu ? menu.map((c) => c.scout) : null);
+/** The advice's words: encounter 1's copy, or (r4 D1) the stakes-led copy from encounter 2 on. */
+export function adviceText(a: rule.Advice, preview: StakesPreview, encounterIndex: number): string {
   const coin = preview.unbankedCoin.total;
+  if (encounterIndex >= 2) {
+    const standing = preview.units.filter((u) => u.alive).length;
+    if (a.kind === "push") return G.decideAdvisePushLate(encounterIndex, coin, standing);
+    const stakes = a.reasons.find((r): r is Extract<rule.AdviceReason, { kind: "stakes" }> => r.kind === "stakes");
+    const bad = a.reasons.filter((r) => r.kind !== "stakes").map((r) => reasonText(r, preview));
+    const worn = bad.length > 0 ? G.reasonLateWornDetail(bad.join("; ")) : stakes?.worn ? G.reasonLateWorn : "";
+    const why = [worn, stakes && stakes.rangedParties > 0 ? G.reasonLateRanged(stakes.rangedParties) : ""].filter(Boolean).join(" ");
+    return G.decideAdviseBankLate(encounterIndex, why, coin, standing);
+  }
+  if (a.kind === "push") return G.decideAdvisePush(coin);
   // r3 S1: the ranged-menu reason alone is not "badly hurt"; it gets its own lead.
-  const rangedOnly = a.kind === "bank" && a.reasons.every((r) => r.kind === "ranged_menu");
-  const text = a.kind === "push" ? G.decideAdvisePush(coin) : rangedOnly ? G.decideAdviseBankRanged(a.reasons.length > 0 ? reasonText(a.reasons[0]!, preview) : "", coin) : G.decideAdviseBank(a.reasons.map((r) => reasonText(r, preview)).join("; "), coin);
+  if (a.reasons.every((r) => r.kind === "ranged_menu")) return G.decideAdviseBankRanged(a.reasons.length > 0 ? reasonText(a.reasons[0]!, preview) : "", coin);
+  return G.decideAdviseBank(a.reasons.map((r) => reasonText(r, preview)).join("; "), coin);
+}
+
+export function DecideAdvice({ preview, menu = null, encounterIndex = 1 }: { preview: StakesPreview | null; menu?: readonly CandidateView[] | null; encounterIndex?: number }): JSX.Element {
+  if (!preview) return <p className="hint">{G.decideReading}</p>;
+  const a = adviceFor(preview, menu, encounterIndex);
   return (
-    <p data-testid="guide-advice" data-advice={a.kind} data-reasons={a.kind === "bank" ? a.reasons.map((r) => r.kind).join(" ") : ""}>
-      {text}
+    <p data-testid="guide-advice" data-advice={a.kind} data-encounter={encounterIndex} data-reasons={a.kind === "bank" ? a.reasons.map((r) => r.kind).join(" ") : ""}>
+      {adviceText(a, preview, encounterIndex)}
     </p>
   );
 }
@@ -158,7 +179,6 @@ export interface ResultGuideProps {
 
 export function ResultGuide({ encounter, deciding, api, caravanId }: ResultGuideProps): JSX.Element {
   const first = encounter.index <= 1;
-  const title = deciding ? (first ? G.decide1Title : G.decide2Title) : encounter.outcome === "caravan_held" ? G.heldTitle : G.stalemateTitle;
   const [preview, setPreview] = useState<StakesPreview | null>(null);
   const [menu, setMenu] = useState<readonly CandidateView[] | null>(null);
   // r3 S1: the guide advises at EVERY guided decision, reading the stakes and the menu just faced.
@@ -185,13 +205,16 @@ export function ResultGuide({ encounter, deciding, api, caravanId }: ResultGuide
       live = false;
     };
   }, [advise, api, caravanId, encounter.index]);
+  // r4 D1: the deciding card's title follows the advice it shows ("Bank the trip" only over a bank).
+  const advice = advise && preview ? adviceFor(preview, menu, encounter.index).kind : null;
+  const title = deciding ? G.decideTitleFor(advice) : encounter.outcome === "caravan_held" ? G.heldTitle : G.stalemateTitle;
   return (
     <GuideCard title={title} testId="guide-result">
       {!deciding && <p>{G.heldBody}</p>}
       {!deciding && <p>{G.decideIntro}</p>}
       {deciding && first && <p>{G.decideIntro}</p>}
       {deciding && !first && <p>{G.decide2Body}</p>}
-      {advise && <DecideAdvice preview={preview} menu={menu} />}
+      {advise && <DecideAdvice preview={preview} menu={menu} encounterIndex={encounter.index} />}
     </GuideCard>
   );
 }

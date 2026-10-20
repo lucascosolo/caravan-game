@@ -245,7 +245,7 @@ describe("final guardrail review r4 N1: nothing for PUBLIC", () => {
 describe("final guardrail review r4 D1: the suggested party stops at SUGGESTED_PARTY_MAX", () => {
   it("adds roster units up to 5, never cuts a saved party that is already larger", () => {
     expect(TUNABLES.SUGGESTED_PARTY_MAX).toBe(5);
-    const roster = Array.from({ length: 7 }, (_, i) => ({ instanceId: `00000000-0000-4000-8000-00000000000${i}`, unlocked: true }));
+    const roster = Array.from({ length: 7 }, (_, i) => ({ instanceId: `00000000-0000-4000-8000-00000000000${i}`, caravanId: "00000000-0000-4000-8000-0000000000aa", typeId: "desert.dust_rider", unlocked: true }));
     const s = suggestParty({ v: 1, units: [], siege: [] }, roster, () => false);
     expect(s!.units).toHaveLength(5);
     const big = { v: 1 as const, units: roster.slice(0, 6).map((r, i) => ({ ref: r.instanceId, stance: "nearest" as const, edge: "north" as const, cell: { x: 2 + i * 3, y: 0 } })), siege: [] };

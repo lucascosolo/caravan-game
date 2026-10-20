@@ -187,7 +187,7 @@ function ItemBody({ item, api, onWatch }: { readonly item: InboxItemView; readon
           <div className="card__line">{T.strikeEarned(d.coinEarned, d.reputationDelta, d.ladderPointsGained)}</div>
           {d.coinTransferred > 0 && <div className="card__line hint">{T.strikeTransferred(d.coinTransferred)}</div>}
           {d.coinDiscardedAtCap > 0 && <div className="card__line hint">{T.strikeDiscarded(d.coinDiscardedAtCap)}</div>}
-          <div className="card__line hint">{T.strikeWindow(formatWhen(d.windowStartMs), formatWhen(d.windowEndMs))}</div>
+          <div className="card__line hint">{d.windowOpen === true ? T.strikeWindowOpen(formatWhen(d.windowStartMs)) : T.strikeWindow(formatWhen(d.windowStartMs), formatWhen(d.windowEndMs))}</div>
           <StrikeLines itemKey={item.key} detail={d} api={api} onWatch={onWatch} />
           {d.notListed > 0 && <p className="hint">{T.strikeNotListed(d.notListed)}</p>}
         </>
@@ -227,7 +227,7 @@ function ItemBody({ item, api, onWatch }: { readonly item: InboxItemView; readon
       return (
         <>
           <Head title={item.detail.empty ? T.partyChangedEmptyTitle : T.partyChangedTitle} item={item} />
-          <div className="card__line">{T.partyChangedBody(item.detail.reason, item.detail.carriedOver, item.detail.dropped, item.detail.unitsNow)}</div>
+          <div className="card__line">{T.partyChangedBody(item.detail.reason, item.detail.carriedOver, item.detail.dropped, item.detail.unitsNow, item.detail.changes ?? 1)}</div>
         </>
       );
   }

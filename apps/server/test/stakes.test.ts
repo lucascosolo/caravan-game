@@ -734,7 +734,7 @@ describe("the defender's own standing party and a lost instance", () => {
     expect(party.config.units.map((u: { ref: string }) => u.ref)).toEqual([d.b]);
     expect(await levelOf(d.b)).toBe(1);
     const inbox = (await call(d, "GET", "/me/inbox")).json();
-    expect(inbox.items).toEqual(expect.arrayContaining([expect.objectContaining({ category: "party_changed", detail: { reason: "trip_loss", carriedOver: 0, dropped: 1, unitsNow: 1, empty: false } })]));
+    expect(inbox.items).toEqual(expect.arrayContaining([expect.objectContaining({ category: "party_changed", detail: { reason: "trip_loss", carriedOver: 0, dropped: 1, unitsNow: 1, empty: false, changes: 1 } })]));
   });
 
   it("S2: a party whose every unit is destroyed is left empty (valid, not served) and the inbox says it is down", async () => {

@@ -41,7 +41,7 @@ import {
   windowLines,
   mineItem,
   packsItem,
-  partyChangedItem,
+  partyChangedItems,
   refugeeItem,
   strikeItem,
   tripCapItem,
@@ -57,6 +57,8 @@ import {
   INBOX_ITEMIZED_BATCHES,
   INBOX_MAX_MARKS_PER_REQUEST,
   INBOX_MAX_PARTY_CHANGE_ITEMS,
+  INBOX_MAX_PARTY_CHANGE_EVENTS,
+  INBOX_PARTY_CHANGE_COALESCE_MS,
   INBOX_MAX_STRIKE_ITEMS,
   INBOX_MINE_NEAR_CAP_PERCENT,
   INBOX_STRIKES_PER_ITEM,
@@ -320,7 +322,7 @@ async function draftItems(
     const read = await strikeWindows(db, accountId, horizonStartMs(nowMs));
     const itemized = withDetails ? read.windows.slice(0, INBOX_ITEMIZED_BATCHES).map((t) => t.window) : [];
     const lines = await listedStrikes(db, accountId, itemized);
-    for (const t of read.windows) drafts.push(strikeItem(t, itemized.includes(t.window) ? lines : null));
+    for (const t of read.windows) drafts.push(strikeItem(t, itemized.includes(t.window) ? lines : null, INBOX_STRIKE_BATCH_WINDOW_MS, nowMs));
     older = read.older.batchesPastLimit > 0 || read.older.beforeHorizon ? read.older : null;
   }
   if (enabled.has("refugees_arrived")) {
@@ -356,9 +358,11 @@ async function draftItems(
       `SELECT seq::text AS seq, (floor(extract(epoch FROM occurred_at) * 1000))::text AS ms, payload FROM ledger_event
        WHERE account_id = $1 AND event_type = 'standing_party_repaired' AND occurred_at >= to_timestamp($2 / 1000.0)
        ORDER BY seq DESC LIMIT $3`,
-      [accountId, nowMs - INBOX_HORIZON_MS, INBOX_MAX_PARTY_CHANGE_ITEMS],
+      [accountId, nowMs - INBOX_HORIZON_MS, INBOX_MAX_PARTY_CHANGE_EVENTS],
     );
-    for (const r of rows.rows) drafts.push(partyChangedItem({ seq: Number(r.seq), occurredAtMs: Number(r.ms), payload: r.payload }));
+    // r4 N6: a run of changes close together is one notice with the final count.
+    const items = partyChangedItems(rows.rows.map((r) => ({ seq: Number(r.seq), occurredAtMs: Number(r.ms), payload: r.payload })), INBOX_PARTY_CHANGE_COALESCE_MS);
+    drafts.push(...items.slice(0, INBOX_MAX_PARTY_CHANGE_ITEMS));
   }
   return { drafts, older };
 }

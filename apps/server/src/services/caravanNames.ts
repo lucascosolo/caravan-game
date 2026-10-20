@@ -14,7 +14,8 @@ import { AUTHORED_OUTFITS } from "../matchmaking/authoredOutfits.js";
 export const LEGACY_DEFAULT_CARAVAN_NAME = "Caravan";
 
 // Final play-test review r2 N4: 32 × 32 = 1,024 names (was 16 × 16 = 256: 2 of 6 accounts collided).
-const FIRST = [
+/** r4 N11: exported for the test that no two generated names share a first part. */
+export const GENERATED_NAME_FIRST_PARTS: readonly string[] = [
   "Dusty", "Copper", "Red Mesa", "Long Shadow", "Iron Creek", "Sagebrush", "Lone Pine", "Dry Gulch",
   "High Lonesome", "Cottonwood", "Silver Spur", "Rattlesnake", "Painted Rock", "Coyote", "Mesquite", "Thunder Ridge",
   "Juniper", "Iron Rail", "Salt Flat", "Blue Mesa", "Prairie", "Buckskin", "Stagecoach", "Tin Cup",
@@ -29,13 +30,19 @@ const SECOND = [
 
 /** The generated name for a caravan of `accountId` (salt 0) or a re-roll (`salt` > 0). Within CARAVAN_NAME_MAX by construction. */
 export function generatedCaravanName(accountId: string, salt = 0): string {
+  return generatedNameParts(accountId, salt).name;
+}
+
+/** The generated name and its first part ("Red Mesa" of "Red Mesa Freighters"). */
+export function generatedNameParts(accountId: string, salt = 0): { readonly name: string; readonly first: string } {
   const seed = salt === 0 ? accountId.toLowerCase() : `${accountId.toLowerCase()}#${salt}`;
   // A few combinations equal a reserved name (an authored outfit is called "High Lonesome
   // Riders"): step to the next deterministic combination, so a generated name is never reserved.
   for (let k = 0; ; k++) {
     const h = fnv1a32(k === 0 ? seed : `${seed}~${k}`);
-    const name = `${FIRST[h % FIRST.length]!} ${SECOND[(h >>> 8) % SECOND.length]!}`;
-    if (!isReservedCaravanName(name)) return name;
+    const first = GENERATED_NAME_FIRST_PARTS[h % GENERATED_NAME_FIRST_PARTS.length]!;
+    const name = `${first} ${SECOND[(h >>> 8) % SECOND.length]!}`;
+    if (!isReservedCaravanName(name)) return { name, first };
   }
 }
 
@@ -68,6 +75,16 @@ export function isReservedCaravanName(name: string): boolean {
   return RESERVED_CARAVAN_NAMES.has(name.trim().toLowerCase());
 }
 
+/**
+ * Final play-test review r4 N11: another caravan's name already starts with this generated first
+ * part ("Red Mesa Wagon Co." and "Red Mesa Freighters" read as one caravan on a menu). Only the
+ * generated first parts are checked, as a whole word.
+ */
+async function firstPartTaken(db: Queryable, first: string): Promise<boolean> {
+  const res = await db.query("SELECT 1 FROM caravan WHERE lower(name) = lower($1) OR left(lower(name), length($1) + 1) = lower($1) || ' ' LIMIT 1", [first]);
+  return (res.rowCount ?? 0) > 0;
+}
+
 async function nameTaken(db: Queryable, name: string): Promise<boolean> {
   if (isReservedCaravanName(name)) return true;
   const res = await db.query("SELECT 1 FROM caravan WHERE lower(name) = lower($1) LIMIT 1", [name]);
@@ -82,12 +99,17 @@ function hashSuffix(accountId: string, name: string, salt: number, digits: numbe
 /**
  * r2 N4: a caravan name no other caravan carries (case-insensitive), so the inbox, the scout and
  * the strike lines can tell caravans apart. With no requested name: the generated name, re-rolled
- * on a collision. With one (the player's own, or one a client generated): kept, unless another
+ * on a collision, preferring one whose first part no other caravan's name starts with (r4 N11). With one (the player's own, or one a client generated): kept, unless another
  * caravan already carries it — then an ordinal is added ("Dusty Teamsters II"), still within
  * `maxLength`. Best effort, not a constraint: two creations racing on one name may both win.
  */
 export async function uniqueCaravanName(db: Queryable, accountId: string, requested: string | undefined, maxLength: number): Promise<string> {
   if (requested === undefined) {
+    // r4 N11: first a name whose first part no other caravan carries, then any free name.
+    for (let salt = 0; salt <= NAME_REROLLS; salt++) {
+      const g = generatedNameParts(accountId, salt);
+      if (!(await firstPartTaken(db, g.first)) && !(await nameTaken(db, g.name))) return g.name;
+    }
     for (let salt = 0; salt <= NAME_REROLLS; salt++) {
       const name = generatedCaravanName(accountId, salt);
       if (!(await nameTaken(db, name))) return name;

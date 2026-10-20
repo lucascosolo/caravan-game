@@ -124,10 +124,11 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked, onRodeOu
     setLoadError(null);
     setCatalog(null);
     try {
-      const [unlocks, economy, trip] = await Promise.all([api.unlocks(), api.economy(), api.tripStatus(caravanId).catch(() => null)]);
+      const [unlocks, economy, trip] = await Promise.all([api.unlocks(), api.economy(undefined, caravanId), api.tripStatus(caravanId).catch(() => null)]);
       const reached = unlocks.webs.filter((w) => w.pool === "trap").flatMap((w) => w.nodes.filter((n) => n.reached).map((n) => n.id));
-      // The forecast is for the shortest trip: one encounter survived, then banked — both the server's numbers.
-      const shortestTrip = (economy.earn.encounterSchedule[0] ?? 0) + economy.earn.bankedTripBonus;
+      // The forecast is for the shortest trip: one encounter survived, then banked — the server's
+      // number at this caravan's band (r4 N1); the base schedule only if the server sent none.
+      const shortestTrip = economy.earn.caravan?.shortestTrip ?? (economy.earn.encounterSchedule[0] ?? 0) + economy.earn.bankedTripBonus;
       const forecast = await api.economy(shortestTrip);
       setCatalog({ traps: reached.filter((id) => !!getTrapType(id)), fences: reached.filter((id) => !!getFenceTier(id)), forecast, shortestTrip, trip });
     } catch (err) {
@@ -396,7 +397,7 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked, onRodeOu
         </p>
       )}
       <div className="actions">
-        <button type="button" className="btn btn--primary btn--block" disabled={busy || noTrip !== null} onClick={() => setConfirming(true)} data-testid="outfit-ride-out">
+        <button type="button" className="btn btn--primary btn--block" disabled={busy || noTrip !== null || meters.noUnits} onClick={() => setConfirming(true)} data-testid="outfit-ride-out">
           {noTrip !== null ? T.rideOutWaiting(noTrip) : T.rideOut}
         </button>
       </div>

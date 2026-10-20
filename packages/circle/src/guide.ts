@@ -105,7 +105,13 @@ export type AdviceReason =
   | { readonly kind: "none_standing" }
   | { readonly kind: "no_trap" }
   | { readonly kind: "fence"; readonly destroyed: number; readonly intact: number }
-  | { readonly kind: "ranged_menu"; readonly parties: number };
+  | { readonly kind: "ranged_menu"; readonly parties: number }
+  /**
+   * Round 4 D1: past encounter 2 (`encounterIndex >= 2`), the stakes themselves are the reason. `worn`:
+   * the circle has taken any loss (`circleHurt`); `rangedParties`: the menu just faced was every party
+   * ranged-heavy (its size), else 0. At least one of the two holds whenever this reason is given.
+   */
+  | { readonly kind: "stakes"; readonly encounter: number; readonly worn: boolean; readonly rangedParties: number };
 
 export type Advice = { readonly kind: "bank"; readonly reasons: readonly AdviceReason[] } | { readonly kind: "push" };
 
@@ -115,17 +121,25 @@ export function circleHurt(p: StakesLike): boolean {
 }
 
 /**
- * The bank-or-push advice (chunk 24 QA D2; round 3 S1). Bank when the circle is badly hurt — a
- * packed unit still standing is under half its HP, none is standing, or every trap is spent while
- * more fence is broken than stands — OR when the circle is hurt at all and every party in `menu`
- * is ranged-heavy (round 3 S1: ranged parties shoot a hurt circle's posts from outside the fence).
- * Otherwise one push is suggested, to see escalation.
+ * The bank-or-push advice (chunk 24 QA D2; round 3 S1; round 4 D1), for the decision after surviving
+ * encounter `encounterIndex` (1-based; the default 1 is the first decision).
+ *
+ * Every encounter: bank when the circle is badly hurt — a packed unit still standing is under half
+ * its HP, none is standing, or every trap is spent while more fence is broken than stands.
+ *
+ * Encounter 1: also bank when the circle is hurt at all and every party in `menu` is ranged-heavy
+ * (round 3 S1: ranged parties shoot a hurt circle's posts from outside the fence). Otherwise push.
+ *
+ * Encounter 2 and later (round 4 D1): push ONLY when the circle is unhurt (`!circleHurt`) and the
+ * menu is not ranged-heavy (not every party in it is ranged-heavy; a null or empty menu is not).
+ * Otherwise bank, with a `stakes` reason (last) saying which of the two failed; the client states
+ * the unbanked Coin and the units at stake. The `ranged_menu` reason is encounter 1's only.
  *
  * `menu` is the best reading of what the next search serves that the player has: the client passes
  * the menu of the encounter just fought (the next search is centred one escalation step above it).
- * Null or empty: the ranged rule does not apply. Advice only: the player chooses.
+ * Advice only: the player chooses.
  */
-export function pushAdvice(p: StakesLike, menu: readonly ScoutPartyLike[] | null = null): Advice {
+export function pushAdvice(p: StakesLike, menu: readonly ScoutPartyLike[] | null = null, encounterIndex = 1): Advice {
   const reasons: AdviceReason[] = [];
   const alive = p.units.filter((u) => u.alive);
   for (const u of alive) if (u.hp * 2 < u.maxHp) reasons.push({ kind: "hurt", ref: u.ref, hp: u.hp, maxHp: u.maxHp });
@@ -133,6 +147,10 @@ export function pushAdvice(p: StakesLike, menu: readonly ScoutPartyLike[] | null
   const trapsGone = p.traps.remaining.length === 0 && p.traps.spent.length > 0;
   const fenceGone = p.fences.destroyed.length > p.fences.intact.length;
   if (trapsGone && fenceGone) reasons.push({ kind: "no_trap" }, { kind: "fence", destroyed: p.fences.destroyed.length, intact: p.fences.intact.length });
-  if (menu && menu.length > 0 && menu.every(isRangedHeavy) && circleHurt(p)) reasons.push({ kind: "ranged_menu", parties: menu.length });
+  const heavy = !!menu && menu.length > 0 && menu.every(isRangedHeavy);
+  const worn = circleHurt(p);
+  if (encounterIndex >= 2) {
+    if (worn || heavy) reasons.push({ kind: "stakes", encounter: encounterIndex, worn, rangedParties: heavy ? menu!.length : 0 });
+  } else if (heavy && worn) reasons.push({ kind: "ranged_menu", parties: menu!.length });
   return reasons.length > 0 ? { kind: "bank", reasons } : { kind: "push" };
 }

@@ -252,11 +252,13 @@ test("a fresh account: register, the first screen, a refugee, the first trip gui
   await expect(page.getByTestId("guide-result")).toContainText("Your caravan held");
   await page.getByTestId("to-decision").click();
   await expect(page.getByTestId("bank-or-push")).toBeVisible();
-  await expect(page.getByTestId("guide-result")).toContainText("Bank or push");
   // QA D2: a recommendation from the server's preview, never "this first trip pushes once".
   const advice = page.getByTestId("guide-advice");
   await expect(advice).toBeVisible();
-  console.log(`onboarding e2e: encounter-1 advice: ${await advice.getAttribute("data-advice")}`);
+  const advice1 = await advice.getAttribute("data-advice");
+  console.log(`onboarding e2e: encounter-1 advice: ${advice1}`);
+  // Round 4 D1: the card's title follows the advice it shows.
+  await expect(page.getByTestId("guide-result").getByRole("heading")).toHaveText(advice1 === "bank" ? "Bank the trip" : "Bank or push");
   await expect(page.getByTestId("bank-or-push").getByTestId("stake-unbanked")).toBeVisible();
   await copyIsTheRightWayRound(page);
   await atWidths(page);
@@ -294,6 +296,13 @@ test("a fresh account: register, the first screen, a refugee, the first trip gui
   await expect(page.getByTestId("encounter-result-2").getByTestId("result-outcome")).toHaveText("The caravan held.");
   await page.getByTestId("to-decision").click();
   await expect(page.getByTestId("guide-result")).toContainText("that ends the first trip");
+  // Round 4 D1: from encounter 2 the advice pushes only an unhurt circle; the double's circle is worn
+  // (each post lost 150 HP), so the guide says bank, states the stakes, and the title agrees.
+  await expect(page.getByTestId("guide-advice")).toHaveAttribute("data-advice", "bank");
+  await expect(page.getByTestId("guide-advice")).toHaveAttribute("data-encounter", "2");
+  await expect(page.getByTestId("guide-advice")).not.toContainText("One push shows how encounters escalate");
+  await expect(page.getByTestId("guide-advice")).toContainText("At stake if you push");
+  await expect(page.getByTestId("guide-result").getByRole("heading")).toHaveText("Bank the trip");
   await page.getByTestId("bank-open").click();
   await page.getByRole("dialog", { name: "Bank the trip?" }).getByTestId("bank-confirm").click();
   const summary = page.getByTestId("trip-summary");

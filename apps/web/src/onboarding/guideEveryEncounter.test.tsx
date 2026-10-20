@@ -7,11 +7,13 @@ import { TUNABLES } from "@caravan/content";
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { CandidateView } from "../api/types.ts";
+import type { StakesPreview } from "../api/tripTypes.ts";
 import { CandidateCard } from "../screens/trail/CandidatesScreen.tsx";
 import { fixtureCandidate } from "../screens/trail/scoutFixture.ts";
 import { CARAVAN_ID } from "../test/fixtures.ts";
 import { fakeApi } from "../test/townFixtures.ts";
 import { previewAfter1, statusDecide } from "../test/tripFixtures.ts";
+import { STRINGS } from "../strings.ts";
 import { ResultGuide, ScoutGuide } from "./TrailGuide.tsx";
 
 const M = TUNABLES.ATTACK_RANGE_MELEE_DEFAULT;
@@ -72,5 +74,64 @@ describe("round 3 S1: the guide at every guided encounter", () => {
     const advice = await screen.findByTestId("guide-advice");
     await new Promise((r) => setTimeout(r, 20));
     expect(advice).toHaveAttribute("data-advice", "push");
+  });
+});
+
+describe("round 4 D1: from encounter 2 the advice reads the stakes, and the card's title follows it", () => {
+  const G = STRINGS.guide;
+  const whole = (): StakesPreview => {
+    const p = previewAfter1();
+    return {
+      ...p,
+      units: p.units.map((u) => ({ ...u, hp: u.maxHp, alive: true })),
+      traps: { ...p.traps, remaining: [...p.traps.remaining, ...p.traps.spent], spent: [] },
+      fences: { ...p.fences, intact: [...p.fences.intact, ...p.fences.destroyed.map((f) => ({ ...f, hp: f.maxHp }))], destroyed: [] },
+      unbankedCoin: { ...p.unbankedCoin, total: 900 },
+    };
+  };
+  const scratched = () => {
+    const p = whole();
+    return { ...p, units: p.units.map((u, i) => (i === 0 ? { ...u, hp: Math.max(1, u.maxHp - 50) } : u)) };
+  };
+  async function decide(index: number, preview: StakesPreview, menu: CandidateView[]) {
+    const api = fakeApi({ tripPreview: vi.fn(async () => preview), candidates: vi.fn(async () => ({ menu: { candidates: menu } as never })) });
+    const enc = { ...statusDecide().trip!.encounters[0]!, index };
+    const view = render(<ResultGuide encounter={enc} deciding api={api} caravanId={CARAVAN_ID} />);
+    const advice = await screen.findByTestId("guide-advice");
+    await new Promise((r) => setTimeout(r, 20));
+    const kind = advice.getAttribute("data-advice") as "bank" | "push";
+    // The CI pin: the card's title is the one for the advice it shows.
+    expect(within(screen.getByTestId("guide-result")).getByRole("heading")).toHaveTextContent(G.decideTitleFor(kind));
+    const out = { kind, text: advice.textContent ?? "", reasons: advice.getAttribute("data-reasons") };
+    view.unmount();
+    return out;
+  }
+
+  it("an unhurt circle against a menu that fights up close is advised to push, without the encounter-1 escalation line", async () => {
+    for (const n of [2, 3]) {
+      const a = await decide(n, whole(), [rattler, cistern]);
+      expect(a.kind).toBe("push");
+      expect(a.text).not.toContain("One push shows how encounters escalate");
+      expect(a.text).toContain(`encounter ${n} unhurt`);
+    }
+  });
+
+  it("a scratched circle, or a menu of shooters, is advised to bank, with the unbanked Coin and the units at stake", async () => {
+    const units = whole().units.length;
+    const hurt = await decide(2, scratched(), [rattler, cistern]);
+    expect(hurt).toMatchObject({ kind: "bank", reasons: "stakes" });
+    expect(hurt.text).toContain("the 900 unbanked Coin");
+    expect(hurt.text).toContain(`the ${units} units still standing`);
+    expect(hurt.text).toContain("Your circle has taken losses.");
+    const shooters = await decide(3, whole(), [rattler, claim]);
+    expect(shooters).toMatchObject({ kind: "bank", reasons: "stakes" });
+    expect(shooters.text).toContain("Every one of the 2 parties you were just offered");
+    expect(shooters.text).not.toContain("taken losses");
+  });
+
+  it("encounter 1 keeps its advice and its copy, under the matching title", async () => {
+    const a = await decide(1, scratched(), [rattler, cistern]);
+    expect(a.kind).toBe("push");
+    expect(a.text).toContain("One push shows how encounters escalate");
   });
 });

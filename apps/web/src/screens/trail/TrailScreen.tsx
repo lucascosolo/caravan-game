@@ -34,6 +34,7 @@ import { RecentFights } from "../replay/RecentFights.tsx";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { FormationScreen } from "./FormationScreen.tsx";
 import { ResolvingScreen } from "./ResolvingScreen.tsx";
+import { rememberCommitted, takeCommitted } from "./committedFight.ts";
 import { TripSummary } from "./TripSummary.tsx";
 import { encounterFromCandidate, type ScoutedEncounter } from "./scoutTypes.ts";
 import { useOnboarding } from "../../onboarding/OnboardingProvider.tsx";
@@ -132,7 +133,10 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
           const balance = await Promise.resolve()
             .then(() => api.economy())
             .then((e) => e.balance, () => null);
-          const autoplay = committedJustNow.current && trip.endReason !== "banked";
+          // r4 N5: also a fight committed on this device whose replay never opened (a reload mid-resolve).
+          const last = trip.encounters[trip.encounters.length - 1];
+          const remembered = last ? takeCommitted(trip.manifestId, last.index) : false;
+          const autoplay = (committedJustNow.current || remembered) && trip.endReason !== "banked";
           committedJustNow.current = false;
           setState({ kind: "ended", trip, past: openSeen.current !== trip.id, balance, autoplay });
         }
@@ -151,7 +155,7 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
       if (trip.phase === "decide") {
         const encounter = trip.encounters.find((e) => e.index === trip.decisionFor);
         if (!encounter) throw new ApiError(0, "bad_payload", STRINGS.app.badPayload, `GET trip: no encounter ${String(trip.decisionFor)} to decide`);
-        const autoplay = committedJustNow.current;
+        const autoplay = takeCommitted(trip.manifestId, encounter.index) || committedJustNow.current;
         committedJustNow.current = false;
         setState({ kind: "decide", caravanId: caravan.id, tripId: trip.id, encounter, autoplay });
         return;
@@ -407,6 +411,7 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
             scout={state.scout}
             onCommitted={() => {
               committedJustNow.current = true;
+              rememberCommitted(state.trip.id, state.encounterIndex);
               void load();
             }}
             onStaleMenu={() => staleMenu(state.caravanId, state.encounterIndex)}

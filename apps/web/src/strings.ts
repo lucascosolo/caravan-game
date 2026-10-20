@@ -7,7 +7,12 @@
  * It never gives the player an instance. Any string that could read as "you get a unit"
  * is a legibility failure — keep "access" in the sentence.
  */
+import { TUNABLES } from "@caravan/content";
 import type { UnlockPool } from "./api/types.ts";
+
+/** Final play-test review r4 N3: the authored-only phase in words, read off the server's tunable. */
+const AUTHORED_BANKS: number = TUNABLES.AUTHORED_ONLY_UNTIL_BANKS;
+const authoredUntil = `you meet only these until you have banked ${AUTHORED_BANKS} trip${AUTHORED_BANKS === 1 ? "" : "s"}, then other players' standing parties too`;
 
 /** What a node grants, for the kind-aware copy. Mirrors catalogue.ts's GrantKind. */
 export type GrantKindKey = "unit" | "trap" | "fence" | "siege";
@@ -45,8 +50,6 @@ export const STRINGS = {
     regionHint: "Permanent: chosen once for this caravan and never swapped. It decides which living units your caravan can ever unlock.",
     // Final play-test review N4 / N8.
     regionStarters: (list: string): string => `Starts with: ${list}.`,
-    nameFirst: ["Dusty", "Copper", "Lone Pine", "Red Mesa", "Silver Creek", "Sagebrush", "Iron Rail", "Juniper", "Big Sky", "Whetstone"],
-    nameSecond: ["Freighters", "Outfit", "Wagon Co.", "Haulers", "Company", "Train", "Teamsters", "Drovers"],
     working: "Working…",
     // Chunk 30: first launch is guest-first — no username or password until the player wants one.
     start: "Start your caravan",
@@ -1157,9 +1160,10 @@ export const STRINGS = {
         ? "The raiding party's owner took no loot from this fight. Any unbanked Coin your caravan lost is itemized under what it settled: an authored outfit keeps nothing, so it is lost to the trail."
         : `Loot reported for the raiding party's owner: ${coin} Coin.`,
     /** N7: an authored outfit keeps nothing; on an overrun the caravan's unbanked Coin is simply gone. */
+    /** r4 N2: `lost` is the settled amount (0 when the settled fight lost none), null when not settled yet. */
     lootCaravanAuthored: (overrun: boolean, lost: number | null): string =>
       overrun
-        ? `This was an authored outfit: it keeps nothing. ${lost !== null && lost > 0 ? `Your ${lost} unbanked Coin was lost to the trail.` : "Your unbanked Coin was lost to the trail."}`
+        ? `This was an authored outfit: it keeps nothing. ${lost === null ? "Any unbanked Coin your caravan carried was lost to the trail." : lost > 0 ? `Your ${lost} unbanked Coin was lost to the trail.` : "No unbanked Coin was lost: there was none yet."}`
         : "This was an authored outfit: it keeps nothing, whatever the fight.",
     lootOwner: (coin: number): string => `Your party's loot from this fight: ${coin} Coin, as reported.`,
     /** Final play-test review r3 N5: the credited total, and the overrun caravan's Coin as its own line. */
@@ -1299,6 +1303,8 @@ export const STRINGS = {
     // party strikes (batched per hour)
     strikeTitle: (count: number): string => (count === 1 ? "Your party struck a caravan" : `Your party struck ${count} caravans`),
     strikeWindow: (from: string, to: string): string => `Between ${from} and ${to}`,
+    /** r4 N8: a window still open at this read. */
+    strikeWindowOpen: (from: string): string => `Since ${from}`,
     strikeOutcomes: (overran: number, held: number, stalemate: number, other: number): string =>
       [
         overran > 0 ? `${overran} overrun by your party` : null,
@@ -1351,8 +1357,9 @@ export const STRINGS = {
     // standing party changed (final play-test review S2)
     partyChangedTitle: "Your standing party changed",
     partyChangedEmptyTitle: "Your standing party is down: no units to send",
-    partyChangedBody: (reason: "merge" | "trip_loss", carried: number, dropped: number, now: number): string =>
-      `${reason === "merge" ? "A merge used units from your party." : "Units from your party were lost on your trip."}${carried > 0 ? ` ${carried} ${carried === 1 ? "slot moved" : "slots moved"} to the merged unit.` : ""}${dropped > 0 ? ` ${dropped} ${dropped === 1 ? "slot was" : "slots were"} dropped.` : ""} ${now === 0 ? "It is not served until you add a unit." : `It now fields ${now} ${now === 1 ? "unit" : "units"}.`}`,
+    /** r4 N6: `changes` > 1 when several changes close together are one notice. */
+    partyChangedBody: (reason: "merge" | "trip_loss", carried: number, dropped: number, now: number, changes = 1): string =>
+      `${reason === "merge" ? (changes > 1 ? `${changes} merges used units from your party.` : "A merge used units from your party.") : "Units from your party were lost on your trip."}${carried > 0 ? ` ${carried} ${carried === 1 ? "slot moved" : "slots moved"} to the merged unit.` : ""}${dropped > 0 ? ` ${dropped} ${dropped === 1 ? "slot was" : "slots were"} dropped.` : ""} ${now === 0 ? "It is not served until you add a unit." : `It now fields ${now} ${now === 1 ? "unit" : "units"}.`}`,
     openParty: "Open the party",
     // preferences (per-category opt-out)
     prefsHeading: "What to show here",
@@ -1404,6 +1411,8 @@ export const STRINGS = {
     welcomeSaving: "Starting…",
     // ── town: the roster, then the outfit ──
     rosterTitle: "Take a refugee",
+    /** r4 N9: the roster step's button to the Refugees panel below the card. */
+    rosterShowMe: "Show me the refugees",
     rosterBody:
       "Your caravan starts with its starting roster: its region's starter units, the same for every caravan. More units come from the Refugees panel in town: three offers drawn from the types you can use, a fresh menu every so often, and taking one is free. Take one now.",
     outfitTitle: "Pack the caravan and ride out",
@@ -1415,7 +1424,7 @@ export const STRINGS = {
     onTrailBody: "The first trip waits for you on the Trail tab. Nothing happens to it while you look around.",
     // ── trail: scouting ──
     searchTitle: "Encounter 1: find who is coming",
-    searchBody: "Search to be served three raiding parties. On this first trip they are authored outfits, labelled as such and kept fair for a new caravan. From your next trip on you also meet other players' standing parties; their owners are never there.",
+    searchBody: `Search to be served three raiding parties. On this first trip they are authored outfits, labelled as such and kept fair for a new caravan; ${authoredUntil}. Their owners are never there.`,
     scoutTitle: "Scout before you choose",
     scoutBody: "Each party below leads with a summary: its raiders by stance, how many shoot from range, their total HP, its siege and the sides they come from. Tap Full scouting report for every unit, its HP, its ability and its start cell. Nothing is hidden. Compare the three, then choose the one you will face.",
     /** Final play-test review N13: the how-to-read body sits one tap away so the parties start on the first screen. */
@@ -1474,7 +1483,6 @@ export const STRINGS = {
     overrunDeMerged: (names: string): string => `Fell in the fighting and come home a level lower (never below level 1): ${names}.`,
     overrunCoin: (coin: number): string => (coin > 0 ? `Unbanked Coin lost: ${coin}.` : "No unbanked Coin was lost: there was none yet."),
     overrunGeneric: "Units still standing when the caravan fell are lost; units that fell earlier come home a level lower (never below level 1). Unbanked Coin is lost.",
-    decide1Title: "Bank or push",
     decideIntro: "You survived, so you choose. Bank: the trip ends and everything comes home. Push: face the next encounter with what is left, for more Coin against a harder party. Every stake is itemized on the next screen before you choose.",
     /** QA D2: the guide reads the server's stakes and recommends; it never insists. */
     decideReading: "Reading what is at stake…",
@@ -1485,6 +1493,20 @@ export const STRINGS = {
       `Think before pushing: ${reason}. Pushing risks ${coin > 0 ? `the ${coin} unbanked Coin` : "this trip's Coin"} and every unit still standing. The guide suggests banking this time; your call.`,
     decideAdvisePush: (coin: number): string =>
       `Your circle came through in fair shape. One push shows how encounters escalate: the next party is harder and pays more. Pushing risks ${coin > 0 ? `the ${coin} unbanked Coin` : "this trip's Coin"} and the units you packed; banking keeps them. Your call.`,
+    /**
+     * Round 4 D1: the advice from encounter 2 on. It never repeats "one push shows how encounters
+     * escalate"; a push is suggested only for an unhurt circle against a menu that is not mostly
+     * shooters, and a bank always says what is at stake.
+     */
+    decideAdvisePushLate: (encounter: number, coin: number, units: number): string =>
+      `Your circle came through encounter ${encounter} unhurt, and the parties you were just offered are not mostly shooters. The next party is harder and pays more. Pushing risks ${coin > 0 ? `the ${coin} unbanked Coin` : "this trip's Coin"} and ${units === 1 ? "your 1 unit" : `your ${units} units`} still standing; banking keeps them. Your call.`,
+    decideAdviseBankLate: (encounter: number, why: string, coin: number, units: number): string =>
+      `You have come through encounter ${encounter}. At stake if you push: ${coin > 0 ? `the ${coin} unbanked Coin` : "this trip's Coin"} and ${units === 1 ? "the 1 unit" : `the ${units} units`} still standing, against a harder party, with nothing repaired. ${why} The guide suggests banking now; your call.`,
+    reasonLateWorn: "Your circle has taken losses.",
+    reasonLateWornDetail: (details: string): string => `Your circle has taken losses: ${details}.`,
+    reasonLateRanged: (n: number): string => `Every one of the ${n} parties you were just offered is mostly raiders that shoot from range, which can hit your posts from outside the fence.`,
+    /** Round 4 D1: the card's title follows the advice it shows. */
+    decideTitleFor: (advice: "bank" | "push" | null): string => (advice === "bank" ? "Bank the trip" : "Bank or push"),
     reasonHurt: (name: string, hp: number, max: number): string => `${name} is at ${hp} of ${max} HP`,
     reasonNoneStanding: "no packed unit is still standing",
     reasonNoTrap: "no trap is left to lay",
@@ -1499,11 +1521,10 @@ export const STRINGS = {
     assistAdviceTitle: "The guide's reading",
     /** Round 3: the guided steps come back at every guided encounter, read off this party and what is left. */
     freeBody: "Search and scout as before. Once you choose, the guide's steps are under the circle again, read off that party and what your caravan has left: what broke or was spent earlier is still broken or spent. Use them, or arrange the circle yourself.",
-    decide2Title: "Bank the trip",
     decide2Body: "Banking now makes the Coin you carried safe in town for good and brings your units home; that ends the first trip. Pushing on is allowed too, at the stakes shown below.",
     // ── after the trip: the passive side ──
     partyTitle: "Whose parties you just fought",
-    partyBody: "The parties on your first trip were authored outfits, there to learn on. From your next trip on you also meet other players' standing parties: their owners are never there and lose nothing. Yours works the same way: it is served into other players' trips while you are away, and you read afterwards how it did.",
+    partyBody: `The parties on your first trip were authored outfits; ${authoredUntil}. Their owners are never there and lose nothing. Yours works the same way: it is served into other players' trips while you are away, and you read afterwards how it did.`,
     partyOverrun: "Your first trip was overrun. That happens, and the stakes were itemized before you chose to push. Ride out again when you have a unit and a trip available.",
     /** An encounter-1 overrun: the player made no stake choice yet (QA S2). */
     partyOverrunFirst: "Your first fight was lost. That happens: fights are real. Ride out again when you have a unit and a trip available.",
@@ -1514,8 +1535,8 @@ export const STRINGS = {
     voidedBody: (encounter: number, survived: number): string =>
       `Encounter ${encounter} could not be resolved on the server, so nothing of that fight was applied. The trip ended as a bank after ${survived === 0 ? "no survived encounter: nothing was credited and nothing was lost" : survived === 1 ? "the 1 encounter you survived" : `the ${survived} encounters you survived`}. The ride still used one of your trips for the hour.`,
     /** A trip that ended at its first fight: one party faced, not several. */
-    partyBodyOne: "The party you just faced was an authored outfit, there to learn on. From your next trip on you also meet other players' standing parties: their owners are never there and lose nothing. Yours works the same way: it is served into other players' trips while you are away, and you read afterwards how it did.",
-    partyBodyNoFight: "Your first trip meets authored outfits; after it you also meet other players' standing parties. Their owners are never there and lose nothing. Yours works the same way: it is served into other players' trips while you are away, and you read afterwards how it did.",
+    partyBodyOne: `The party you just faced was an authored outfit; ${authoredUntil}. Their owners are never there and lose nothing. Yours works the same way: it is served into other players' trips while you are away, and you read afterwards how it did.`,
+    partyBodyNoFight: `Your first trips meet authored outfits; ${authoredUntil}. Their owners are never there and lose nothing. Yours works the same way: it is served into other players' trips while you are away, and you read afterwards how it did.`,
     partyRaise: "Raise my party from my roster",
     partyRaising: "Raising…",
     partyRaised: (n: number): string => `Your standing party is up: ${n === 1 ? "1 unit" : `${n} units`} from your roster, ready to be served. It is a template; it never loses a unit.`,

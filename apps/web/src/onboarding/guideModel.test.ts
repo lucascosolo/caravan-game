@@ -9,6 +9,7 @@ import { prefillParty, stepForFacts } from "./ShellGuide.tsx";
 import { ONBOARDING_STEPS } from "./steps.ts";
 import { isRangedOnly, pushAdvice, showsAt, smallestCandidate, stepForMoment } from "./TrailGuide.tsx";
 import { TUNABLES } from "@caravan/content";
+import { raiseStance, raiseUnits, starterEdges } from "@caravan/circle";
 import type { CandidateView } from "../api/types.ts";
 import { STRINGS } from "../strings.ts";
 import { previewAfter1 } from "../test/tripFixtures.ts";
@@ -107,7 +108,7 @@ describe("the guide's step model (chunk 24)", () => {
     for (const s of Object.values(STRINGS.guide)) if (typeof s === "string") expect(s).not.toMatch(/pushes once/);
   });
 
-  it("pre-fills the standing party from the roster with the builder's defaults, never past the cap, never a locked type", () => {
+  it("pre-fills the standing party from the roster with the shared raise rule, never past the cap, never a locked type", () => {
     const view = expectShape(partyShape, partyJson.body).party;
     // A party that already fields every unlocked roster unit: nothing to add.
     const full = { ...view, config: { ...view.config, units: prefillParty({ ...view, config: { ...view.config, units: [] } })!.units } };
@@ -122,7 +123,11 @@ describe("the guide's step model (chunk 24)", () => {
     const empty = { ...view, config: { ...view.config, units: [] } };
     const filled = prefillParty(empty)!;
     expect(filled.units.map((u) => u.ref)).toEqual(view.roster.filter((r) => r.unlocked).map((r) => r.instanceId).slice(0, Math.min(view.caps.units, TUNABLES.SUGGESTED_PARTY_MAX)));
-    expect(filled.units.every((u) => u.stance === "nearest" && u.edge === "north")).toBe(true);
+    // r4 D2: the shared raise rule (@caravan/circle raiseUnits): the caravan's two starter edges, alternating; stance by role.
+    expect(filled.units).toEqual(raiseUnits({ ...empty.config, units: [] }, empty.roster, Math.min(view.caps.units, TUNABLES.SUGGESTED_PARTY_MAX)));
+    const [a, b] = starterEdges(empty.roster[0]!.caravanId);
+    expect(filled.units.map((u) => u.edge)).toEqual(filled.units.map((_, i) => (i % 2 === 0 ? a : b)));
+    expect(filled.units.map((u) => u.stance)).toEqual(filled.units.map((u) => raiseStance(empty.roster.find((r) => r.instanceId === u.ref)!.typeId)));
     const locked = { ...empty, roster: empty.roster.map((r) => ({ ...r, unlocked: false })) };
     expect(prefillParty(locked)).toBeNull();
     const capped = { ...empty, caps: { ...empty.caps, units: 1 } };
