@@ -5,32 +5,14 @@
     "window": 1,
     "strikes": [
       {
-        "seq": 3,
+        "seq": 2,
         "occurredAt": "2026-10-11T12:00:00.000Z",
         "jobId": "encounter:00000000-0000-4000-8000-000000000001:1",
         "encounterIndex": 1,
         "outcomeKind": "caravan_held",
         "defender": {
-          "username": "contract_voider",
-          "caravanName": "Bitter Creek Post",
-          "regionId": "desert",
-          "departed": false
-        },
-        "coinEarned": 212,
-        "coinTransferred": 0,
-        "coinDiscardedAtCap": 0,
-        "reputationDelta": 0,
-        "ladderPointsGained": 10
-      },
-      {
-        "seq": 2,
-        "occurredAt": "2026-10-11T12:00:01.000Z",
-        "jobId": "encounter:00000000-0000-4000-8000-000000000002:1",
-        "encounterIndex": 1,
-        "outcomeKind": "caravan_held",
-        "defender": {
-          "username": "contract_viewer",
-          "caravanName": "Big Sky Outfit",
+          "username": null,
+          "caravanName": "Sagebrush Trail Crew",
           "regionId": "desert",
           "departed": false
         },
@@ -42,12 +24,12 @@
       },
       {
         "seq": 1,
-        "occurredAt": "2026-10-11T12:00:02.000Z",
-        "jobId": "encounter:00000000-0000-4000-8000-000000000003:1",
+        "occurredAt": "2026-10-11T12:00:01.000Z",
+        "jobId": "encounter:00000000-0000-4000-8000-000000000002:1",
         "encounterIndex": 1,
         "outcomeKind": "caravan_held",
         "defender": {
-          "username": "contract_player",
+          "username": null,
           "caravanName": "Iron Rail Haulers",
           "regionId": "desert",
           "departed": false

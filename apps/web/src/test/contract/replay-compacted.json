@@ -71,6 +71,8 @@
       "source": "ledger",
       "applied": true,
       "coin": [],
+      "coinEarned": 0,
+      "coinTransferred": 0,
       "coinLost": null,
       "reputation": [
         {
@@ -121,8 +123,8 @@
       ]
     },
     "stored": {
-      "rawBytes": 4098,
-      "storedBytes": 1229,
+      "rawBytes": 4097,
+      "storedBytes": 1228,
       "encoding": null,
       "sha256": "a000000000000000000000000000000000000000000000000000000000000002",
       "contentHash": "a000000000000000000000000000000000000000000000000000000000000003",

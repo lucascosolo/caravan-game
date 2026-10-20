@@ -6,7 +6,7 @@
       "tripId": "00000000-0000-4000-8000-000000000001",
       "encounterIndex": 1,
       "searchSeq": 1,
-      "seed": 1920163157,
+      "seed": 1238086642,
       "caravan": {
         "rating": 400,
         "ratingPool": "living",
@@ -27,7 +27,12 @@
           "high": 399
         }
       },
-      "raiderCap": null,
+      "raiderCap": {
+        "packedUnits": 3,
+        "cap": 3,
+        "relaxed": false,
+        "excluded": 0
+      },
       "authoredOnlyTrip": false,
       "caravanLoadout": {
         "fences": [

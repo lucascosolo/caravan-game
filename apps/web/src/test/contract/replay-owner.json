@@ -36,6 +36,8 @@
           "discarded": 0
         }
       ],
+      "coinEarned": 172,
+      "coinTransferred": 0,
       "coinLost": null,
       "reputation": [],
       "ladder": [

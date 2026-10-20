@@ -315,6 +315,11 @@
       "tripLength": [
         {
           "endReason": "banked",
+          "encounters": 0,
+          "trips": 28
+        },
+        {
+          "endReason": "banked",
           "encounters": 1,
           "trips": 2
         },
