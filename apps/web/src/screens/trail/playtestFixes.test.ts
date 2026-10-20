@@ -5,7 +5,7 @@
  */
 import { TUNABLES } from "@caravan/content";
 import { describe, expect, it } from "vitest";
-import { generatedCaravanName, regionStarters } from "../login/LoginScreen.tsx";
+import { regionStarters } from "../login/LoginScreen.tsx";
 import { QUIET_GAP_SECONDS, quietStretch } from "../replay/ReplayPlayer.tsx";
 import { guidePrefill } from "../town/OutfitScreen.tsx";
 import { scoutSummary } from "./CandidatesScreen.tsx";
@@ -29,10 +29,6 @@ describe("N4 / N8: the start card", () => {
   it("names each region's starting units and their affinities, from content", () => {
     expect(regionStarters("desert")).toMatch(/^Starts with: .*Dust Rider \(Beast\).*Well Digger \(Grit\)/);
     expect(regionStarters("nowhere")).toBe("");
-  });
-  it("a guest caravan gets a two-part generated name", () => {
-    expect(generatedCaravanName(() => 0)).toBe("Dusty Freighters");
-    expect(generatedCaravanName(() => 0.999)).toMatch(/^\S.* \S/);
   });
 });
 

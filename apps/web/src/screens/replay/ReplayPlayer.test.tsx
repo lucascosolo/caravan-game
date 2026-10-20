@@ -370,6 +370,13 @@ describe("a golden log with traps, fence breaks and abilities plays through the 
     expect(screen.getByTestId("replay-settled")).toHaveTextContent(STRINGS.replay.settledNotYet);
   });
 
+  it("final play-test review r4 N2: an overrun by an authored outfit that cost no Coin says so on the end card", async () => {
+    const base = goldenView("combat-full-load-16v8v28");
+    await renderPlayer({ ...base, opponent: { authored: true }, settled: { ...base.settled, applied: true, coinLost: null } });
+    expect(screen.getByTestId("replay-loot")).toHaveTextContent("No unbanked Coin was lost: there was none yet.");
+    expect(screen.getByTestId("replay-loot")).not.toHaveTextContent("Your unbanked Coin was lost");
+  });
+
   it("S6: a held fight that ended a hair short of the core never reads 'reached your core'", async () => {
     const base = goldenView("c11-guard-kills-raider-held");
     const log = base.log as { outcome: { depth: number } };

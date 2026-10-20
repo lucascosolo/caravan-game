@@ -247,10 +247,10 @@ describe("final guardrail review r4 D1: the suggested party stops at SUGGESTED_P
     expect(TUNABLES.SUGGESTED_PARTY_MAX).toBe(4);
     // A fresh roster: 3 + 3 of two starter types, then the refugee.
     const types = ["mountain.grizzly", "mountain.grizzly", "mountain.grizzly", "mountain.trapper", "mountain.trapper", "mountain.trapper", "mountain.grizzly"];
-    const roster = types.map((typeId, i) => ({ instanceId: `00000000-0000-4000-8000-00000000000${i}`, typeId, unlocked: true }));
+    const roster = types.map((typeId, i) => ({ instanceId: `00000000-0000-4000-8000-00000000000${i}`, caravanId: "00000000-0000-4000-8000-0000000000aa", typeId, unlocked: true }));
     const s = suggestParty({ v: 1, units: [], siege: [] }, roster, () => false);
     expect(s!.units).toHaveLength(4);
-    // Pass 8: two of each type (Grizzly, Trapper, Grizzly, Trapper), not three Grizzlies and a Trapper.
+    // Pass 8: two of each type, not three Grizzlies and a Trapper.
     expect(s!.units.map((u) => roster.find((r) => r.instanceId === u.ref)!.typeId).sort()).toEqual(["mountain.grizzly", "mountain.grizzly", "mountain.trapper", "mountain.trapper"]);
     const big = { v: 1 as const, units: roster.slice(0, 6).map((r, i) => ({ ref: r.instanceId, stance: "nearest" as const, edge: "north" as const, cell: { x: 2 + i * 3, y: 0 } })), siege: [] };
     expect(suggestParty(big, roster, () => false)).toBeNull();

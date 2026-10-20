@@ -35,7 +35,7 @@ import { reputationDelta } from "../../apps/server/src/progression/reputation.js
 import { coinForDelivery, coinForEncounter } from "../../apps/server/src/economy/coin.js";
 import { raiseOrder } from "../../packages/circle/src/index.js";
 import { runParallel, serveIfChild } from "./parallel.js";
-import { GUIDED, SKILLED, authoredParties, bestFight, freshRoster, guideAdvice, guidePick, isRangedOnly, manifestOf, oneFight, pct, raisedStarterParty, servedMenu, share, starterTypes, type Kind, type Layout } from "./sweep.js";
+import { GUIDED, SKILLED, authoredParties, raiseCaravanIds, bestFight, freshRoster, guideAdvice, guidePick, isRangedOnly, manifestOf, oneFight, pct, raisedStarterParty, servedMenu, share, starterTypes, type Kind, type Layout } from "./sweep.js";
 
 export interface FirstTripTask {
   readonly region: (typeof REGION_IDS)[number];
@@ -248,6 +248,8 @@ export interface RaisedGateTask {
   readonly raiderRegion: (typeof REGION_IDS)[number];
   readonly label: string;
   readonly typeIds: readonly string[];
+  /** r4 D2: whose caravan raised it (its starter edges); one of `raiseCaravanIds()`. */
+  readonly caravanId?: string;
   readonly defRegion: (typeof REGION_IDS)[number];
   readonly refugee: string;
   readonly reserve: number;
@@ -286,17 +288,21 @@ export function raisedParties(region: (typeof REGION_IDS)[number]): { label: str
   ];
 }
 
-export function raisedGateTasks(reserve: number = TUNABLES.GUIDE_RESERVE, skilled: number = SKILLED.length, defenders?: readonly { region: (typeof REGION_IDS)[number]; refugee: string }[]): RaisedGateTask[] {
+/**
+ * `caravanIds`: whose raise (r4 D2: the starter edges come from the raising caravan's id). By
+ * default one caravan per first starter edge (north, east, south, west), so every edge pair is fought.
+ */
+export function raisedGateTasks(reserve: number = TUNABLES.GUIDE_RESERVE, skilled: number = SKILLED.length, defenders?: readonly { region: (typeof REGION_IDS)[number]; refugee: string }[], caravanIds: readonly string[] = raiseCaravanIds()): RaisedGateTask[] {
   const defs = defenders ?? REGION_IDS.flatMap((region) => starterTypes(region).map((refugee) => ({ region, refugee })));
   const tasks: RaisedGateTask[] = [];
-  for (const raiderRegion of REGION_IDS) for (const p of raisedParties(raiderRegion)) for (const d of defs) tasks.push({ raiderRegion, label: p.label, typeIds: p.typeIds, defRegion: d.region, refugee: d.refugee, reserve, skilled });
+  for (const raiderRegion of REGION_IDS) for (const p of raisedParties(raiderRegion)) for (const d of defs) for (const caravanId of caravanIds) tasks.push({ raiderRegion, label: p.label, typeIds: p.typeIds, defRegion: d.region, refugee: d.refugee, reserve, skilled, caravanId });
   return tasks;
 }
 
 let templateParty: ReturnType<typeof authoredParties>[number] | undefined;
 export function raisedGate(t: RaisedGateTask): RaisedGateResult {
   templateParty ??= authoredParties().find((p) => p.spec.band === 0)!;
-  const sp = raisedStarterParty(t.typeIds, t.label, templateParty);
+  const sp = raisedStarterParty(t.typeIds, t.label, templateParty, t.caravanId);
   const full = freshRoster(t.defRegion, t.refugee, 1);
   const keep = Math.max(1, Math.min(TUNABLES.DEPLOYMENT_SLOT_CAP, full.units.length - t.reserve));
   const m = manifestOf({ ...full, units: full.units.slice(0, keep) });

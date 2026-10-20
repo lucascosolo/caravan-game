@@ -8,13 +8,12 @@
  * re-reads `/me` and the trip status (on every tab change and every few seconds), and moves the
  * account's guide on when the roster has a unit or a trip is out.
  */
-import { PARTY_CONFIG_VERSION, raiseOrder, type PartyConfig } from "@caravan/circle";
+import { PARTY_CONFIG_VERSION, raiseUnits, type PartyConfig } from "@caravan/circle";
 import { TUNABLES } from "@caravan/content";
 import { useCallback, useEffect, useState } from "react";
 import type { Api } from "../api/client.ts";
 import type { TripEndingView } from "../api/tripTypes.ts";
 import type { PartyView } from "../api/types.ts";
-import { addUnit } from "../screens/party/partyModel.ts";
 import { unitLabel } from "../screens/trail/tripNames.ts";
 import { navigate, type Route } from "../shell/router.tsx";
 import { STRINGS } from "../strings.ts";
@@ -29,22 +28,18 @@ export const GUIDE_POLL_MS = 3000;
 
 /**
  * The standing party the guide offers to raise: the saved one plus every unlocked roster unit
- * not in it yet, up to SUGGESTED_PARTY_MAX (r4 D1; the saved party is never cut), with the builder's own defaults (partyModel.addUnit), plus
+ * not in it yet, up to SUGGESTED_PARTY_MAX (r4 D1; the saved party is never cut), raised by the shared rule (r4 D2), plus
  * (final play-test review D5) every siege type the server says this account has unlocked, up to
  * the siege cap — so the passive side's siege ladder grows by default. The same rule as the
  * server's `suggested` read. Siege rides only with at least one unit (an empty party is never
  * served). Null when it would add nothing.
  */
 export function prefillParty(view: PartyView): PartyConfig | null {
-  let config: PartyConfig = { v: PARTY_CONFIG_VERSION, units: view.config.units, siege: view.config.siege };
   // Final guardrail review r4 D1: the raised party stops at SUGGESTED_PARTY_MAX (the guide's packed size), as the server's `suggested` does.
   const max = Math.min(view.caps.units, TUNABLES.SUGGESTED_PARTY_MAX);
-  // BALANCE-LOG pass 8: round-robin over unit types (@caravan/circle raiseOrder), as the server's `suggested` does.
-  for (const r of raiseOrder(view.roster)) {
-    if (config.units.length >= max) break;
-    if (!r.unlocked || config.units.some((u) => u.ref === r.instanceId)) continue;
-    config = addUnit(config, r.instanceId);
-  }
+  // Final play-test review r4 D2: the shared raise rule — alternating between the caravan's two
+  // starter edges, each unit's stance from its role (@caravan/circle raiseUnits, as the server's).
+  let config: PartyConfig = { v: PARTY_CONFIG_VERSION, units: raiseUnits(view.config, view.roster, max), siege: view.config.siege };
   if (config.units.length > 0) {
     const siege = [...config.siege];
     for (const s of view.siegeCatalog) {
@@ -54,6 +49,12 @@ export function prefillParty(view: PartyView): PartyConfig | null {
     config = { ...config, siege };
   }
   return config.units.length > view.config.units.length || config.siege.length > view.config.siege.length ? config : null;
+}
+
+/** r4 N9: scroll the Town's Refugees panel into view (presentation only; skipped where unsupported). */
+export function showRefugees(): void {
+  const panel = typeof document !== "undefined" ? document.querySelector<HTMLElement>("[data-testid=refugee-panel]") : null;
+  panel?.scrollIntoView?.({ block: "start", behavior: "auto" });
 }
 
 export interface Facts {
@@ -184,7 +185,12 @@ export function ShellGuide({ api, route, onPartySaved, pollMs = GUIDE_POLL_MS }:
               <button type="button" className="btn btn--primary btn--block" onClick={() => navigate("town")}>
                 {G.toTown}
               </button>
-            ) : undefined
+            ) : (
+              // r4 N9: at 320 px the card fills the first screen; this brings the Refugees panel up.
+              <button type="button" className="btn btn--primary btn--block" onClick={showRefugees} data-testid="guide-roster-show">
+                {G.rosterShowMe}
+              </button>
+            )
           }
         >
           <p>{G.rosterBody}</p>

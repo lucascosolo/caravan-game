@@ -27,6 +27,8 @@ import {
   applyEncounterOutcome,
   guidePick as guideRulePick,
   guidedFormation,
+  raiseUnits,
+  starterEdges,
   guideStakesOf,
   isRangedOnly as guideRangedOnly,
   isFenceIntact,
@@ -633,19 +635,35 @@ export function guideAdvice(survivors: Manifest, menuJustFaced: readonly ServedP
 
 /**
  * Final play-test review r2 S2: a tester's standing party as the guide's "Raise my party from my
- * roster" (and the server's `suggested` party) makes it: every unit at L1 on the north edge at
- * `nearest`, spread along the band (party/service.ts suggestParty's cells), plus the free siege
- * piece. Served at REPUTATION_START (an owner who has not struck yet). `template` lends the spec
- * fields a fight reads (rating, a name for the report).
+ * roster" (and the server's `suggested` party) makes it — since round 4 D2 through @caravan/circle's
+ * shared `raiseUnits`: the caravan's two starter edges (a hash of `caravanId`), alternating, each
+ * unit's stance from its role, spread along the band; since pass 8 in `raiseOrder` (round-robin over
+ * types; `typeIds` is taken as the roster, in roster order). All at L1, plus the free siege piece.
+ * Served at REPUTATION_START (an owner who has not struck yet). `template` lends the spec fields a
+ * fight reads (rating, a name for the report).
  */
-export function raisedStarterParty(typeIds: readonly string[], label: string, template: ServedParty): ServedParty {
+export function raisedStarterParty(typeIds: readonly string[], label: string, template: ServedParty, caravanId = `raised:${label}`): ServedParty {
+  const roster = typeIds.map((typeId, n) => ({ instanceId: `raised#${n}`, caravanId, typeId, unlocked: true }));
+  const units = raiseUnits({ v: 1, units: [], siege: [] }, roster, roster.length);
+  const typeOf = new Map(roster.map((r) => [r.instanceId, r.typeId] as const));
   const party: Party = {
     v: 1,
-    units: typeIds.map((typeId, n) => ({ ref: `raised#${n}`, stance: "nearest" as const, edge: "north" as const, cell: { x: 2 + ((n * 3) % (TUNABLES.GRID_WIDTH - 4)), y: 0 }, typeId, mergeLevel: 1 })),
+    units: units.map((u) => ({ ...u, typeId: typeOf.get(u.ref)!, mergeLevel: 1 })),
     siege: [{ typeId: "siege.battering_wagon" }],
   };
   const spec = { ...template.spec, username: `raised:${label}`, rating: TUNABLES.REPUTATION_START, outfit: { ...template.spec.outfit, name: label } };
   return { spec, party, scout: scoutOf(party), pool: { partyId: `raised:${label}`, ownerAccountId: `raised:${label}`, rating: TUNABLES.REPUTATION_START, authored: false } };
+}
+
+/** Caravan ids whose starter edges begin at north, east, south and west (one each), for the raised gates. */
+export function raiseCaravanIds(): readonly string[] {
+  const out: (string | undefined)[] = [undefined, undefined, undefined, undefined];
+  for (let k = 0; out.some((x) => x === undefined); k++) {
+    const id = `raise-caravan-${k}`;
+    const i = ENTRY_EDGES.indexOf(starterEdges(id)[0]);
+    if (out[i] === undefined) out[i] = id;
+  }
+  return out as string[];
 }
 
 // ── trips ──────────────────────────────────────────────────────────────────────────────

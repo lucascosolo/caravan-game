@@ -688,7 +688,7 @@ describe("S2 (final play-test review): a merge that consumes a unit the standing
     expect(after.hash).toBe(rep[0]!.payload["hash"]);
     // The inbox: "your standing party changed" (on by default).
     const inbox = (await call(p, "GET", "/me/inbox")).json();
-    expect(inbox.items).toEqual(expect.arrayContaining([expect.objectContaining({ category: "party_changed", unread: true, detail: { reason: "merge", carriedOver: 1, dropped: 1, unitsNow: 1, empty: false } })]));
+    expect(inbox.items).toEqual(expect.arrayContaining([expect.objectContaining({ category: "party_changed", unread: true, detail: { reason: "merge", carriedOver: 1, dropped: 1, unitsNow: 1, empty: false, changes: 1 } })]));
   });
 });
 

@@ -33,7 +33,6 @@ import {
   PARTY_EDIT_COOLDOWN_MS,
   PARTY_SLOT_CAP,
   normalizePartyConfig,
-  GRID_WIDTH,
   ParseError,
   SIEGE_SLOT_CAP,
   MAX_APPROACH_EDGES,
@@ -41,7 +40,6 @@ import {
   manifestFromJson,
   partyConfigFromJson,
   partyEdges,
-  raiseOrder,
   resolveParty,
   scoutParty,
   serializePartyConfig,
@@ -53,6 +51,8 @@ import {
   type RosterUnit,
   type ScoutSiege,
   type EntryEdge,
+  raiseUnits,
+  type RaiseRosterUnit,
   type Validation,
 } from "@caravan/circle";
 import { createHash } from "node:crypto";
@@ -261,27 +261,17 @@ async function buildView(db: Queryable, r: ResolvedStandingParty): Promise<Party
   };
 }
 
-/** The builder's default approach edge for a raised unit (the web builder's partyModel uses the same). */
-export const SUGGESTED_EDGE: EntryEdge = "north";
-
 /**
- * D5, PURE: the saved config plus every unlocked roster unit not in it (raiseOrder: round-robin over unit types, pass 8; up to
+ * D5, PURE: the saved config plus every unlocked roster unit not in it (roster order, up to
  * SUGGESTED_PARTY_MAX — final guardrail review r4 D1, the guide's packed size, so a new player's
- * party can be served to other new players; a saved party already larger is never cut; default stance `nearest`, the north band, spread along it as the web builder does) plus every unlocked
- * siege type not in it (SIEGE_TYPES order, up to SIEGE_SLOT_CAP). Null when nothing is added.
+ * party can be served to other new players; a saved party already larger is never cut) plus every
+ * unlocked siege type not in it (SIEGE_TYPES order, up to SIEGE_SLOT_CAP). Null when nothing is added.
+ * Final play-test review r4 D2: the units are raised by @caravan/circle `raiseUnits` — alternating
+ * between the caravan's two starter edges, each unit's stance from its role — the same rule the web
+ * client's guide raise uses.
  */
-export function suggestParty(config: PartyConfig, roster: readonly { instanceId: string; typeId: string; unlocked: boolean }[], access: AccessPredicate): PartyConfig | null {
-  const units = [...config.units];
-  const have = new Set(units.map((u) => u.ref));
-  const max = Math.min(PARTY_SLOT_CAP, TUNABLES.SUGGESTED_PARTY_MAX);
-  // BALANCE-LOG pass 8: round-robin over unit types (@caravan/circle raiseOrder), as the guide's raise does.
-  for (const r of raiseOrder(roster)) {
-    if (units.length >= max) break;
-    if (!r.unlocked || have.has(r.instanceId)) continue;
-    const n = units.filter((u) => u.edge === SUGGESTED_EDGE).length;
-    units.push({ ref: r.instanceId, stance: "nearest", edge: SUGGESTED_EDGE, cell: { x: 2 + ((n * 3) % (GRID_WIDTH - 4)), y: 0 } });
-    have.add(r.instanceId);
-  }
+export function suggestParty(config: PartyConfig, roster: readonly RaiseRosterUnit[], access: AccessPredicate): PartyConfig | null {
+  const units = raiseUnits(config, roster, Math.min(PARTY_SLOT_CAP, TUNABLES.SUGGESTED_PARTY_MAX));
   const siege = [...config.siege];
   for (const s of SIEGE_TYPES) {
     if (siege.length >= SIEGE_SLOT_CAP) break;

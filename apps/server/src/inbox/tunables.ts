@@ -41,6 +41,12 @@ export const INBOX_MAX_STRIKE_ITEMS = 30;
 /** TUNABLE (final play-test review S2). Most "your standing party changed" notices listed (newest first, inside the horizon). */
 export const INBOX_MAX_PARTY_CHANGE_ITEMS = 10;
 
+/** TUNABLE (final play-test review r4 N6). Party changes of one reason this close together are one notice. Presentation, not balance. */
+export const INBOX_PARTY_CHANGE_COALESCE_MS = 60_000;
+
+/** TUNABLE (r4 N6). Most `standing_party_repaired` events read to build those notices (newest first). */
+export const INBOX_MAX_PARTY_CHANGE_EVENTS = 100;
+
 /** TUNABLE. Strikes itemized inside one batch (each with its own replay link); the rest are counted, not listed. */
 export const INBOX_STRIKES_PER_ITEM = 10;
 

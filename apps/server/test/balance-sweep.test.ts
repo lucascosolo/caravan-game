@@ -18,7 +18,7 @@ import { authoredPhase, firstTrip, firstTripTasks, raisedGate, raisedGateTasks, 
 import { CORE_HEAVY_MAX_SHARE, LOW_BAND_GUIDED_MIN, freshPacks, isCoreHeavy, lowBandFight } from "../../../scripts/balance/low-bands.js";
 import { corpus } from "../../../scripts/balance/matchup-sweep.js";
 import { turtleRoster } from "../../../scripts/balance/probes.js";
-import { NAIVE, SKILLED, authoredParties, bandTypicalRoster, bestFight, guidePick, isRangedOnly, manifestOf, servedMenu, starterTypes } from "../../../scripts/balance/sweep.js";
+import { NAIVE, SKILLED, authoredParties, raiseCaravanIds, bandTypicalRoster, bestFight, guidePick, isRangedOnly, manifestOf, servedMenu, starterTypes } from "../../../scripts/balance/sweep.js";
 import { guidePick as clientGuidePick, isRangedOnly as clientRangedOnly, scoutParty } from "@caravan/circle";
 
 /** Tunable (chunk 37): the CI slice's wall-clock budget. */
@@ -108,7 +108,8 @@ describe("balance sweep — the CI slice (PHASE-2 §37)", () => {
     // The slice: one fresh roster per region (refugee = its first starter type) and the first 24 skilled layouts.
     const defenders = (["desert", "high_plains", "mountain", "badlands"] as const).map((region) => ({ region, refugee: starterTypes(region)[0]! }));
     const rs: ReturnType<typeof raisedGate>[] = [];
-    for (const t of raisedGateTasks(undefined, 24, defenders)) {
+    // r4 D2: the raise's starter edges come from the caravan id; the slice fights one caravan's raise.
+    for (const t of raisedGateTasks(undefined, 24, defenders, [raiseCaravanIds()[0]!])) {
       rs.push(raisedGate(t));
       await yieldLoop();
     }

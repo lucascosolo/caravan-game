@@ -488,9 +488,12 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
   // ── server calls: the server decides legality; its issues are shown with the player's names ──
   const inflight = useRef<Promise<unknown> | null>(null);
   const autosaveTimer = useRef<number | null>(null);
+  /** r4 N4: the arrangement a pending autosave will send, so leaving the page can flush it. */
+  const pendingSave = useRef<Formation | null>(null);
   const cancelAutosave = (): void => {
     if (autosaveTimer.current !== null) window.clearTimeout(autosaveTimer.current);
     autosaveTimer.current = null;
+    pendingSave.current = null;
   };
   const fail = (err: unknown): ApiError => {
     const e = err instanceof ApiError ? err : new ApiError(0, "unknown", STRINGS.app.genericError);
@@ -512,8 +515,10 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
       setAutosaveIssues(unposted.map((u) => ({ code: "unit_not_posted", message: `living unit '${u.ref}' has no post`, subject: u.ref })));
       return;
     }
+    pendingSave.current = formation;
     autosaveTimer.current = window.setTimeout(() => {
       autosaveTimer.current = null;
+      pendingSave.current = null;
       const sent = formation;
       const p = api
         .saveFormation(caravanId, encounterIndex, sent)
@@ -533,6 +538,28 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
     return cancelAutosave;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formation, dirty, committedAt, busy]);
+
+  // r4 N4: a reload or tab close inside the debounce flushes the pending draft with a keepalive
+  // request (pagehide; a hidden tab may never come back). The server still decides whether it stands.
+  useEffect(() => {
+    const flush = (): void => {
+      const body = pendingSave.current;
+      if (body === null) return;
+      if (autosaveTimer.current !== null) window.clearTimeout(autosaveTimer.current);
+      autosaveTimer.current = null;
+      pendingSave.current = null;
+      api.saveFormation(caravanId, encounterIndex, body, { keepalive: true }).catch(() => undefined);
+    };
+    const hidden = (): void => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", hidden);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", hidden);
+    };
+  }, [api, caravanId, encounterIndex]);
 
   const settle = async (): Promise<void> => {
     cancelAutosave();

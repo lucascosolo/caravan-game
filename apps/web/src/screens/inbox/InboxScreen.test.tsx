@@ -235,3 +235,21 @@ describe("InboxButton (the unread badge)", () => {
     expect(window.location.hash).toBe("#/inbox");
   });
 });
+
+describe("final play-test review r4: the inbox's wording", () => {
+  it("N8: a strike window still open reads 'Since …'; a closed one 'Between … and …'", async () => {
+    const open = { ...strike, detail: { ...strike.detail, windowOpen: true } } as InboxItemView;
+    const { unmount } = render(<InboxScreen api={fakeApi({ inbox: vi.fn(async () => view([open])) })} />);
+    expect(await screen.findByText(/^Since /)).toBeInTheDocument();
+    expect(screen.queryByText(/^Between /)).toBeNull();
+    unmount();
+    render(<InboxScreen api={fakeApi({ inbox: vi.fn(async () => view([strike])) })} />);
+    expect(await screen.findByText(/^Between /)).toBeInTheDocument();
+  });
+
+  it("N6: several merges in one visit are one notice with the final count", async () => {
+    const changed: InboxItemView = { key: "party:9", category: "party_changed", version: 4, occurredAtMs: T0, occurredAt: new Date(T0).toISOString(), unread: true, detail: { reason: "merge", carriedOver: 4, dropped: 0, unitsNow: 3, empty: false, changes: 4 } };
+    render(<InboxScreen api={fakeApi({ inbox: vi.fn(async () => view([changed])) })} />);
+    expect(await screen.findByText(/4 merges used units from your party\./)).toHaveTextContent("It now fields 3 units.");
+  });
+});

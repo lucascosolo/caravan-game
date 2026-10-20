@@ -86,7 +86,7 @@ export function AssistAdvice({ api, caravanId, encounter }: { api: Api; caravanI
   if (!on || !menu) return null;
   return (
     <GuideCard title={G.assistAdviceTitle} testId="assist-advice">
-      <DecideAdvice preview={preview} menu={menu.candidates} />
+      <DecideAdvice preview={preview} menu={menu.candidates} encounterIndex={encounter.index} />
     </GuideCard>
   );
 }

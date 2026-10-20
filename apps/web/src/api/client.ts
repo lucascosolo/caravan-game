@@ -174,7 +174,8 @@ export interface Api {
   manifest(caravanId: string): Promise<ManifestReadResponse>;
   /** Final play-test review N9: unpack a caravan that is packed but has not ridden out. */
   unpackManifest(caravanId: string): Promise<{ readonly unpacked: { readonly manifestId: string } }>;
-  saveFormation(caravanId: string, encounterIndex: number, formation: FormationBody): Promise<FormationResponse>;
+  /** r4 N4: `keepalive` lets the save outlive the page (sent from `pagehide`). */
+  saveFormation(caravanId: string, encounterIndex: number, formation: FormationBody, opts?: { readonly keepalive?: boolean }): Promise<FormationResponse>;
   formation(caravanId: string, encounterIndex: number): Promise<FormationResponse>;
   /** r2 N10: `?ifNone=null` — 200 `{ formation: null }` where no draft exists yet (an older server's 404 \`no_formation\` reads as null too). */
   formationIfAny(caravanId: string, encounterIndex: number): Promise<FormationView | null>;
@@ -199,7 +200,8 @@ export interface Api {
   // Economy & merging (chunk 16 routes), read by the Town tab (chunk 17). The preview is the
   // legibility contract: cost, balance (with pending trickle) and resulting stats before commit.
   // `prospectiveEarn` asks for the overflow forecast of a trip expected to earn that much.
-  economy(prospectiveEarn?: number): Promise<EconomyView>;
+  /** r4 N1: `caravanId` adds that caravan's band-scaled shortest trip (`earn.caravan`). */
+  economy(prospectiveEarn?: number, caravanId?: string): Promise<EconomyView>;
   previewMerge(caravanId: string, instanceIds: readonly string[]): Promise<MergePreview>;
   commitMerge(caravanId: string, req: MergeRequest): Promise<MergeResultView>;
   // Unit acquisition (chunk 18 routes). GET never writes; `sequence` / `fromSequence` are
@@ -272,7 +274,7 @@ export function createApi(opts: ApiOptions): Api {
   const doFetch = opts.fetchImpl ?? ((input, init) => fetch(input, init));
 
   /** `shape` is the guard for a 2xx body; `null` for routes whose answer carries nothing. */
-  async function request<T>(method: string, path: string, shape: Guard<T> | null, body?: unknown, flags: { readonly quiet401?: boolean; readonly keepBody?: boolean } = {}): Promise<T> {
+  async function request<T>(method: string, path: string, shape: Guard<T> | null, body?: unknown, flags: { readonly quiet401?: boolean; readonly keepBody?: boolean; readonly keepalive?: boolean } = {}): Promise<T> {
     const headers: Record<string, string> = { Accept: "application/json" };
     const token = opts.getToken();
     if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -282,6 +284,7 @@ export function createApi(opts: ApiOptions): Api {
       // Chunk 30: same-origin requests carry the server's HttpOnly device cookie (resume / logout read it).
       const init: RequestInit = { method, headers, credentials: "same-origin" };
       if (body !== undefined) init.body = JSON.stringify(body);
+      if (flags.keepalive) init.keepalive = true;
       res = await doFetch(`${base}${path}`, init);
     } catch (err) {
       throw new ApiError(0, NETWORK, err instanceof Error ? err.message : "network error");
@@ -341,7 +344,7 @@ export function createApi(opts: ApiOptions): Api {
     packManifest: (caravanId, req) => request("POST", `${caravans(caravanId)}/manifest`, manifestShape, req),
     manifest: (caravanId) => request("GET", `${caravans(caravanId)}/manifest`, manifestReadShape),
     unpackManifest: (caravanId) => request("DELETE", `${caravans(caravanId)}/manifest`, unpackShape),
-    saveFormation: (caravanId, n, formation) => request("PUT", `${caravans(caravanId)}/encounters/${n}/formation`, formationShape, formation),
+    saveFormation: (caravanId, n, formation, o) => request("PUT", `${caravans(caravanId)}/encounters/${n}/formation`, formationShape, formation, o?.keepalive ? { keepalive: true } : {}),
     formation: (caravanId, n) => request("GET", `${caravans(caravanId)}/encounters/${n}/formation`, formationShape),
     formationIfAny: async (caravanId, n) => {
       try {
@@ -362,7 +365,10 @@ export function createApi(opts: ApiOptions): Api {
     pushTrip: (caravanId, tripId, encounterIndex) => request("POST", `/me${caravans(caravanId)}/trip/push`, pushResultShape, { tripId, encounterIndex }),
     bankTrip: (caravanId, tripId, encounterIndex) => request("POST", `/me${caravans(caravanId)}/trip/bank`, bankResultShape, { tripId, encounterIndex }),
     returnToTown: (caravanId, tripId, encounterIndex) => request("POST", `/me${caravans(caravanId)}/trip/return`, returnToTownShape, { tripId, encounterIndex }),
-    economy: (prospectiveEarn) => request("GET", prospectiveEarn === undefined ? "/me/economy" : `/me/economy?prospectiveEarn=${Math.trunc(prospectiveEarn)}`, economyShape),
+    economy: (prospectiveEarn, caravanId) => {
+      const q = [prospectiveEarn === undefined ? null : `prospectiveEarn=${Math.trunc(prospectiveEarn)}`, caravanId === undefined ? null : `caravanId=${encodeURIComponent(caravanId)}`].filter((x) => x !== null);
+      return request("GET", q.length === 0 ? "/me/economy" : `/me/economy?${q.join("&")}`, economyShape);
+    },
     previewMerge: (caravanId, instanceIds) => request("POST", `/me${caravans(caravanId)}/merge/preview`, mergePreviewShape, { instanceIds }),
     commitMerge: (caravanId, req) => request("POST", `/me${caravans(caravanId)}/merge`, mergeResultShape, req),
     refugees: (caravanId) => request("GET", `/me${caravans(caravanId)}/refugees`, refugeeViewShape),

@@ -4,7 +4,7 @@
  */
 import { TUNABLES } from "@caravan/content";
 import { describe, expect, it } from "vitest";
-import { raiseOrder, GUIDE_RANGED_MIN_CELLS, applyEncounterOutcome, circleHurt, guidePick, guideStakesOf, isRangedHeavy, isRangedOnly, isRangedRaider, pushAdvice, rangedCount, type ScoutPartyLike, type StakesLike } from "../src/index.js";
+import { GUIDE_RANGED_MIN_CELLS, applyEncounterOutcome, circleHurt, guidePick, guideStakesOf, isRangedHeavy, isRangedOnly, isRangedRaider, pushAdvice, rangedCount, type ScoutPartyLike, type StakesLike } from "../src/index.js";
 import { fullPack } from "./fixtures.js";
 
 const CELL = TUNABLES.ATTACK_RANGE_MELEE_DEFAULT;
@@ -63,13 +63,26 @@ describe("pushAdvice", () => {
     expect(pushAdvice(p)).toEqual({ kind: "bank", reasons: [{ kind: "hurt", ref: "a", hp: 4, maxHp: 10 }] });
     expect(pushAdvice({ ...p, units: [{ ref: "a", alive: false, hp: 0, maxHp: 10 }] })).toEqual({ kind: "bank", reasons: [{ kind: "none_standing" }] });
   });
-});
 
-describe("raiseOrder (BALANCE-LOG pass 8): the guide's raise takes unit types round-robin", () => {
-  it("interleaves types in first-appearance order, each type's units in roster order; stable and complete", () => {
-    const r = ["g1", "g2", "g3", "t1", "t2", "t3", "g4"].map((id) => ({ id, typeId: id[0]! }));
-    expect(raiseOrder(r).map((x) => x.id)).toEqual(["g1", "t1", "g2", "t2", "g3", "t3", "g4"]);
-    expect(raiseOrder([])).toEqual([]);
-    expect(raiseOrder([{ typeId: "a" }])).toHaveLength(1);
+  it("round 4 D1: from encounter 2, pushes only an unhurt circle against a menu that is not ranged-heavy", () => {
+    const ranged = [party([gun(1), melee(1)]), party([gun(1)])];
+    const mixed = [...ranged, party([melee(1), melee(1), gun(1)])];
+    const m = fullPack();
+    const scratched = guideStakesOf(applyEncounterOutcome(m, { units: [{ ref: m.units[0]!.ref, hp: m.units[0]!.maxHp - 1 }], spentTraps: [], fences: [] }));
+    // Encounter 1 is unchanged (the default index is 1).
+    expect(pushAdvice(scratched, mixed, 1)).toEqual({ kind: "push" });
+    expect(pushAdvice(fresh, ranged, 1)).toEqual({ kind: "push" });
+    for (const n of [2, 3, 5]) {
+      expect(pushAdvice(fresh, mixed, n)).toEqual({ kind: "push" });
+      expect(pushAdvice(fresh, null, n)).toEqual({ kind: "push" });
+      expect(pushAdvice(fresh, [], n)).toEqual({ kind: "push" });
+      expect(pushAdvice(fresh, ranged, n)).toEqual({ kind: "bank", reasons: [{ kind: "stakes", encounter: n, worn: false, rangedParties: 2 }] });
+      expect(pushAdvice(scratched, mixed, n)).toEqual({ kind: "bank", reasons: [{ kind: "stakes", encounter: n, worn: true, rangedParties: 0 }] });
+      expect(pushAdvice(scratched, null, n)).toEqual({ kind: "bank", reasons: [{ kind: "stakes", encounter: n, worn: true, rangedParties: 0 }] });
+      expect(pushAdvice(scratched, ranged, n)).toEqual({ kind: "bank", reasons: [{ kind: "stakes", encounter: n, worn: true, rangedParties: 2 }] });
+    }
+    // A badly-hurt reason keeps its place; the stakes reason comes last.
+    const p: StakesLike = { units: [{ ref: "a", alive: true, hp: 4, maxHp: 10 }], traps: { remaining: [], spent: [] }, fences: { intact: [], destroyed: [] } };
+    expect(pushAdvice(p, null, 2)).toEqual({ kind: "bank", reasons: [{ kind: "hurt", ref: "a", hp: 4, maxHp: 10 }, { kind: "stakes", encounter: 2, worn: true, rangedParties: 0 }] });
   });
 });
