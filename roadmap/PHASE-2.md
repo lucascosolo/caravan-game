@@ -1319,6 +1319,26 @@ stances — watch the live stance mix and hold rate by stance); healing in a fou
 offsets 40 % of post damage, over the 25–35 % target (watch the healing share in real circles);
 8 × L4 trip EV; and the sweep's band-typical roster assumption.
 
+**Balance pass 5 (2026-10-20, RESOLVER_VERSION 8 → 9; BALANCE-LOG.md pass 5).** Posts +1 cell
+of engagement (new `POST_ENGAGEMENT_BONUS`, added to every unit's aggro radius and leash) and
+`REPUTATION_CARAVAN_HELD` 10 → 8 (so 8 × L3 still settles in band 4); 72 goldens and the work
+counters regenerated, the golden gate accepts.
+
+| target | before | after |
+|---|---|---|
+| guided first fight (≥ 70 %) | 81 % | 86 % |
+| second-trip gate, all, guided / skilled (≥ 60 / 70 %) | 73 / 81 % | 88 / 89 % |
+| second-trip gate, guided by raider region (none < 50 %): desert / high plains / mountain / badlands | 100 / 100 / 56 / 37.5 % | 94 / 100 / 81 / 75 % |
+| skilled − naive at the band-typical diagonal | 25 pts | 18 pts |
+| stalemates (corpus; turtle) | 0; 2 / 96 | 0; 0 / 96 |
+| fight length median; share in 20–90 s | 22.4 s; 59 % | 21.4 s; 56 % |
+| flagged within band × stance | 4 | 5 (none above 42 pts) |
+| trip EV best bank point L1 / L2 / L3 | +4,539 / +3,208 / +2,328 | +5,930 / +3,752 / +5,761 |
+| fast runners, guided overrun (within 20 s) | 51 % (81 %) | 42 % (90 %) |
+
+Open for telemetry: a whole six-unit ranged roster raised as one party (Mountain 25 %, Badlands
+0 %), the four-healer turtle's healing offset (47 %), 8 × L4 trip EV, core-stance dominance.
+
 **Definition of done.** No single type predicts outcomes above threshold in the sweep,
 the alpha's bank-versus-push curve shows real decisions at encounters two through five,
 and the grind-wall dashboard shows the paid path as optional across deciles.

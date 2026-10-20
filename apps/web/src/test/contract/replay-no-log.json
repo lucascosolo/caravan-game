@@ -6,7 +6,7 @@
     "viewer": "caravan",
     "tripId": "00000000-0000-4000-8000-000000000001",
     "encounterIndex": 1,
-    "currentResolverVersion": 8,
+    "currentResolverVersion": 9,
     "outcome": {
       "kind": "caravan_held",
       "loot": 212,
@@ -65,7 +65,7 @@
       "reputation": [
         {
           "pool": "living",
-          "delta": 10
+          "delta": 8
         }
       ],
       "ladder": [

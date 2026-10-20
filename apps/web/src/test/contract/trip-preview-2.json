@@ -261,7 +261,7 @@
         },
         "rating": 400,
         "gapBeyondBand": 0,
-        "gapFromCaravan": 10,
+        "gapFromCaravan": 8,
         "sandbagEarnMultiplier": 1024
       }
     },

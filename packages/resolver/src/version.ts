@@ -22,6 +22,10 @@
  * golden corpus); 8 is chunk 13's QA round 1 (DEPTH_METRIC measured from the wagon circle's
  * ring line, not the spawn edge — D1; a raider is sampled for depth only while it ends a tick
  * alive or on the tick it arrives, so depth 1024 ⇔ an overrun — S2; LOG_FORMAT v2 with the
- * whole-log seal, the unit labels' ability archetype and the reader's number checks — S3).
+ * whole-log seal, the unit labels' ability archetype and the reader's number checks — S3); 9 is
+ * balance pass 5 (BALANCE-LOG.md): no resolver code changed, but every posted unit's aggro radius
+ * and leash grew by TUNABLES.POST_ENGAGEMENT_BONUS, so a stored encounter input (formation,
+ * survivors, party) now resolves to a different fight — the version marks that boundary for
+ * stored logs as well as RESOLUTION_CONTENT_HASH marks it for queued jobs.
  */
-export const RESOLVER_VERSION = 8;
+export const RESOLVER_VERSION = 9;

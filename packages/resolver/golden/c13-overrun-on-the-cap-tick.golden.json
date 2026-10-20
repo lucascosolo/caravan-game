@@ -1,6 +1,6 @@
 {
 "scenario": "c13-overrun-on-the-cap-tick",
-"resolverVersion": 8,
+"resolverVersion": 9,
 "outcome": {"kind":"caravan_overrun","end":"core_overrun","endTick":179,"depth":1024,"deepestUnit":0},
 "ticks": 180,
 "units": [
@@ -8,7 +8,7 @@
 ],
 "fences": [],
 "traps": [],
-"replay": {"format":"caravan-replay","v":2,"resolverVersion":8,"tickRate":20,"tickCap":180,"keyframeInterval":100,"ticks":180,"outcome":{"kind":"caravan_overrun","end":"core_overrun","endTick":179,"depth":1024,"deepestUnit":0},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":620,"hp":620,"ab":4}],"fences":[],"traps":[],"count":6,"check":3399610074,"events":[
+"replay": {"format":"caravan-replay","v":2,"resolverVersion":9,"tickRate":20,"tickCap":180,"keyframeInterval":100,"ticks":180,"outcome":{"kind":"caravan_overrun","end":"core_overrun","endTick":179,"depth":1024,"deepestUnit":0},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":620,"hp":620,"ab":4}],"fences":[],"traps":[],"count":6,"check":3358576013,"events":[
 [0,"s",0,15872,512],
 [0,"tg",0,0,-1],
 [0,"p",0,77,15872,15872,-1],

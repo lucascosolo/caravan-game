@@ -41,6 +41,124 @@ overrun costs −20.
 
 ---
 
+## Pass 5 — 2026-10-20 (the second trip's ranged starter parties). RESOLVER_VERSION 8 → 9.
+
+The decision was to give posts +1 cell of engagement, the lever pass 4 measured. It is a content
+change: every living unit's aggro radius and leash now carry one new tunable. No resolver code
+changed. The bump to 9 marks that a stored encounter input now resolves to a different fight. All
+72 goldens and the work counters were regenerated with `UPDATE_GOLDEN=1`, and `pnpm determinism`
+against main reports "accepted — RESOLVER_VERSION 8 → 9, every changed golden carries v9".
+
+### What changed
+
+| # | number | from → to | why |
+|---|---|---|---|
+| 26 | `POST_ENGAGEMENT_BONUS` (new; units.ts `engage`) | 0 → +1 cell, added to **every** unit's authored `aggroRadius` and `leashDistance` | A ranged raider shoots the circle from outside the fence while the posts stand idle. With one more cell of notice and chase, the posts answer it. The value is written into content, so the scout and the formation screen show the real reach. The authored literals keep each type's own profile. A raider never reads aggro or leash. |
+| 27 | `REPUTATION_CARAVAN_HELD` | +10 → +8 (overrun stays −20) | #26 makes posts stronger everywhere, so at +10 an 8 × L3 circle climbed to band 5 (skilled hold 67 % there, right at the break-even). Its best bank point there is negative (−1,055). At +8 the break-even is 20 / 28 ≈ 71 %, the circle settles in band 4 again, and its EV is positive (target 4). |
+| — | the harness's guide pick (`sweep.ts isRangedRaider`) | ranged = reach above the melee default → ranged = reach ≥ `GUIDE_RANGED_MIN_CELLS` (3) cells | Mirrors the client's round-2 opt-in (TrailGuide). It changes only the "before" baseline below; both columns use it. |
+
+**Tried and not taken: +½ cell** (`fpMilli(500)`).
+- Second-trip gate: 83 % guided, 88 % skilled.
+- Badlands: 62.5 % guided, 69 % skilled. Mountain: 75 % guided, 81 % skilled.
+- It still pushed 8 × L3 to band 5 at +10 (−969).
+- So it needed the same Reputation change as +1 cell, with a weaker gate. +1 cell does not
+  overshoot: stalemates stay at zero, and the turtle's stalemates fall.
+
+### Before → after
+
+"Before" is main at 3d13921 (with the harness's guide pick mirrored); "after" is this pass. Full
+sweep, 6528 matchups, unless noted.
+
+**Target 1 — the guided first fight** (`first-trip.ts`, 200 caravans):
+
+| | before | after |
+|---|---|---|
+| encounter 1, guided (target ≥ 70 %) | 161 / 200 = 81 % | **172 / 200 = 86 %** |
+| encounter 2, guide's shape / best skilled | 73 % / 81 % | 86 % / 90 % |
+| first trip completed | 59 % | 74 % |
+
+(Main's 90 % in pass 4 was under the old ranged rule. The new rule lets the guide pick Timberline
+Gang, a Grizzly and Trapper outfit that is not all-ranged, which holds 9 of 28 before and 11 of 28
+after.)
+
+**The second-trip gate** (`first-trip.ts --raised`, 128 fights):
+
+| raised parties of | before guided / skilled | after guided / skilled |
+|---|---|---|
+| desert | 100 / 100 % | 94 / 100 % (the whole roster: 75 % guided) |
+| high plains | 100 / 100 % | 100 / 100 % |
+| mountain | 56 / 81 % | **81 / 81 %** (pairs all 100 %; the whole roster 25 / 25 %) |
+| badlands | **37.5 / 44 %** | **75 / 75 %** (pairs all 100 %; the whole roster 0 / 0 %) |
+| **all** (targets 60 / 70 %) | 94 / 128 = 73 % / 104 / 128 = 81 % | **112 / 128 = 88 % / 114 / 128 = 89 %** |
+
+No region is below 50 % guided. One gap remains: the whole six-unit roster of Mountain (25 %) and
+Badlands (0 %), raised as one party, still beats a five-unit guided circle.
+
+**Target 2 — skilled vs naive** (band-typical roster at its own band, skilled / guided / naive %):
+
+| | b0 | b1 | b2 | b3 | b4 | b5 | b6 | b7 |
+|---|---|---|---|---|---|---|---|---|
+| before | 95/77/79 | 81/63/71 | 97/76/81 | 80/54/58 | 82/56/57 | 61/25/28 | 57/31/30 | 92/48/40 |
+| after | 95/80/83 | 90/74/85 | 100/77/90 | 84/54/67 | 84/61/63 | 67/42/46 | 60/38/38 | 92/49/54 |
+
+Skilled beats naive by 18 points on average, down from 25. The longer reach helps the scout-blind
+layouts most, but the gap is still well above 10.
+
+**Target 3 — stalemates, fight length, dominance:**
+
+| | before | after |
+|---|---|---|
+| stalemates in the corpus | 0 of 6528 | 0 of 6528 |
+| healer turtle (96 fights): held / stalemate / overrun; healing offset | 67 / 2 / 27; 41 % | 73 / **0** / 23; 47 % |
+| fight length p10 / median / p90; share in 20–90 s | 12.2 / 22.4 / 37.0 s; 59 % | 12.2 / 21.4 / 33.8 s; 56 % |
+| overruns in the corpus | 1964 | 1706 (−13 %) |
+| flagged within band × stance (\|Δ\| > 25 points) | 4: Drover −37, Grizzly −25, posted Rail Bull +26, posts with heavy strike +29 | 5: Drover −42, Prairie Wolf +26, Mountain Lion +30, raiding Rail Bull +32, posts with heavy strike +27 |
+| held share of core-stance parties, b0…b7 | 94 83 82 40 27 10 1 17 | 96 92 89 48 35 16 1 26 |
+
+The longer reach makes no stalemates: a post chasing further still kills or is killed. Melee
+raiders are not hopeless: nearest-stance parties are still held 42 % at b7, and Mountain Lion and
+Prairie Wolf, both fast melee types, are flagged weak by +26–30 points, not shut out. The
+four-healer turtle's healing offset rises to 47 % (over target; open below).
+
+**Target 4 — trip EV for L1–L3** (`measured-ev.ts`, best bank point at each roster's equilibrium
+band, skilled):
+
+| circle | before (+10/−20) | +1 cell at +10/−20 | **after (+1 cell, +8/−20)** |
+|---|---|---|---|
+| 8 × L1 | band 3: +4,539 at k = 3 | band 3: +5,930 at k = 4 | band 3: **+5,930 at k = 4** |
+| 8 × L2 | band 3: +3,208 at k = 3 | band 4: +9,475 at k = 5 | band 3–4: **+3,752 at k = 4 / +9,475 at k = 5** |
+| 8 × L3 | band 4: +2,328 at k = 4 | band 5: −1,055 (no positive bank point) | band 4: **+5,761 at k = 5** |
+| 8 × L4 | band 7: −3,376 | band 7: −3,699 | band 7: −3,699 (still open, pass 1's cause) |
+
+The two L2 figures are for the two band-typical L2 rosters, which settle in bands 3 and 4.
+
+**The fast-runner probe** (`fast-runners.ts`, 144 fights):
+
+| | before | after |
+|---|---|---|
+| guided: overrun; of them within 20 s; units lost per fast overrun | 51 %; 81 %; 4.6 | 42 %; 90 %; 4.8 |
+| best skilled | 35 %; 64 %; 4.6 | 25 %; 72 %; 4.8 |
+
+Fewer fast runners get through. The ones that still do get through faster and cost about the same,
+because the posts that chase them leave the core open sooner. D1's telemetry question stands.
+
+### Tests whose pins moved
+
+- web `ReplayPlayer.test`: Reputation for the recorded hold +10 → +8 (#27).
+- The re-recorded contract fixtures: replay, replay-owner, replay-compacted, replay-no-log and
+  trip-preview-2 (resolver version 9 and the new fight).
+- resolver: all 72 goldens and `work-counters.json` (v9, `UPDATE_GOLDEN=1`).
+
+### Open — for the play test's telemetry
+
+1. **A whole six-unit ranged roster raised as one party** (Mountain 25 %, Badlands 0 % against a
+   guided circle). Watch the second trip's hold rate by raider region and party size.
+2. **Healing in the four-healer turtle**, now 47 %.
+3. **8 × L4 trip EV**, still negative.
+4. **Core-stance dominance**, unchanged.
+
+---
+
 ## Pass 4 — 2026-10-12 (final play-test review round 2: S2, D1, D4). RESOLVER_VERSION unchanged at 8.
 
 No resolver code, content stat or resolver tunable changed (RESOLUTION_CONTENT_HASH and the goldens

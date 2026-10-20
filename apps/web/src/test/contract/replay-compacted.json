@@ -6,7 +6,7 @@
     "viewer": "caravan",
     "tripId": "00000000-0000-4000-8000-000000000001",
     "encounterIndex": 1,
-    "currentResolverVersion": 8,
+    "currentResolverVersion": 9,
     "outcome": {
       "kind": "caravan_held",
       "loot": 172,
@@ -75,7 +75,7 @@
       "reputation": [
         {
           "pool": "living",
-          "delta": 10
+          "delta": 8
         }
       ],
       "ladder": [
@@ -101,7 +101,7 @@
         "unbankedCoin": 600
       }
     },
-    "resolverVersion": 8,
+    "resolverVersion": 9,
     "logFormat": 2,
     "renderable": false,
     "reason": "this fight's tick log was larger than the replay size budget, so only its results summary was kept",
@@ -121,8 +121,8 @@
       ]
     },
     "stored": {
-      "rawBytes": 4026,
-      "storedBytes": 1209,
+      "rawBytes": 4098,
+      "storedBytes": 1229,
       "encoding": null,
       "sha256": "a000000000000000000000000000000000000000000000000000000000000002",
       "contentHash": "a000000000000000000000000000000000000000000000000000000000000003",
