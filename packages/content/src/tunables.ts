@@ -971,13 +971,14 @@ export const TUNABLES = {
    */
   REPUTATION_LOSS_ATTACKER: 0,
   /**
-   * TUNABLE (chunk 04; chunk 37 balance pass 15 → 10, BALANCE-LOG.md). Reputation gained by the
-   * caravan when it holds (party wiped) or the party withdraws (stalemate), before gap scaling.
-   * With REPUTATION_CARAVAN_OVERRUN −20 a caravan settles where it holds 20 / (10 + 20) ≈ 67 % of
-   * encounters (was 57 % at +15): one band lower, where 8 × L3 circles have a positive best bank
-   * point (k = 4) at measured hold rates.
+   * TUNABLE (chunk 04; chunk 37 balance pass 15 → 10, balance pass 5 10 → 8, BALANCE-LOG.md).
+   * Reputation gained by the caravan when it holds (party wiped) or the party withdraws
+   * (stalemate), before gap scaling. With REPUTATION_CARAVAN_OVERRUN −20 a caravan settles where it
+   * holds 20 / (8 + 20) ≈ 71 % of encounters (57 % at +15, 67 % at +10). Pass 5's longer post
+   * engagement (POST_ENGAGEMENT_BONUS) made posts stronger, so at +10 an 8 × L3 circle climbed to
+   * band 5, where its best bank point is negative; at +8 it settles in band 4 again (positive).
    */
-  REPUTATION_CARAVAN_HELD: 10,
+  REPUTATION_CARAVAN_HELD: 8,
   /** TUNABLE (chunk 04). Reputation lost by the caravan when it is overrun, before gap scaling. */
   REPUTATION_CARAVAN_OVERRUN: -20,
   /** TUNABLE (chunk 04). Reputation cannot fall below this; a loss that would cross it is clamped (and recorded as clamped). */

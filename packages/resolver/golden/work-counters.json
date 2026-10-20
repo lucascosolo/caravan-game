@@ -1,5 +1,5 @@
 {
-"resolverVersion": 8,
+"resolverVersion": 9,
 "fights": {
 "abilities-all-six-both-sides": {"ticks":115,"unitTicks":1380,"pathSearches":122,"pathExpansions":3141},
 "abilities-breaker-siege-stone": {"ticks":184,"unitTicks":552,"pathSearches":77,"pathExpansions":27197},

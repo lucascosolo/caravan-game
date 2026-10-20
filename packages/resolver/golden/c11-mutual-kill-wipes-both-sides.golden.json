@@ -1,6 +1,6 @@
 {
 "scenario": "c11-mutual-kill-wipes-both-sides",
-"resolverVersion": 8,
+"resolverVersion": 9,
 "outcome": {"kind":"caravan_held","end":"party_wiped","endTick":89,"depth":0,"deepestUnit":-1},
 "ticks": 90,
 "units": [
@@ -9,7 +9,7 @@
 ],
 "fences": [],
 "traps": [],
-"replay": {"format":"caravan-replay","v":2,"resolverVersion":8,"tickRate":20,"tickCap":600,"keyframeInterval":100,"ticks":90,"outcome":{"kind":"caravan_held","end":"party_wiped","endTick":89,"depth":0,"deepestUnit":-1},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":40,"hp":40,"ab":4},{"u":1,"side":"defender","ref":"p","typeId":"desert.well_digger","level":1,"maxHp":1100,"hp":57,"ab":1}],"fences":[],"traps":[],"count":9,"check":4084317202,"events":[
+"replay": {"format":"caravan-replay","v":2,"resolverVersion":9,"tickRate":20,"tickCap":600,"keyframeInterval":100,"ticks":90,"outcome":{"kind":"caravan_held","end":"party_wiped","endTick":89,"depth":0,"deepestUnit":-1},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":40,"hp":40,"ab":4},{"u":1,"side":"defender","ref":"p","typeId":"desert.well_digger","level":1,"maxHp":1100,"hp":57,"ab":1}],"fences":[],"traps":[],"count":9,"check":2747996447,"events":[
 [0,"s",0,15872,512],
 [0,"s",1,15872,8704],
 [0,"tg",0,1,1],
