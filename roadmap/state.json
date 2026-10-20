@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-20T22:08:00Z",
+  "updated_at": "2026-10-20T22:14:00Z",
   "written_by": "PC session, Phase 2 start (art direction reopened before building the pipeline)",
   "handoff_note": "roadmap/HANDOFF.md",
   "repo": {
@@ -267,7 +267,7 @@
         "I kinda like a stardew valley vibe",
         "I don't really worry too much about it being true pixel art"
       ],
-      "status": "exploring",
+      "status": "picks made on the look test; the style guide rewrite is next",
       "consequence": "docs/art/STYLE-GUIDE.md (gouache storybook, bans pixel art) and ART-PLAN.md are superseded in direction until rewritten; the owner chose to settle the look before the pipeline is built",
       "look_test": {
         "url": "https://claude.ai/artifact/EGHs2F88GqNcDEN2xh3hgy",
@@ -287,7 +287,14 @@
           "trap_jaw"
         ]
       },
-      "pipeline_idea": "build step pixelizes any source image: downscale to a fixed grid per class, snap to one palette, add the outline in code, so generated art stays consistent"
+      "pipeline_idea": "build step pixelizes any source image: downscale to a fixed grid per class, snap to one palette, add the outline in code, so generated art stays consistent",
+      "owner_picks": {
+        "date": "2026-10-20",
+        "pixel_size": "small (the finer of the three: about 1 CSS px per art pixel on a phone, a whole number of device pixels)",
+        "outline": "extra bold on every object (the sprite's own 1px dark line plus a second 1px dark line grown around the silhouette); NEVER on ground tiles, whose outlines read as a grid and look bad",
+        "colour": "between warm and bright (look test: saturate 1.15, contrast 1.03 over the warm palette)",
+        "side_marks": "a per-player setting, default on (round settler badge, triangle raider tag, drawn by code)"
+      }
     },
     "spec_conflicts_note": "parked: answers depend on the new look (animation scope especially); proposals were given in the 2026-10-20 session",
     "phase_2_pipeline_status": "paused by owner: settle the look first"
@@ -312,7 +319,7 @@
     "hosting target for a CI deploy step",
     "fast-forward main and delete merged branches",
     "reconcile PHASE-2 section 26 with ART-PLAN (art.spec_conflicts_pending_owner)",
-    "the art look: Stardew-like pixel art with bold outlines is the current lead; settle it with the look test before the pipeline"
+    "the art look: picks made 2026-10-20 (art.direction_change.owner_picks); confirm the rewritten style guide"
   ],
   "next_tasks": [
     {
