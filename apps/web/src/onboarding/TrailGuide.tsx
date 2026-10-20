@@ -18,7 +18,7 @@ import type { ScoutedParty } from "../screens/trail/scoutTypes.ts";
 import { STRINGS } from "../strings.ts";
 import { applyMainFence, applyOpenGap, applyPosts, applyRestOfFence, applyTrap, arrangeStatus } from "./arrangeGuide.ts";
 import { GuideCard } from "./GuideCard.tsx";
-import * as rule from "./guideRule.ts";
+import * as rule from "@caravan/circle";
 import { isAfter, type OnboardingStep } from "./steps.ts";
 
 const G = STRINGS.guide;
@@ -56,9 +56,9 @@ export function showsAt(step: OnboardingStep | null, moment: TrailMoment): boole
   return !isAfter(step, target);
 }
 
-// Round 3 S1: the pick and advice rules live in guideRule.ts as pure functions (no React, no DOM),
+// Round 3 S1: the pick and advice rules live in @caravan/circle guide.ts as pure functions (no React, no DOM),
 // so the balance harness can run the very same code. These are the client-typed wrappers.
-export { GUIDE_RANGED_MIN_CELLS, isRangedRaider } from "./guideRule.ts";
+export { GUIDE_RANGED_MIN_CELLS, isRangedRaider } from "@caravan/circle";
 
 /** Every raider in the party is ranged (an empty party is not). */
 export function isRangedOnly(c: CandidateView): boolean {
@@ -94,7 +94,7 @@ function reasonText(r: rule.AdviceReason, p: StakesPreview): string {
 
 /**
  * QA D2 / r3 S1: the bank-or-push advice, read off the server's stakes preview and the menu the
- * player just faced (guideRule.pushAdvice). Advice only: the player chooses.
+ * player just faced (@caravan/circle pushAdvice). Advice only: the player chooses.
  */
 export function pushAdvice(p: StakesPreview, menu: readonly CandidateView[] | null = null): { readonly kind: "bank"; readonly reasons: readonly string[] } | { readonly kind: "push" } {
   const a = rule.pushAdvice(p, menu ? menu.map((c) => c.scout) : null);

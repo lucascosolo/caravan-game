@@ -12,7 +12,7 @@
  * Nothing in the view is left out. If a field is added to `ScoutUnit` or `ScoutSiege`, it
  * belongs here too.
  */
-import { rangedCount } from "../../onboarding/guideRule.ts";
+import { rangedCount } from "@caravan/circle";
 import { getFenceTier, getTrapType } from "@caravan/content";
 import { memo } from "react";
 import { STRINGS } from "../../strings.ts";
