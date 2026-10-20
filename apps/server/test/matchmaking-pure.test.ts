@@ -561,16 +561,34 @@ describe("chunk 19 QA D2b: encounter 1 is matched below the caravan, and that ne
 describe("final play-test review S1 / guardrail review r2 D1: the cold-start raider cap is pure, keyed on the caravan's roster, and never empties a menu", () => {
   const entry = (i: number, raiders: number, rating = 250) => ({ partyId: `p${String(i).padStart(3, "0")}`, ownerAccountId: `o${i}`, rating, authored: false, raiders });
 
-  it("applies only while the whole roster, in starting-unit equivalents, is at most COLD_START_ROSTER_MAX (the starting roster's size), at any centre", () => {
+  it("above band COLD_START_PACKED_CAP_MAX_BAND, applies only while the whole roster, in starting-unit equivalents, is at most COLD_START_ROSTER_MAX (the starting roster's size)", () => {
     const ROSTER = TUNABLES.STARTING_ROSTER.copiesPerStarterType * TUNABLES.STARTING_NODES.living;
     expect(TUNABLES.COLD_START_ROSTER_MAX).toBe(ROSTER);
-    const pool = [entry(1, 1), entry(2, 1), entry(3, 1), entry(4, 5)];
-    expect(coldStartRaiderCap(pool, 250, 1, ROSTER + 1)).toBeNull();
-    expect(coldStartRaiderCap(pool, 250, 1, ROSTER)).toEqual({ rosterSize: ROSTER, rosterMax: ROSTER, packedUnits: 1, cap: 1, relaxed: false, excludedPartyIds: ["p004"] });
-    // The search band no longer matters: a centre in band 1 (or far above) is capped the same way.
-    const high = pool.map((e) => ({ ...e, rating: bandCentre(1) }));
-    expect(bandOf(bandCentre(1)).index).toBe(1);
-    expect(coldStartRaiderCap(high, bandCentre(1), 1, 2)).toMatchObject({ cap: 1, excludedPartyIds: ["p004"] });
+    const C2 = bandCentre(2);
+    const pool = [entry(1, 1, C2), entry(2, 1, C2), entry(3, 1, C2), entry(4, 5, C2)];
+    expect(coldStartRaiderCap(pool, C2, 1, ROSTER + 1)).toBeNull();
+    expect(coldStartRaiderCap(pool, C2, 1, ROSTER)).toEqual({ rosterSize: ROSTER, rosterMax: ROSTER, centreBand: 2, bandMax: 1, packedUnits: 1, cap: 1, relaxed: false, excludedPartyIds: ["p004"] });
+    // Far above the low bands a small roster is capped the same way.
+    const C6 = bandCentre(6);
+    const high = pool.map((e) => ({ ...e, rating: C6 }));
+    expect(coldStartRaiderCap(high, C6, 1, 2)).toMatchObject({ cap: 1, centreBand: 6, excludedPartyIds: ["p004"] });
+  });
+
+  it("r3 S2(b): in bands 0–1 the cap compares against the packed units whatever the roster size (a whole raised roster never meets a smaller packed circle)", () => {
+    expect(TUNABLES.COLD_START_PACKED_CAP_MAX_BAND).toBe(1);
+    for (const band of [0, 1]) {
+      const c = bandCentre(band);
+      const pool = [entry(1, 5, c), entry(2, 4, c), entry(3, 5, c), entry(4, 7, c), entry(5, 6, c)];
+      // A 40-equivalent roster that packed 5: the 6- and 7-raider parties are out.
+      expect(coldStartRaiderCap(pool, c, 5, 40)).toEqual({ rosterSize: 40, rosterMax: TUNABLES.COLD_START_ROSTER_MAX, centreBand: band, bandMax: 1, packedUnits: 5, cap: 5, relaxed: false, excludedPartyIds: ["p004", "p005"] });
+    }
+    // The first rating of band 2 is past it; the last of band 1 is not.
+    const b2 = bandOf(bandCentre(2)).low;
+    const pool = [entry(1, 5, b2), entry(2, 4, b2), entry(3, 5, b2), entry(4, 7, b2)];
+    expect(coldStartRaiderCap(pool, b2, 5, 40)).toBeNull();
+    expect(coldStartRaiderCap(pool, b2 - 1, 5, 40)).toMatchObject({ centreBand: 1, cap: 5, excludedPartyIds: ["p004"] });
+    // −1 turns the band rule off.
+    expect(coldStartRaiderCap(pool, bandCentre(0), 5, 40, 3, TUNABLES.COLD_START_ROSTER_MAX, -1)).toBeNull();
   });
 
   it("counts a merged unit as the units it took: merging a roster down to a few strong units never turns the rule on", () => {
@@ -581,16 +599,18 @@ describe("final play-test review S1 / guardrail review r2 D1: the cold-start rai
     expect(rosterEquivalents([])).toBe(0);
     expect(() => rosterEquivalents([0])).toThrow(RangeError);
     const pool = [entry(1, 1), entry(2, 1), entry(3, 1), entry(4, 5)];
-    // One L5 unit (16 equivalents) is not a rebuilding caravan.
-    expect(coldStartRaiderCap(pool, 250, 1, rosterEquivalents([5]))).toBeNull();
+    // One L5 unit (16 equivalents) is not a rebuilding caravan (above the low bands).
+    const C2 = bandCentre(2);
+    const pool2 = pool.map((e) => ({ ...e, rating: C2 }));
+    expect(coldStartRaiderCap(pool2, C2, 1, rosterEquivalents([5]))).toBeNull();
     // Two L2 units (4 equivalents) after a wipe still are.
-    expect(coldStartRaiderCap(pool, 250, 1, rosterEquivalents([2, 2]))).not.toBeNull();
+    expect(coldStartRaiderCap(pool2, C2, 1, rosterEquivalents([2, 2]))).not.toBeNull();
   });
 
   it("caps at the packed count when enough parties fit, and relaxes one raider at a time only as far as a full menu needs", () => {
     const pool = [entry(1, 3), entry(2, 3), entry(3, 4), entry(4, 5), entry(5, 8)];
     // Two packed: nothing has ≤ 2 raiders, two have 3, so the cap rises to 4 (three fit).
-    expect(coldStartRaiderCap(pool, 250, 2, 2)).toEqual({ rosterSize: 2, rosterMax: TUNABLES.COLD_START_ROSTER_MAX, packedUnits: 2, cap: 4, relaxed: true, excludedPartyIds: ["p004", "p005"] });
+    expect(coldStartRaiderCap(pool, 250, 2, 2)).toEqual({ rosterSize: 2, rosterMax: TUNABLES.COLD_START_ROSTER_MAX, centreBand: bandOf(250).index, bandMax: 1, packedUnits: 2, cap: 4, relaxed: true, excludedPartyIds: ["p004", "p005"] });
     // Six packed (a 6-unit roster): everything up to 6 fits; the 8-raider party is out.
     expect(coldStartRaiderCap(pool, 250, 6, 6)).toMatchObject({ cap: 6, relaxed: false, excludedPartyIds: ["p005"] });
     // Parties beyond ±REPUTATION_BAND_WIDTH_MAX do not count toward filling (they are not drawn in band).

@@ -117,12 +117,13 @@ export async function circleRoutes(app: FastifyInstance): Promise<void> {
     // Final play-test review r2 N10: "no draft yet" is an empty state. A client that asks for it
     // (`?ifNone=null`) gets 200 `{ formation: null, encounterIndex }`; without the parameter the
     // answer stays the 404 `no_formation` that current clients expect (additive, as N10 did for
-    // the manifest and the candidates).
+    // the manifest and the candidates). Final play-test review r3 N10: so is an encounter of a trip
+    // that has ended (the manifest is closed, nothing is packed): no draft there either.
     if (req.query.ifNone === "null") {
       try {
         return { formation: await getFormation(app.db, caravan, n) };
       } catch (err) {
-        if (err instanceof AppError && err.code === "no_formation") return { formation: null, encounterIndex: n };
+        if (err instanceof AppError && (err.code === "no_formation" || err.code === "no_open_manifest")) return { formation: null, encounterIndex: n };
         throw err;
       }
     }

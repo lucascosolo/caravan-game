@@ -24,7 +24,6 @@ import { AUTHORED_BANDS, AUTHORED_PARTIES_PER_BAND, AUTHORED_USERNAME_PREFIX, se
 import { CANDIDATES_PER_SEARCH, ESCALATION_PER_ENCOUNTER, RECENT_OPPONENT_EXCLUSION, REPUTATION_BAND_WIDTH_MAX, REROLL_COOLDOWN_SECONDS, bandCentre, bandOf, sandbagEarnMultiplier } from "../src/matchmaking/band.js";
 import { chooseCandidate, enqueueChosenEncounter, isAuthoredOnlyTrip, readCandidates, replaySearch, searchCandidates, type Candidate, type CandidateMenuView, type CandidateView, type EncounterCandidatesRow } from "../src/matchmaking/service.js";
 import { createTrip, endTrip } from "../src/matchmaking/trips.js";
-import { closeManifest } from "../src/circle/service.js";
 import { findCaravanById } from "../src/repo/caravans.js";
 import { createUnitInstance } from "../src/repo/unitInstances.js";
 import { appRolePool, expectDbError, testPool, truncateAll, unique, seasonCaravan } from "./helpers.js";
@@ -747,25 +746,35 @@ describe("final play-test review: the band-0 raider cap (S1), the centre's basis
     }
   });
 
-  it("r2 D1: the rule follows the roster, not the band — a small roster is capped in band 1, and a large or merged-down roster is not capped in band 0", async () => {
+  it("r2 D1 / r3 S2(b): above band 1 the rule follows the roster — a small roster is capped in band 2, a merged-down roster is not; in bands 0–1 the merged-down roster is capped at what it packed", async () => {
     const low = 250; // band 0
-    const mid = bandCentre(1); // band 1
-    for (const n of [5, 6, 7]) await makeOwner("badlands", low, n);
-    for (const n of [5, 6, 7, 1, 1, 1]) await makeOwner("badlands", mid, n);
-    // A rebuilding caravan searching in band 1: capped (relaxed as far as a full menu needs).
-    const small = await packedDefender(1, mid);
+    const high = bandCentre(2); // band 2: the roster rule
+    for (const n of [5, 6, 7, 1, 1, 1]) await makeOwner("badlands", low, n);
+    for (const n of [5, 6, 7, 1, 1, 1]) await makeOwner("badlands", high, n);
+    // A rebuilding caravan searching in band 2: capped.
+    const small = await packedDefender(1, high);
     const m1 = await searchAt(small, 1, Date.now());
     expect(m1.raiderCap).toMatchObject({ packedUnits: 1 });
-    // One L5 unit: 16 starting-unit equivalents, never a rebuilding caravan, even in band 0.
-    const strong = await registerPlayer("desert");
-    await pool.query("DELETE FROM unit_instance WHERE caravan_id = $1", [strong.caravanId]);
-    await giveUnits(strong, 1, "desert.dust_rider", 5);
-    await setLivingRep(strong.caravanId, low - TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET);
-    expect((await call(strong, "POST", `/caravans/${strong.caravanId}/manifest`, { units: strong.units, traps: [], fence: null })).statusCode).toBe(201);
-    const trip = await withTransaction(pool, (c) => createTrip(c, strong.caravanId));
-    const m2 = await searchAt({ ...strong, caravan: (await findCaravanById(pool, strong.caravanId))! }, 1, Date.now());
-    expect(m2.raiderCap).toBeNull();
-    expect((await menuRow(trip.id, 1, m2.searchSeq)).raider_cap).toBeNull();
+    // One L5 unit: 16 starting-unit equivalents, not a rebuilding caravan — not capped in band 2 ...
+    const strongAt = async (centre: number) => {
+      const strong = await registerPlayer("desert");
+      await pool.query("DELETE FROM unit_instance WHERE caravan_id = $1", [strong.caravanId]);
+      await giveUnits(strong, 1, "desert.dust_rider", 5);
+      await setLivingRep(strong.caravanId, centre - TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET);
+      expect((await call(strong, "POST", `/caravans/${strong.caravanId}/manifest`, { units: strong.units, traps: [], fence: null })).statusCode).toBe(201);
+      const trip = await withTransaction(pool, (c) => createTrip(c, strong.caravanId));
+      const m = await searchAt({ ...strong, caravan: (await findCaravanById(pool, strong.caravanId))! }, 1, Date.now());
+      return { m, row: await menuRow(trip.id, 1, m.searchSeq) };
+    };
+    const above = await strongAt(high);
+    expect(above.m.raiderCap).toBeNull();
+    expect(above.row.raider_cap).toBeNull();
+    // ... but in band 0 it packed one unit, so it meets no party bigger than that (r3 S2(b)).
+    const below = await strongAt(low);
+    expect(below.m.raiderCap).toMatchObject({ packedUnits: 1, cap: 1, relaxed: false });
+    expect(below.row.raider_cap).toMatchObject({ rosterSize: 16, centreBand: 0, bandMax: TUNABLES.COLD_START_PACKED_CAP_MAX_BAND, packedUnits: 1, cap: 1 });
+    for (const c of below.m.candidates) expect(c.scout.units.length).toBe(1);
+    expect(replaySearch(below.row).partyIds).toEqual(below.row.candidates.map((c) => c.partyId));
   });
 
   it("N6: the menu says where its centre is and why — encounter 1 is searched below the caravan, not 'within its band'", async () => {
@@ -840,9 +849,9 @@ describe("final play-test review N10 / N5: empty states are 200, and the read ca
   });
 });
 
-describe("final play-test review r2 S2: a caravan's first trip meets authored outfits only, at every encounter", () => {
-  it("trip 1: every candidate is authored (live parties right at the centre are left out), the menu says so and replays; trip 2: live parties are served again", async () => {
-    expect(TUNABLES.AUTHORED_ONLY_FIRST_TRIPS).toBe(1);
+describe("final play-test review r2 S2 / r3 S2(a): a caravan meets authored outfits only, at every encounter, until it has banked AUTHORED_ONLY_UNTIL_BANKS trips", () => {
+  it("before 2 banks every candidate is authored (live parties right at the centre are left out), the menu says so and replays; overrun and voided trips do not count; after 2 banks live parties are served again", async () => {
+    expect(TUNABLES.AUTHORED_ONLY_UNTIL_BANKS).toBe(2);
     await seedAuthoredParties(appRole);
     const centre = 250;
     // Live parties exactly at the centre: in any other trip they would fill the menu.
@@ -852,7 +861,7 @@ describe("final play-test review r2 S2: a caravan's first trip meets authored ou
     const body = res.json();
     const p: Player = { token: body.token, accountId: body.account.id, caravanId: body.caravan.id, units: [] };
     await setLivingRep(p.caravanId, centre - TUNABLES.FIRST_ENCOUNTER_CENTRE_OFFSET);
-    await giveUnits(p, 1, "desert.dust_rider"); // 7 units: the cold-start raider cap does not run
+    await giveUnits(p, 1, "desert.dust_rider"); // 7 units, 5 packed: in band 0 the raider cap runs (r3 S2(b)) but the 2-raider live parties fit under it
     const all = (await pool.query<{ id: string }>("SELECT id FROM unit_instance WHERE caravan_id = $1", [p.caravanId])).rows.map((r) => r.id);
     expect((await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: all.slice(0, 5), traps: [], fence: null })).statusCode).toBe(201);
     const t1 = await withTransaction(pool, (c) => createTrip(c, p.caravanId));
@@ -866,17 +875,26 @@ describe("final play-test review r2 S2: a caravan's first trip meets authored ou
       expect(row.pool.every((e) => e.authored)).toBe(true);
       expect(replaySearch(row).partyIds).toEqual(row.candidates.map((c) => c.partyId));
     }
-    // Encounter 2 of the same trip is still the first trip (checked at the rule, not by playing it out here).
+    // Encounter 2 of the same trip is still authored-only (checked at the rule, not by playing it out here).
     expect(await isAuthoredOnlyTrip(pool, p.caravanId, t1.id)).toBe(true);
-    // The trip ends; the caravan packs again. Trip 2 is served from the whole pool.
-    const m1 = (await pool.query<{ id: string }>("SELECT id FROM wagon_manifest WHERE caravan_id = $1 AND closed_at IS NULL", [p.caravanId])).rows[0]!.id;
-    await withTransaction(pool, async (c) => {
-      await endTrip(c, t1.id);
-      await closeManifest(c, m1);
-    });
-    expect((await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: all.slice(0, 5), traps: [], fence: null })).statusCode).toBe(201);
-    const t2 = await withTransaction(pool, (c) => createTrip(c, p.caravanId));
-    expect(await isAuthoredOnlyTrip(pool, p.caravanId, t2.id)).toBe(false);
+    // Earlier ended trips, written as the owner role: an overrun and a voided one do not count, one bank is not enough.
+    const ended = async (reason: "banked" | "overrun" | "voided"): Promise<void> => {
+      await pool.query(
+        `WITH m AS (INSERT INTO wagon_manifest (caravan_id, packed, survivors, closed_at, created_at) VALUES ($1, $2::jsonb, $2::jsonb, now() - interval '1 day', now() - interval '1 day') RETURNING id)
+         INSERT INTO trip (caravan_id, manifest_id, started_at, ended_at, end_reason) SELECT $1, m.id, now() - interval '1 day', now() - interval '1 day', $3 FROM m`,
+        [p.caravanId, JSON.stringify({ v: 1, units: [], traps: [], fences: [] }), reason],
+      );
+    };
+    await ended("overrun");
+    await ended("voided");
+    await ended("overrun");
+    expect(await isAuthoredOnlyTrip(pool, p.caravanId, t1.id)).toBe(true);
+    await ended("banked");
+    expect(await isAuthoredOnlyTrip(pool, p.caravanId, t1.id)).toBe(true);
+    // The second bank: the trip in hand (and every later one) is served from the whole pool.
+    await ended("banked");
+    expect(await isAuthoredOnlyTrip(pool, p.caravanId, t1.id)).toBe(false);
+    const t2 = t1;
     let live = 0;
     for (let k = 0; k < 4; k++) {
       const m = await withTransaction(appRole, (c) => searchCandidates(c, caravan, 1, { nowMs: Date.now() + (10 + k) * COOLDOWN_MS }));

@@ -26,7 +26,7 @@ export interface InboxStrike {
   encounterIndex: number | null;
   /** caravan_held | caravan_overrun | stalemate (chunk 13), or null if the resolution wrote none. */
   outcomeKind: string | null;
-  /** Exactly what the results feed shows of the defender: a public username and the caravan's name and region. Never an account id. */
+  /** Exactly what the results feed shows of the defender: the caravan's name and region (username always null, r3 N6). Never an account id. */
   defender: {
     username: string | null;
     caravanName: string | null;

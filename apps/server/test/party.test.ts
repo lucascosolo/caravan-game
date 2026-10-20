@@ -445,7 +445,7 @@ describe("THE GUARANTEE: a party is never consumed, never loses a unit, never de
       expect(JSON.stringify(e)).not.toContain(d.caravanId);
       expect(e.defender).not.toHaveProperty("accountId"); // chunk 19 QA S1: account ids are not public
       expect(typeof e.defender["caravanName"]).toBe("string");
-      expect(typeof e.defender["username"]).toBe("string");
+      expect(e.defender["username"]).toBeNull(); // final play-test review r3 N6: strangers see the caravan name, never a username
       expect(e.partySavedAt).toBe((viewBefore as { savedAt: string }).savedAt);
       expect(e.resolverVersion).toBe(RESOLVER_VERSION);
       if (e.encounterIndex % 2 === 0) {

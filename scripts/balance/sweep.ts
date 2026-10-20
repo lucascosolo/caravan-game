@@ -25,7 +25,12 @@ import {
   ENTRY_EDGES,
   RING_SEGMENTS,
   applyEncounterOutcome,
+  guidePick as guideRulePick,
+  guideStakesOf,
+  isRangedOnly as guideRangedOnly,
   isFenceIntact,
+  pushAdvice,
+  scoutParty,
   isUnitAlive,
   packManifest,
   ringSegment,
@@ -40,7 +45,7 @@ import {
 import { resolve, type ResolveOutput } from "../../packages/resolver/src/index.js";
 import { authoredPartyConfig, authoredPartySpecs, baseMergeLevel, maxLivingTier, type AuthoredPartySpec } from "../../apps/server/src/matchmaking/authored.js";
 import { authoredPartyId } from "../../apps/server/src/matchmaking/authored.js";
-import { bandOf, candidateSeed, escalatedCentre, selectCandidates, type PoolEntry } from "../../apps/server/src/matchmaking/band.js";
+import { bandOf, candidateSeed, coldStartRaiderCap, escalatedCentre, rosterEquivalents, selectCandidates, type PoolEntry } from "../../apps/server/src/matchmaking/band.js";
 import { reputationDelta } from "../../apps/server/src/progression/reputation.js";
 import { resolverInputOf } from "../../apps/server/src/trip/resolverAdapter.js";
 
@@ -594,43 +599,54 @@ export function oneFight(m: Manifest, sp: ServedParty, layout: Layout): FightRes
 
 // ── matchmaking, as a fresh / cold-start pool serves it ────────────────────────────────
 
-/** The menu `selectCandidates` serves from the authored pool alone (a cold start), for one search. */
-export function servedMenu(caravanId: string, tripId: string, rating: number, encounterIndex: number, searchSeq = 1): { centre: number; menu: ServedParty[] } {
-  const parties = authoredParties();
+/**
+ * What the server's cold-start raider cap reads about the searching caravan (service.ts
+ * searchCandidates): its packed living units and its whole roster's merge levels.
+ */
+export interface CapInput {
+  readonly packedUnits: number;
+  readonly rosterLevels: readonly number[];
+}
+
+/**
+ * The menu `selectCandidates` serves from the authored pool alone (an authored-only trip, r3 S2(a);
+ * a cold start), for one search — with the server's cold-start raider cap applied first when `cap`
+ * is given (r3 S2(b): in bands 0–1 it always runs), exactly as searchCandidates filters the pool
+ * before the seeded draw. `extra` adds live parties to the pool (a trip past the authored-only rule).
+ */
+export function servedMenu(caravanId: string, tripId: string, rating: number, encounterIndex: number, searchSeq = 1, cap: CapInput | null = null, extra: readonly ServedParty[] = []): { centre: number; menu: ServedParty[] } {
+  const parties = [...authoredParties(), ...extra];
   const centre = escalatedCentre(rating, encounterIndex);
-  const r = selectCandidates({ centre, seed: candidateSeed(caravanId, tripId, encounterIndex, searchSeq), pool: parties.map((p) => p.pool) });
+  const counted = parties.map((p) => ({ ...p.pool, raiders: p.party.units.length }));
+  const rc = cap ? coldStartRaiderCap(counted, centre, cap.packedUnits, rosterEquivalents(cap.rosterLevels)) : null;
+  const out = new Set(rc?.excludedPartyIds ?? []);
+  const pool = parties.filter((p) => !out.has(p.pool.partyId)).map((p) => p.pool);
+  const r = selectCandidates({ centre, seed: candidateSeed(caravanId, tripId, encounterIndex, searchSeq), pool });
   const byId = new Map(parties.map((p) => [p.pool.partyId, p] as const));
   return { centre, menu: r.picks.map((p) => byId.get(p.partyId)!) };
 }
 
 /**
- * The client guide's ranged rule (apps/web TrailGuide `isRangedRaider`, round-2 client opt-ins): a
- * raider shoots from range when it can hit from at least GUIDE_RANGED_MIN_CELLS cells — far enough
- * to stand outside the fence ring and reach a post inside it. (Before: any reach above the melee
- * default, which counted a Grizzly's 1.2-cell swipe as ranged.) Mirrored here, not imported: the
- * web module is not part of the server's typecheck.
+ * The client guide's rule (final play-test review r3 S1), shared through @caravan/circle's guide.ts
+ * — the very code apps/web's TrailGuide runs — over the scout view the client is served
+ * (`scoutParty`, the candidate card). Not mirrored: imported.
  */
-export const GUIDE_RANGED_MIN_CELLS = 3;
-export function isRangedRaider(u: { readonly attackRange: number }): boolean {
-  return u.attackRange >= GUIDE_RANGED_MIN_CELLS * TUNABLES.ATTACK_RANGE_MELEE_DEFAULT;
-}
+export { GUIDE_RANGED_MIN_CELLS, isRangedRaider } from "../../packages/circle/src/index.js";
 /** r2 S2: every raider of the party is ranged (it can stand outside the fence and shoot the posts). */
 export function isRangedOnly(party: Party): boolean {
-  return party.units.length > 0 && party.units.every((u) => isRangedRaider(getUnitType(u.typeId)!));
+  return guideRangedOnly(scoutParty(party));
 }
 
-/**
- * The guide's scouting pick, as the client's TrailGuide makes it: least total HP, then fewest siege,
- * then fewest raiders, then menu order — and (final play-test review r2 S2) never a ranged-only
- * party while the menu holds another one.
- */
+/** The guide's pick, as the client makes it at every guided encounter: pass over ranged-only parties, then the smallest. */
 export function guidePick(menu: readonly ServedParty[]): ServedParty {
-  const hp = (p: ServedParty) => p.party.units.reduce((s, u) => s + Math.floor((getUnitType(u.typeId)!.hp * TUNABLES.MERGE_STAT_MULT_BY_LEVEL[u.mergeLevel]!) / 1024), 0);
-  const notRanged = menu.filter((p) => !isRangedOnly(p.party));
-  const from = notRanged.length > 0 ? notRanged : menu;
-  return from
-    .map((p, i) => ({ p, i }))
-    .sort((a, b) => hp(a.p) - hp(b.p) || a.p.party.siege.length - b.p.party.siege.length || a.p.party.units.length - b.p.party.units.length || a.i - b.i)[0]!.p;
+  const p = guideRulePick(menu.map((sp) => scoutParty(sp.party)));
+  if (!p) throw new Error("guidePick: empty menu");
+  return menu[p.index]!;
+}
+
+/** The guide's bank-or-push advice after a held fight, as the client gives it: the survivors' stakes and the menu just faced. */
+export function guideAdvice(survivors: Manifest, menuJustFaced: readonly ServedParty[]): ReturnType<typeof pushAdvice> {
+  return pushAdvice(guideStakesOf(survivors), menuJustFaced.map((sp) => scoutParty(sp.party)));
 }
 
 /**

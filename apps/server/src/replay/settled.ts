@@ -42,6 +42,13 @@ export interface SettledEncounter {
   /** Whether the trip loop has folded this outcome in yet (its trip_encounter row exists). False: nothing below has been written yet. */
   readonly applied: boolean;
   readonly coin: readonly SettledCoin[];
+  /**
+   * Final play-test review r3 N5: every Coin credited to the viewer for this encounter, summed
+   * (the entries of `coin`) — the owner's end card and the inbox show the same total.
+   */
+  readonly coinEarned: number;
+  /** Of `coinEarned`: an overrun caravan's unbanked Coin transferred to the party's owner (its own line on the card). */
+  readonly coinTransferred: number;
   /** The caravan's unbanked Coin lost when it was overrun here, and where it went. */
   readonly coinLost: {
     readonly amount: number;
@@ -92,6 +99,7 @@ export async function settledForEncounter(
   );
   const n = input.encounterIndex;
   const coin: SettledCoin[] = [];
+  let coinTransferred = 0;
   let coinLost: SettledEncounter["coinLost"] = null;
   const reputation: { pool: string; delta: number }[] = [];
   const ladder: { pool: string; pointsDelta: number; levelBefore: number; levelAfter: number }[] = [];
@@ -116,6 +124,7 @@ export async function settledForEncounter(
         // A trip's bank credit names every survived encounter: keep only this one's (the delivery bonus belongs to the trip, not an encounter).
         if (fromTrip && !(str(p["reason"]) === "encounter_survived" && num(p["encounterIndex"]) === n)) break;
         coin.push({ reason: str(p["reason"]) || e.event_type, amount: num(p["amount"]), discarded: num(p["overflowDiscarded"]) });
+        if (e.event_type === "coin_transferred_to_party_owner") coinTransferred += num(p["amount"]);
         break;
       }
       case "coin_lost_on_wipe":
@@ -150,5 +159,6 @@ export async function settledForEncounter(
     if (r) trip = { ended: r.ended_at !== null, endReason: r.end_reason, unbankedCoin: r.banked || r.ended_at !== null || r.coin_accrued === null ? null : r.coin_accrued };
   }
   const folded = await db.query<{ applied: boolean }>("SELECT EXISTS (SELECT 1 FROM trip_encounter WHERE job_id = $1) AS applied", [input.jobId]);
-  return { source: "ledger", applied: folded.rows[0]?.applied === true, coin, coinLost, reputation, ladder, unlockPoints, deMerged, destroyed, trip };
+  const coinEarned = coin.reduce((n, c) => n + c.amount, 0);
+  return { source: "ledger", applied: folded.rows[0]?.applied === true, coin, coinEarned, coinTransferred, coinLost, reputation, ladder, unlockPoints, deMerged, destroyed, trip };
 }

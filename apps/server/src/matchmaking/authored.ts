@@ -94,8 +94,9 @@ export const AUTHORED_USERNAME_PREFIX = SYSTEM_USERNAME_PREFIX;
  * v5 (final play-test review, BALANCE-LOG pass 2): the floor band's 1- and 2-edge outfits field
  * AUTHORED_FLOOR_BAND_PARTY_SIZE (2) raiders, so a first trip that leaves GUIDE_RESERVE units in
  * town still holds ≥ 70 % of guided first fights.
+ * v6 (final play-test review r3 D2, BALANCE-LOG pass 6): the outliers re-authored (AUTHORED_REAUTHORED).
  */
-export const AUTHORED_SET_VERSION = 5;
+export const AUTHORED_SET_VERSION = 6;
 export const AUTHORED_PARTIES_PER_BAND: number = TUNABLES.AUTHORED_PARTIES_PER_BAND;
 if (!Number.isInteger(AUTHORED_PARTIES_PER_BAND) || AUTHORED_PARTIES_PER_BAND < 12) throw new Error("TUNABLES.AUTHORED_PARTIES_PER_BAND must be an integer of at least 12 (PHASE-2 §25)");
 if (!Number.isInteger(TUNABLES.AUTHORED_REPUTATION_CEILING) || TUNABLES.AUTHORED_REPUTATION_CEILING < TUNABLES.REPUTATION_FLOOR) throw new Error("TUNABLES.AUTHORED_REPUTATION_CEILING must be an integer at or above REPUTATION_FLOOR");
@@ -270,6 +271,28 @@ function chooseTypes(web: UnlockWeb, maxTier: number, want: number, offset: numb
   return { types: chosen, nodes, points: pointsFor(web, nodes) };
 }
 
+/**
+ * TUNABLE CONTENT (final play-test review r3 D2, BALANCE-LOG pass 6): authored outfits re-authored
+ * because the BEST of the 76 skilled layouts held their band's typical rosters (and, in bands 0–1,
+ * the fresh guided five-post pack) less than 20 % of the time (`scripts/balance/outliers.ts`). Each
+ * takes the smallest change measured to clear the bar: a stance pattern (the party keeps its size),
+ * else one raider fewer. Keyed by outfit name; every other outfit is derived exactly as before.
+ * validateSpecs still holds: every band keeps a party of every stance pattern, and the band
+ * difficulty (tier, merge level, raiders in the band) still rises.
+ */
+export const AUTHORED_REAUTHORED: Readonly<Record<string, { readonly stancePattern?: StancePattern; readonly dropRaiders?: number }>> = {
+  "Hardrock Hirelings": { stancePattern: "mixed" }, // b0: typical 3/8, fresh-5 0/8 → 8/8, 6/8
+  "Boot Hill Society": { stancePattern: "mixed" }, // b3: 0/8 → 3/8
+  "The Cirque Company": { stancePattern: "mixed" }, // b4: 1/8 → 5/8
+  "Prairie Doctor's Party": { stancePattern: "mixed" }, // b5: 0/8 → 8/8
+  "Buffalo Hunter Cooperative": { stancePattern: "mixed" }, // b5: 0/8 → 6/8
+  "Lumberjack Levy": { dropRaiders: 1 }, // b5 (mixed already): 0/8 → 3/8
+  "Copper Canyon Cartel": { dropRaiders: 1 }, // b6: 0/8 → 2/8 (mixed: 1/8)
+  "Sand Ridge Wranglers": { stancePattern: "mixed" }, // b6: 0/8 → 8/8
+  "Cyclone Cellar Boys": { stancePattern: "nearest" }, // b6 (mixed already; one fewer: 1/8): 0/8 → 7/8
+  "The Ocotillo Ring": { stancePattern: "nearest" }, // b6 (mixed, one or two fewer: 0/8): 0/8 → 8/8
+};
+
 let cachedSpecs: AuthoredPartySpec[] | undefined;
 
 /**
@@ -298,8 +321,10 @@ export function authoredPartySpecs(): AuthoredPartySpec[] {
       // At least one unit per edge the party splits across, so a 4-edge party really comes from four sides.
       const size = Math.min(TUNABLES.PARTY_SLOT_CAP, Math.max(edgeCount, bandPartySize(ordinal, i)));
       const base = baseMergeLevel(ordinal);
+      const re = AUTHORED_REAUTHORED[outfit.name];
+      const fielded = Math.max(edgeCount, size - (re?.dropRaiders ?? 0));
       const units: { typeId: string; mergeLevel: number }[] = [];
-      for (let u = 0; u < size; u++) {
+      for (let u = 0; u < fielded; u++) {
         const leader = ordinal >= AUTHORED_LEADER_FROM_ORDINAL && i % 3 === 0 ? 1 : 0;
         const level = u === 0 ? Math.min(TUNABLES.MERGE_LEVEL_MAX, base + leader) : Math.max(TUNABLES.MERGE_LEVEL_MIN, base - (ordinal >= AUTHORED_FULL_LEVEL_FROM_ORDINAL ? 0 : u % 2));
         units.push({ typeId: roster.types[u % roster.types.length]!, mergeLevel: level });
@@ -319,7 +344,7 @@ export function authoredPartySpecs(): AuthoredPartySpec[] {
         siege,
         edgeCount,
         edges,
-        stancePattern: STANCE_PATTERNS[(i + ordinal) % STANCE_PATTERNS.length]!,
+        stancePattern: re?.stancePattern ?? STANCE_PATTERNS[(i + ordinal) % STANCE_PATTERNS.length]!,
         livingNodes: roster.nodes.map((n) => n.id),
         livingPoints: roster.points,
         siegeNodes: siegeNodes.map((n) => n.id),
@@ -358,6 +383,7 @@ function validateSpecs(specs: readonly AuthoredPartySpec[], bands: readonly numb
     }
     for (const p of STANCE_PATTERNS) if (!inBand.some((s) => s.stancePattern === p)) fail(`band ${b}: no '${p}' stance pattern`);
   }
+  for (const name of Object.keys(AUTHORED_REAUTHORED)) if (!specs.some((s) => s.outfit.name === name)) fail(`AUTHORED_REAUTHORED names '${name}', which is not in the set`);
   const allTypes = new Set(specs.flatMap((s) => s.units.map((u) => u.typeId)));
   for (const r of REGION_IDS) for (const n of unlockWebFor("living", r).nodes) if (!allTypes.has(n.id)) fail(`living type '${n.id}' never appears`);
   const allSiege = new Set(specs.flatMap((s) => s.siege));

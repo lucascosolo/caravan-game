@@ -609,14 +609,25 @@ export const TUNABLES = {
    */
   COLD_START_ROSTER_MAX: 6,
   /**
-   * TUNABLE (final play-test review r2 S2). Cold-start fairness, same family: a caravan's first
-   * this-many trips meet AUTHORED outfits only, at every encounter (live parties are left out of the
-   * pool before the seeded draw; the menu records `draw_rules.authoredOnlyTrip`). Testers' raised
-   * starter parties — Mountain's and Badlands' are ranged pairs that shoot the guided circle from
-   * outside the fence — are then never a player's first fight, and the guided first trip is exactly
-   * what `scripts/balance/first-trip.ts` measures (an authored-only pool). 0 turns it off.
+   * TUNABLE (final play-test review r3 S2(b)). While the search centre is in Reputation band this
+   * or lower (bands 0–1 by default), the raider cap above applies WHATEVER the roster size: no
+   * party with more raiders than the caravan packed living units is offered (relaxing only to fill
+   * a menu, as above). A whole raised roster of 7 is then never served against a 5-post circle at
+   * low bands. Above this band the roster rule (COLD_START_ROSTER_MAX) stays as it is. Stored on the
+   * menu row with the cap. −1 turns the band rule off.
    */
-  AUTHORED_ONLY_FIRST_TRIPS: 1,
+  COLD_START_PACKED_CAP_MAX_BAND: 1,
+  /**
+   * TUNABLE (final play-test review r2 S2; r3 S2(a)). Cold-start fairness, same family: a caravan
+   * meets AUTHORED outfits only, at every encounter, until it has BANKED this many trips (live
+   * parties are left out of the pool before the seeded draw; the menu records
+   * `draw_rules.authoredOnlyTrip`). A voided or overrun trip does not count. Testers' raised
+   * starter parties and whole raised rosters are then never a player's first two trips' fights,
+   * and the guided trips are exactly what `scripts/balance/first-trip.ts` measures (an
+   * authored-only pool). 0 turns it off. (Was AUTHORED_ONLY_FIRST_TRIPS 1, counted by trips
+   * started.)
+   */
+  AUTHORED_ONLY_UNTIL_BANKS: 2,
 
   // ────────────────────────────────────────────────────────────────────────────────────
   // Chunk 16 — Coin economy and merge pricing. Coin buys PACE only (GUARDRAILS §2): nothing

@@ -196,6 +196,21 @@ describe("guest-first", () => {
     expect(String(forged.headers["set-cookie"])).toMatch(/Max-Age=0/);
     await pool.query("UPDATE device SET expires_at = now() - interval '1 second' WHERE account_id = $1", [g.accountId]);
     expect((await app.inject({ method: "POST", url: "/auth/resume", payload: {}, headers: { cookie: g.cookie } })).statusCode).toBe(401);
+    // Final play-test review r3 N10: a client that asks (?ifNone=null) gets the empty state as 200 { session: null } — no cookie, a forged one (still cleared) or an expired one.
+    const none = await app.inject({ method: "POST", url: "/auth/resume?ifNone=null", payload: {} });
+    expect([none.statusCode, none.json()]).toEqual([200, { session: null }]);
+    const forgedNone = await app.inject({ method: "POST", url: "/auth/resume?ifNone=null", payload: {}, headers: { cookie: `${DEVICE_COOKIE}=${"A".repeat(43)}` } });
+    expect([forgedNone.statusCode, forgedNone.json()]).toEqual([200, { session: null }]);
+    expect(String(forgedNone.headers["set-cookie"])).toMatch(/Max-Age=0/);
+    expect((await app.inject({ method: "POST", url: "/auth/resume?ifNone=null", payload: {}, headers: { cookie: g.cookie } })).json()).toEqual({ session: null });
+  });
+
+  it("final play-test review r3 N10: ?ifNone=null on a live device answers the ordinary signed-in body", async () => {
+    const g = await guest();
+    const r = await app.inject({ method: "POST", url: "/auth/resume?ifNone=null", payload: {}, headers: { cookie: g.cookie } });
+    expect(r.statusCode).toBe(200);
+    expect(r.json().account.id).toBe(g.accountId);
+    expect(typeof r.json().token).toBe("string");
   });
 
   it("final play-test review r2 S1: 50 reloads in a minute stay signed in — the session a resume issues is never evicted, and a resume replaces the session it names", async () => {

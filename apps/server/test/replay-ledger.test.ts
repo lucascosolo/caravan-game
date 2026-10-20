@@ -132,7 +132,7 @@ describe("guardrail 1, chunk 22: every replay ends as the ledger recorded it (10
   it(
     "fights ≥ 100 encounters and checks each replay's ending and settled itemization against the ledger",
     async () => {
-      const seen = { fights: 0, held: 0, overrun: 0, stalemate: 0, authored: 0, live: 0, bands: new Set<number>(), strong: 0, weak: 0, ownerViews: 0 };
+      const seen = { fights: 0, held: 0, overrun: 0, stalemate: 0, authored: 0, live: 0, bands: new Set<number>(), strong: 0, weak: 0, ownerViews: 0, ownerOverruns: 0 };
       let d = 0;
       while (seen.fights < 104) {
         const strong = d % 3 !== 2;
@@ -221,6 +221,14 @@ describe("guardrail 1, chunk 22: every replay ends as the ledger recorded it (10
             expect(b2.settled.reputation.every((r) => r.pool === "siege")).toBe(true);
             expect(b2.settled.deMerged).toEqual([]);
             expect(b2.settled.destroyed).toEqual([]);
+            // Final play-test review r3 N5: the owner's end card total is the results feed's (the inbox's) for the same fight.
+            const s2 = (b2 as unknown as { settled: { coin: { amount: number }[]; coinEarned: number; coinTransferred: number } }).settled;
+            const feed = (await call(owner, "GET", "/me/party/feed?limit=100")).json() as { entries: { jobId: string; coinEarned: number; coinTransferred: number }[] };
+            const entry = feed.entries.find((e) => e.jobId === jobId);
+            expect(entry, "the fight is in the owner's results feed").toBeDefined();
+            expect({ coinEarned: s2.coinEarned, coinTransferred: s2.coinTransferred }).toEqual({ coinEarned: entry!.coinEarned, coinTransferred: entry!.coinTransferred });
+            expect(s2.coinEarned).toBe(s2.coin.reduce((n, c) => n + c.amount, 0));
+            if (ledgerEnding.kind === "caravan_overrun") seen.ownerOverruns += 1;
             seen.ownerViews += 1;
           } else seen.authored += 1;
 
