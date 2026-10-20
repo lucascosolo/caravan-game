@@ -266,6 +266,9 @@ export const STRINGS = {
     authoredShare: (authored: number, of: number, capPct: number): string =>
       authored === 0 ? "Every party offered belongs to another player." : `${authored} of ${of} offered ${authored === 1 ? "is an authored party" : "are authored parties"} (the draw keeps authored parties to ${capPct}% of what a band is served).`,
     authoredWeightedDown: "Authored parties were drawn less often this time: your band has seen its share of them.",
+    /** Final play-test review r3: the authored-only phase, in the player's terms. */
+    authoredOnlyTrip: (banks: number): string =>
+      `Every party offered is an authored outfit: your caravan meets only these until it has banked ${banks} trip${banks === 1 ? "" : "s"}. After that, other players' standing parties join them.`,
     rerollChecking: "Checking with the server…",
     candidateOwner: (name: string): string => name,
     candidateAuthored: "authored party",
@@ -1489,6 +1492,11 @@ export const STRINGS = {
     reasonRangedMenu: (n: number): string => `the circle has taken losses, and every one of the ${n} parties you were just offered is mostly raiders that shoot from range, which can hit your posts from outside the fence; the next search is a step harder`,
     reasonFence: (destroyed: number, intact: number): string => `${destroyed} fence segment${destroyed === 1 ? " is" : "s are"} broken and ${intact} still stand${intact === 1 ? "s" : ""}`,
     freeTitle: "Encounter 2: your arrangement",
+    /** Round 3 decision: the authored-only phase's optional help, after the onboarding guide. */
+    assistArrangeLine: (edge: string): string =>
+      `The guide's shape for this party: fence the ${edge} side but its middle, post your units behind that gap with a trap in front if you packed one, then the rest of the fence. It replaces what is placed now; you can change anything before you commit.`,
+    assistArrangeDo: "Arrange for me",
+    assistAdviceTitle: "The guide's reading",
     /** Round 3: the guided steps come back at every guided encounter, read off this party and what is left. */
     freeBody: "Search and scout as before. Once you choose, the guide's steps are under the circle again, read off that party and what your caravan has left: what broke or was spent earlier is still broken or spent. Use them, or arrange the circle yourself.",
     decide2Title: "Bank the trip",

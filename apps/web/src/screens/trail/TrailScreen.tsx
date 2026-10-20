@@ -39,6 +39,7 @@ import { encounterFromCandidate, type ScoutedEncounter } from "./scoutTypes.ts";
 import { useOnboarding } from "../../onboarding/OnboardingProvider.tsx";
 import type { FormationGuideContext } from "./FormationScreen.tsx";
 import { ArrangeGuide, FreeGuide, ResultGuide, ScoutGuide, SearchGuide, showsAt, stepForMoment, type TrailMoment } from "../../onboarding/TrailGuide.tsx";
+import { AssistAdvice, AssistArrange } from "../../onboarding/AssistGuide.tsx";
 
 const T = STRINGS.trail;
 const P = STRINGS.trip;
@@ -370,7 +371,8 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
         <>
           {noticeLine}
           {/* Round 3 S1: the scout reading (pick + ranged pass-over) at EVERY encounter while the guide is active. */}
-          {(guiding || guideStep !== null) && <ScoutGuide candidates={state.menu.candidates} encounterIndex={state.encounterIndex} />}
+          {/* Round 3: the scout reading at every guided encounter, and through the whole authored-only phase. */}
+          {(guiding || guideStep !== null || state.menu.authoredOnlyTrip === true) && <ScoutGuide candidates={state.menu.candidates} encounterIndex={state.encounterIndex} />}
           <CandidatesScreen
           encounterIndex={state.encounterIndex}
           menu={state.menu}
@@ -410,7 +412,12 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
             onStaleMenu={() => staleMenu(state.caravanId, state.encounterIndex)}
             {...((guiding || guideStep !== null)
               ? { guide: (g: FormationGuideContext) => <ArrangeGuide {...g} scout={state.scout.scout} /> }
-              : {})}
+              : {
+                  // Round 3 decision: after the onboarding, an OPTIONAL "Arrange for me" through the authored-only phase (it gates itself).
+                  guide: (g: FormationGuideContext) => (
+                    <AssistArrange api={api} caravanId={state.caravanId} encounterIndex={state.encounterIndex} manifest={g.manifest} formation={g.formation} scout={state.scout.scout} locked={g.locked} apply={g.apply} />
+                  ),
+                })}
           />
         </>
       );
@@ -437,7 +444,7 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
     case "decide":
       return deciding ? (
         <>
-        {guiding && <ResultGuide encounter={state.encounter} deciding api={api} caravanId={state.caravanId} />}
+        {guiding ? <ResultGuide encounter={state.encounter} deciding api={api} caravanId={state.caravanId} /> : <AssistAdvice api={api} caravanId={state.caravanId} encounter={state.encounter} />}
         <BankOrPushScreen api={api} caravanId={state.caravanId} tripId={state.tripId} encounterIndex={state.encounter.index} onDecided={decided} onStale={stale} />
         </>
       ) : (

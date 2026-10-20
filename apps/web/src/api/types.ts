@@ -237,6 +237,8 @@ export interface CandidateMenuView {
   readonly authoredShare: { readonly authored: number; readonly of: number; readonly shareBp: number; readonly maxShareBp: number };
   /** The band's authored served share at search time (chunk 25); null on menus stored before it existed. */
   readonly authoredServed: { readonly band: number; readonly window: number; readonly served: number; readonly authored: number; readonly weightedDown: boolean } | null;
+  /** Final play-test review r3: this menu was drawn from authored outfits only (the caravan has banked fewer than AUTHORED_ONLY_UNTIL_BANKS trips). Absent from older servers. */
+  readonly authoredOnlyTrip?: boolean | undefined;
   readonly candidates: readonly CandidateView[];
   readonly searchedAtMs: number;
   /** The reroll is free and gated by time only; `availableAtMs` is when the next search opens. */
