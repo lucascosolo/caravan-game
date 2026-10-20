@@ -7,7 +7,7 @@
  * on that cell does (the same `dropAt`).
  */
 import { ENTRY_EDGES, type Cell, type Formation, type Manifest } from "@caravan/circle";
-import { memo, useId, useMemo, useState } from "react";
+import { memo, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { STRINGS } from "../../strings.ts";
 import { pickerOptions } from "./placement.ts";
 
@@ -30,8 +30,20 @@ export const PlacementPicker = memo(function PlacementPicker({ manifest, formati
   const all = [...options.values()].flat();
   const isFence = all.some((o) => o.segment !== null);
   const chosen = all.find((o) => key(o.cell) === choice && o.refusal === null) ?? null;
+  // Final play-test review r3 N8: after "Place here" the selection moves on and the panels above
+  // the picker change height, so the page used to jump by hundreds of pixels under the thumb.
+  // Keep the picker where it was on screen: measure before the placement, correct after layout.
+  const sectionRef = useRef<HTMLElement>(null);
+  const pendingTop = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const before = pendingTop.current;
+    pendingTop.current = null;
+    if (before === null || !sectionRef.current) return;
+    const delta = sectionRef.current.getBoundingClientRect().top - before;
+    if (Math.abs(delta) > 1) window.scrollBy(0, delta);
+  });
   return (
-    <section className="picker" aria-labelledby={`${id}-h`} data-testid="placement-picker">
+    <section className="picker" ref={sectionRef} aria-labelledby={`${id}-h`} data-testid="placement-picker">
       <h3 className="h3" id={`${id}-h`}>
         {T.pickerHeading(name)}
       </h3>
@@ -48,7 +60,7 @@ export const PlacementPicker = memo(function PlacementPicker({ manifest, formati
                 {list.map((o) => (
                   <option key={key(o.cell)} value={key(o.cell)} disabled={o.refusal !== null}>
                     {o.segment !== null ? T.pickerRing(o.segment, o.cell.x, o.cell.y) : T.pickerCell(o.cell.x, o.cell.y)}
-                    {o.refusal ? ` — ${o.refusal.message} ${T.refusalCode(o.refusal.code)}` : ""}
+                    {o.refusal ? ` — ${o.refusal.message}` : ""}
                   </option>
                 ))}
               </optgroup>
@@ -61,6 +73,7 @@ export const PlacementPicker = memo(function PlacementPicker({ manifest, formati
           disabled={!chosen}
           onClick={() => {
             if (!chosen) return;
+            pendingTop.current = sectionRef.current?.getBoundingClientRect().top ?? null;
             onPlace(chosen.cell);
             setChoice("");
           }}

@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import type { ReplayView } from "../../api/replayTypes.ts";
 import { goldenNames, goldenView, replayCaravan, replayNoLog, replayOwner } from "../../test/replayFixtures.ts";
 import { depthPercent } from "./depth.ts";
-import { END_HOLD_SECONDS, HIT_MARK_SECONDS, MARK_SECONDS, REPLAY_GEOMETRY, clock, nextKeyframe, openReplay, prevKeyframe, type ReplayModel } from "./replayModel.ts";
+import { END_HOLD_SECONDS, OPENING_HOLD_SECONDS, HIT_MARK_SECONDS, MARK_SECONDS, REPLAY_GEOMETRY, clock, nextKeyframe, openReplay, prevKeyframe, type ReplayModel } from "./replayModel.ts";
 
 function open(view: ReplayView): ReplayModel {
   const r = openReplay(view);
@@ -286,6 +286,8 @@ describe("chunk 22 QA fixes in the model", () => {
     }
     expect(m.closeTick).toBeGreaterThanOrEqual(0);
     expect(m.closeTick).toBeLessThan(m.ticks);
+    // r3 N12: the wide opening is held at most OPENING_HOLD_SECONDS before the camera moves in.
+    expect(m.closeTick).toBeLessThanOrEqual(Math.round(OPENING_HOLD_SECONDS * m.replay.log.tickRate));
   });
 
   it("S2: the close frame covers the ring and reaches toward every edge raiders came in from — not the whole field", () => {

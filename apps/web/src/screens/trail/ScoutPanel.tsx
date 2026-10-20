@@ -12,6 +12,7 @@
  * Nothing in the view is left out. If a field is added to `ScoutUnit` or `ScoutSiege`, it
  * belongs here too.
  */
+import { rangedCount } from "../../onboarding/guideRule.ts";
 import { getFenceTier, getTrapType } from "@caravan/content";
 import { memo } from "react";
 import { STRINGS } from "../../strings.ts";
@@ -93,6 +94,10 @@ export const ScoutPanel = memo(function ScoutPanel({ scout, source = "matchmakin
       )}
       <p>
         <strong>{T.scoutUnits(scout.units.length)}</strong> · <strong>{T.scoutSiege(scout.siege.length)}</strong>
+      </p>
+      {/* Round 3 S1 / N9: range on every party card, by shape and word. */}
+      <p data-testid={`scout-panel-ranged${idSuffix}`}>
+        {T.summaryRangedLabel}: {T.summaryRanged(rangedCount(scout).ranged, scout.units.length)}
       </p>
       <p className="hint">
         {T.unitSlots(scout.unitSlots.used, scout.unitSlots.cap)} · {T.siegeSlots(scout.siegeSlots.used, scout.siegeSlots.cap)}

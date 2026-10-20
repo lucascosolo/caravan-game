@@ -65,6 +65,21 @@ function abilityOf(a: Ability, d: AbilityDisplay): UnitCard["ability"] {
   return { name: a.displayName, description: a.description, lines, charges: d.charges };
 }
 
+/**
+ * Whether an ability can act for a POSTED unit. A structure breaker swings at a fence segment the
+ * caster is breaching (resolver abilities.ts: "the caster is an attacker"), so on the caravan's own
+ * side it never fires (final play-test review r3 N11). Presentation only.
+ */
+export function abilityActsWhenPosted(a: Ability): boolean {
+  return a.archetype !== "structure_breaker";
+}
+
+/** r3 N11: a raid-only ability says so, briefly, wherever a posted unit's card shows it. */
+function defendingAbility(a: Ability, card: UnitCard["ability"]): UnitCard["ability"] {
+  if (abilityActsWhenPosted(a)) return card;
+  return { ...card, name: T.abilityRaidOnlyName(card.name), description: T.abilityRaidOnlyNote, lines: [] };
+}
+
 /** A posted (defending) unit: defense emphasized; aggro and leash shown since coverage is the puzzle. */
 export function defenderCard(u: ManifestUnit): UnitCard | null {
   const t = getUnitType(u.typeId);
@@ -92,7 +107,7 @@ export function defenderCard(u: ManifestUnit): UnitCard | null {
       { label: T.aggro, value: cellsText(t.aggroRadius) },
       { label: T.leash, value: cellsText(t.leashDistance) },
     ],
-    ability: abilityOf(t.ability, abilityDisplay(t.ability, t.attackRange)),
+    ability: defendingAbility(t.ability, abilityOf(t.ability, abilityDisplay(t.ability, t.attackRange))),
     aggroRadius: t.aggroRadius / FIXED_POINT_SCALE,
     leashDistance: t.leashDistance / FIXED_POINT_SCALE,
     attackRange: t.attackRange / FIXED_POINT_SCALE,

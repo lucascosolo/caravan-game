@@ -9,7 +9,6 @@
  * overrun.
  */
 import type { Formation, Manifest } from "@caravan/circle";
-import { TUNABLES } from "@caravan/content";
 import { useEffect, useState, type ReactNode } from "react";
 import type { Api } from "../api/client.ts";
 import type { CandidateView } from "../api/types.ts";
@@ -19,6 +18,7 @@ import type { ScoutedParty } from "../screens/trail/scoutTypes.ts";
 import { STRINGS } from "../strings.ts";
 import { applyMainFence, applyOpenGap, applyPosts, applyRestOfFence, applyTrap, arrangeStatus } from "./arrangeGuide.ts";
 import { GuideCard } from "./GuideCard.tsx";
+import * as rule from "./guideRule.ts";
 import { isAfter, type OnboardingStep } from "./steps.ts";
 
 const G = STRINGS.guide;
@@ -56,72 +56,61 @@ export function showsAt(step: OnboardingStep | null, moment: TrailMoment): boole
   return !isAfter(step, target);
 }
 
-/**
- * Presentation (the guide's pick only): a raider "shoots from range" when it can hit from at
- * least this many cells — far enough to stand outside the fence ring and reach a post inside it.
- * A Grizzly's 1.2-cell swipe or a Homesteader's 1.5-cell reach is a long arm, not a gun.
- */
-export const GUIDE_RANGED_MIN_CELLS = 3;
-
-/** A raider shoots from range (range is the only thing that makes a unit ranged); read off the scout, never the resolver. */
-export function isRangedRaider(u: { readonly attackRange: number }): boolean {
-  return u.attackRange >= GUIDE_RANGED_MIN_CELLS * TUNABLES.ATTACK_RANGE_MELEE_DEFAULT;
-}
+// Round 3 S1: the pick and advice rules live in guideRule.ts as pure functions (no React, no DOM),
+// so the balance harness can run the very same code. These are the client-typed wrappers.
+export { GUIDE_RANGED_MIN_CELLS, isRangedRaider } from "./guideRule.ts";
 
 /** Every raider in the party is ranged (an empty party is not). */
 export function isRangedOnly(c: CandidateView): boolean {
-  return c.scout.units.length > 0 && c.scout.units.every(isRangedRaider);
+  return rule.isRangedOnly(c.scout);
 }
 
 /**
- * The smallest of the served parties, by the scout alone (QA N2): least total HP, then fewest
- * siege pieces (siege counters exactly the fence and trap the guide teaches), then fewest
- * raiders, then menu order. HP first, so fielding one strong raider does not make a party read
- * "smallest".
+ * The guide's pick from the served menu (QA N2; r2 S2; r3 S1): pass over ranged-only parties
+ * whenever another candidate exists, then the smallest by the scout — least total HP, then fewest
+ * siege, then fewest raiders, then menu order. Applied at every guided encounter.
  */
 export function smallestCandidate(candidates: readonly CandidateView[]): { readonly index: number; readonly raiders: number; readonly hp: number; readonly siege: number } | null {
-  let best: { index: number; raiders: number; hp: number; siege: number } | null = null;
-  // Final play-test review r2 S2: a party whose every raider is ranged shoots the guided circle's
-  // posts from outside the fence, where guards never reach it. Pass over such parties whenever
-  // another candidate exists; with none, the smallest of them is still a reading of the scout.
-  const anyNotRanged = candidates.some((c) => !isRangedOnly(c));
-  candidates.forEach((c, index) => {
-    if (anyNotRanged && isRangedOnly(c)) return;
-    const raiders = c.scout.units.length;
-    const siege = c.scout.siege.length;
-    const hp = c.scout.units.reduce((n, u) => n + u.hp, 0);
-    const b = best as { index: number; raiders: number; hp: number; siege: number } | null;
-    if (!b || hp < b.hp || (hp === b.hp && (siege < b.siege || (siege === b.siege && raiders < b.raiders)))) best = { index, raiders, hp, siege };
-  });
-  return best;
+  const p = rule.guidePick(candidates.map((c) => c.scout));
+  return p ? { index: p.index, raiders: p.raiders, hp: p.hp, siege: p.siege } : null;
+}
+
+function reasonText(r: rule.AdviceReason, p: StakesPreview): string {
+  switch (r.kind) {
+    case "hurt": {
+      const u = p.units.find((x) => x.ref === r.ref);
+      return G.reasonHurt(u ? unitLabel(u) : T.unknownThing, r.hp, r.maxHp);
+    }
+    case "none_standing":
+      return G.reasonNoneStanding;
+    case "no_trap":
+      return G.reasonNoTrap;
+    case "fence":
+      return G.reasonFence(r.destroyed, r.intact);
+    case "ranged_menu":
+      return G.reasonRangedMenu(r.parties);
+  }
 }
 
 /**
- * QA D2: the bank-or-push advice, read off the server's stakes preview. Bank when the circle is
- * badly hurt — a packed unit still standing is under half its HP, none is standing, or every
- * trap is spent while more fence is broken than stands. Otherwise one push is suggested, to see
- * escalation. Advice only: the player chooses, and the guide goes on to the party either way.
+ * QA D2 / r3 S1: the bank-or-push advice, read off the server's stakes preview and the menu the
+ * player just faced (guideRule.pushAdvice). Advice only: the player chooses.
  */
-export function pushAdvice(p: StakesPreview): { readonly kind: "bank"; readonly reasons: readonly string[] } | { readonly kind: "push" } {
-  const reasons: string[] = [];
-  const alive = p.units.filter((u) => u.alive);
-  for (const u of alive) if (u.hp * 2 < u.maxHp) reasons.push(G.reasonHurt(unitLabel(u), u.hp, u.maxHp));
-  if (p.units.length > 0 && alive.length === 0) reasons.push(G.reasonNoneStanding);
-  const trapsGone = p.traps.remaining.length === 0 && p.traps.spent.length > 0;
-  const fenceGone = p.fences.destroyed.length > p.fences.intact.length;
-  if (trapsGone && fenceGone) {
-    reasons.push(G.reasonNoTrap, G.reasonFence(p.fences.destroyed.length, p.fences.intact.length));
-  }
-  return reasons.length > 0 ? { kind: "bank", reasons } : { kind: "push" };
+export function pushAdvice(p: StakesPreview, menu: readonly CandidateView[] | null = null): { readonly kind: "bank"; readonly reasons: readonly string[] } | { readonly kind: "push" } {
+  const a = rule.pushAdvice(p, menu ? menu.map((c) => c.scout) : null);
+  return a.kind === "bank" ? { kind: "bank", reasons: a.reasons.map((r) => reasonText(r, p)) } : a;
 }
 
-export function DecideAdvice({ preview }: { preview: StakesPreview | null }): JSX.Element {
+export function DecideAdvice({ preview, menu = null }: { preview: StakesPreview | null; menu?: readonly CandidateView[] | null }): JSX.Element {
   if (!preview) return <p className="hint">{G.decideReading}</p>;
-  const a = pushAdvice(preview);
+  const a = rule.pushAdvice(preview, menu ? menu.map((c) => c.scout) : null);
   const coin = preview.unbankedCoin.total;
+  // r3 S1: the ranged-menu reason alone is not "badly hurt"; it gets its own lead.
+  const rangedOnly = a.kind === "bank" && a.reasons.every((r) => r.kind === "ranged_menu");
+  const text = a.kind === "push" ? G.decideAdvisePush(coin) : rangedOnly ? G.decideAdviseBankRanged(a.reasons.length > 0 ? reasonText(a.reasons[0]!, preview) : "", coin) : G.decideAdviseBank(a.reasons.map((r) => reasonText(r, preview)).join("; "), coin);
   return (
-    <p data-testid="guide-advice" data-advice={a.kind}>
-      {a.kind === "bank" ? G.decideAdviseBank(a.reasons.join("; "), coin) : G.decideAdvisePush(coin)}
+    <p data-testid="guide-advice" data-advice={a.kind} data-reasons={a.kind === "bank" ? a.reasons.map((r) => r.kind).join(" ") : ""}>
+      {text}
     </p>
   );
 }
@@ -134,19 +123,27 @@ export function SearchGuide(): JSX.Element {
   );
 }
 
-export function ScoutGuide({ candidates }: { candidates: readonly CandidateView[] }): JSX.Element {
+/**
+ * The scout reading (r3 S1: at EVERY guided encounter, not only the first). The pick and the
+ * "passes over" note lead; the how-to-read body is one tap away (N13), so the three parties start
+ * on the first screen.
+ */
+export function ScoutGuide({ candidates, encounterIndex = 1 }: { candidates: readonly CandidateView[]; encounterIndex?: number }): JSX.Element {
   const pick = smallestCandidate(candidates);
   const c = pick ? candidates[pick.index] : undefined;
   const passed = candidates.some((x) => !isRangedOnly(x)) ? candidates.filter(isRangedOnly).map((x) => x.owner.displayName) : [];
   return (
-    <GuideCard title={G.scoutTitle} testId="guide-scout">
-      <p>{G.scoutBody}</p>
+    <GuideCard title={encounterIndex <= 1 ? G.scoutTitle : G.scoutTitleLater(encounterIndex)} testId="guide-scout">
       {pick && c && (
         <p data-testid="guide-scout-pick" data-index={pick.index}>
-          {G.scoutPick(c.owner.displayName, pick.raiders, pick.hp, pick.siege, passed.length > 0)}
+          {(encounterIndex <= 1 ? G.scoutPick : G.scoutPickLater)(c.owner.displayName, pick.raiders, pick.hp, pick.siege, passed.length > 0)}
         </p>
       )}
       {pick && passed.length > 0 && <p data-testid="guide-scout-ranged">{G.scoutRangedNote(passed.join(", "))}</p>}
+      <details className="guide__all" data-testid="guide-scout-how">
+        <summary className="btn btn--block">{G.scoutHowTitle}</summary>
+        <p>{G.scoutBody}</p>
+      </details>
     </GuideCard>
   );
 }
@@ -163,7 +160,9 @@ export function ResultGuide({ encounter, deciding, api, caravanId }: ResultGuide
   const first = encounter.index <= 1;
   const title = deciding ? (first ? G.decide1Title : G.decide2Title) : encounter.outcome === "caravan_held" ? G.heldTitle : G.stalemateTitle;
   const [preview, setPreview] = useState<StakesPreview | null>(null);
-  const advise = deciding && first && !!api && !!caravanId;
+  const [menu, setMenu] = useState<readonly CandidateView[] | null>(null);
+  // r3 S1: the guide advises at EVERY guided decision, reading the stakes and the menu just faced.
+  const advise = deciding && !!api && !!caravanId;
   useEffect(() => {
     if (!advise) return;
     let live = true;
@@ -173,17 +172,26 @@ export function ResultGuide({ encounter, deciding, api, caravanId }: ResultGuide
       },
       () => undefined,
     );
+    // The menu of the encounter just fought: the best reading of the next search (one escalation step up).
+    Promise.resolve()
+      .then(() => api!.candidates(caravanId!, encounter.index))
+      .then(
+        (r) => {
+          if (live) setMenu(r.menu?.candidates ?? null);
+        },
+        () => undefined,
+      );
     return () => {
       live = false;
     };
-  }, [advise, api, caravanId]);
+  }, [advise, api, caravanId, encounter.index]);
   return (
     <GuideCard title={title} testId="guide-result">
       {!deciding && <p>{G.heldBody}</p>}
       {!deciding && <p>{G.decideIntro}</p>}
       {deciding && first && <p>{G.decideIntro}</p>}
-      {deciding && first && advise && <DecideAdvice preview={preview} />}
       {deciding && !first && <p>{G.decide2Body}</p>}
+      {advise && <DecideAdvice preview={preview} menu={menu} />}
     </GuideCard>
   );
 }
@@ -260,7 +268,7 @@ export function ArrangeGuide({ manifest, formation, scout, locked, names, apply 
   // collapsed list, so the step being taken and the circle it changes share the screen.
   const steps: { key: string; done: boolean; node: (current: boolean) => ReactNode }[] = [
     { key: "fence", done: s.fenceDone, node: (c) => <Item key="fence" current={c} done={s.fenceDone} title={G.stepFence(edge)} why={G.stepFenceWhy(edge, s.gap)} action={btn(G.stepFenceDo(edge), () => applyMainFence(manifest, formation, scout), "guide-do-fence")} testId="guide-step-fence" /> },
-    { key: "gap", done: s.gapOpen, node: (c) => <Item key="gap" current={c} done={s.gapOpen} title={G.stepGap(s.gap)} why={G.stepGapWhy} action={btn(G.stepGapDo(s.gap), () => applyOpenGap(formation, scout), "guide-do-gap")} testId="guide-step-gap" /> },
+    { key: "gap", done: s.fenceDone && s.gapOpen, node: (c) => <Item key="gap" current={c} done={s.fenceDone && s.gapOpen} title={G.stepGap(s.gap)} why={G.stepGapWhy} action={btn(G.stepGapDo(s.gap), () => applyOpenGap(formation, scout), "guide-do-gap")} testId="guide-step-gap" /> },
     {
       key: "post",
       done: s.postDone && s.unposted === 0,

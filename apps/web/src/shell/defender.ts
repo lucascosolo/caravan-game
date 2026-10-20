@@ -17,7 +17,7 @@ export interface DefenderLike {
 export function defenderLabel(d: DefenderLike): string {
   const D = STRINGS.defender;
   if (d.departed === true) return D.departed;
-  if (d.username !== null && d.caravanName !== null) return D.named(d.username, d.caravanName);
+  // Final play-test review r3 N6: strangers see the caravan name, never a username, whatever is sent.
   if (d.caravanName !== null) return d.caravanName;
   if (d.username !== null) return d.username;
   return D.unknown;

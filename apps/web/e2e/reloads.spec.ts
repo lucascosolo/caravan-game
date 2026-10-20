@@ -30,7 +30,7 @@ test("50 reloads in a minute stay signed in: every one is back in town as the sa
   page.on("response", async (r) => {
     if (!r.url().includes("/api/")) return;
     if (r.status() === 401) unauthorized.push(`${r.request().method()} ${new URL(r.url()).pathname}`);
-    if (r.url().endsWith("/api/auth/resume") && r.status() === 200) {
+    if (new URL(r.url()).pathname.endsWith("/api/auth/resume") && r.status() === 200) {
       try {
         resumedAs.push(((await r.json()) as { account: { id: string } }).account.id);
       } catch {

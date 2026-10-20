@@ -167,9 +167,22 @@ function ReplayBody({ view, expected, settled, autoPlay, initialSpeed }: { reado
 
 /** The loot sentence (N7: an authored outfit keeps nothing, so its "0 Coin" is never shown as Coin that vanished). */
 function lootLine(view: ReplayView, o: { readonly kind: string; readonly loot: number }): string {
-  if (view.viewer !== "caravan") return T.lootOwner(o.loot);
+  if (view.viewer !== "caravan") {
+    // Final play-test review r3 N5: the owner's total is what the ledger credited (settled.coinEarned),
+    // with the overrun caravan's transferred Coin on its own line; older servers send neither.
+    const earned = view.settled.coinEarned;
+    if (typeof earned === "number") return T.lootOwnerEarned(earned);
+    return T.lootOwner(o.loot);
+  }
   if (view.opponent?.authored === true) return T.lootCaravanAuthored(o.kind === "caravan_overrun", view.settled.coinLost?.amount ?? null);
   return T.lootCaravan(o.loot, o.kind === "caravan_overrun");
+}
+
+/** r3 N5: the owner's line for the overrun caravan's transferred Coin (null when there is none, or for the caravan's player). */
+function transferredLine(view: ReplayView): string | null {
+  if (view.viewer === "caravan" || typeof view.settled.coinEarned !== "number") return null;
+  const t = view.settled.coinTransferred ?? 0;
+  return t > 0 ? T.lootOwnerTransferred(t) : null;
 }
 
 /** The ledger's itemization of what this encounter settled for the viewer (QA S8 / D3). The client words it and computes nothing. */
@@ -220,6 +233,7 @@ function Summary({ view, model, settled }: { readonly view: ReplayView; readonly
             {T.depthExplained}
           </p>
           <p data-testid="replay-loot">{lootLine(view, o)}</p>
+          {transferredLine(view) && <p data-testid="replay-loot-transferred">{transferredLine(view)}</p>}
         </>
       )}
       <div className="h3">{T.settledHeading}</div>
@@ -376,6 +390,7 @@ function Playback({ view, model, settled, autoPlay, initialSpeed }: { readonly v
                 <>
                   <p>{T.depth(pct, view.viewer)}</p>
                   <p>{lootLine(view, o)}</p>
+                  {transferredLine(view) && <p data-testid="replay-end-transferred">{transferredLine(view)}</p>}
                 </>
               )}
               <div className="replay__row">

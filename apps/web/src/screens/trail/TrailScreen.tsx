@@ -334,7 +334,8 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
       return (
         <>
           {noticeLine}
-          {guiding && (isFirst ? <ScoutGuide candidates={state.menu.candidates} /> : <FreeGuide />)}
+          {/* Round 3 S1: the scout reading (pick + ranged pass-over) at EVERY encounter while the guide is active. */}
+          {(guiding || guideStep !== null) && <ScoutGuide candidates={state.menu.candidates} encounterIndex={state.encounterIndex} />}
           <CandidatesScreen
           encounterIndex={state.encounterIndex}
           menu={state.menu}

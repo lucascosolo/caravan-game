@@ -64,12 +64,20 @@ describe("first launch is guest-first (chunk 30)", () => {
     expect(setItem).not.toHaveBeenCalled();
   });
 
+  it("final play-test review r3 N10a: the cold resume asks ?ifNone=null, and 200 { session: null } is the start screen with no 401 and no retry card", async () => {
+    const s = server({ "POST /auth/resume": () => ({ status: 200, body: { session: null } }) });
+    render(<App fetchImpl={s.fetch} autoResume />);
+    expect(await screen.findByTestId("guest-start")).toBeInTheDocument();
+    expect(screen.queryByTestId("resume-failed")).toBeNull();
+    expect(s.calls.find((c) => c.path.split("?")[0] === "/auth/resume")!.path).toBe("/auth/resume?ifNone=null");
+  });
+
   it("a reload with a device cookie resumes straight into the game; the page never sees the cookie", async () => {
     const s = server({ "POST /auth/resume": () => ({ status: 200, body: authGuestJson.body }) });
     render(<App fetchImpl={s.fetch} autoResume />);
     expect(await screen.findByTestId("guest-badge")).toBeInTheDocument();
     expect(s.calls.filter((c) => c.path === "/auth/guest")).toHaveLength(0);
-    const resume = s.calls.find((c) => c.path === "/auth/resume")!;
+    const resume = s.calls.find((c) => c.path.split("?")[0] === "/auth/resume")!;
     expect(resume.method).toBe("POST");
     expect(Object.keys(resume.headers).map((h) => h.toLowerCase())).not.toContain("cookie");
   });
@@ -233,7 +241,7 @@ describe("QA-30 S4 / D1 / N4: resume failures, many tabs, a guest already on the
       const s = server({ "POST /auth/resume": () => ({ status: 200, body: { ...authGuestJson.body, token: `tab${i}` } }) });
       const { unmount } = render(<App fetchImpl={s.fetch} autoResume />);
       expect(await screen.findByTestId("guest-badge")).toBeInTheDocument();
-      expect(s.calls.filter((c) => c.path === "/auth/resume")[0]!.body).toEqual({});
+      expect(s.calls.filter((c) => c.path.split("?")[0] === "/auth/resume")[0]!.body).toEqual({});
       unmount();
     }
   });
@@ -332,7 +340,7 @@ describe("final play-test review r2 S1: sign-outs", () => {
       </StrictMode>,
     );
     expect(await screen.findByTestId("guest-badge")).toBeInTheDocument();
-    expect(s.calls.filter((c) => c.path === "/auth/resume")).toHaveLength(1);
+    expect(s.calls.filter((c) => c.path.split("?")[0] === "/auth/resume")).toHaveLength(1);
   });
 
   it("'Continue the guest caravan' never silently drops back to the start screen: a failed continue says so, and Retry gets in", async () => {

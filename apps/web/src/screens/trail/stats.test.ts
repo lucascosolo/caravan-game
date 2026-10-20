@@ -2,7 +2,7 @@ import { abilityDisplay, getUnitType, mergeStatMult, scaleInt } from "@caravan/c
 import { describe, expect, it } from "vitest";
 import { survivorsManifest } from "../../test/circleFixtures.ts";
 import { fixtureScoutFor } from "./scoutFixture.ts";
-import { attackerCard, defenderCard } from "./stats.ts";
+import { abilityActsWhenPosted, attackerCard, defenderCard } from "./stats.ts";
 
 describe("stat cards: ratings never merge-scale; HP does (chunk 03 QA B1, chunk 09 QA X1)", () => {
   it("a posted level-2 unit shows the type's defense and the manifest's merge-scaled HP", () => {
@@ -35,6 +35,12 @@ describe("stat cards: ratings never merge-scale; HP does (chunk 03 QA B1, chunk 
     for (const u of survivorsManifest().units) {
       const t = getUnitType(u.typeId)!;
       const d = abilityDisplay(t.ability, t.attackRange);
+      // r3 N11: a raid-only ability (a structure breaker) says so on a posted unit, and lists no numbers it never uses.
+      if (!abilityActsWhenPosted(t.ability)) {
+        expect(defenderCard(u)!.ability.name).toBe(`${t.ability.displayName} (raiding only)`);
+        expect(defenderCard(u)!.ability.lines).toEqual([]);
+        continue;
+      }
       const lines = defenderCard(u)!.ability.lines.map((l) => `${l.label}: ${l.value}`);
       expect(lines).toContain(`First use: after ${d.firstUseSeconds} s`);
       if (d.reachCells !== null) expect(lines).toContain(`Reach: ${d.reachCells} cells`);

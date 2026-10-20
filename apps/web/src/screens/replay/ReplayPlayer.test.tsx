@@ -298,6 +298,21 @@ describe("the replay player, the caravan's side (the server's recorded fight)", 
 });
 
 describe("the replay player, the party owner's side", () => {
+  it("final play-test review r3 N5: with settled.coinEarned the owner's total is the credited Coin, and transferred Coin is its own line", async () => {
+    stubClock();
+    const base = replayOwner();
+    const view = { ...base, settled: { ...base.settled, coinEarned: 300, coinTransferred: 120 } };
+    await renderPlayer(view, { settled: { coin: 300, reputation: 3, ladder: 1 } });
+    expect(screen.getByTestId("replay-loot")).toHaveTextContent("Your party earned 300 Coin from this fight.");
+    expect(screen.getByTestId("replay-loot")).not.toHaveTextContent("as reported");
+    expect(screen.getByTestId("replay-loot-transferred")).toHaveTextContent("120 of it was the caravan's unbanked Coin");
+    cleanup();
+    stubClock();
+    await renderPlayer({ ...base, settled: { ...base.settled, coinEarned: 300, coinTransferred: 0 } }, { settled: { coin: 300, reputation: 3, ladder: 1 } });
+    expect(screen.getByTestId("replay-loot")).toHaveTextContent("Your party earned 300 Coin from this fight.");
+    expect(screen.queryByTestId("replay-loot-transferred")).toBeNull();
+  });
+
   it("tells the fight from the party's side: where it came in, its loot, what the ledger credited, what stopped it", async () => {
     const clockStub = stubClock();
     const view = replayOwner();
