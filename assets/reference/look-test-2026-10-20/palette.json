@@ -1,0 +1,17 @@
+{
+  "_doc": "Look-test palette: warm Stardew-like desert, brightened from style-board-v1. One char per colour. '.' is transparent. 'p'/'P' are the SIDE colour (light/shadow), swapped by code: settlers turquoise, raiders brick red.",
+  "O": "#2b1d18", "o": "#5a3b2c",
+  "x": "#fff3d1",
+  "s": "#f4c38f", "S": "#cf8d5f",
+  "h": "#9a6438", "H": "#64401f",
+  "c": "#f3e2b5", "C": "#d7b783",
+  "w": "#c48550", "W": "#83542e",
+  "g": "#f2c64e", "G": "#b98a2b",
+  "i": "#646b7a", "I": "#3d4350",
+  "k": "#a8a092", "K": "#746c62",
+  "e": "#86ad5a", "E": "#527d42",
+  "b": "#6585b8", "B": "#425d8c",
+  "y": "#eac77c", "Y": "#d2a660", "z": "#f6dc9c",
+  "d": "#b98450",
+  "p": "SIDE_LIGHT", "P": "SIDE_SHADOW"
+}

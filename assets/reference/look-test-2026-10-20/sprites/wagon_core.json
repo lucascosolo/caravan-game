@@ -1,0 +1,63 @@
+{
+ "name": "wagon_core",
+ "w": 64,
+ "h": 48,
+ "anchor": [
+  32,
+  44
+ ],
+ "frames": {
+  "idle": [
+   [
+    "................................................................",
+    "................................................................",
+    "................................................................",
+    "................OOOO............................................",
+    "..............OOccccOO..........................................",
+    ".............OccccccccO.........................................",
+    "............OccccccccccO........................................",
+    "............OccccccCCCCCO.......................................",
+    "...........OccccccCCcccccO......................................",
+    "..........OcccccCCcccccccCO.....................................",
+    "..........OcccccCCccccccccCO....................................",
+    ".........OcccccCccccccccccccOO..................................",
+    ".........OccccCcccccccccccCCCCOO................................",
+    ".........OccccCcccccccccCCcccccCO...............................",
+    "........OcccccCccccccccCCccccccccOOO............................",
+    "........OccccCccccccccCcccccccccccccOO..........................",
+    "........OccccCcccccccCCccccccccCCCcccCO.........................",
+    "........OCcccCcccccccCccccccccCCcccccccOOO......................",
+    "........OCCCCcccccccCccccccccCcccccccccccCOO.OOOOO..............",
+    "......OOoCCCCcccccccCcccccccCCccccccccCcccccOcCCCCOO............",
+    "....OOwwwoCCCCccccccCccccccCCccccccccCccccccCCCCCCCCO...........",
+    "...OwwwwwwoOCCCccccCcccccccCcccccccCCccccccCCCCCCCCCCO..........",
+    "...OwWOOWwwooCCCCccCccccccCCcccccccCccccccCCCCCCCCCCCCO.........",
+    "....OO..OOWowooCCCCCccccccCcccccccCccccccCCCCCCCCCCCCCO.........",
+    "..........OOwwwoCCCCccccccCccccccCCccccccCCCCCCCCCCCCCCO........",
+    "...........OWWwwooCCCCccccCccccccCccccccCCCCCCCCCCCCCCCO........",
+    "...........OwwWWwwooCCCCcCcccCCcccccccccCCCCCCCCCCCCCgCO........",
+    "...........OwwwOOOOwooCCCCcccCCCCccccccCCCCCCCCCOOChhiggOO......",
+    "............OwOiiiiOwwoCCCCCcccCCccccccCCCCCCCCCCiiiihhiggO.....",
+    ".............OiwWwwiOWwooCCCCCccCccccccCCCCCCCCiiiiiiighhggO....",
+    "............OiwwWwwwiOWWwoooCCCCCccccccCCCCCCihhiiiigggggGGO....",
+    "............OiwwWwwwIOwwWWwwooCCCCCcccCCCCCggiiihhgggggGIIGO....",
+    "............OiwwgWwwIOwwwwWWwwOOOOOCCCCCCCCggggigghOOOOIIIGO....",
+    "............OiWWWWWWIOOwwwwwOOiiiiiOOCCCCCCiggggggOIooIOIIGO....",
+    "............OiwwWwwwIO.OOwwwOiwwWwwiOoCCCCCiiigggGOIIIIOIIGO....",
+    ".............OiwWwwIO....OOOiwwwWwwwiOooCCiiiiigGOOOOOOOOIGO....",
+    "..............OIIIIO......OiwwwwWwwwwIOwogiiiiigGOgxggggOIGO....",
+    "...............OOOO.......OiwwwwWwwwwIOwWgiiiiigGOgggOggOIGO....",
+    "..........................OiwwwwgWwwwIOWWgiiiiigGOgggOgGOwwO....",
+    "..........................OiWWWWWWWWWIOwWgiiiiigGOGgggGGOWWO....",
+    "..........................OiwwwwWwwwwIOwWwwiiiigGIOOOOOOWOO.....",
+    "..........................OiwwwwWwwwwIOwWwwwwiigGIIwwWWOO.......",
+    "...........................OiwwwWwwwIO.OOOOwwwwgGwwWWOO.........",
+    "............................OiwwWwwIO......OOwwwwWWOO...........",
+    "............................OOIIIIIOO........OOwWOO.............",
+    "..............................OOOOO............OO...............",
+    "................................................................",
+    "................................................................"
+   ]
+  ]
+ }
+}

@@ -1,0 +1,39 @@
+{
+ "name": "trap_jaw",
+ "w": 18,
+ "h": 10,
+ "anchor": [
+  9,
+  7
+ ],
+ "frames": {
+  "laid": [
+   [
+    "..................",
+    "....OOOOOOOO......",
+    "..OOiiiiiiiiOO....",
+    ".OiikIkIxIkIiiO...",
+    "OiiIIIIggGIIIIiO..",
+    "OiiIIIIgGGIIIIiO..",
+    ".OiiIkIkIkIkIIO...",
+    "..OOiiiiiiiIOOIO..",
+    "....OOOOOOOOOOIIIO",
+    "..............OOO."
+   ]
+  ],
+  "sprung": [
+   [
+    "......O.O.O.O.....",
+    ".....OkOxOkOkO....",
+    "....OikkkkkkkIO...",
+    "...OiiOOOOOOOIIO..",
+    "..OiiOIIIIIIIOIIO.",
+    "..OiiOIIIIIIIOIIO.",
+    "OOOigOIIggGIIOGIOO",
+    "OiiiiiiIIIIIIIIIIO",
+    ".OOOOOOOOOOOOOOOO.",
+    ".................."
+   ]
+  ]
+ }
+}

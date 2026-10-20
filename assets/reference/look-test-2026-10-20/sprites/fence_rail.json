@@ -1,0 +1,67 @@
+{
+ "name": "fence_rail",
+ "w": 30,
+ "h": 24,
+ "anchor": [
+  15,
+  18
+ ],
+ "frames": {
+  "intact": [
+   [
+    ".....OO.......................",
+    "....OxwO......................",
+    "...OwwWWO.....................",
+    "...OwwWWO.....................",
+    "...OwwWWO.....................",
+    "...OwwWWOOO...................",
+    "...OwwWWOwwOO.................",
+    "...OwhWWOHWwwOO...............",
+    "...OwhWWOOOWWwwOO.............",
+    "...OwwWWO..OOWWwwOO.....OO....",
+    "...OwwWWOOO..OOWWwwOO..OxwO...",
+    "...OwwWWOwwOO..OOHWwwOOwwWWO..",
+    "...OwwWWOWWwwOO..OOWWwOwwWWO..",
+    "...OwwWWOOOHWwwOO..OOWOwwWWO..",
+    "....OOOO...OOWWwwOO..OOwwWWO..",
+    ".............OOWWwwOO.OwwWWO..",
+    "...............OOWWwwOOwhWWO..",
+    ".................OOHWwOwhWWO..",
+    "...................OOWOwwWWO..",
+    ".....................OOwwWWO..",
+    "......................OwwWWO..",
+    "......................OwwWWO..",
+    "......................OwwWWO..",
+    ".......................OOOO..."
+   ]
+  ],
+  "broken": [
+   [
+    ".....OO.......................",
+    "....OxwO......................",
+    "...OwwWWO.....................",
+    "...OwwWWO.....................",
+    "...OwwWWO.....................",
+    "...OwwWWOO....................",
+    "...OwwWWOwO...................",
+    "...OwhWWOWwO..................",
+    "...OwhWWOOWO..................",
+    "...OwwWWO.OcO...........OO....",
+    "...OwwWWO.OCcO......O..OxwO...",
+    "...OwwWWO..OO....OOOwOOwwWWO..",
+    "...OwwWWOO......OccwWwOwwWWO..",
+    "...OwwWWOwOOO....OCWOWOwwWWO..",
+    "....OOOOWWwwwOOO..OO.OOwwWWO..",
+    "........OOWWWwwwOOO...OwwWWO..",
+    "..........OOOWWWwwwOOOOwhWWO..",
+    ".............OOOWWWwwwOwhWWO..",
+    "................OOOHWWOwwWWO..",
+    "...................OOOOwwWWO..",
+    "......................OwwWWO..",
+    "......................OwwWWO..",
+    "......................OwwWWO..",
+    ".......................OOOO..."
+   ]
+  ]
+ }
+}

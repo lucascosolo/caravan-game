@@ -1,5 +1,15 @@
 # Art and audio plan
 
+> **Revised direction, 2026-10-20 (PC session).** The owner moved the look from painted gouache to
+> clean 2D pixel art with a bold storybook outline ("a Stardew Valley vibe") and picked small
+> pixels, an extra-bold outline that never touches ground tiles, warm-bright colour, and side marks
+> as a per-player setting that defaults to on. `docs/art/STYLE-GUIDE.md` was rewritten for it and
+> is now the authority on the look. The look-test sprites in `assets/reference/look-test-2026-10-20/`
+> are the in-house reference. Read the "painted" wording below as "generated or drawn, then
+> pixelized by the build step" (style guide §7). Animation moves to drawn frames (idle 2, walk 4,
+> attack 2–3) with code motion on top (style guide §6). The order of work and the budget rules
+> below still stand.
+
 Status: plan only, nothing built. Written 2026-10-20 for the next session, which runs on the
 owner's PC with access to the Kenney library and to Wiro API credits. It turns the studio feel
 review (`studio-feel.md`, findings 9–15 and the "Minimum polish pass") into a production plan,

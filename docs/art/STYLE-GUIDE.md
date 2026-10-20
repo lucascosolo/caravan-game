@@ -1,179 +1,195 @@
 # Caravan Vaults: style guide and anti-style guide
 
-This is the art bible from `roadmap/review/ART-PLAN.md`, step 1. It turns the owner's reference
-board (`assets/reference/style-board-v1.png`) and the owner's ten art principles (2026-10-20) into
-rules an artist, or a generation prompt, can follow. When in doubt, this file wins over adjectives.
+This is the art bible. It was rewritten on 2026-10-20, after the owner moved the look away from
+painted gouache and toward clean pixel art with a bold storybook outline: "a Stardew Valley
+vibe". The earlier painted-storybook guide is in git history (before commit `fb501c7`). The
+owner's picks were made on an animated look test
+(https://claude.ai/artifact/EGHs2F88GqNcDEN2xh3hgy). Its sprites, palette and screenshots are
+the in-house reference, in `assets/reference/look-test-2026-10-20/`. When in doubt, this file
+wins over adjectives.
 
-## 1. The tradition
+## 1. The look in one paragraph
 
-**Mid-century storybook gouache, with a brush-ink contour, built as a tabletop diorama.**
-Picture an illustrated Western adventure book from the 1950s. It is painted in opaque gouache on
-cold-press paper and outlined with a loaded brush in dark walnut ink. Someone has cut it out and
-set it on a table as a tiny, slightly wonky model town.
+**Clean, cosy 2D pixel art with a thick dark outline, seen from the game's isometric 3/4
+camera.** The feel is a warm frontier version of Stardew Valley: friendly chunky characters,
+readable silhouettes, flat colour in two values per material, and everything alive with small
+motions. It is drawn on a pixel grid and shown at a small pixel size, so it reads as crisp
+pixel art. It does not have to be true pixel art in how it is made: a generated or painted
+source is turned into it by the build step (§7).
 
-Two supporting traditions, each used only where named:
-- **Wood-type broadside printing:** wanted posters, playbills and freight notices from 19th-century letterpress. This is for UI: headings, numbers, notices, the wanted-poster frame and the trip-result "notice". It uses flat ink colours, slight misregistration and worn type edges.
-- **Pulp dime-novel cover painting.** For key art and region banners only. Even there it stays flat and storybook: the energy comes from the pose and the shape, not from movie lighting.
+Not this look: glossy 3D or "stylized 3D" (the Clash of Clans finish), painterly blur, vector
+flat design, realistic rendering, or noisy retro pixel art with heavy dithering.
 
-Not the tradition: 3D-render "stylized", glossy mobile-ad art, concept-art matte painting,
-anime, pixel art, vector flat design.
+## 2. The owner's picks (2026-10-20)
 
-## 2. How it is constructed
+| Knob | Pick | What it means in practice |
+|---|---|---|
+| Pixel size | **Small** | Each art pixel is a whole number of device pixels, about 1 CSS px on a phone. This gives the finest detail of the three sizes tried. |
+| Outline | **Extra bold, never on the ground** | Every object has its own 1 px dark outline in the art, and code adds a second 1 px dark line around the silhouette. Ground tiles get neither, because outlined tiles read as a grid. |
+| Colour | **Warm-bright** | The warm palette pushed between warm and bright. The hex values in §4 already include this grade, so nothing is applied by a screen filter. |
+| Side marks | **On by default; each player can turn them off** | The round settler badge and triangular raider tag are drawn by code over every unit. They are an account setting, defaulting to on. |
+
+## 3. Construction rules
+
+### Grid and scale
+
+Every asset class has a fixed art-pixel size, measured on the 48 × 24 ground tile the
+renderer already uses (`apps/web/src/iso/projection.ts`). The build step checks these sizes.
+
+| Class | Art size (w × h, px) | Ground-contact point | From the look test |
+|---|---|---|---|
+| Ground tile | 48 × 24, an exact 2:1 diamond | centre | `tile_sand` |
+| Person | about 22–24 × 30–32 | between the feet | `sharpshooter`, `welldigger` |
+| Animal | sized to the animal: a coyote is 26 × 18, a longhorn or horse larger | between the feet | `coyote` |
+| Wagon | 56–64 × 42–48 | centre of the wheel footprint | `wagon_core`, `wagon_plain` |
+| Fence segment | 30 × 24, along a cell edge at the 2:1 slope | centre of the edge | `fence_rail` |
+| Trap | about 18 × 10, flat on the ground | centre | `trap_jaw` |
+| Small prop | about 14 px wide | base | `cactus`, `rock`, `sagebrush` |
+
+The two wagons in the look test had to be rebuilt to the same scale; a class that drifts in
+scale reads as a collage. The camera is the game's 2:1 isometric view. Characters face
+down-right (towards the viewer, turned slightly right) and are mirrored by code for the
+other facing.
 
 ### Line
-- **Contour:** a walnut-ink brush line (`#49372E`). It is never pure black.
-- **Weight:** on screen at 1× it is about 3 px for units and wagons and 2 px for buildings and props. Terrain has no contour.
-- **Variation:** the line is thicker on the shadow side and at overlaps, thins to nothing at highlights, and has small gaps where light hits. It is never a uniform vector stroke.
-- **Interior lines:** few. Only plank seams, the fold of a coat and the brim of a hat. Detail is suggested, not drawn.
 
-### Brushwork
-- **Coverage:** opaque gouache. Flat fills with dry-brush edges, and visible brush direction that follows the form: along the planks, around a barrel, down a canvas sag.
-- **Paper:** paper tooth shows through in the lightest areas only.
-- **No blending:** no airbrush gradients and no soft glazing. Value changes come in steps, not blends.
-
-### Shape
-- **Characters:** chunky, about 3–3.5 heads tall. Hats, hands, boots and tools are oversized. Each type gets one exaggerated feature that reads at 64 px: a huge hat brim, a pickaxe longer than the body, a bandana that covers half the face.
-- **Buildings:** top-heavy false fronts. Roofs sag. Porches lean 2–4°. No wall is perfectly plumb.
-- **Silhouettes:** mostly broad simple masses, with one spike of interest each, such as a chimney, a sign or a water-tower leg.
-
-### Colour
-- **Palette:** the board's nine colours and nothing else, except darker or lighter mixes of them:
-
-  | Group | Colours |
-  |---|---|
-  | Earth | Trail Dust `#D8B477`, Weathered Cedar `#A96E48`, Sunbleached Canvas `#EBD4A6` |
-  | Cool | Sagebrush `#718365`, Faded Turquoise `#4D8584`, Storm Blue `#6D7180` |
-  | Accent | Brick Red `#C75E43`, Brass Gold `#E5B84F`, Dark Walnut `#49372E` |
-
-- **Per asset:** at most 5 colours plus the walnut ink.
-- **Warm against cool:** every scene pairs sun-baked earth with at least one cool area (sage, turquoise paint or sky) so it never reads uniformly orange.
-- **Side identity:**
-  - Settlers lean Faded Turquoise and Sunbleached Canvas.
-  - Raiders lean Brick Red and Dark Walnut.
-  - Code always adds a side badge shape: a round settler badge or a triangular raider tag.
-  - The pair must pass deuteranopia and protanopia simulation on Trail Dust ground (guardrail 4).
+- **Outer line:** a continuous 1 px line in Outline (`#2a1a14`) round the whole silhouette of every object. Code adds the second pixel of thickness, so the art itself carries only one.
+- **Interior lines:** few, in Soft line (`#5d3826`), and in Outline only where two shapes must separate (an arm across a body, a hat brim over a face).
+- **Ground tiles:** no line at all, inside or out.
 
 ### Shading and light
-- **One light:** late afternoon from the west (upper left on screen). It is the same light on every asset.
-- **Two values per material:** a lit value and a shadow value, with at most one narrow mid-tone where they meet.
-- **Shadow colour:** shadows are cool (Storm Blue mixed in), never just a darker brown.
-- **Cast shadows:** flat Storm Blue shapes at about 35 % opacity, as a hard-edged blob under everything that stands.
-- **Highlights:** Sunbleached Canvas, never white. At most one highlight dab per object.
 
-### Materials
-| Material | Treatment |
-|---|---|
-| Timber | Planks of uneven widths with a knot or two, split ends, gaps between boards and one or two nails picked out in brass |
-| Canvas | Sagging between hoops, with one patch, a stitched seam and slightly darker stains at the bottom |
-| Metal | Flat brass or iron with a single highlight dab. Rust is a few Brick Red dry-brush flecks. |
-| Stone | Rounded lumps in two values, never brick-perfect |
-| Dirt and sand | A flat Trail Dust field, wheel ruts in two brush strokes, a few pebbles and sparse scrub tufts. Quiet. |
-| Cloth | Big folds only. Bandanas and sashes give the colour accents. |
+- **One light, from the upper-left** (the west), on every asset. Lit faces point up-left; shadow faces down-right.
+- **Two values per material,** a lit one and a shadow one, from the pairs in §4.
+- **Highlights:** at most one or two Highlight (`#fff6ce`) pixels per object.
+- **Pixels:** no anti-aliasing, no gradients and no noisy dithering. Use clean clusters of flat colour, and never leave a single stray pixel; orphan pixels read as dead pixels at 1×.
+- **Shadows:** no ground shadow in the art. Code draws a flat cool contact shadow under everything that stands.
 
-## 3. Deliberate imperfection
+### Shape
 
-Every asset should have at least one of these, chosen on purpose:
-- crooked architecture (leaning posts, a sagging ridge line, a shutter hanging off one hinge);
-- asymmetry (two different windows, a lopsided chimney, a patched-on lean-to);
-- uneven paint (a dry-brush edge, a slightly missed fill, visible strokes);
-- worn materials (a cracked plank, a frayed rope, chipped paint on a sign);
-- quirky proportions (an oversized sign, a tiny door, a hat too big for its owner).
+- **Characters:** chunky and friendly, with big heads, hands and hats, and **one exaggerated feature each** that reads at game size. The sharpshooter's enormous hat brim and the well digger's pick, longer than his body, are the models.
+- **Silhouettes:** readable at a glance. Every unit type must be identifiable by silhouette alone at game size, with the side mark on.
+- **Gameplay shapes stay crisp:** fence segments, traps, the core wagon and its strongbox, and the side marks.
+- **Charm, not damage:** buildings may lean and sag. The town is never drawn damaged in a way that reads as attacked (guardrail 0).
 
-Two limits keep it intentional rather than sloppy:
-- **Gameplay shapes stay crisp.** The side badge, fence segments and the core wagon's silhouette are never so crooked that they mislead.
-- **The town is never damaged in a way that reads as attacked** (guardrail 0). It is lived-in, not raided.
+## 4. Palette
 
-## 4. Simplify
+These are the only colours, already graded warm-bright. Each letter is the key the look-test
+sprite files use.
 
-- **Detail budget:** detail goes where the eye should land, which is the silhouette and the functional bit (a weapon, a trap mechanism, a sign). Everywhere else is a broad flat shape.
-- **Visual quiet:** about a third of any scene is calm area, such as open sand, sky or a plain wall. Busy patterns are not allowed to fill a frame.
-- **The 64 px test:** a unit must still read at 64 px tall, in silhouette only, within half a second. If it doesn't, simplify the shape before adding anything.
+| Key | Role | Hex | Key | Role | Hex |
+|---|---|---|---|---|---|
+| `O` | Outline | `#2a1a14` | `o` | Soft line | `#5d3826` |
+| `x` | Highlight | `#fff6ce` | | | |
+| `s` | Skin, lit | `#fec486` | `S` | Skin, shadow | `#da8c55` |
+| `h` | Leather, hair, hat | `#a2622e` | `H` | Leather, shadow | `#683d16` |
+| `c` | Canvas, lit | `#f9e5b0` | `C` | Canvas, shadow | `#deb87b` |
+| `w` | Wood, lit | `#ce8445` | `W` | Wood, shadow | `#895225` |
+| `g` | Brass, lit | `#fcc83a` | `G` | Brass, shadow | `#c18a19` |
+| `i` | Iron, lit | `#626a7c` | `I` | Iron, shadow | `#3a4151` |
+| `k` | Stone, lit | `#aaa190` | `K` | Stone, shadow | `#756b5f` |
+| `e` | Plant, lit | `#82b14e` | `E` | Plant, shadow | `#4c7f39` |
+| `b` | Denim, lit | `#6086c2` | `B` | Denim, shadow | `#3c5c94` |
+| `y` | Sand | `#f2c970` | `Y` | Sand, shadow | `#dba654` |
+| `z` | Sand, light | `#fddf93` | `d` | Dry earth | `#c28345` |
 
-## 5. Reference set
+**Side colour** (keys `p` / `P`, recoloured by code per side):
 
-Feed a few chosen references alongside every prompt, one per job, rather than text alone. Keep them in `assets/reference/` with the source and licence recorded in `assets/reference/SOURCES.md`.
+| Side | Lit (`p`) | Shadow (`P`) |
+|---|---|---|
+| Settlers | Turquoise `#4fb8b0` | `#247778` |
+| Raiders | Brick red `#ec5231` | `#a52d16` |
 
-| Job | Reference |
-|---|---|
-| Colour and overall feel | `style-board-v1.png` (owner's board) |
-| Linework | a public-domain mid-century storybook page with a brush-ink contour, to collect |
-| Texture | a scan of real gouache on cold-press paper, flat swatches with dry-brush edges, to collect or paint |
-| Composition (key art and banners) | a public-domain dime-novel or pulp Western cover, to collect |
-| Typography and UI | public-domain 19th-century wood-type broadsides and wanted posters, to collect |
+The ungraded values the look test started from are in
+`assets/reference/look-test-2026-10-20/palette.json`. The grade is CSS `saturate(1.15)`
+`contrast(1.03)`, computed in sRGB.
 
-Only use references that are public domain or that the owner holds rights to. A reference teaches the style; nothing from it is traced or copied.
+**Known gaps:** one green pair makes sagebrush read as a generic shrub, not silvery sage.
+Add a sage pair before the Desert set is final, and run the contrast and colour-blind checks
+on the final palette (ART-PLAN step 1).
 
-## 6. Composition
+## 5. Side identity
 
-- **In-game assets** use the fixed isometric camera. Composition there means a clear silhouette on a plain backdrop, the object resting on its ground line, and nothing cropped.
-- **Key art, banners and loading screens:**
-  - **Subject placement:** put the subject off-centre on a third. Let the horizon sit high (looking down on the trail) or low (a big sky), not dead centre.
-  - **Light:** even storybook light, not spotlit drama. Mood comes from the palette and the pose.
-  - **Tell a moment, not a pose:** a wagon wheel stuck in a rut, a raider's hat blown off, a mule that refuses to move.
-  - **Leave room for type:** a calm area holds the lettering, as on a printed book cover.
-  - **Vary the framing across the set:** some wide and empty, some close and cluttered, some seen from the side.
+Settlers and raiders are told apart by **shape first, colour second** (guardrail 4):
 
-## 7. Anti-style guide: what it must NOT look like
+- Every unit type is drawn once. Its bandana, shirt or sash uses the side keys `p` / `P`, so code recolours it turquoise or brick red. That area should be at least 10–15% of the visible body in every frame; the coyote's first draft, at 5%, disappeared against its fur.
+- Code draws the side mark above every unit: a **round badge** for settlers and a **triangular tag** for raiders, plus a brass star for merge level and a small health bar once a unit has been hit.
+- Side marks are a player setting, on by default. With them off, the side colour still tells the sides apart.
+- Body colours must stay off the ground palette. The coyote's fur first used the sand colours and only its outline separated it from the ground.
 
-If an image has any of these, it is rejected or regenerated with a correction.
+## 6. Motion: alive and animated
 
-**Rendering clichés**
-- glossy 3D-render or "stylized 3D" look, plastic sheen, subsurface skin;
-- rim lighting, god rays, lens flare, bokeh, volumetric fog, bloom;
-- glowing particles, magic sparkles, energy trails;
-- airbrushed gradients, soft painterly blur everywhere, smudge-tool blending;
-- photo textures, photobashed elements, realistic skin pores, hyper-detail;
-- the orange-and-teal colour grade, oversaturation, neon accents outside the palette.
+The owner wants the game to feel alive, so everything moves. Two layers make that happen:
 
-**Composition clichés**
-- a centred hero shot with the subject staring at the camera;
-- movie-poster layouts, dramatic low angles on everything, a dark vignette;
-- symmetry for its own sake; every building perfectly front-on.
+| Layer | Who makes it | What |
+|---|---|---|
+| **Frames** (in the art) | the artist, generator or pixel editor | Per character: **idle 2, walk 4, attack 2–3 frames**, facing down-right. Fences: intact and broken. Traps: laid and sprung. Wagons: one frame. |
+| **Code motion** (on top of any art) | the renderer | walk bob, attack lunge, white hit flash, death topple and fade, dust at the feet, sparks and splinters, the contact shadow, an occasional wagon jolt, tumbleweeds rolling through, and one **ability cue per archetype** (six, reused across the roster) that must look different from an ordinary attack (PHASE-2 §26) |
 
-**Content clichés**
-- generic fantasy (castles, armour, dragons) or sci-fi bleed-through;
-- anime eyes, chibi cuteness with no grit, mascot-style smiles on everyone;
-- gritty realism, gore, sepia "old photo" filters;
-- AI tells: melted hands, extra fingers, unreadable pseudo-letters on signs, merging limbs, wood grain that turns into faces.
+The frame counts are the look test's and are the target. Whether a generator can hold one
+character steady across walk frames is still unproven. If it can't, characters keep the code
+motion with fewer drawn frames, and the frames that matter most (walk and attack) are
+hand-finished in a pixel editor.
 
-**Game-specific rules**
-- No colour-only side identity: the badge shape is always there.
-- Nothing in the town looks damaged by attack, burned or besieged.
-- Signs either carry real readable words from a short list (SALOON, GENERAL STORE, BANK, LIVERY, ASSAY OFFICE, TRADING POST) or carry no lettering, with text added in code. No AI gibberish lettering ships.
+## 7. Where art comes from, and the build step that unifies it
 
-**Banned prompt words.** Don't use these at all, or at most once and on purpose: *epic, hyper-detailed, ultra-detailed, ultra-realistic, photorealistic, cinematic, cinematic lighting, dramatic lighting, octane, unreal engine, 8k, 4k, masterpiece, trending, award-winning, stunning, glowing, volumetric, intricate.* A prompt lint script (`scripts/art/prompt-lint`) rejects them.
+Any source is allowed, as long as it ends up looking like one set:
 
-## 8. Prompt template
+- **Generated** (Wiro, using any image model; nothing that spends credits runs without the owner's yes);
+- **Hand-drawn** in a pixel editor such as Aseprite, which is the norm for animation frames;
+- **Bought or free packs** (licences recorded; Kenney is greybox only).
 
-Build every prompt from these parts, in this order, and keep each part to concrete construction words:
+The asset build (PHASE-2 §26) turns every source into the house style the same way:
 
-1. **Tradition:** "Mid-century storybook gouache illustration, opaque flat paint with dry-brush edges, brush-ink contour in dark walnut, on cold-press paper."
-2. **Construction:** line weight, two-value shading with cool shadows, west light, palette names, and the material treatments from §2 for this asset.
-3. **Subject:** one sentence of what it is, plus its one exaggerated feature and its function. For example, the core wagon is "a Conestoga carrying a padlocked iron strongbox".
-4. **Imperfection:** one or two specific items from §3.
-5. **Framing:** for in-game assets, "isometric three-quarter view, whole object visible, plain flat backdrop, resting on a ground line". For key art, the composition choice from §6.
-6. **Exclusions:** if the model takes a negative prompt, use §7's rendering and content clichés, kept short.
-7. **References:** attach `style-board-v1.png` and the locked key art. Add the linework or texture reference when it helps.
+1. Mask the plain background and trim to the content.
+2. Downscale to the class's art size (§3), keeping the ground-contact point fixed.
+3. Snap every pixel to the §4 palette.
+4. Add the 1 px outer outline where the source lacks one. Ground tiles are exempt.
 
-Record each accepted image's prompt, model, seed, references and date in `assets/painted/PROMPTS.md`.
+Code adds the second outline pixel, the contact shadow and the side marks when drawing.
+Because the build enforces scale, palette and line, two images from different sources still
+match.
 
-## 9. Personality check before accepting an image
+**Generating sources (to be confirmed by the first Wiro test):** ask for a clean, flat-colour
+illustration at large size, not for "pixel art". Generators draw fake pixels that sit off the
+grid, and downscaling clean flat art works better. A prompt names the subject and its one
+exaggerated feature, then: "isometric three-quarter view facing down-right, whole object
+visible, flat colours with two-tone shading, thick dark outline, light from the upper left,
+plain flat background". Record every accepted image's prompt, model, seed and date in
+`assets/painted/PROMPTS.md`, and check the model's licence before anything ships.
 
-Answer each question yes or no. Accept the image only if all five are yes.
-1. Could this only belong to Caravan Vaults, or could it be any Western mobile game? It must be distinctive.
-2. Can you name its one deliberate imperfection and its one exaggerated feature?
-3. Does it read in silhouette at game size, with at least a third of it quiet?
-4. Is the light the west-light storybook light, and are the shadows cool?
-5. Is it free of everything in §7?
+## 8. Anti-style: what it must NOT look like
 
-Polish matters less than these answers. A slightly rough image that passes all five beats a beautiful one that fails the first.
+If an asset has any of these, it is rejected or regenerated with a correction:
 
-## 10. Iterating: remove the biggest cliché, don't add adjectives
+- **Wrong rendering:** a glossy 3D or "stylized 3D" finish, plastic sheen, rim lighting, bloom, lens flare, glowing particles or soft painterly blur.
+- **Wrong pixels:** gradients, anti-aliased edges, noisy dithering, orphan pixels, mixed pixel sizes in one scene, or a pixel size off the whole-number grid.
+- **Wrong colour:** colours outside §4, the orange-and-teal grade, neon, or a body painted in ground colours.
+- **Outlines on ground tiles.**
+- **Colour-only side identity:** the side colour area and the code side mark are always both present, unless the player has turned the marks off.
+- **Wrong content:**
+  - generic fantasy or sci-fi bleed-through;
+  - gore;
+  - anything in the town that looks attacked;
+  - AI gibberish lettering: signs carry real words from a short list (SALOON, GENERAL STORE, BANK, LIVERY, ASSAY OFFICE, TRADING POST) or no lettering, with text added in code.
+- **Indigenous imagery:** v1 unit art stays within settler, outlaw, frontier-industry and animal archetypes unless deliberate research is done and reviewed (PROJECT.md §20, PHASE-2 §26).
 
-When an image feels generic:
-1. Name its single biggest offender, for example "the lighting is spotlit and dramatic" or "the wagon is perfectly symmetric".
-2. Make one targeted correction, either by removing the cause or by stating the construction rule that replaces it ("even storybook light from the west, flat cool shadow"). Don't add more adjectives.
-3. Regenerate with the same seed and references where the model allows, so only that one thing changes.
-4. Log the offender and the correction in `PROMPTS.md`. Recurring offenders become new §7 lines.
+**Banned prompt words**, enforced by `scripts/art/prompt-lint` once it exists: *3D render,
+octane, unreal engine, photorealistic, hyper-detailed, ultra-detailed, cinematic, cinematic
+lighting, dramatic lighting, volumetric, glossy, 8k, 4k, masterpiece, trending, award-winning,
+stunning, glowing, intricate*.
 
-At most three correction rounds per asset. If it still fails, rewrite the subject sentence rather than stacking fixes.
+## 9. Accepting an asset
+
+Accept an asset only if all five answers are yes:
+
+1. Does it sit next to the look-test sprites (`assets/reference/look-test-2026-10-20/sheet.png`) as one family: the same line, light, palette and scale?
+2. Can you name its one exaggerated feature?
+3. Does it read in silhouette at game size, at the small pixel size?
+4. For a unit, does its side colour show in every frame, with no body colour on the ground palette?
+5. Is it free of everything in §8?
+
+When an asset fails, name its single biggest problem and fix only that. Then regenerate or
+redraw with the same seed and references where possible. After three rounds, rewrite the
+subject description instead of stacking fixes. Problems that keep coming back become new §8
+lines.
