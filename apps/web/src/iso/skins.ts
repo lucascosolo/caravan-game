@@ -11,6 +11,7 @@
  * Nothing in here reads game state or balance numbers; it is keyed by type id only.
  */
 import { getFenceTier, getSiegeType, getTrapType, getUnitType, type AffinityCategory } from "@caravan/content";
+import type { Texture } from "pixi.js";
 
 export type PlaceholderShape = "circle" | "square" | "triangle" | "diamond" | "bar" | "wagon";
 
@@ -25,23 +26,40 @@ export interface PlaceholderSkin {
   readonly scale: number;
 }
 
-/** Reserved for chunk 26: a texture from the atlas. The scene refuses it until then. */
+/**
+ * Chunk 26: a painted texture from the scene's atlas, drawn at native device size, with the
+ * code readability layer (contact shadow, side badge, level star) on top (spriteDraw.ts).
+ */
 export interface SpriteSkin {
   readonly kind: "sprite";
+  /** The atlas frame id, "class/key" (e.g. "units/desert.sand_sharpshooter"). */
   readonly textureId: string;
+  readonly texture: Texture;
+  /** Ground-contact point, art px from the frame's top-left. */
+  readonly anchor: { readonly x: number; readonly y: number };
+  /** Frame size in art px (the footprint). */
+  readonly size: { readonly w: number; readonly h: number };
+  readonly flipX: boolean;
+  /** Units carry a side mark (round settler badge / triangular raider tag); everything else null. */
+  readonly mark: Side | null;
+  /** Merge level; 2 or more draws a brass star. */
+  readonly level: number;
 }
 
 export type Skin = PlaceholderSkin | SpriteSkin;
 
 export type Side = "defender" | "attacker";
 
+/** The screen diagonal a wagon faces: "se" is the drawn front view (down-right); "sw" and "ne" are mirrored. */
+export type WagonFacing = "se" | "sw" | "ne" | "nw";
+
 export interface SkinRegistry {
-  unit(typeId: string, side: Side): Skin;
+  unit(typeId: string, side: Side, level?: number): Skin;
   trap(typeId: string): Skin;
   fence(tierId: string): Skin;
   siege(typeId: string): Skin;
-  /** The four parked wagons at the ring corners (chunk 07 QA D2). */
-  wagonAnchor(): Skin;
+  /** The four parked wagons at the ring corners (chunk 07 QA D2); `index` picks covered/supply, `facing` the view. */
+  wagonAnchor(index?: number, facing?: WagonFacing): Skin;
   core(): Skin;
 }
 
@@ -117,3 +135,34 @@ export const PLACEHOLDER_SKINS: SkinRegistry = {
     return { kind: "placeholder", shape: "wagon", fill: PALETTE.core, outline: PALETTE.outlineDark, glyph: "", scale: 1 };
   },
 };
+
+/** One loaded atlas frame (art.ts builds these from the manifest). */
+export interface SpriteFrame {
+  readonly texture: Texture;
+  /** The raider recolour (turquoise side pixels swapped to brick red); null for non-units. */
+  readonly raiderTexture: Texture | null;
+  readonly anchor: { readonly x: number; readonly y: number };
+  readonly size: { readonly w: number; readonly h: number };
+}
+
+/** Per type: the sprite where the atlas has a frame, else the fallback registry's placeholder. */
+export function createSpriteSkins(frames: ReadonlyMap<string, SpriteFrame>, fallback: SkinRegistry = PLACEHOLDER_SKINS): SkinRegistry {
+  const sprite = (id: string, mark: Side | null, level: number, flipX = false): SpriteSkin | null => {
+    const f = frames.get(id);
+    if (!f) return null;
+    const texture = mark === "attacker" ? (f.raiderTexture ?? f.texture) : f.texture;
+    return { kind: "sprite", textureId: id, texture, anchor: f.anchor, size: f.size, flipX, mark, level };
+  };
+  return {
+    unit: (typeId, side, level = 1) => sprite(`units/${typeId}`, side, level) ?? fallback.unit(typeId, side),
+    trap: (typeId) => sprite(`traps/${typeId}`, null, 0) ?? fallback.trap(typeId),
+    fence: (tierId) => sprite(`fences/${tierId}`, null, 0) ?? fallback.fence(tierId),
+    siege: (typeId) => sprite(`siege/${typeId}`, null, 0) ?? fallback.siege(typeId),
+    wagonAnchor: (index = 0, facing = "se") => {
+      const view = facing === "se" || facing === "sw" ? "front" : "rear";
+      const id = `wagons/${index % 2 === 0 ? "covered" : "supply"}_${view}`;
+      return sprite(id, null, 0, facing === "sw" || facing === "ne") ?? fallback.wagonAnchor(index, facing);
+    },
+    core: () => sprite("wagons/core", null, 0) ?? fallback.core(),
+  };
+}

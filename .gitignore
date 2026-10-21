@@ -44,3 +44,7 @@ Thumbs.db
 
 # Agent worktrees created by the Claude Code harness
 .claude/worktrees/
+
+# Art pipeline build output (pnpm art:build; PHASE-2 §26): rebuilt by the build, never hand-edited
+apps/web/public/art/
+apps/web/src/art/generated/

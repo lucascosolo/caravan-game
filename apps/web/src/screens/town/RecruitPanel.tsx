@@ -20,9 +20,12 @@ import { ApiError, type Api } from "../../api/client.ts";
 import type { RecruitOfferView, RecruitView } from "../../api/types.ts";
 import { navigate } from "../../shell/router.tsx";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
-import { Modal } from "../../shell/Modal.tsx";
 import { STRINGS } from "../../strings.ts";
+import { Button } from "../../ui/Button.tsx";
+import { Icon } from "../../ui/Icon.tsx";
+import { Sheet } from "../../ui/Sheet.tsx";
 import { SpendError, unconfirmed } from "./SpendError.tsx";
+import { ErrorPlate, StatusNote } from "./townBits.tsx";
 
 const T = STRINGS.town;
 
@@ -121,78 +124,79 @@ export function RecruitPanel({ api, caravanId, view, onRecruited }: RecruitPanel
   };
 
   return (
-    <section aria-labelledby="recruit-heading" data-testid="recruit-panel">
+    <section className="town-panel" aria-labelledby="recruit-heading" data-testid="recruit-panel">
       <h2 id="recruit-heading" ref={headingRef} tabIndex={-1}>
         {T.recruitHeading}
       </h2>
-      <p className="hint">{T.recruitIntro(view.costBase)}</p>
-      <p className="hint" data-testid="recruit-inventory">
+      <p className="cv-small">{T.recruitIntro(view.costBase)}</p>
+      <p className="cv-small" data-testid="recruit-inventory">
         {T.inventoryLine(view.inventory.count, view.inventory.cap)}
       </p>
-      <ul className="cards" data-testid="recruit-list">
+      <ul className="town-list" data-testid="recruit-list">
         {view.recruitable.map((o) => (
-          <li key={o.unitTypeId} className="card" data-type={o.unitTypeId}>
-            <div className="card__head">
-              <span className="card__name">{o.displayName}</span>
-              <span>{T.coin(o.cost)}</span>
+          <li key={o.unitTypeId} className="cv-card town-panel" data-type={o.unitTypeId}>
+            <div className="town-row">
+              <span className="town-name town-grow">{o.displayName}</span>
+              <span className="cv-tag">
+                <span className="cv-tag__in">
+                  <Icon name="coin" />
+                  <span className="cv-num">{T.coin(o.cost)}</span>
+                </span>
+              </span>
             </div>
-            <div className="card__line hint">{T.abilityLine(o.ability.displayName)}</div>
-            <button
-              type="button"
-              className="btn btn--block"
+            <div className="cv-small">{T.abilityLine(o.ability.displayName)}</div>
+            <Button
+              block
               disabled={busy || quoting !== null || !o.affordable || view.inventory.full}
+              disabledReason={o.affordable ? undefined : T.recruitUnaffordable}
               onClick={() => void open(o)}
             >
               {quoting === o.unitTypeId ? T.quoteLoading : T.recruitButton(o.displayName, o.cost)}
-            </button>
-            {!o.affordable && <div className="hint">{T.recruitUnaffordable}</div>}
+            </Button>
           </li>
         ))}
       </ul>
       {view.locked.length > 0 && (
         // Final play-test review r2 N13: the locked list is reference, not a choice: collapsed by default.
-        <details className="disclosure" data-testid="recruit-locked-details">
+        <details className="cv-card town-panel" data-testid="recruit-locked-details">
           <summary>{T.recruitLockedSummary(view.locked.length)}</summary>
-          <ul className="plain" data-testid="recruit-locked">
+          <ul className="town-list" data-testid="recruit-locked">
             {view.locked.map((l) => (
               <li key={l.unitTypeId} data-type={l.unitTypeId}>
-                <span className="card__name">{l.displayName}</span> — <span className="hint">{T.recruitLocked}</span>
+                <Icon name="padlock" /> <span className="town-name">{l.displayName}</span> — <span className="cv-small">{T.recruitLocked}</span>
               </li>
             ))}
           </ul>
-          <button type="button" className="btn btn--block" onClick={() => navigate("webs")}>
+          <Button block onClick={() => navigate("webs")}>
             {T.recruitToWebs}
-          </button>
+          </Button>
         </details>
       )}
-      {view.inventory.full && <p className="error">{T.inventoryFull}</p>}
+      {view.inventory.full && <ErrorPlate>{T.inventoryFull}</ErrorPlate>}
       {error && <ErrorBox error={error} heading={errorHeading} />}
-      {status && (
-        <p className="notice" role="status">
-          {status}
-        </p>
-      )}
+      {status && <StatusNote>{status}</StatusNote>}
       {confirm && (
-        <Modal
+        <Sheet
           title={T.recruitConfirmTitle}
+          question
           busy={busy}
-          onCancel={cancel}
+          onClose={cancel}
           testId="recruit-dialog"
           restoreFocusTo={() => headingRef.current}
-          actions={
-            <>
-              <button type="button" className="btn" disabled={busy} onClick={cancel}>
+          footer={
+            <div className="town-actions">
+              <Button disabled={busy} onClick={cancel}>
                 {T.previewCancel}
-              </button>
-              <button type="button" className="btn btn--primary" disabled={busy} onClick={() => void recruit()} data-testid="recruit-confirm">
+              </Button>
+              <Button variant="primary" icon="coin" disabled={busy} onClick={() => void recruit()} testId="recruit-confirm">
                 {busy ? T.recruiting : confirm.lost ? T.spendTryAgain : T.recruitYes}
-              </button>
-            </>
+              </Button>
+            </div>
           }
         >
           <p>{T.recruitConfirmBody(confirm.offer.displayName, confirm.offer.cost, confirm.balance)}</p>
           {confirm.lost && <SpendError error={confirm.lost} heading={T.recruitRefused} />}
-        </Modal>
+        </Sheet>
       )}
     </section>
   );

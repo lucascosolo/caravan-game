@@ -103,7 +103,7 @@ describe("Account screen", () => {
     expect(await screen.findByText(A.linked("contract_guest"))).toBeInTheDocument();
     expect(s.calls.find((c) => c.path === "/me/account/link")!.body).toEqual({ username: "contract_guest", password: "correct horse battery" });
     await waitFor(() => expect(screen.queryByTestId("guest-badge")).toBeNull());
-    expect(screen.getByText("contract_guest", { selector: ".shell__who" })).toBeInTheDocument();
+    expect(screen.getByText("contract_guest", { selector: ".cv-chip .cv-num" })).toBeInTheDocument();
     // Now deletion asks for the password too.
     expect(within(screen.getByTestId("delete-card")).getByLabelText(A.deletePassword)).toBeInTheDocument();
   });

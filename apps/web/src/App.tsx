@@ -43,7 +43,7 @@ function Routed(): JSX.Element {
   useTelemetry(api, session !== null, session === null ? null : welcomeShown ? "welcome" : route === "login" ? "town" : route);
   if (!session) {
     return (
-      <div className="shell">
+      <div className="shell cv-root">
         <main className="shell__main">
           <LoginScreen />
         </main>
@@ -92,9 +92,10 @@ function Routed(): JSX.Element {
       {!welcome && !onboarding?.active && (route === "town" || route === "login") && <GuestSavePrompt place="town" />}
       <Suspense
         fallback={
-          <p className="hint" role="status">
-            {STRINGS.app.loading}
-          </p>
+          <div className="cv-loadtick" role="status">
+            <span className="cv-spinner" aria-hidden="true" />
+            <span className="cv-loadtick__word">{STRINGS.app.loading}</span>
+          </div>
         }
       >
         {screen}

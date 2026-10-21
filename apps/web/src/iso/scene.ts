@@ -39,7 +39,9 @@ import {
   type CellLike,
   type WorldPoint,
 } from "./projection.ts";
-import { PALETTE, PLACEHOLDER_SKINS, type PlaceholderSkin, type Skin, type SkinRegistry } from "./skins.ts";
+import { renderResolution } from "./art.ts";
+import { PALETTE, PLACEHOLDER_SKINS, type PlaceholderSkin, type Skin, type SkinRegistry, type WagonFacing } from "./skins.ts";
+import { drawSprite } from "./spriteDraw.ts";
 import type { EntryEdgeName, IsoSceneState, PostEntity, ReplayMarkEntity, StructureEntity } from "./types.ts";
 
 /** The lattice and the fixed features the scene draws for every place (from the resolver's geometry). */
@@ -160,7 +162,7 @@ export class IsoScene {
   private frames = 0;
   /** Idle frames since the last change; the ticker stops after a few (QA N9: no rAF while nothing moves). */
   private idleFrames = 0;
-  private readonly skins: SkinRegistry;
+  private skins: SkinRegistry;
   private latticeTarget = 0;
   private state: IsoSceneState | null = null;
   private mounted = false;
@@ -209,7 +211,7 @@ export class IsoScene {
         height,
         background: this.opts.background,
         antialias: true,
-        resolution: Math.min(2, typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1),
+        resolution: renderResolution(),
         autoDensity: true,
         preference: "webgl",
       });
@@ -282,6 +284,14 @@ export class IsoScene {
   resize(width: number, height: number): void {
     this.app?.renderer.resize(width, height);
     this.wake();
+  }
+
+  /** Swap the skin registry (chunk 26: the sprite registry once the scene's atlas has loaded) and redraw every entity. */
+  setSkins(skins: SkinRegistry): void {
+    this.skins = skins;
+    for (const { node } of this.nodes.values()) node.destroy({ children: true });
+    this.nodes.clear();
+    if (this.state) this.update(this.state);
   }
 
   setCamera(cam: Camera): void {
@@ -589,7 +599,7 @@ export class IsoScene {
       geo.wagons.forEach((w, i) => {
         const [p, q] = [cellToWorld(w.cells[0]), cellToWorld(w.cells[1])];
         const mid = { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 };
-        this.keep(seen, `anchor:${i}`, "", mid, 1, () => this.marker(this.skins.wagonAnchor(), mid, 1, 1, false));
+        this.keep(seen, `anchor:${i}`, "", mid, 1, () => this.marker(this.skins.wagonAnchor(i, w.facing as WagonFacing), mid, 1, 1, false));
       });
     }
     // Town structures (chunk 17): inert scenery, drawn from the state, never simulated.
@@ -603,7 +613,7 @@ export class IsoScene {
     // Board units (chunk 17): static markers, a level badge, no stance, no radii, no HP.
     for (const u of state.boardUnits ?? []) {
       this.keep(seen, `unit:${u.id}`, `${u.typeId}|${u.mergeLevel}|${u.selected ? 1 : 0}|${u.dimmed ? 1 : 0}|${u.target ? 1 : 0}`, u.pos, 2, () => {
-        const skin = this.skins.unit(u.typeId, "defender");
+        const skin = this.skins.unit(u.typeId, "defender", u.mergeLevel);
         const node = this.marker(u.dimmed && skin.kind === "placeholder" ? { ...skin, fill: PALETTE.trapSpent } : skin, u.pos, u.target ? 1.15 : 1, 2, u.selected ?? false);
         node.addChild(this.badge(String(u.mergeLevel), TILE_W * 0.22, -TILE_H * 0.55));
         if (u.target) {
@@ -632,7 +642,7 @@ export class IsoScene {
     }
     for (const p of state.posts) {
       this.keep(seen, `post:${p.id}`, `${p.typeId}|${p.mergeLevel}|${p.stance}|${p.hpFraction}|${p.selected ? 1 : 0}`, p.pos, 2, () => {
-        const node = this.marker(this.skins.unit(p.typeId, "defender"), p.pos, 1, 2, p.selected ?? false);
+        const node = this.marker(this.skins.unit(p.typeId, "defender", p.mergeLevel), p.pos, 1, 2, p.selected ?? false);
         const bar = this.hpBar(p.hpFraction, PALETTE.defender);
         bar.position.set(0, -TILE_H * 1.15);
         node.addChild(bar);
@@ -647,7 +657,7 @@ export class IsoScene {
         // QA N10: the skin seam's promise — an attacker carries a DASHED ring under its marker
         // (a defender a solid outline), so the two sides differ by shape, not colour alone.
         node.addChild(this.dashedRing());
-        const m = this.marker(this.skins.unit(a.typeId, "attacker"), { x: 0, y: 0 }, 1, 2, a.selected ?? false);
+        const m = this.marker(this.skins.unit(a.typeId, "attacker", a.mergeLevel), { x: 0, y: 0 }, 1, 2, a.selected ?? false);
         m.position.set(0, 0);
         node.addChild(m);
         node.addChild(this.badge(String(a.mergeLevel), TILE_W * 0.22, -TILE_H * 0.55));
@@ -667,7 +677,7 @@ export class IsoScene {
           node.addChild(ring);
         }
         if (u.side === "attacker") node.addChild(this.dashedRing());
-        const m = this.marker(this.skins.unit(u.typeId, u.side), { x: 0, y: 0 }, 1, 2, u.highlighted ?? false);
+        const m = this.marker(this.skins.unit(u.typeId, u.side, u.level), { x: 0, y: 0 }, 1, 2, u.highlighted ?? false);
         m.position.set(0, 0);
         node.addChild(m);
         const bar = this.hpBar(hpQ / 20, u.side === "attacker" ? PALETTE.attacker : PALETTE.defender);
@@ -804,12 +814,12 @@ export class IsoScene {
   }
 
   private marker(skin: Skin, pos: WorldPoint, scaleMul: number, layerBias: number, selected: boolean): Container {
-    if (skin.kind !== "placeholder") throw new Error("sprite skins arrive with chunk 26; only placeholder skins can be drawn");
     const node = new Container();
     const s = project(pos);
     node.position.set(s.x, s.y);
     node.zIndex = depthKey(pos, layerBias);
-    node.addChild(this.placeholder(skin, scaleMul, selected));
+    // Sprites stay at native device size, so `scaleMul` (a placeholder sizing hint) does not apply to them.
+    node.addChild(skin.kind === "sprite" ? drawSprite(skin, selected) : this.placeholder(skin, scaleMul, selected));
     return node;
   }
 

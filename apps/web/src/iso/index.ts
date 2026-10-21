@@ -10,6 +10,8 @@
 export * from "./projection.ts";
 export * from "./hit.ts";
 export * from "./skins.ts";
+export { ART_MANIFEST, atlasDpr, loadSceneSkins, type ArtManifest, type ArtScene } from "./art.ts";
+export { drawSprite } from "./spriteDraw.ts";
 export * from "./types.ts";
 export { IsoScene, LATTICE_ALPHA, type SceneGeometry, type SceneOptions } from "./scene.ts";
 export { IsoCanvas, ISO_DEBUG, frameCamera, type FrameRect, type IsoCanvasHandle, type IsoCanvasProps } from "./IsoCanvas.tsx";

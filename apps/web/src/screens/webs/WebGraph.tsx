@@ -11,13 +11,17 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import type { UnlockNodeView, UnlockWebView } from "../../api/types.ts";
 import { STRINGS } from "../../strings.ts";
+import "./webs.css";
 import { NodeCard } from "./NodeCard.tsx";
 
 interface Edge {
   readonly from: string;
   readonly to: string;
   readonly met: boolean;
-  readonly d: string;
+  readonly x: number;
+  readonly y: number;
+  readonly length: number;
+  readonly angle: number;
 }
 
 export function tiersOf(nodes: readonly UnlockNodeView[]): readonly (readonly UnlockNodeView[])[] {
@@ -55,13 +59,9 @@ export function WebGraph({ web, selectedId, onSelect }: WebGraphProps): JSX.Elem
         for (const req of n.requires) {
           const from = pos.get(req);
           if (!from) continue;
-          const midY = (from.bottom + to.top) / 2;
-          next.push({
-            from: req,
-            to: n.id,
-            met: reached.has(req),
-            d: `M ${from.x} ${from.bottom} C ${from.x} ${midY}, ${to.x} ${midY}, ${to.x} ${to.top}`,
-          });
+          const dx = to.x - from.x;
+          const dy = to.top - from.bottom;
+          next.push({ from: req, to: n.id, met: reached.has(req), x: from.x, y: from.bottom, length: Math.hypot(dx, dy), angle: Math.atan2(dy, dx) });
         }
       }
       setEdges(next);
@@ -79,16 +79,20 @@ export function WebGraph({ web, selectedId, onSelect }: WebGraphProps): JSX.Elem
   }, [web]);
 
   return (
-    <div className="graph" ref={containerRef} role="group" aria-label={STRINGS.webs.graphLabel(STRINGS.webs.poolName(web.pool))}>
-      <svg className="graph__edges" aria-hidden="true" focusable="false">
-        {edges.map((e) => (
-          // Met edges are solid; unmet ones dashed as well as grey (QA-06 N2: never colour only).
-          <path key={`${e.from}->${e.to}`} className={`graph__edge ${e.met ? "graph__edge--met" : "graph__edge--unmet"}`} data-met={e.met} d={e.d} />
-        ))}
-      </svg>
+    <div className="webs-graph" ref={containerRef} role="group" aria-label={STRINGS.webs.graphLabel(STRINGS.webs.poolName(web.pool))}>
+      {edges.map((e) => (
+        // Met ropes are taut and brass-capped; unmet ones are slack and dashed (never colour only).
+        <span
+          key={`${e.from}->${e.to}`}
+          className={`cv-web-rope graph__edge ${e.met ? "is-taut graph__edge--met" : "graph__edge--unmet"}`}
+          data-met={e.met}
+          aria-hidden="true"
+          style={{ left: e.x, top: e.y, width: e.length, transform: `rotate(${e.angle}rad)` }}
+        />
+      ))}
       {tiersOf(web.nodes).map((row) => (
-        <div key={row[0]!.tier} className="graph__tier" data-tier={row[0]!.tier}>
-          <span className="graph__tierlabel">{STRINGS.webs.tier(row[0]!.tier)}</span>
+        <div key={row[0]!.tier} className="webs-tier" data-tier={row[0]!.tier}>
+          <span className="cv-label webs-tierlabel">{STRINGS.webs.tier(row[0]!.tier)}</span>
           {row.map((n) => (
             <NodeCard key={n.id} node={n} selected={selectedId === n.id} onSelect={onSelect} />
           ))}

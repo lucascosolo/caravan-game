@@ -17,8 +17,11 @@ import { useEffect, useState } from "react";
 import { ApiError, type Api } from "../../api/client.ts";
 import type { MergePreview, MergeResultView, UnitStatsView } from "../../api/types.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
-import { Modal } from "../../shell/Modal.tsx";
 import { STRINGS } from "../../strings.ts";
+import { Button } from "../../ui/Button.tsx";
+import { Note } from "../../ui/Note.tsx";
+import { Sheet } from "../../ui/Sheet.tsx";
+import { ErrorPlate } from "./townBits.tsx";
 
 const T = STRINGS.town;
 
@@ -49,18 +52,21 @@ export function ratioText(mult: number, den: number): string {
 
 function StatsColumn({ heading, count, stats, testId }: { heading: string; count: number; stats: UnitStatsView; testId: string }): JSX.Element {
   return (
-    <div data-testid={testId}>
-      <div className="h3">{T.statsColumn(heading, count)}</div>
-      <dl className="statlist statlist--compact">
-        <dt>{T.statHp}</dt>
-        <dd>{stats.hp}</dd>
-        <dt>{T.statHit}</dt>
-        <dd>{stats.referenceHit}</dd>
-        <dt>{T.statOffense}</dt>
-        <dd>{stats.offense}</dd>
-        <dt>{T.statDefense}</dt>
-        <dd>{stats.defense}</dd>
-      </dl>
+    <div className="cv-card town-panel" data-testid={testId}>
+      <div className="town-name">{T.statsColumn(heading, count)}</div>
+      {(
+        [
+          [T.statHp, stats.hp],
+          [T.statHit, stats.referenceHit],
+          [T.statOffense, stats.offense],
+          [T.statDefense, stats.defense],
+        ] as const
+      ).map(([label, value]) => (
+        <div key={label} className="cv-stat">
+          <span>{label}</span>
+          <span className="cv-num">{value}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -99,69 +105,66 @@ export function MergeDialog({ api, caravanId, instanceIds, onDone, onCancel, res
   const canConfirm = !!preview && preview.affordable && (!preview.requiresConfirmInParty || inPartyOk) && !busy;
 
   return (
-    <Modal
+    <Sheet
       title={T.previewTitle}
       busy={busy}
-      onCancel={onCancel}
+      onClose={onCancel}
       testId="merge-dialog"
       {...(restoreFocusTo ? { restoreFocusTo } : {})}
-      actions={
-        <>
-          <button type="button" className="btn" disabled={busy} onClick={onCancel}>
+      footer={
+        <div className="town-actions">
+          <Button disabled={busy} onClick={onCancel}>
             {T.previewCancel}
-          </button>
+          </Button>
           {preview && (
-            <button type="button" className="btn btn--primary" disabled={!canConfirm} onClick={() => void commit()} data-testid="merge-confirm">
+            <Button variant="primary" icon="coin" disabled={!canConfirm} onClick={() => void commit()} testId="merge-confirm">
               {busy ? T.merging : T.previewConfirm(preview.totalCost)}
-            </button>
+            </Button>
           )}
-        </>
+        </div>
       }
     >
       {!preview && !loadError && (
-        <p className="hint" role="status">
+        <p className="cv-small" role="status">
           {T.previewLoading}
         </p>
       )}
       {loadError && <ErrorBox error={loadError} heading={T.mergeRefused} />}
       {preview && (
-        <div data-testid="merge-preview">
+        <div className="town-panel" data-testid="merge-preview">
           <p data-testid="merge-line">{T.previewLine(preview.recipe.spend, preview.fromLevel, preview.recipe.produce, preview.toLevel, preview.unitDisplayName)}</p>
           <p data-testid="merge-cost">
             <strong>{T.previewCost(preview.totalCost, preview.costPerUnit)}</strong>
           </p>
           <p data-testid="merge-balance">{T.previewBalance(preview.balance, preview.pendingTrickle)}</p>
           {!preview.affordable && (
-            <p className="error" role="alert" data-testid="merge-unaffordable">
-              {T.previewUnaffordable}
-            </p>
+            <ErrorPlate testId="merge-unaffordable">{T.previewUnaffordable}</ErrorPlate>
           )}
           <p data-testid="merge-slots">{T.previewSlots(preview.slotsFreed, preview.consumed.slots, preview.produced.slots)}</p>
-          <div className="h3">{T.previewStats}</div>
-          <div className="row" style={{ alignItems: "flex-start" }}>
+          <div className="town-name">{T.previewStats}</div>
+          <div className="town-stats">
             <StatsColumn heading={T.previewBefore} count={preview.consumed.count} stats={preview.consumed.combined} testId="merge-consumed" />
             <StatsColumn heading={T.previewAfter} count={preview.produced.count} stats={preview.produced.combined} testId="merge-produced" />
           </div>
-          <p className="hint">{T.statDamageMult(ratioText(preview.produced.perUnit.damageOutputMult, preview.produced.perUnit.multDen))}</p>
-          <p className="hint">{T.previewAbility(preview.ability.displayName)}</p>
-          <p className="hint">{T.previewNotStronger}</p>
+          <p className="cv-small">{T.statDamageMult(ratioText(preview.produced.perUnit.damageOutputMult, preview.produced.perUnit.multDen))}</p>
+          <p className="cv-small">{T.previewAbility(preview.ability.displayName)}</p>
+          <p className="cv-small">{T.previewNotStronger}</p>
           {rosterSize !== undefined && rosterSize < TUNABLES.DEPLOYMENT_SLOT_CAP && (
-            <p className="notice" data-testid="merge-below-slots">
+            <Note variant="canvas" testId="merge-below-slots">
               {T.previewBelowSlots(rosterSize, TUNABLES.DEPLOYMENT_SLOT_CAP, rosterSize - preview.slotsFreed)}
-            </p>
+            </Note>
           )}
           {preview.requiresConfirmInParty && (
-            <div className="error" role="alert" data-testid="merge-in-party">
-              <p style={{ marginTop: 0 }}>{T.previewInParty(preview.consumed.inParty.length)}</p>
-              <label className="toggles" style={{ margin: 0, minHeight: "var(--tap)", alignItems: "center" }}>
-                <input type="checkbox" checked={inPartyOk} disabled={busy} onChange={(e) => setInPartyOk(e.target.checked)} data-testid="merge-in-party-confirm" />{" "}
-                {T.previewInPartyCheckbox}
+            <ErrorPlate testId="merge-in-party">
+              <span style={{ display: "block" }}>{T.previewInParty(preview.consumed.inParty.length)}</span>
+              <label style={{ display: "flex", gap: 8, alignItems: "center", minHeight: 44 }}>
+                <input type="checkbox" checked={inPartyOk} disabled={busy} onChange={(e) => setInPartyOk(e.target.checked)} data-testid="merge-in-party-confirm" /> {T.previewInPartyCheckbox}
               </label>
-            </div>
+            </ErrorPlate>
           )}
           {commitError && <ErrorBox error={commitError} heading={T.mergeRefused} />}
         </div>
       )}
-    </Modal>
+    </Sheet>
   );
 }

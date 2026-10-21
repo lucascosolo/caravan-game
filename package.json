@@ -26,10 +26,13 @@
     "perf:resolver": "pnpm --filter @caravan/resolver run budget",
     "load:queue": "pnpm --filter @caravan/server exec tsx ../../scripts/load/queue-load.ts",
     "load:explain": "pnpm --filter @caravan/server exec tsx ../../scripts/load/matchmaking-explain.ts",
-    "build": "node scripts/build.mjs && pnpm --filter @caravan/web build",
+    "build": "node scripts/build.mjs && pnpm art:build && pnpm --filter @caravan/web build",
     "start": "node apps/server/dist/index.js",
     "smoke": "node scripts/smoke-server.mjs",
-    "check": "node scripts/check.mjs"
+    "check": "node scripts/check.mjs",
+    "art:intake": "pnpm --filter @caravan/art art intake",
+    "art:build": "pnpm --filter @caravan/art art build",
+    "art:check": "pnpm --filter @caravan/art art check"
   },
   "devDependencies": {
     "esbuild": "0.28.2",

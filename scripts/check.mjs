@@ -38,6 +38,8 @@ const steps = [
   ["determinism", ["pnpm", "determinism"]],
   ["perf:resolver", ["pnpm", "perf:resolver"]],
   ["build", ["pnpm", "build"]],
+  // PHASE-2 §26: art coverage, size/anchor rules and the payload budget (reads apps/web/dist, so after build).
+  ["art:check", ["pnpm", "art:check"]],
   ["migrate", ["node", "apps/server/dist/db/migrate.js", "up"], { MIGRATE_DATABASE_URL: ownerUrl, DATABASE_URL: ownerUrl }],
   ["smoke", ["node", "scripts/smoke-server.mjs"], { SMOKE_DATABASE_URL: appUrl }],
   ["e2e", ["node", "scripts/e2e.mjs"], { E2E_DATABASE_URL: appUrl }],

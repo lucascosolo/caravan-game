@@ -18,13 +18,18 @@
  * refresh is due says the next menu is ready and that nothing is forfeited.
  */
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ApiError, type Api } from "../../api/client.ts";
 import type { RefugeeView } from "../../api/types.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
-import { Modal } from "../../shell/Modal.tsx";
 import { STRINGS } from "../../strings.ts";
+import { Button } from "../../ui/Button.tsx";
+import { Icon } from "../../ui/Icon.tsx";
+import { Note } from "../../ui/Note.tsx";
+import { Sheet } from "../../ui/Sheet.tsx";
 import { collapseOffers, refugeeTimer } from "./refugeeModel.ts";
 import { SpendError, unconfirmed } from "./SpendError.tsx";
+import { ErrorPlate, StatusNote } from "./townBits.tsx";
 
 const T = STRINGS.town;
 
@@ -40,13 +45,15 @@ export interface RefugeePanelProps {
   readonly onReload: () => void;
   /** A unit joined the roster: the town re-reads it. */
   readonly onRosterChanged: () => void;
+  /** Where the waiting-menu timer hangs as a nailed note on the town scene; in place when absent. */
+  readonly noteHost?: HTMLElement | null;
   /** Injected for tests. */
   readonly now?: () => number;
 }
 
 const asApiError = (err: unknown): ApiError => (err instanceof ApiError ? err : new ApiError(0, "unknown", STRINGS.app.genericError));
 
-export function RefugeePanel({ api, caravanId, view, readAt, onView, onReload, onRosterChanged, now = Date.now }: RefugeePanelProps): JSX.Element {
+export function RefugeePanel({ api, caravanId, view, readAt, onView, onReload, onRosterChanged, noteHost = null, now = Date.now }: RefugeePanelProps): JSX.Element {
   const [tick, setTick] = useState(() => now());
   const [busy, setBusy] = useState<null | "claim" | "refresh" | "reroll">(null);
   const [error, setError] = useState<ApiError | null>(null);
@@ -142,25 +149,34 @@ export function RefugeePanel({ api, caravanId, view, readAt, onView, onReload, o
     });
 
   const rr = view.reroll;
+  const counting = timer.kind === "counting";
+  const countingNote = (
+    <Note variant="paper" className="town-note">
+      <div className="town-row">
+        <Icon name="hourglass" />
+        <span>{counting ? T.refugeeTimer(timer.mmss) : null}</span>
+      </div>
+    </Note>
+  );
   return (
-    <section aria-labelledby="refugees-heading" data-testid="refugee-panel" data-timer={timer.kind}>
+    <section className="town-panel" aria-labelledby="refugees-heading" data-testid="refugee-panel" data-timer={timer.kind}>
       <h2 id="refugees-heading" ref={headingRef} tabIndex={-1}>
         {T.refugeesHeading}
       </h2>
-      <p className="hint">{T.refugeesIntro}</p>
-      <p className="hint">{T.refugeeSlots(view.menu.offers.length, offers.length)}</p>
-      <ul className="cards" data-testid="refugee-offers">
+      <p className="cv-small">{T.refugeesIntro}</p>
+      <p className="cv-small">{T.refugeeSlots(view.menu.offers.length, offers.length)}</p>
+      <ul className="town-list" data-testid="refugee-offers">
         {offers.map((o) => (
-          <li key={o.unitTypeId} className="card" data-type={o.unitTypeId}>
-            <div className="card__head">
-              <span className="card__name">{o.displayName}</span>
-              {o.times > 1 && <span className="hint">{T.refugeeDuplicate(o.times)}</span>}
+          <li key={o.unitTypeId} className="cv-card town-panel" data-type={o.unitTypeId}>
+            <div className="town-row">
+              <span className="town-name town-grow">{o.displayName}</span>
+              {o.times > 1 && <span className="cv-pill cv-pill--parch cv-pill--sm">{T.refugeeDuplicate(o.times)}</span>}
             </div>
-            <div className="card__line hint">{T.abilityLine(o.abilityName)}</div>
+            <div className="cv-small">{T.abilityLine(o.abilityName)}</div>
             {!claimed && (
-              <button type="button" className="btn btn--block btn--primary" disabled={busy !== null || view.inventory.full} onClick={() => void claim(o.unitTypeId, o.displayName)}>
+              <Button variant="primary" block disabled={busy !== null || view.inventory.full} onClick={() => void claim(o.unitTypeId, o.displayName)}>
                 {busy === "claim" ? T.claiming : T.refugeeClaim(o.displayName)}
-              </button>
+              </Button>
             )}
           </li>
         ))}
@@ -168,84 +184,74 @@ export function RefugeePanel({ api, caravanId, view, readAt, onView, onReload, o
       {claimed && claimedName && (
         <p data-testid="refugee-claimed">{timer.kind === "due" ? T.refugeeClaimedPick(claimedName) : T.refugeeAlreadyClaimed(claimedName)}</p>
       )}
-      {view.inventory.full && <p className="error">{T.inventoryFull}</p>}
+      {view.inventory.full && <ErrorPlate>{T.inventoryFull}</ErrorPlate>}
 
       <div data-testid="refugee-timer">
-        {timer.kind === "counting" && <p>{T.refugeeTimer(timer.mmss)}</p>}
-        {timer.kind === "stale" && <p className="hint">{STRINGS.app.loading}</p>}
+        {counting && (noteHost ? createPortal(countingNote, noteHost) : countingNote)}
+        {timer.kind === "stale" && <p className="cv-small">{STRINGS.app.loading}</p>}
         {timer.kind === "due" && (
           <>
             <p>{timer.claimed ? T.refugeeDueAfterClaim : T.refugeeDue}</p>
-            <button type="button" className="btn btn--block" disabled={busy !== null} onClick={() => void refresh()} data-testid="refugee-refresh">
+            <Button block icon="hourglass" disabled={busy !== null} onClick={() => void refresh()} testId="refugee-refresh">
               {busy === "refresh" ? T.refugeeRefreshing : T.refugeeRefresh}
-            </button>
+            </Button>
           </>
         )}
       </div>
 
-      <div className="h3">{T.refugeeRerollHeading}</div>
-      <p className="hint">{T.refugeeRerollSchedule(rr.schedule.join(", "))}</p>
+      <div className="town-name">{T.refugeeRerollHeading}</div>
+      <p className="cv-small">{T.refugeeRerollSchedule(rr.schedule.join(", "))}</p>
       {rr.blockedByFreeRefresh ? (
-        <p className="hint" data-testid="refugee-reroll-blocked">
+        <p className="cv-small" data-testid="refugee-reroll-blocked">
           {T.refugeeRerollBlocked}
         </p>
       ) : (
         <>
-          {rr.forfeitsUnclaimedOffer && <p className="hint">{T.refugeeRerollForfeits}</p>}
-          <button type="button" className="btn btn--block" disabled={busy !== null || quoting || !rr.affordable} onClick={() => void openReroll()} data-testid="refugee-reroll">
+          {rr.forfeitsUnclaimedOffer && <p className="cv-small">{T.refugeeRerollForfeits}</p>}
+          <Button block icon="coin" disabled={busy !== null || quoting || !rr.affordable} disabledReason={rr.affordable ? undefined : T.refugeeUnaffordable} onClick={() => void openReroll()} testId="refugee-reroll">
             {quoting ? T.quoteLoading : T.refugeeReroll(rr.nextCost, rr.nextIndex)}
-          </button>
-          {!rr.affordable && <p className="hint">{T.refugeeUnaffordable}</p>}
+          </Button>
         </>
       )}
 
       {error && <ErrorBox error={error} heading={T.refugeeRefused} />}
       {lost && lost.kind !== "reroll" && (
-        <div data-testid="refugee-lost">
+        <div className="town-panel" data-testid="refugee-lost">
           <SpendError error={lost.error} heading={T.refugeeRefused} />
-          <div className="row">
-            <button type="button" className="btn" disabled={busy !== null} onClick={dismissLost}>
+          <div className="town-actions">
+            <Button disabled={busy !== null} onClick={dismissLost}>
               {T.previewCancel}
-            </button>
-            <button type="button" className="btn btn--primary" disabled={busy !== null} onClick={() => void lost.retry()} data-testid="refugee-try-again">
+            </Button>
+            <Button variant="primary" disabled={busy !== null} onClick={() => void lost.retry()} testId="refugee-try-again">
               {T.spendTryAgain}
-            </button>
+            </Button>
           </div>
         </div>
       )}
-      {status && (
-        <p className="notice" role="status">
-          {status}
-        </p>
-      )}
+      {status && <StatusNote>{status}</StatusNote>}
 
       {confirmReroll && (
-        <Modal
+        <Sheet
           title={T.refugeeRerollConfirmTitle}
+          question
           busy={busy !== null}
-          onCancel={() => (lost ? dismissLost() : setConfirmReroll(null))}
+          onClose={() => (lost ? dismissLost() : setConfirmReroll(null))}
           testId="reroll-dialog"
           restoreFocusTo={() => headingRef.current}
-          actions={
-            <>
-              <button type="button" className="btn" disabled={busy !== null} onClick={() => (lost ? dismissLost() : setConfirmReroll(null))}>
+          footer={
+            <div className="town-actions">
+              <Button disabled={busy !== null} onClick={() => (lost ? dismissLost() : setConfirmReroll(null))}>
                 {T.previewCancel}
-              </button>
-              <button
-                type="button"
-                className="btn btn--primary"
-                disabled={busy !== null}
-                onClick={() => void (lost?.kind === "reroll" ? lost.retry() : reroll())}
-                data-testid="reroll-confirm"
-              >
+              </Button>
+              <Button variant="primary" icon="coin" disabled={busy !== null} onClick={() => void (lost?.kind === "reroll" ? lost.retry() : reroll())} testId="reroll-confirm">
                 {busy === "reroll" ? T.refugeeRerolling : lost?.kind === "reroll" ? T.spendTryAgain : T.refugeeRerollYes}
-              </button>
-            </>
+              </Button>
+            </div>
           }
         >
           <p>{T.refugeeRerollConfirmBody(confirmReroll.cost, confirmReroll.balance, confirmReroll.forfeits)}</p>
           {lost?.kind === "reroll" && <SpendError error={lost.error} heading={T.refugeeRefused} />}
-        </Modal>
+        </Sheet>
       )}
     </section>
   );

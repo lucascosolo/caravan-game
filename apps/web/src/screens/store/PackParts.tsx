@@ -10,6 +10,7 @@
 import { getUnitType } from "@caravan/content";
 import type { CosmeticInfoView, PackContentView, StoreOverflowView } from "../../api/types.ts";
 import { STRINGS } from "../../strings.ts";
+import "./store.css";
 
 const T = STRINGS.store;
 
@@ -22,7 +23,7 @@ export function appliesToText(c: Pick<CosmeticInfoView, "kind" | "appliesTo">): 
 export function CosmeticLine({ cosmetic }: { readonly cosmetic: CosmeticInfoView }): JSX.Element {
   return (
     <>
-      <span className="card__name">{cosmetic.displayName}</span>
+      <span className="store__name">{cosmetic.displayName}</span>
       <span className="hint">
         {" "}
         · {T.cosmeticKind(cosmetic.kind)} {appliesToText(cosmetic)}
@@ -44,15 +45,15 @@ export interface PackContentsProps {
 export function PackContents({ contents, cosmetics, owned, testId }: PackContentsProps): JSX.Element {
   const byId = new Map(cosmetics.map((c) => [c.id, c]));
   return (
-    <ul className="plain pack-contents" data-testid={testId}>
+    <ul className="store__contents" data-testid={testId}>
       {contents.map((c, i) =>
         c.kind === "coin" ? (
           <li key={`coin-${i}`} data-kind="coin">
-            <span className="card__name">{T.coinItem(c.amount)}</span>
+            <span className="store__name">{T.coinItem(c.amount)}</span>
           </li>
         ) : (
           <li key={c.cosmeticId} data-kind="cosmetic" data-cosmetic={c.cosmeticId}>
-            {byId.has(c.cosmeticId) ? <CosmeticLine cosmetic={byId.get(c.cosmeticId)!} /> : <span className="card__name">{T.unknownCosmetic(c.cosmeticId)}</span>}
+            {byId.has(c.cosmeticId) ? <CosmeticLine cosmetic={byId.get(c.cosmeticId)!} /> : <span className="store__name">{T.unknownCosmetic(c.cosmeticId)}</span>}
             {owned?.has(c.cosmeticId) && <div className="hint">{T.confirmOwned}</div>}
           </li>
         ),
@@ -64,7 +65,7 @@ export function PackContents({ contents, cosmetics, owned, testId }: PackContent
 /** The forecast for crediting an amount right now: a word, the numbers, and the server's own sentence. */
 export function OverflowLine({ overflow, testId }: { readonly overflow: StoreOverflowView; readonly testId?: string }): JSX.Element {
   return (
-    <div className={overflow.warn ? "forecast forecast--warn" : "forecast"} data-testid={testId} data-warn={overflow.warn ? "yes" : "no"}>
+    <div className={overflow.warn ? "store__forecast store__forecast--warn" : "store__forecast"} data-testid={testId} data-warn={overflow.warn ? "yes" : "no"}>
       <strong>
         <span aria-hidden="true">{overflow.warn ? "▲ " : "✓ "}</span>
         {overflow.warn ? T.overflowWarn : T.overflowOk}:

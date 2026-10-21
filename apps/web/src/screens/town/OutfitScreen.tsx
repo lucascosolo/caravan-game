@@ -22,11 +22,15 @@ import type { EconomyView, IssueView, ManifestView } from "../../api/types.ts";
 import { formatSeconds } from "../../shell/countdown.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { humanizeIssue } from "../../shell/issues.ts";
-import { Modal } from "../../shell/Modal.tsx";
 import { STRINGS } from "../../strings.ts";
+import { Button, CommitBanner } from "../../ui/Button.tsx";
+import { Icon } from "../../ui/Icon.tsx";
+import { Sheet } from "../../ui/Sheet.tsx";
+import { Sign } from "../../ui/Sign.tsx";
 import type { RosterUnit } from "./board.ts";
 import { unitName } from "./BoardPanel.tsx";
 import { RideOutPanel, TripCapLine } from "./RideOutPanel.tsx";
+import { ErrorPlate, Meter as MeterTrack, StatusNote } from "./townBits.tsx";
 import {
   EMPTY_OUTFIT,
   FENCE_BUDGET,
@@ -90,9 +94,7 @@ function MeterBar({ m, label, testId }: { m: Meter; label: string; testId: strin
       <p data-testid={testId} data-over={m.over > 0 ? "true" : "false"}>
         {label}
       </p>
-      <span className="meter" role="img" aria-label={label}>
-        <span className="meter__fill" style={{ width: `${Math.min(100, m.cap > 0 ? (m.chosen / m.cap) * 100 : 100)}%`, background: m.over > 0 ? "var(--warn)" : undefined }} />
-      </span>
+      <MeterTrack label={label} fill={m.cap > 0 ? (m.chosen / m.cap) * 100 : 100} over={m.over > 0} />
     </>
   );
 }
@@ -189,24 +191,24 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked, onRodeOu
 
   const head = (
     <>
-      <button type="button" className="btn" onClick={onBack} data-testid="outfit-back">
+      <Button icon="chevron-left" onClick={onBack} testId="outfit-back">
         {T.back}
-      </button>
+      </Button>
       <h1 id="outfit-heading" tabIndex={-1}>
-        {T.title}
+        <Sign variant="title">{T.title}</Sign>
       </h1>
     </>
   );
 
   if (packed) {
     return (
-      <section data-testid="outfit-packed">
+      <section className="town town-panel" data-testid="outfit-packed">
         {head}
-        <p className="notice" role="status">
+        <StatusNote>
           <strong>{T.packed}</strong>
-        </p>
+        </StatusNote>
         <p data-testid="packed-summary">{T.packedSummary(packed.packed.units.length, packed.packed.traps.length, packed.packed.fences.length)}</p>
-        <p className="hint">{T.packedBody}</p>
+        <p className="cv-small">{T.packedBody}</p>
         {packedStatus ? (
           <RideOutPanel api={api} caravanId={caravanId} status={packedStatus} initialError={startError} onStarted={(_s, replayed) => onRodeOut(replayed)} />
         ) : (
@@ -217,7 +219,7 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked, onRodeOu
   }
   if (loadError) {
     return (
-      <section>
+      <section className="town town-panel">
         {head}
         <ErrorBox error={loadError} heading={T.loadFailed} onRetry={() => void load()} />
       </section>
@@ -225,9 +227,9 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked, onRodeOu
   }
   if (!catalog) {
     return (
-      <section>
+      <section className="town town-panel">
         {head}
-        <p className="hint" role="status">
+        <p className="cv-small" role="status">
           {STRINGS.app.loading}
         </p>
       </section>
@@ -250,49 +252,46 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked, onRodeOu
       : null;
 
   return (
-    <section data-testid="outfit-screen">
+    <section className="town town-panel" data-testid="outfit-screen">
       {head}
-      <p className="hint">{T.intro}</p>
+      <p className="cv-small">{T.intro}</p>
 
       {lastAgain && lastAgain.units.length > 0 && (
-        <div className="card" data-testid="outfit-last">
-          <button type="button" className="btn btn--block" onClick={() => setDraft(lastAgain)} data-testid="outfit-same-as-last">
+        <div className="town-panel" data-testid="outfit-last">
+          <Button block icon="rotate" onClick={() => setDraft(lastAgain)} testId="outfit-same-as-last">
             {T.sameAsLast(lastAgain.units.length, lastAgain.traps.length, lastAgain.fence?.count ?? 0)}
-          </button>
-          {last && lastAgain.units.length < last.units.length && <p className="hint">{T.sameAsLastLost(last.units.length - lastAgain.units.length)}</p>}
+          </Button>
+          {last && lastAgain.units.length < last.units.length && <p className="cv-small">{T.sameAsLastLost(last.units.length - lastAgain.units.length)}</p>}
         </div>
       )}
 
       <h2>{T.unitsHeading}</h2>
       <MeterBar m={meters.units} label={T.unitsMeter(meters.units.chosen, meters.units.cap)} testId="outfit-units-meter" />
-      <p className="hint">{T.unitsNote}</p>
+      <p className="cv-small">{T.unitsNote}</p>
       {meters.units.over > 0 && (
-        <p className="error" role="alert" data-testid="outfit-units-over">
-          {T.unitsOver(meters.units.over)}
-        </p>
+        <ErrorPlate testId="outfit-units-over">{T.unitsOver(meters.units.over)}</ErrorPlate>
       )}
-      {meters.noUnits && <p className="hint">{T.unitsNone}</p>}
+      {meters.noUnits && <p className="cv-small">{T.unitsNone}</p>}
       {guideFilled !== null && (
-        <p className="hint" data-testid="outfit-guide-reserve">
+        <p className="cv-small" data-testid="outfit-guide-reserve">
           {T.guideReserve(guideFilled, units.length - guideFilled)}
         </p>
       )}
       {wholeRoster && (
-        <p className="notice" role="status" data-testid="outfit-whole-roster">
-          {T.wholeRoster(units.length)}
-        </p>
+        <StatusNote testId="outfit-whole-roster">{T.wholeRoster(units.length)}</StatusNote>
       )}
-      <p className="hint" data-testid="outfit-stakes">
-        {T.stakesLine}
-      </p>
-      <ul className="chips" data-testid="outfit-units">
+      <div className="cv-strip" data-testid="outfit-stakes">
+        <Icon name="info" />
+        <span className="cv-small">{T.stakesLine}</span>
+      </div>
+      <ul className="town-list" data-testid="outfit-units">
         {units.map((u) => {
           const on = draft.units.includes(u.id);
           return (
-            <li key={u.id} className={`chip${on ? " chip--selected" : ""}`} data-unit={u.id}>
-              <label className="chip__btn" style={{ flexDirection: "row", alignItems: "center", gap: "0.5rem", cursor: "pointer", touchAction: "pan-y" }}>
-                <input type="checkbox" checked={on} onChange={() => setDraft((d) => toggleUnit(d, u.id))} style={{ width: "1.25rem", height: "1.25rem" }} />
-                <span className="chip__name">{T.unitToggle(unitName(u.typeId), u.mergeLevel)}</span>
+            <li key={u.id} data-unit={u.id}>
+              <label className={`cv-card town-unit${on ? " is-selected" : ""}`} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <input type="checkbox" checked={on} onChange={() => setDraft((d) => toggleUnit(d, u.id))} style={{ width: "1.5rem", height: "1.5rem" }} />
+                <span className="town-name">{T.unitToggle(unitName(u.typeId), u.mergeLevel)}</span>
               </label>
             </li>
           );
@@ -301,31 +300,29 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked, onRodeOu
 
       <h2>{T.trapsHeading}</h2>
       <MeterBar m={meters.traps} label={T.trapsMeter(meters.traps.chosen, meters.traps.cap)} testId="outfit-traps-meter" />
-      <p className="hint">{T.trapsNote}</p>
+      <p className="cv-small">{T.trapsNote}</p>
       {meters.traps.over > 0 && (
-        <p className="error" role="alert" data-testid="outfit-traps-over">
-          {T.trapsOver(meters.traps.over)}
-        </p>
+        <ErrorPlate testId="outfit-traps-over">{T.trapsOver(meters.traps.over)}</ErrorPlate>
       )}
-      {catalog.traps.length === 0 && <p className="hint">{T.trapsNone}</p>}
-      <ul className="cards" data-testid="outfit-traps">
+      {catalog.traps.length === 0 && <p className="cv-small">{T.trapsNone}</p>}
+      <ul className="town-list" data-testid="outfit-traps">
         {catalog.traps.map((id) => {
           const name = getTrapType(id)?.displayName ?? id;
           const n = trapCount(draft, id);
           return (
-            <li key={id} className="card" data-type={id}>
-              <div className="card__head">
-                <span className="card__name">{name}</span>
-                <span>{T.trapCount(n)}</span>
+            <li key={id} className="cv-card town-panel" data-type={id}>
+              <div className="town-row">
+                <span className="town-name town-grow">{name}</span>
+                <span className="cv-pill cv-pill--parch cv-pill--sm">{T.trapCount(n)}</span>
               </div>
-              <div className="row" style={{ marginTop: "0.375rem" }}>
-                <button type="button" className="btn" disabled={n === 0} onClick={() => setDraft((d) => removeTrap(d, id))}>
+              <div className="town-actions">
+                <Button icon="minus" disabled={n === 0} onClick={() => setDraft((d) => removeTrap(d, id))}>
                   {T.trapRemove(name)}
-                </button>
+                </Button>
                 {/* Final play-test review r3 N7: no Add past the trap slot cap (the server refuses it, 422 slot_cap_traps). */}
-                <button type="button" className="btn" disabled={meters.traps.chosen >= meters.traps.cap} onClick={() => setDraft((d) => addTrap(d, id))}>
+                <Button icon="plus" disabled={meters.traps.chosen >= meters.traps.cap} onClick={() => setDraft((d) => addTrap(d, id))}>
                   {T.trapAdd(name)}
-                </button>
+                </Button>
               </div>
             </li>
           );
@@ -334,11 +331,11 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked, onRodeOu
 
       <h2>{T.fenceHeading}</h2>
       {catalog.fences.length === 0 ? (
-        <p className="hint">{T.fenceNone}</p>
+        <p className="cv-small">{T.fenceNone}</p>
       ) : (
         <>
-          <label className="field">
-            <span className="field__label">{T.fenceTier}</span>
+          <label className="town-field">
+            <span className="cv-label">{T.fenceTier}</span>
             <select value={draft.fence?.tierId ?? ""} onChange={(e) => setDraft((d) => setFenceTier(d, e.target.value === "" ? null : e.target.value))} data-testid="outfit-fence-tier">
               <option value="">{T.fenceNoneTier}</option>
               {catalog.fences.map((id) => (
@@ -349,79 +346,77 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked, onRodeOu
             </select>
           </label>
           {draft.fence && (
-            <label className="field">
-              <span className="field__label">{T.fenceCount}</span>
+            <label className="town-field">
+              <span className="cv-label">{T.fenceCount}</span>
               <input type="number" inputMode="numeric" min={0} max={FENCE_BUDGET} value={draft.fence.count} onChange={(e) => setDraft((d) => setFenceCount(d, Number(e.target.value)))} data-testid="outfit-fence-count" />
             </label>
           )}
           <MeterBar m={meters.fence} label={T.fenceMeter(meters.fence.chosen, FENCE_BUDGET, RING_POSITIONS)} testId="outfit-fence-meter" />
           {meters.fence.over > 0 && (
-            <p className="error" role="alert" data-testid="outfit-fence-over">
-              {T.fenceOver(meters.fence.over)}
-            </p>
+            <ErrorPlate testId="outfit-fence-over">{T.fenceOver(meters.fence.over)}</ErrorPlate>
           )}
         </>
       )}
 
       <h2>{STRINGS.trip.rideOut}</h2>
-      {catalog.trip ? <TripCapLine status={catalog.trip} /> : <p className="hint">{T.capLoadFailed}</p>}
+      {catalog.trip ? <TripCapLine status={catalog.trip} /> : <p className="cv-small">{T.capLoadFailed}</p>}
 
       <h2>{T.coinHeading}</h2>
       {overflow && (
         <>
-          <p data-testid="outfit-forecast" className={overflow.warn ? "error" : undefined} role={overflow.warn ? "alert" : undefined}>
-            {T.coinForecast(overflow.message)}
-          </p>
-          <p className="hint">{T.coinForecastNote(catalog.shortestTrip)}</p>
-          {overflow.warn && <p className="hint">{T.coinWarn}</p>}
+          {overflow.warn ? (
+            <ErrorPlate testId="outfit-forecast">{T.coinForecast(overflow.message)}</ErrorPlate>
+          ) : (
+            <p data-testid="outfit-forecast">{T.coinForecast(overflow.message)}</p>
+          )}
+          <p className="cv-small">{T.coinForecastNote(catalog.shortestTrip)}</p>
+          {overflow.warn && <p className="cv-small">{T.coinWarn}</p>}
         </>
       )}
 
       {issues.length > 0 && (
-        <div className="error" role="alert" data-testid="outfit-issues">
-          <div>{T.issuesHeading}</div>
-          <ul className="issues">
+        <ErrorPlate heading={T.issuesHeading} testId="outfit-issues">
+          <ul className="town-list">
             {issues.map((i, n) => (
-              <li key={`${i.code}-${n}`}>
-                {humanizeIssue(i, issueNames)}
-              </li>
+              <li key={`${i.code}-${n}`}>{humanizeIssue(i, issueNames)}</li>
             ))}
           </ul>
-        </div>
+        </ErrorPlate>
       )}
       {error && issues.length === 0 && <ErrorBox error={error} heading={T.issuesHeading} />}
 
       {noTrip !== null && (
-        <p className="hint" role="status" data-testid="outfit-no-trip">
+        <p className="cv-small" role="status" data-testid="outfit-no-trip">
           {T.noTripNow(noTrip)}
         </p>
       )}
-      <div className="actions">
-        <button type="button" className="btn btn--primary btn--block" disabled={busy || noTrip !== null || meters.noUnits} onClick={() => setConfirming(true)} data-testid="outfit-ride-out">
+      <div className="town-shelf">
+        <CommitBanner icon="wheel" disabled={busy || noTrip !== null || meters.noUnits} onClick={() => setConfirming(true)} testId="outfit-ride-out">
           {noTrip !== null ? T.rideOutWaiting(noTrip) : T.rideOut}
-        </button>
+        </CommitBanner>
       </div>
 
       {confirming && (
-        <Modal
+        <Sheet
           title={T.confirmTitle}
+          question
           busy={busy}
-          onCancel={() => setConfirming(false)}
+          onClose={() => setConfirming(false)}
           testId="outfit-dialog"
           restoreFocusTo={() => document.getElementById("outfit-heading")}
-          actions={
-            <>
-              <button type="button" className="btn" disabled={busy} onClick={() => setConfirming(false)}>
+          footer={
+            <div className="town-actions">
+              <Button disabled={busy} onClick={() => setConfirming(false)}>
                 {T.confirmNo}
-              </button>
-              <button type="button" className="btn btn--primary" disabled={busy} onClick={() => void pack()} data-testid="outfit-confirm">
+              </Button>
+              <Button variant="primary" icon="wheel" disabled={busy} onClick={() => void pack()} testId="outfit-confirm">
                 {busy ? T.packing : T.confirmYes}
-              </button>
-            </>
+              </Button>
+            </div>
           }
         >
           <p>{T.confirmIntro}</p>
-          <ul className="plain dialog__items">
+          <ul className="town-list">
             <li>{T.confirmUnits(draft.units.length)}</li>
             <li>{T.confirmTraps(draft.traps.length)}</li>
             <li>{T.confirmFence(draft.fence?.count ?? 0, fenceTierName)}</li>
@@ -433,10 +428,13 @@ export function OutfitScreen({ api, caravanId, units, onBack, onPacked, onRodeOu
                 : T.confirmNoTrip(formatSeconds(catalog.trip.cap.nextRegenAtMs === null ? 0 : Math.max(0, catalog.trip.cap.nextRegenAtMs - catalog.trip.nowMs) / 1000))}
             </p>
           )}
-          {wholeRoster && <p className="notice">{T.wholeRoster(units.length)}</p>}
-          <p className="hint">{T.stakesLine}</p>
-          {(meters.anyOver || meters.noUnits) && <p className="error">{T.confirmOverCaps}</p>}
-        </Modal>
+          {wholeRoster && <p>{T.wholeRoster(units.length)}</p>}
+          <div className="cv-strip">
+            <Icon name="info" />
+            <span className="cv-small">{T.stakesLine}</span>
+          </div>
+          {(meters.anyOver || meters.noUnits) && <ErrorPlate>{T.confirmOverCaps}</ErrorPlate>}
+        </Sheet>
       )}
     </section>
   );

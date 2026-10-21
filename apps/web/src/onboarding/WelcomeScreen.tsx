@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import type { Api } from "../api/client.ts";
 import { navigate } from "../shell/router.tsx";
 import { STRINGS } from "../strings.ts";
+import { Pop } from "../ui/Pop.tsx";
 import { useOnboarding } from "./OnboardingProvider.tsx";
 
 const G = STRINGS.guide;
@@ -43,8 +44,8 @@ export function WelcomeScreen({ api }: { api: Api }): JSX.Element {
 
   return (
     <section className="welcome" data-testid="onboarding-welcome">
-      <h1>{G.welcomeTitle}</h1>
-      <p className="welcome__lead">{G.welcomeLead}</p>
+      <h1 className="cv-sign cv-sign--title">{G.welcomeTitle}</h1>
+      <Pop tail="top" className="welcome__lead">{G.welcomeLead}</Pop>
       <div className="welcome__side" data-side="active">
         <h2>
           <span aria-hidden="true">⛨ </span>

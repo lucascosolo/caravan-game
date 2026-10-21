@@ -13,6 +13,7 @@
 import { ApiError, BAD_PAYLOAD } from "../../api/client.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { STRINGS } from "../../strings.ts";
+import { ErrorPlate } from "./townBits.tsx";
 
 const T = STRINGS.town;
 
@@ -22,14 +23,13 @@ export const unconfirmed = (error: ApiError): boolean => error.status === 0;
 export function SpendError({ error, heading }: { readonly error: ApiError; readonly heading: string }): JSX.Element {
   if (!unconfirmed(error)) return <ErrorBox error={error} heading={heading} />;
   return (
-    <div className="error" role="alert" data-testid="spend-unconfirmed">
-      <div>{T.spendUnconfirmed}</div>
-      <div data-testid="api-error-message">{error.code === BAD_PAYLOAD ? T.spendUnreadable : T.spendUnconfirmedLoad}</div>
-      <div>{T.spendUnconfirmedBody}</div>
-      <div className="error__code">
+    <ErrorPlate heading={T.spendUnconfirmed} testId="spend-unconfirmed">
+      <span data-testid="api-error-message">{error.code === BAD_PAYLOAD ? T.spendUnreadable : T.spendUnconfirmedLoad}</span>
+      <span style={{ display: "block" }}>{T.spendUnconfirmedBody}</span>
+      <code className="cv-small">
         {error.code}
-        {error.detail ? <span className="error__detail"> · {error.detail}</span> : null}
-      </div>
-    </div>
+        {error.detail ? ` · ${error.detail}` : null}
+      </code>
+    </ErrorPlate>
   );
 }

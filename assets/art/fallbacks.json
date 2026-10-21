@@ -1,0 +1,89 @@
+{
+ "comment": "Content types drawn with the flat code placeholder (apps/web/src/iso/skins.ts PLACEHOLDER_SKINS) until their art is accepted. One line per type id; remove a line when its asset folder lands (pnpm art:check warns while both exist). Cosmetics stay here until chunk 28.",
+ "fallbacks": {
+  "units": [
+   "desert.dust_rider",
+   "desert.canteen_carrier",
+   "desert.powder_monkey",
+   "desert.longhorn_bull",
+   "desert.vaquero",
+   "high_plains.homesteader",
+   "high_plains.prairie_wolf",
+   "high_plains.buffalo_bull",
+   "high_plains.drover",
+   "high_plains.prairie_doctor",
+   "high_plains.buffalo_hunter",
+   "high_plains.railroad_gang",
+   "high_plains.shotgun_messenger",
+   "mountain.grizzly",
+   "mountain.trapper",
+   "mountain.hardrock_miner",
+   "mountain.mountain_lion",
+   "mountain.blasting_crew",
+   "mountain.lumberjack",
+   "mountain.apothecary",
+   "mountain.pack_mule_train",
+   "badlands.gunslinger",
+   "badlands.bounty_hunter",
+   "badlands.rattlesnake_den",
+   "badlands.claim_jumper",
+   "badlands.vulture_flock",
+   "badlands.snake_oil_peddler",
+   "badlands.powder_thief",
+   "badlands.rail_bull"
+  ],
+  "fences": [
+   "fence.brush_pile",
+   "fence.split_rail",
+   "fence.barbed_wire",
+   "fence.stacked_stone"
+  ],
+  "traps": [
+   "trap.spike_pit",
+   "trap.jaw_trap",
+   "trap.tripwire_snare",
+   "trap.caltrop_scatter",
+   "trap.powder_keg",
+   "trap.tar_pot"
+  ],
+  "siege": [
+   "siege.battering_wagon",
+   "siege.fence_cutters",
+   "siege.blasting_crate",
+   "siege.bridging_planks",
+   "siege.dousing_wagon"
+  ],
+  "terrain": [
+   "desert",
+   "high_plains",
+   "mountain",
+   "badlands"
+  ],
+  "cosmetics": [
+   "banner.crossed_pickaxes",
+   "banner.lone_star",
+   "banner.longhorn_skull",
+   "banner.rattlesnake_coil",
+   "fence_style.fresh_cut_pine",
+   "fence_style.tarred_black",
+   "fence_style.weathered_grey",
+   "fence_style.whitewashed",
+   "skin.badlands.bounty_hunter.tin_star",
+   "skin.badlands.gunslinger.black_duster",
+   "skin.desert.dust_rider.sunbleached",
+   "skin.desert.well_digger.copper",
+   "skin.high_plains.homesteader.calico",
+   "skin.high_plains.prairie_wolf.silver",
+   "skin.mountain.grizzly.cinnamon",
+   "skin.mountain.trapper.beaver_hat",
+   "town.bunting",
+   "town.hitching_post",
+   "town.water_tower",
+   "town.windmill",
+   "wagon.circus_stripe",
+   "wagon.conestoga_white",
+   "wagon.patched_canvas",
+   "wagon.red_prairie_schooner"
+  ]
+ }
+}

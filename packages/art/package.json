@@ -1,0 +1,22 @@
+{
+  "name": "@caravan/art",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The art pipeline (PHASE-2 §26): intake of painted masters, per-scene atlases at 1x/2x/3x, and the coverage, size/anchor and payload-budget checks. Build tooling only; nothing in the resolver or the server's game logic reads it.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "art": "node --import tsx src/cli.ts"
+  },
+  "dependencies": {
+    "@caravan/content": "workspace:*",
+    "sharp": "0.35.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

@@ -172,6 +172,9 @@ pnpm perf:resolver           # PHASE-2 §36 resolver budget, run alone: blocking
 pnpm load:queue -- --db <owner URL of a *load* database>     # PHASE-2 §36 job-queue load test (resets that DB; not in CI): real trips + a 10 000-encounter one-party burst; --burst-parties N spreads it, --profile times each SQL statement
 pnpm load:explain -- --db <owner URL of a *load* database> --write   # PHASE-2 §36: seeds ~50k accounts / 156k menus and rewrites the matchmaking EXPLAIN plans in apps/server/db/explain/
 pnpm --filter @caravan/resolver test   # the resolver alone: 587 tests in 15 files at the final review (288 of them the 100× harness in 25-run batches), no DB, no network, ~70 s on 4 cores
+pnpm art:intake <image> <class> <key> --footprint WxH [--meta provenance.json]   # PHASE-2 §26 (packages/art, sharp): paint one source into assets/art/<class>/<key>/ (master.png at 3x, body.png, asset.json, provenance.json)
+pnpm art:build               # per-scene atlases (town, battle) at 1x/2x/3x, WebP + PNG, into apps/web/public/art + apps/web/src/art/generated/manifest.json (gitignored build output; part of pnpm build, before vite)
+pnpm art:check               # every content type has an asset folder or an assets/art/fallbacks.json line; size/anchor/provenance rules; payload budget (town first load < 8 MB, battle < 4 MB more) — after pnpm build; a pnpm check step
 pnpm test:boundary           # resolver dependency-boundary check (zero deps, imports stay inside packages/resolver/src)
 pnpm build                   # esbuild → apps/server/dist (index.js, db/migrate.js, seed.js, admin.js); workspace packages inlined, npm deps external; then vite build → apps/web/dist (+ the bundle check)
 pnpm start                   # run the built server: node apps/server/dist/index.js (SERVE_WEB=1 also serves apps/web/dist and moves the API under /api)

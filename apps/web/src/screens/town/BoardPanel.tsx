@@ -11,6 +11,8 @@
 import { getUnitType } from "@caravan/content";
 import type { EconomyView } from "../../api/types.ts";
 import { STRINGS } from "../../strings.ts";
+import { Button } from "../../ui/Button.tsx";
+import { Note } from "../../ui/Note.tsx";
 import { BOARD_SLOTS, MERGE_LEVEL_MAX, canMergeDrop, mergeGroups, overflow, pickForMerge, quotedCost, type BoardLayout, type RosterUnit } from "./board.ts";
 
 const T = STRINGS.town;
@@ -55,10 +57,10 @@ export function BoardPanel(props: BoardPanelProps): JSX.Element {
   };
 
   const chip = (u: RosterUnit, where: string): JSX.Element => (
-    <li key={u.id} className={`chip${selectedId === u.id ? " chip--selected" : ""}`} data-unit={u.id} data-type={u.typeId} data-level={u.mergeLevel}>
-      <button type="button" className="chip__btn" style={{ cursor: "pointer", touchAction: "pan-y" }} aria-pressed={selectedId === u.id} onClick={() => tap(u.id)}>
-        <span className="chip__name">{T.unitChip(unitName(u.typeId), u.mergeLevel)}</span>
-        <span className="chip__sub">
+    <li key={u.id} data-unit={u.id} data-type={u.typeId} data-level={u.mergeLevel}>
+      <button type="button" className={`cv-card town-unit${selectedId === u.id ? " is-selected" : ""}`} aria-pressed={selectedId === u.id} onClick={() => tap(u.id)}>
+        <span className="town-name">{T.unitChip(unitName(u.typeId), u.mergeLevel)}</span>
+        <span className="cv-small">
           {where}
           {packedIds.has(u.id) ? ` · ${T.packedTag}` : ""}
         </span>
@@ -67,32 +69,28 @@ export function BoardPanel(props: BoardPanelProps): JSX.Element {
   );
 
   return (
-    <section aria-labelledby="board-heading" data-testid="board-panel">
+    <section className="town-panel" aria-labelledby="board-heading" data-testid="board-panel">
       <h2 id="board-heading" tabIndex={-1}>{T.boardHeading}</h2>
-      <p className="hint">{T.boardIntro(BOARD_SLOTS)}</p>
+      <p className="cv-small">{T.boardIntro(BOARD_SLOTS)}</p>
       <p data-testid="board-count">{T.boardCount(onBoardUnits.length, BOARD_SLOTS, over.length)}</p>
-      {units.length === 0 && <p className="hint">{T.boardEmpty}</p>}
-      <p className="hint">{T.dragHint}</p>
+      {units.length === 0 && <p className="cv-small">{T.boardEmpty}</p>}
+      <p className="cv-small">{T.dragHint}</p>
       {selected && (
-        <div className="selection" data-testid="board-selection">
-          <p style={{ marginTop: 0 }}>{T.selectedUnit(unitName(selected.typeId))}</p>
-          <div className="row">
+        <div className="cv-card town-sel" data-testid="board-selection">
+          <p>{T.selectedUnit(unitName(selected.typeId))}</p>
+          <div className="town-actions">
             {layout.has(selected.id) ? (
-              <button type="button" className="btn" onClick={() => onToOverflow(selected.id)}>
-                {T.toOverflow}
-              </button>
+              <Button onClick={() => onToOverflow(selected.id)}>{T.toOverflow}</Button>
             ) : (
-              <button type="button" className="btn" disabled={layout.size >= BOARD_SLOTS} onClick={() => onToBoard(selected.id)}>
+              <Button disabled={layout.size >= BOARD_SLOTS} onClick={() => onToBoard(selected.id)}>
                 {T.toBoard}
-              </button>
+              </Button>
             )}
-            <button type="button" className="btn" onClick={() => onSelect(null)}>
-              {T.deselect}
-            </button>
+            <Button onClick={() => onSelect(null)}>{T.deselect}</Button>
           </div>
         </div>
       )}
-      <ul className="chips" data-testid="board-units">
+      <ul className="town-list" data-testid="board-units">
         {onBoardUnits.map((u) => {
           const c = layout.get(u.id)!;
           return chip(u, T.onBoardAt(c.x, c.y));
@@ -100,47 +98,46 @@ export function BoardPanel(props: BoardPanelProps): JSX.Element {
       </ul>
       {over.length > 0 && (
         <>
-          <div className="h3">{T.overflowHeading}</div>
-          <p className="hint">{T.overflowIntro}</p>
-          <ul className="chips" data-testid="overflow-units">
+          <div className="town-name">{T.overflowHeading}</div>
+          <p className="cv-small">{T.overflowIntro}</p>
+          <ul className="town-list" data-testid="overflow-units">
             {over.map((u) => chip(u, T.inOverflow))}
           </ul>
         </>
       )}
 
       <h2>{T.mergeHeading}</h2>
-      <p className="hint">{T.mergeIntro}</p>
+      <p className="cv-small">{T.mergeIntro}</p>
       {mergeBlocked && (
-        <p className="notice" data-testid="merge-blocked">
+        <Note variant="canvas" testId="merge-blocked">
           {mergeBlocked}
-        </p>
+        </Note>
       )}
-      <ul className="cards" data-testid="merge-groups">
+      <ul className="town-list" data-testid="merge-groups">
         {mergeGroups(mergeable).map((g) => {
           const atCap = g.mergeLevel >= MERGE_LEVEL_MAX;
           const recipes = merge?.recipes ?? [];
           return (
-            <li key={`${g.typeId}@${g.mergeLevel}`} className="card" data-type={g.typeId} data-level={g.mergeLevel}>
-              <div className="card__name">{T.mergeGroup(unitName(g.typeId), g.mergeLevel, g.ids.length)}</div>
+            <li key={`${g.typeId}@${g.mergeLevel}`} className="cv-card town-panel" data-type={g.typeId} data-level={g.mergeLevel}>
+              <div className="town-name">{T.mergeGroup(unitName(g.typeId), g.mergeLevel, g.ids.length)}</div>
               {atCap ? (
-                <p className="hint">{T.mergeAtCap}</p>
+                <p className="cv-small">{T.mergeAtCap}</p>
               ) : (
                 recipes.map((r) => {
                   const ids = pickForMerge(g, r.spend, selectedId ? [selectedId] : []);
                   const cost = merge ? quotedCost(merge.costPerResultingUnitByLevel, g.mergeLevel + 1, r.produce) : null;
                   return (
                     <div key={`${r.spend}-${r.produce}`}>
-                      <button
-                        type="button"
-                        className="btn btn--block"
-                        style={{ marginTop: "0.375rem" }}
+                      <Button
+                        block
+                        icon="coin"
                         disabled={ids === null || mergeBlocked !== null}
+                        disabledReason={ids === null ? T.mergeNeedMore(g.ids.length, r.spend) : undefined}
                         onClick={() => ids && onMerge(ids)}
-                        data-testid={`merge-${r.spend}-${r.produce}`}
+                        testId={`merge-${r.spend}-${r.produce}`}
                       >
                         {T.mergeRecipe(r.spend, r.produce, cost)}
-                      </button>
-                      {ids === null && <div className="hint">{T.mergeNeedMore(g.ids.length, r.spend)}</div>}
+                      </Button>
                     </div>
                   );
                 })

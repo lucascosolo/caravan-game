@@ -24,8 +24,14 @@ import { useApi } from "../../auth/session.tsx";
 import { IsoCanvas, MIN_HIT_RADIUS_PX, type HitResult, type IsoCanvasHandle } from "../../iso/index.ts";
 import type { FrameRect } from "../../iso/IsoCanvas.tsx";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
+import { HudPortal } from "../../shell/HudPortal.tsx";
 import { navigate } from "../../shell/router.tsx";
 import { STRINGS } from "../../strings.ts";
+import { Button, CommitBanner } from "../../ui/Button.tsx";
+import { Chip } from "../../ui/ChipStrap.tsx";
+import { Note } from "../../ui/Note.tsx";
+import { Pop } from "../../ui/Pop.tsx";
+import { Sign } from "../../ui/Sign.tsx";
 import { BOARD_ORIGIN, BOARD_SIDE, boardCells, isBoardCell, layoutBoard, moveUnit, productHints, toOverflow, type BoardLayout, type RosterUnit } from "./board.ts";
 import { BoardPanel, unitName } from "./BoardPanel.tsx";
 import { MergeDialog } from "./MergeDialog.tsx";
@@ -36,6 +42,8 @@ import { useOnboarding } from "../../onboarding/OnboardingProvider.tsx";
 import { RecruitPanel } from "./RecruitPanel.tsx";
 import { RefugeePanel } from "./RefugeePanel.tsx";
 import { RideOutPanel, TripCapLine } from "./RideOutPanel.tsx";
+import { StatusNote } from "./townBits.tsx";
+import "./town.css";
 import { TOWN_GEOMETRY, dropMeaning, loadLayout, saveLayout, townSceneState, type TownDrag } from "./townScene.ts";
 
 const T = STRINGS.town;
@@ -45,6 +53,53 @@ const T = STRINGS.town;
  * target wide (2 × MIN_HIT_RADIUS_PX = 44 px); pinch or wheel out to see the whole island.
  */
 const BOARD_FRAME: FrameRect = { x: BOARD_ORIGIN.x, y: BOARD_ORIGIN.y, w: BOARD_SIDE, h: BOARD_SIDE, minCellPx: 2 * MIN_HIT_RADIUS_PX };
+
+/** Scroll to an inline panel and put focus on its heading. */
+function goToPanel(headingId: string): void {
+  const el = document.getElementById(headingId);
+  if (!el) return;
+  el.scrollIntoView?.({ block: "start" });
+  el.focus({ preventScroll: true });
+}
+
+interface Building {
+  readonly id: string;
+  readonly name: string;
+  readonly body: string;
+  readonly open: () => void;
+  readonly badge?: number;
+}
+
+/** The building names hang as signs over the scene; one raises a pop-up pointing at it, and "Open" goes there. */
+function TownSigns({ buildings }: { readonly buildings: readonly Building[] }): JSX.Element {
+  const [raised, setRaised] = useState<string | null>(null);
+  return (
+    <nav className="town-signs" aria-label={T.signsLabel} data-testid="town-signs">
+      {buildings.map((b) => (
+        <span key={b.id} className="town-sign">
+          <Sign variant={b.id === "saloon" || b.id === "yard" ? "chain" : "rope"} onClick={() => setRaised((r) => (r === b.id ? null : b.id))} {...(b.badge ? { badge: b.badge, badgeLabel: T.signNew } : {})}>
+            {b.name}
+          </Sign>
+          {raised === b.id && (
+            <Pop tail="top" className="town-pop">
+              <span style={{ display: "block" }}>{b.body}</span>
+              <span className="town-actions">
+                <Button
+                  onClick={() => {
+                    setRaised(null);
+                    b.open();
+                  }}
+                >
+                  {T.signOpen} {b.name}
+                </Button>
+              </span>
+            </Pop>
+          )}
+        </span>
+      ))}
+    </nav>
+  );
+}
 
 const asApiError = (err: unknown): ApiError => (err instanceof ApiError ? err : new ApiError(0, "unknown", STRINGS.app.genericError));
 
@@ -105,6 +160,7 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
   const [mergeIds, setMergeIds] = useState<readonly string[] | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [canvasDown, setCanvasDown] = useState(false);
+  const [noteHost, setNoteHost] = useState<HTMLElement | null>(null);
   const isoRef = useRef<IsoCanvasHandle>(null);
   const dragRef = useRef<TownDrag | null>(null);
   const layoutRef = useRef(layout);
@@ -295,16 +351,33 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
 
   const stateLine = onTrip ? T.stateOnTrip : manifest ? T.statePacked : T.stateInTown;
   const stateKind = onTrip ? "on_trip" : manifest ? "packed" : "in_town";
+  const packedReady = !!(tripStatus && manifest && !onTrip);
+  const unclaimedOffers = loaded.refugees.kind === "ok" && !loaded.refugees.value.menu.claimed ? loaded.refugees.value.menu.offers.length : 0;
+  const buildings: readonly Building[] = [
+    { id: "saloon", name: T.signSaloon, body: T.signSaloonBody, open: () => goToPanel("refugees-heading"), badge: unclaimedOffers },
+    { id: "post", name: T.signPost, body: T.signPostBody, open: () => goToPanel("recruit-heading") },
+    { id: "assay", name: T.signAssay, body: T.signAssayBody, open: () => goToPanel("mine-heading") },
+    { id: "bank", name: T.signBank, body: T.signBankBody, open: () => goToPanel("mine-heading") },
+    { id: "yard", name: T.signYard, body: T.signYardBody, open: () => goToPanel("board-heading") },
+    { id: "livery", name: T.signLivery, body: T.signLiveryBody, open: () => navigate("party") },
+    { id: "store", name: T.signStore, body: T.signStoreBody, open: () => navigate("packs") },
+  ];
 
   return (
     <section className="formation town" data-testid="town-screen">
+      <HudPortal>
+        <Chip kind="purse" icon="coin" label={T.chipCoin} value={loaded.economy.balance} testId="hud-coin" />
+        <Chip kind="vault" icon={loaded.economy.atCap ? "strongbox-cracked" : "strongbox"} label={T.chipVault} value={loaded.economy.room} caption={T.chipVaultCap} testId="hud-vault" />
+      </HudPortal>
       <h1>{T.title}</h1>
-      <p className="hint">{T.intro}</p>
-      <p className="notice" data-testid="caravan-state" data-state={stateKind}>
-        <strong>{loaded.caravan.name}:</strong> {stateLine}
-      </p>
-      {tripStatus && !(manifest && !onTrip) && <TripCapLine status={tripStatus} />}
-      {tripStatus && manifest && !onTrip && (
+      <p className="cv-small">{T.intro}</p>
+      <div data-testid="caravan-state" data-state={stateKind}>
+        <Note variant="canvas">
+          <strong>{loaded.caravan.name}:</strong> {stateLine}
+        </Note>
+      </div>
+      {tripStatus && !packedReady && <TripCapLine status={tripStatus} />}
+      {packedReady && (
         <RideOutPanel
           api={api}
           caravanId={caravanId}
@@ -317,7 +390,7 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
         />
       )}
       {loaded.trip.kind === "error" && <ErrorBox error={loaded.trip.error} onRetry={() => void load()} />}
-      <p data-testid="town-balance">{T.balanceLine(loaded.economy.balance, loaded.economy.cap)}</p>
+      <p className="cv-small" data-testid="town-balance">{T.balanceLine(loaded.economy.balance, loaded.economy.cap)}</p>
       {loadError && (
         // QA-17 S3: a failed RE-read (after a write, or a Retry) is shown above the board, never
         // swallowed: what is drawn below is the last good read and may be out of date.
@@ -326,9 +399,27 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
         </div>
       )}
 
-      {/* Final play-test review r2: the party-down banner (D2), and the refugee panel up top (N13) — the
-          parts of the town that change between visits come before the board and the reference panels. */}
       <PartyDownBanner api={api} guideActive={onboarding?.active ?? false} rosterVersion={loaded.units.length} />
+
+      <div className="town-scene">
+        <TownSigns buildings={buildings} />
+        <IsoCanvas
+          ref={isoRef}
+          geometry={TOWN_GEOMETRY}
+          state={scene}
+          label={T.canvasLabel}
+          canDrag={canDrag}
+          onTapCell={onTapCell}
+          onTapEntity={onTapEntity}
+          onDragBegin={onDragBegin}
+          onDragMove={onDragMove}
+          onDragEnd={onDragEnd}
+          onUnavailable={() => setCanvasDown(true)}
+          frame={BOARD_FRAME}
+        />
+        <div ref={setNoteHost} />
+      </div>
+      {canvasDown && <p className="cv-small">{T.canvasUnavailable}</p>}
 
       {loaded.refugees.kind === "ok" ? (
         <RefugeePanel
@@ -339,35 +430,16 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
           onView={(v, at) => setLoaded((l) => (l ? { ...l, refugees: { kind: "ok", value: v }, refugeesReadAt: at } : l))}
           onReload={() => void reloadRefugees()}
           onRosterChanged={() => void load({ quiet: true })}
+          noteHost={noteHost}
         />
       ) : (
-        <section>
+        <section className="town-panel">
           <h2>{T.refugeesHeading}</h2>
           <ErrorBox error={loaded.refugees.error} onRetry={() => void reloadRefugees()} />
         </section>
       )}
 
-      <IsoCanvas
-        ref={isoRef}
-        geometry={TOWN_GEOMETRY}
-        state={scene}
-        label={T.canvasLabel}
-        canDrag={canDrag}
-        onTapCell={onTapCell}
-        onTapEntity={onTapEntity}
-        onDragBegin={onDragBegin}
-        onDragMove={onDragMove}
-        onDragEnd={onDragEnd}
-        onUnavailable={() => setCanvasDown(true)}
-        frame={BOARD_FRAME}
-      />
-      {canvasDown && <p className="hint">{T.canvasUnavailable}</p>}
-
-      {status && (
-        <p className="notice" role="status" data-testid="town-status">
-          {status}
-        </p>
-      )}
+      {status && <StatusNote testId="town-status">{status}</StatusNote>}
 
       <BoardPanel
         units={units}
@@ -391,7 +463,7 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
       {loaded.recruit.kind === "ok" ? (
         <RecruitPanel api={api} caravanId={caravanId} view={loaded.recruit.value} onRecruited={() => void load({ quiet: true })} />
       ) : (
-        <section>
+        <section className="town-panel">
           <h2>{T.recruitHeading}</h2>
           <ErrorBox error={loaded.recruit.error} onRetry={() => void load()} />
         </section>
@@ -399,48 +471,49 @@ export function TownScreen(props: TownScreenProps = {}): JSX.Element {
 
       <MinePanel economy={loaded.economy} forecast={loaded.forecast?.overflow ?? null} />
 
-      <section aria-labelledby="nav-heading" data-testid="town-nav">
+      <section className="town-panel" aria-labelledby="nav-heading" data-testid="town-nav">
         <h2 id="nav-heading">{T.navHeading}</h2>
-        <p className="hint">{T.navIntro}</p>
-        <ul className="cards">
-          <li className="card">
-            <button type="button" className="btn btn--primary btn--block" disabled={onTrip || !!manifest} onClick={() => setView("outfit")} data-testid="nav-outfit">
-              {T.navOutfit}
-            </button>
-            <p className="hint">{onTrip ? T.stateOnTrip : manifest ? T.navOutfitPacked : T.navOutfitBody}</p>
-          </li>
-          <li className="card">
-            <button type="button" className="btn btn--block" onClick={() => navigate("trail")}>
-              {T.navTrail}
-            </button>
-            <p className="hint">{T.navTrailBody}</p>
-          </li>
-          <li className="card">
-            <button type="button" className="btn btn--block" onClick={() => navigate("party")}>
-              {T.navParty}
-            </button>
-            <p className="hint">{T.navPartyBody}</p>
-          </li>
-          <li className="card">
-            <button type="button" className="btn btn--block" onClick={() => navigate("webs")}>
-              {T.navWebs}
-            </button>
-            <p className="hint">{T.navWebsBody}</p>
-          </li>
-          <li className="card">
-            <button type="button" className="btn btn--block" onClick={() => navigate("packs")} data-testid="nav-packs">
-              {T.navPacks}
-            </button>
-            <p className="hint">{T.navPacksBody}</p>
-          </li>
-          <li className="card">
-            <button type="button" className="btn btn--block" onClick={() => navigate("cosmetics")} data-testid="nav-cosmetics">
-              {T.navCosmetics}
-            </button>
-            <p className="hint">{T.navCosmeticsBody}</p>
-          </li>
+        <p className="cv-small">{T.navIntro}</p>
+        <ul className="town-list">
+          {packedReady && (
+            <li className="cv-card town-panel">
+              <Button block disabled disabledReason={T.navOutfitPacked} testId="nav-outfit">
+                {T.navOutfit}
+              </Button>
+            </li>
+          )}
+          {(
+            [
+              ["trail", T.navTrail, T.navTrailBody, undefined],
+              ["party", T.navParty, T.navPartyBody, undefined],
+              ["webs", T.navWebs, T.navWebsBody, undefined],
+              ["packs", T.navPacks, T.navPacksBody, "nav-packs"],
+              ["cosmetics", T.navCosmetics, T.navCosmeticsBody, "nav-cosmetics"],
+            ] as const
+          ).map(([route, label, body, testId]) => (
+            <li key={route} className="cv-card town-panel">
+              <Button block onClick={() => navigate(route)} {...(testId ? { testId } : {})}>
+                {label}
+              </Button>
+              <p className="cv-small">{body}</p>
+            </li>
+          ))}
         </ul>
         {loaded.manifest.kind === "error" && <ErrorBox error={loaded.manifest.error} onRetry={() => void load()} />}
+
+        {!packedReady && (
+        <div className="town-shelf">
+          <CommitBanner
+            icon="wheel"
+            disabled={onTrip || !!manifest}
+            {...(onTrip || manifest ? { disabledReason: onTrip ? T.stateOnTrip : T.navOutfitPacked } : {})}
+            onClick={() => setView("outfit")}
+            testId="nav-outfit"
+          >
+            {T.navOutfit}
+          </CommitBanner>
+        </div>
+        )}
       </section>
 
       {mergeIds && (

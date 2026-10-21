@@ -1,0 +1,15 @@
+.store__bar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.store__sign { margin: calc(20 * var(--px)) 0 calc(8 * var(--px)); }
+.store__sign .cv-btn { margin-top: 8px; }
+.store__shelf { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: calc(12 * var(--px)); }
+.store__note { display: flex; flex-direction: column; gap: 8px; margin-bottom: calc(8 * var(--px)); }
+.store__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.store__name { font-family: var(--font-display); font-size: var(--type-label); text-transform: uppercase; letter-spacing: var(--px); overflow-wrap: anywhere; }
+.store__contents { list-style: none; margin: 0; padding: 0; }
+.store__contents > li { padding: calc(4 * var(--px)) 0; border-bottom: calc(2 * var(--px)) dotted var(--wood); overflow-wrap: anywhere; }
+.store__contents > li:last-child { border-bottom: 0; }
+.store__forecast { padding: calc(4 * var(--px)) calc(8 * var(--px)); border-left: calc(6 * var(--px)) solid var(--ink); font-size: var(--type-small); }
+.store__forecast--warn { border-left-style: double; }
+.store__foot { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.store__sandbox { margin: 0; }
+.store__summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }

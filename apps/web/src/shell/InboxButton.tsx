@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Api } from "../api/client.ts";
 import { useApi } from "../auth/session.tsx";
 import { STRINGS } from "../strings.ts";
+import { Icon, cx } from "../ui/Icon.tsx";
 import { INBOX_POLL_MS, onUnread } from "./inboxSignal.ts";
 import { navigate, type Route } from "./router.tsx";
 
@@ -51,16 +52,15 @@ export function InboxButton({ route, api: override }: { readonly route: Route; r
   return (
     <button
       type="button"
-      className="btn inbox-button"
+      className={cx("cv-medal", route === "inbox" && "is-on")}
       data-testid="inbox-button"
       aria-label={unread === null ? T.button : T.buttonLabel(count)}
       aria-current={route === "inbox" ? "page" : undefined}
       onClick={() => navigate("inbox")}
     >
-      <span aria-hidden="true">{T.glyph} </span>
-      {T.button}
+      <Icon name="letter" />
       {count > 0 && (
-        <span className="badge inbox-button__badge" data-testid="inbox-badge" aria-hidden="true">
+        <span className="cv-badge" data-testid="inbox-badge" aria-hidden="true">
           {T.badge(count)}
         </span>
       )}

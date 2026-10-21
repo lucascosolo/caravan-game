@@ -1,0 +1,27 @@
+/* Webs screen (UI-SYSTEM §14.11): kit nodes on a rope-strung map board. Kit classes carry the chrome; this lays them out. */
+.webs { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.webs-title { margin: 0; display: flex; justify-content: center; }
+.webs-scope { align-self: flex-start; max-width: 100%; text-align: left; }
+.webs-chips { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-start; }
+.webs-chipcell { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+
+.webs-graph { position: relative; display: flex; flex-direction: column; gap: calc(36 * var(--px)); padding: 12px 0 16px; min-width: 0; }
+.webs-tier { position: relative; z-index: 1; display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+.webs-tierlabel { flex: 0 0 100%; text-align: center; color: var(--ink-soft); }
+.webs-graph .cv-node { width: min(150px, 44%); min-width: 7.5rem; min-height: 44px; }
+.webs-graph .cv-node.is-selected { outline: calc(2 * var(--px)) solid var(--brass); outline-offset: calc(2 * var(--px)); }
+.webs-req { color: inherit; }
+.webs-graph .cv-web-rope { z-index: 0; pointer-events: none; }
+.webs-graph .graph__edge--unmet { opacity: .6; background-image: repeating-linear-gradient(90deg, var(--ink-soft) 0 calc(4 * var(--px)), transparent calc(4 * var(--px)) calc(8 * var(--px))); height: calc(2 * var(--px)); }
+
+.webs .affinity { display: inline-flex; align-items: center; gap: 4px; font-size: var(--type-small); }
+.webs .affinity svg { width: 1em; height: 1em; fill: currentColor; stroke: var(--ink); stroke-width: 1; }
+
+.webs-detail { display: flex; flex-direction: column; gap: 8px; }
+.webs-detail__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.webs-detail__head .cv-title:focus-visible { outline: calc(2 * var(--px)) solid var(--brass); }
+.webs-detail .cv-node__state { display: inline-flex; vertical-align: middle; }
+
+@media (prefers-reduced-motion: reduce) {
+  .webs-graph .cv-node__brackets { animation: none; }
+}
