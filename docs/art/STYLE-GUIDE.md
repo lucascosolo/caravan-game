@@ -165,7 +165,10 @@ Any source is allowed, as long as it ends up looking like one set:
 - **Hand-drawn** in a pixel editor such as Aseprite, which is the norm for animation frames;
 - **Kenney packs:** the owner bought them on itch.io for production use (CC0). They are a real
   source for props, terrain, fences, rocks and plants, always baked through the steps below and
-  never shipped raw. Look in Kenney first for non-character pieces, before generating. A pale
+  never shipped raw. Look in Kenney first for non-character pieces, before generating. **Every
+  Kenney asset must earn its place and fit in** (owner, 2026-10-20): Kenney is a starting point,
+  not a constraint, and a piece that reads as foreign to the house style, or that a purpose-made
+  asset would beat, is replaced with our own (generated and pixelized, or drawn in code). A pale
   render can be warmed with a tint before the palette snap (sandstone for rocks, weathered wood
   for fences). Record the Kenney source file in each asset's provenance. The searchable catalogue
   of every pack is on the storage server, next to the packs (see `roadmap/state.json`,
