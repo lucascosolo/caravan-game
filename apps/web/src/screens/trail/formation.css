@@ -12,6 +12,8 @@
 .fm-toggles { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .fm-hints { display: flex; flex-direction: column; gap: 14px; }
 .fm-hints .cv-pop { max-width: none; width: 100%; box-sizing: border-box; }
+.fm-hints .cv-pop > span { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; }
+.fm-hints .cv-pop .cv-medal { margin: 0; flex: none; }
 .fm-leftout { align-self: stretch; }
 .fm-leftout ul { padding-left: 1.1rem; }
 
