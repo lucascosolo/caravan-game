@@ -30,9 +30,12 @@ import type { BankResult, DeMergedUnitView, PushResult, StakesPreview } from "..
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { Modal } from "../../shell/Modal.tsx";
 import { STRINGS } from "../../strings.ts";
+import { Icon } from "../../ui/Icon.tsx";
+import { CoinRibbon } from "../replay/Moments.tsx";
 import { fenceLabel, trapTypeName, unitLabel, unitTypeName } from "./tripNames.ts";
 
 const T = STRINGS.trip;
+const R = STRINGS.results;
 
 const asApiError = (err: unknown): ApiError => (err instanceof ApiError ? err : new ApiError(0, "unknown", STRINGS.app.genericError));
 
@@ -56,9 +59,10 @@ export interface BankOrPushScreenProps {
 /** One line per de-merged unit: "Dust Rider · L4 → L3". */
 export function DeMergedList({ units, testId }: { readonly units: readonly DeMergedUnitView[]; readonly testId: string }): JSX.Element {
   return (
-    <ul className="plain" data-testid={testId}>
+    <ul className="rs-ledger" data-testid={testId}>
       {units.map((u) => (
         <li key={u.ref} data-testid={`${testId}-${u.ref}`}>
+          <Icon name="wounded" />
           {T.levelChange(unitTypeName(u.typeId), u.fromLevel, u.toLevel)}
         </li>
       ))}
@@ -81,19 +85,29 @@ export function Stakes({ preview }: { readonly preview: StakesPreview }): JSX.El
   const rep = p.lastOpponent?.reputation;
   return (
     <>
-      <section className="card" data-testid="stake-unbanked">
+      <section className="cv-card cv-card--canvas" data-testid="stake-unbanked">
         <h2>{T.unbankedHeading}</h2>
-        <p>
-          <strong>{T.unbankedTotal(p.unbankedCoin.total)}</strong>
-        </p>
-        <ul className="plain">
+        <div className="rs-stake-big">
+          <span className="cv-chip cv-chip--risk rs-riskchip" aria-hidden="true">
+            <Icon name="strongbox-cracked" />
+            <span className="cv-num">{p.unbankedCoin.total}</span>
+            <span className="cv-chip__word">{R.atRisk}</span>
+          </span>
+          <p>
+            <strong>{T.unbankedTotal(p.unbankedCoin.total)}</strong>
+          </p>
+        </div>
+        <ul className="rs-ledger">
           {p.unbankedCoin.byEncounter.map((e) => (
-            <li key={e.index}>{T.unbankedEncounter(e.index, e.coin)}</li>
+            <li key={e.index}>
+              <Icon name="trail-sign" />
+              {T.unbankedEncounter(e.index, e.coin)}
+            </li>
           ))}
         </ul>
       </section>
 
-      <section className="card" data-testid="stake-bank">
+      <section className="cv-card" data-testid="stake-bank">
         <h2>{T.bankHeading}</h2>
         {/* Chunk 15 QA N2: the server omits the bank quote before the first survived encounter. */}
         {!bankNow || !f ? (
@@ -102,7 +116,10 @@ export function Stakes({ preview }: { readonly preview: StakesPreview }): JSX.El
           </p>
         ) : (
           <>
-            <p>{T.bankLine(bankNow.encounterCoin, bankNow.deliveryBonus, bankNow.total)}</p>
+            <div className="rs-coinline">
+              <CoinRibbon amount={bankNow.total} />
+              <p>{T.bankLine(bankNow.encounterCoin, bankNow.deliveryBonus, bankNow.total)}</p>
+            </div>
             <p data-testid="stake-bank-forecast" className={f.wouldDiscard > 0 ? "error" : undefined} role={f.wouldDiscard > 0 ? "alert" : undefined}>
               {f.wouldDiscard > 0 ? T.bankForecastOverflow(f.wouldCredit, f.wouldDiscard, f.balance, f.cap) : T.bankForecastFits(f.wouldCredit, f.balance, f.cap)}
             </p>
@@ -120,12 +137,15 @@ export function Stakes({ preview }: { readonly preview: StakesPreview }): JSX.El
         )}
       </section>
 
-      <section className="card" data-testid="stake-units">
+      <section className="cv-card" data-testid="stake-units">
         <h2>{T.unitsHeading}</h2>
-        <ul className="plain">
+        <ul className="rs-ledger">
           {p.units.map((u) => (
-            <li key={u.ref} data-testid={`stake-unit-${u.ref}`} data-alive={u.alive ? "true" : "false"}>
-              <strong>{unitLabel(u)}</strong>
+            <li key={u.ref} className="rs-unit" data-testid={`stake-unit-${u.ref}`} data-alive={u.alive ? "true" : "false"}>
+              <strong className="rs-unit__name">
+                <Icon name={u.alive ? "heart" : "grave"} />
+                {unitLabel(u)}
+              </strong>
               <div>{u.alive ? T.unitAlive(u.hp, u.maxHp, u.damage) : u.diedAtEncounter !== null ? T.unitDead(u.diedAtEncounter) : T.unitDeadAtLevel}</div>
               <div className="hint">{u.alive ? T.unitOnDeath(u.mergeLevel, u.mergeLevelOnDeath) : T.unitDemerge(u.mergeLevel, u.mergeLevelOnDeath)}</div>
             </li>
@@ -133,7 +153,7 @@ export function Stakes({ preview }: { readonly preview: StakesPreview }): JSX.El
         </ul>
       </section>
 
-      <section className="card" data-testid="stake-overrun">
+      <section className="cv-note cv-note--shade rs-risk" data-testid="stake-overrun">
         <h2>{T.overrunHeading}</h2>
         <p className="hint" data-testid="stakes-line">
           {STRINGS.outfit.stakesLine}
@@ -147,7 +167,7 @@ export function Stakes({ preview }: { readonly preview: StakesPreview }): JSX.El
           </p>
         )}
         <p>{T.overrunLost}</p>
-        <ul className="plain" data-testid="stake-overrun-lost">
+        <ul className="rs-ledger" data-testid="stake-overrun-lost">
           {p.ifOverrun.unitsLostOutright.length === 0 ? <li className="hint">{T.none}</li> : p.ifOverrun.unitsLostOutright.map((u) => <li key={u.ref}>{unitLabel(u)}</li>)}
         </ul>
         {p.ifOverrun.unitsLostOutright.length > 0 && T.overrunFinalFight(p.ifOverrun.unitDyingInTheFinalFight) !== "" && (
@@ -157,7 +177,7 @@ export function Stakes({ preview }: { readonly preview: StakesPreview }): JSX.El
         )}
         <p>{T.overrunDemerged}</p>
         {p.ifOverrun.unitsDeMergedNotDestroyed.length === 0 ? (
-          <ul className="plain" data-testid="stake-overrun-demerged">
+          <ul className="rs-ledger" data-testid="stake-overrun-demerged">
             <li className="hint">{T.none}</li>
           </ul>
         ) : (
@@ -165,7 +185,7 @@ export function Stakes({ preview }: { readonly preview: StakesPreview }): JSX.El
         )}
       </section>
 
-      <section className="card" data-testid="stake-traps">
+      <section className="cv-card" data-testid="stake-traps">
         <h2>{T.trapsHeading}</h2>
         <p>
           {T.trapsRemaining(p.traps.remaining.length)}
@@ -177,11 +197,11 @@ export function Stakes({ preview }: { readonly preview: StakesPreview }): JSX.El
         </p>
       </section>
 
-      <section className="card" data-testid="stake-fences">
+      <section className="cv-card" data-testid="stake-fences">
         <h2>{T.fencesHeading}</h2>
         <p>{T.fencesIntact(p.fences.intact.length)}</p>
         {damagedFences.length > 0 && (
-          <ul className="plain">
+          <ul className="rs-ledger">
             {damagedFences.map((x) => (
               <li key={x.ref}>
                 {fenceLabel(x)} · {T.fenceHp(x.hp, x.maxHp)}
@@ -191,7 +211,7 @@ export function Stakes({ preview }: { readonly preview: StakesPreview }): JSX.El
         )}
         <p>{T.fencesDestroyed(p.fences.destroyed.length)}</p>
         {p.fences.destroyed.length > 0 && (
-          <ul className="plain">
+          <ul className="rs-ledger">
             {p.fences.destroyed.map((x) => (
               <li key={x.ref}>{fenceLabel(x)}</li>
             ))}
@@ -199,7 +219,7 @@ export function Stakes({ preview }: { readonly preview: StakesPreview }): JSX.El
         )}
       </section>
 
-      <section className="card" data-testid="stake-next">
+      <section className="cv-card" data-testid="stake-next">
         <h2>{T.nextHeading(p.nextEncounter.index)}</h2>
         <p>{T.nextReward(p.nextEncounter.reward)}</p>
         <p>{T.nextBankTotal(p.nextEncounter.bankTotalIfSurvived)}</p>
@@ -212,7 +232,7 @@ export function Stakes({ preview }: { readonly preview: StakesPreview }): JSX.El
       </section>
 
       {rep && (rep.gapBeyondBand !== undefined || rep.sandbagEarnMultiplier !== undefined) && (
-        <section className="card" data-testid="stake-opponent">
+        <section className="cv-card" data-testid="stake-opponent">
           <h2>{T.lastOpponentHeading}</h2>
           <p className="hint">
             {[
@@ -353,7 +373,7 @@ export function BankOrPushScreen({ api, caravanId, tripId, encounterIndex, onDec
   const alive = (p: StakesPreview): number => p.units.filter((u) => u.alive).length;
 
   return (
-    <section data-testid="bank-or-push" data-encounter={encounterIndex}>
+    <section className="rs-decide" data-testid="bank-or-push" data-encounter={encounterIndex}>
       <h1 id="decide-heading" tabIndex={-1}>
         {T.decideTitle(encounterIndex)}
       </h1>
@@ -363,7 +383,7 @@ export function BankOrPushScreen({ api, caravanId, tripId, encounterIndex, onDec
         <div className="error" role="alert" data-testid="decide-closed">
           <p>{T.decideClosed}</p>
           {hasStale && (
-            <button type="button" className="btn btn--primary btn--block" onClick={onStale} data-testid="decide-back-to-trail">
+            <button type="button" className="cv-btn cv-btn--primary cv-btn--block" onClick={onStale} data-testid="decide-back-to-trail">
               {T.decideBackToTrail}
             </button>
           )}
@@ -373,13 +393,25 @@ export function BankOrPushScreen({ api, caravanId, tripId, encounterIndex, onDec
       <Stakes preview={preview} />
 
       {error && <ErrorBox error={error} />}
-      <div className="actions">
-        <button type="button" className="btn btn--primary btn--block" disabled={!open_ || busy} onClick={() => void open("bank")} data-testid="bank-open">
-          {T.bankButton}
-        </button>
-        <button type="button" className="btn btn--block" disabled={!open_ || busy} onClick={() => void open("push")} data-testid="push-open">
-          {T.pushButton(preview.nextEncounter.index)}
-        </button>
+      <div className="rs-choices">
+        <div>
+          <span className="rs-choice-cap" aria-hidden="true">
+            {R.atRisk} · {preview.unbankedCoin.total} {R.coinWord}
+          </span>
+          <button type="button" className="cv-btn cv-btn--secondary cv-btn--block" disabled={!open_ || busy} onClick={() => void open("push")} data-testid="push-open">
+            {T.pushButton(preview.nextEncounter.index)}
+          </button>
+        </div>
+        <div>
+          {preview.bankNow && (
+            <span className="rs-choice-cap" aria-hidden="true">
+              {R.toVault} · {preview.bankNow.total} {R.coinWord}
+            </span>
+          )}
+          <button type="button" className="cv-btn cv-btn--primary cv-btn--block" disabled={!open_ || busy} onClick={() => void open("bank")} data-testid="bank-open">
+            {T.bankButton}
+          </button>
+        </div>
       </div>
 
       {confirm && (
@@ -391,12 +423,12 @@ export function BankOrPushScreen({ api, caravanId, tripId, encounterIndex, onDec
           restoreFocusTo={() => document.getElementById("decide-heading")}
           actions={
             <>
-              <button type="button" className="btn" disabled={busy} onClick={() => setConfirm(null)}>
+              <button type="button" className="cv-btn cv-btn--secondary" disabled={busy} onClick={() => setConfirm(null)}>
                 {T.decideNo}
               </button>
               <button
                 type="button"
-                className="btn btn--primary"
+                className="cv-btn cv-btn--primary"
                 disabled={busy || !quote || !isOpen(quote)}
                 onClick={() => void decide()}
                 data-testid={confirm.kind === "bank" ? "bank-confirm" : "push-confirm"}

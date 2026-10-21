@@ -12,6 +12,7 @@ import { EncounterResult } from "./EncounterResult.tsx";
 import { DeMergedList } from "./BankOrPushScreen.tsx";
 import { unitLabel, unitTypeName } from "./tripNames.ts";
 import { GuestSavePrompt } from "../account/GuestSavePrompt.tsx";
+import { CoinRibbon, OutcomeBanner } from "../replay/Moments.tsx";
 
 const T = STRINGS.trip;
 
@@ -31,19 +32,25 @@ export function TripSummary({ trip, bank = null, balance = null, past = false, a
   const e = trip.ending;
   const balanceNow = bank && bank.balanceAfter !== null ? bank.balanceAfter : balance;
   return (
-    <section data-testid="trip-summary" data-end={trip.endReason ?? "open"}>
+    <section className="rs-summary" data-testid="trip-summary" data-end={trip.endReason ?? "open"}>
       <h1 id="trip-summary-heading" tabIndex={-1}>
         {past ? T.lastTrip : T.summaryTitle}
       </h1>
       {/* QA-30 D1: the end of a trip is a moment of value — a guest is asked to save it (never blocking). */}
       {!past && <GuestSavePrompt place="trip_end" />}
+      {e?.kind === "banked" && <OutcomeBanner moment="delivered" sub={STRINGS.results.afterEncounters(e.encountersSurvived)} className="rs-outcome--hero" />}
+      {e?.kind === "overrun" && <OutcomeBanner moment="overrun" sub={STRINGS.results.tripOverAt(e.encounterIndex)} className="rs-outcome--hero" />}
+      {e?.kind === "voided" && <OutcomeBanner moment="voided" />}
       {e?.kind === "banked" && (
-        <div className="notice" data-testid="summary-banked">
+        <div className="cv-note" data-testid="summary-banked">
           <p>
             <strong>{T.summaryBanked(e.encountersSurvived)}</strong>
           </p>
           <p>{T.summaryDelivered(e.unbankedCoin, e.deliveryBonus, e.requested)}</p>
-          <p data-testid="summary-credited">{T.summaryCredited(e.credited, e.discarded)}</p>
+          <div className="rs-coinline">
+            <CoinRibbon amount={e.credited} />
+            <p data-testid="summary-credited">{T.summaryCredited(e.credited, e.discarded)}</p>
+          </div>
           {balanceNow !== null && <p data-testid="summary-balance">{T.summaryBalance(balanceNow)}</p>}
           <p>{T.summaryRefit(e.restored.unitsHealed.length, e.restored.trapsRestocked, e.restored.fenceSegmentsRebuilt)}</p>
           {e.restored.deMerged.length > 0 && (
@@ -55,17 +62,17 @@ export function TripSummary({ trip, bank = null, balance = null, past = false, a
         </div>
       )}
       {e?.kind === "overrun" && (
-        <div className="error" data-testid="summary-overrun">
+        <div className="cv-note cv-note--shade" data-testid="summary-overrun">
           <p>
             <strong>{T.summaryOverrun(e.encounterIndex)}</strong>
           </p>
           <p data-testid="summary-coin-lost">{T.summaryCoinLost(e.coinLost)}</p>
           <p>{T.summaryLost}</p>
-          <ul className="plain" data-testid="summary-lost">
+          <ul className="rs-ledger" data-testid="summary-lost">
             {e.unitsLostOutright.length === 0 ? <li className="hint">{T.none}</li> : e.unitsLostOutright.map((u) => <li key={u.ref}>{unitLabel(u)}</li>)}
           </ul>
           <p>{T.summaryDemerged}</p>
-          <ul className="plain" data-testid="summary-demerged">
+          <ul className="rs-ledger" data-testid="summary-demerged">
             {e.unitsDeMerged.length === 0 ? (
               <li className="hint">{T.none}</li>
             ) : (
@@ -80,7 +87,7 @@ export function TripSummary({ trip, bank = null, balance = null, past = false, a
         </div>
       )}
       {e?.kind === "voided" && (
-        <div className="notice" data-testid="summary-voided">
+        <div className="cv-note" data-testid="summary-voided">
           <p>
             <strong>{T.summaryVoided(e.voidedEncounter)}</strong>
           </p>
@@ -116,7 +123,7 @@ export function TripSummary({ trip, bank = null, balance = null, past = false, a
       <p className="hint">{T.summaryRestoreNote}</p>
 
       <h2>{T.summaryEncounters}</h2>
-      <ul className="cards">
+      <ul className="rs-summary__encounters">
         {trip.encounters.map((enc) => (
           <li key={enc.index}>
             <EncounterResult encounter={enc} headingLevel={3} autoplay={autoplayLast && enc.index === trip.encounters[trip.encounters.length - 1]?.index} />
@@ -124,8 +131,8 @@ export function TripSummary({ trip, bank = null, balance = null, past = false, a
         ))}
       </ul>
 
-      <div className="actions">
-        <button type="button" className="btn btn--primary btn--block" onClick={() => navigate("town")} data-testid="summary-to-town">
+      <div className="rs-choices rs-choices--one">
+        <button type="button" className="cv-btn cv-btn--primary cv-btn--block" onClick={() => navigate("town")} data-testid="summary-to-town">
           {T.toTown}
         </button>
       </div>

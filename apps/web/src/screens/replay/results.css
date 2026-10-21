@@ -72,3 +72,6 @@
 .rs-feed > .sheet__head h3 { margin: 0; font-family: var(--font-display); font-size: var(--type-label); font-weight: 400; text-transform: uppercase; letter-spacing: var(--px); }
 .rs-summary-note { margin-top: 6px; }
 .rs-summary-note h3, .rs-summary-note .h3 { font-family: var(--font-display); font-size: var(--type-label); font-weight: 400; text-transform: uppercase; letter-spacing: var(--px); margin: 8px 0 2px; }
+.rs-choices--one { grid-template-columns: 1fr; }
+.rs-riskchip { flex: none; }
+.rs-decide .cv-note--shade h2 { color: var(--ink); }
