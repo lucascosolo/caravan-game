@@ -156,7 +156,7 @@ describe("the replay player, the caravan's side (the server's recorded fight)", 
     const fates = screen.getByTestId("replay-fates");
     expect(fates).toHaveTextContent("Your Well Digger 1: still standing at the end.");
     expect(fates).toHaveTextContent("The raiders' Dust Rider: fell to your Well Digger 1 at 0:19.");
-    expect(fates).toHaveTextContent("The raiders' Well Digger: fell to your Well Digger 2 at 0:30.");
+    expect(fates).toHaveTextContent("The raiders' Well Digger: fell to your Well Digger 1 at 0:37.");
   });
 
   it("S1: at the end the last frame is held, the deciding kill's mark plays out, then the end card shows — and can be dismissed", async () => {
@@ -164,7 +164,7 @@ describe("the replay player, the caravan's side (the server's recorded fight)", 
     const view = replayCaravan();
     await renderPlayer(view);
     const ticks = (view.log as { ticks: number }).ticks;
-    scrubTo(519);
+    scrubTo(540);
     const feed = screen.getByTestId("replay-feed");
     expect(feed).toHaveTextContent("Your Spike Pit sprang on the raiders' Well Digger: 375 damage.");
     expect(feed).not.toHaveTextContent("Well Digger fell");
@@ -173,7 +173,7 @@ describe("the replay player, the caravan's side (the server's recorded fight)", 
     // On the final tick: the stage is NOT covered, and the last raider's death is marked on it.
     expect(screen.queryByTestId("replay-end-card")).toBeNull();
     expect(screen.getByTestId("iso-canvas").getAttribute("data-marks")).toContain("death");
-    expect(screen.getByTestId("replay-strip")).toHaveTextContent("The raiders' Well Digger fell to your Well Digger 2.");
+    expect(screen.getByTestId("replay-strip")).toHaveTextContent("The raiders' Well Digger fell to your Well Digger 1.");
     clockStub.flush(100, 5);
     expect(screen.queryByTestId("replay-end-card")).toBeNull();
     expect(screen.getByTestId("iso-canvas").getAttribute("data-marks")).toContain("death");
@@ -183,10 +183,10 @@ describe("the replay player, the caravan's side (the server's recorded fight)", 
     expect(end).toHaveTextContent("End of the fight");
     expect(end).toHaveTextContent("Your caravan held.");
     expect(feed).toHaveTextContent("The raiders' Dust Rider fell to your Well Digger 1.");
-    expect(feed).toHaveTextContent("The raiders' Well Digger fell to your Well Digger 2.");
+    expect(feed).toHaveTextContent("The raiders' Well Digger fell to your Well Digger 1.");
     expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-units", "2");
     expect(screen.getByTestId("replay-play")).toHaveTextContent("Watch again");
-    expect(screen.getByTestId("replay-time")).toHaveTextContent(/^0:30 \/ 0:30$/);
+    expect(screen.getByTestId("replay-time")).toHaveTextContent(/^0:37 \/ 0:37$/);
     await userEvent.click(within(end).getByTestId("replay-end-dismiss"));
     expect(screen.queryByTestId("replay-end-card")).toBeNull();
     expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-units", "2");
@@ -229,7 +229,7 @@ describe("the replay player, the caravan's side (the server's recorded fight)", 
     expect(Number(scrub.value)).toBe(2 * interval - 1);
     await userEvent.click(screen.getByTestId("replay-prev-keyframe"));
     expect(Number(scrub.value)).toBe(interval - 1);
-    expect(scrub).toHaveAttribute("aria-valuetext", "0:04 of 0:30");
+    expect(scrub).toHaveAttribute("aria-valuetext", "0:04 of 0:37");
     await userEvent.click(screen.getByTestId("replay-to-end"));
     expect(screen.queryByTestId("replay-end-card")).toBeNull();
     clockStub.flush(100, 15);
@@ -356,7 +356,7 @@ describe("a golden log with traps, fence breaks and abilities plays through the 
     expect(screen.queryByTestId("replay-siege")).toBeNull();
     await userEvent.click(screen.getByTestId("replay-to-end"));
     clockStub.flush(100, 15);
-    expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-fences", "24");
+    expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-fences", "12"); // 16 ring segments minus the log's 4 fence_broken rows
     const feed = screen.getByTestId("replay-feed");
     expect(feed).toHaveTextContent("reached the core.");
     expect(feed).toHaveTextContent(/Your Brush Pile #\d+ broke\./);

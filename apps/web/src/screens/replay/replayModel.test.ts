@@ -139,7 +139,9 @@ describe("the whole golden corpus plays", () => {
     const by = (k: string) => m.feed.filter((l) => l.kind === k).map((l) => l.text);
     expect(by("trap")[0]).toMatch(/^Your Spike Pit sprang on the raiders' Dust Rider \d+: \d+ damage/);
     expect(by("fence")[0]).toMatch(/^Your Brush Pile #\d+ broke\.$/);
-    expect(by("ability")[0]).toMatch(/ used (Spur On|Pick Swing)/);
+    // The regenerated 16v8v28 fight (146 ticks) holds no ability row at all; the other full-load golden (24 units, 177 ability rows) carries the ability wording.
+    const full = open(goldenView("c13-full-load-full-length"));
+    expect(full.feed.filter((l) => l.kind === "ability").map((l) => l.text)[0]).toMatch(/ used (Spur On|Pick Swing)/);
     expect(by("core")[0]).toMatch(/reached the core\.$/);
     expect(m.tally.coreReached).toBe(true);
     expect(m.deepestName).toMatch(/^the raiders' Dust Rider \d+$/);
@@ -226,12 +228,12 @@ describe("chunk 22 QA fixes in the model", () => {
       "Your Well Digger 1: still standing at the end.",
       "Your Well Digger 2: still standing at the end.",
       "The raiders' Dust Rider: fell to your Well Digger 1 at 0:19.",
-      "The raiders' Well Digger: fell to your Well Digger 2 at 0:30.",
+      "The raiders' Well Digger: fell to your Well Digger 1 at 0:37.",
     ]);
     const o = open(replayOwner()).fates.map((f) => f.text);
-    expect(o.slice(0, 2)).toEqual(["Your Dust Rider: fell to the caravan's Well Digger 1 at 0:19.", "Your Well Digger: fell to the caravan's Well Digger 2 at 0:30."]);
+    expect(o.slice(0, 2)).toEqual(["Your Dust Rider: fell to the caravan's Well Digger 1 at 0:19.", "Your Well Digger: fell to the caravan's Well Digger 1 at 0:37."]);
     const full = open(goldenView("combat-full-load-16v8v28")).fates.map((f) => f.text);
-    expect(full).toContain("The raiders' Dust Rider 16: reached the core at 0:06.");
+    expect(full).toContain("The raiders' Dust Rider 16: reached the core at 0:07.");
     expect(full).toContain("Your Well Digger 1: still standing when the core was overrun.");
   });
 
