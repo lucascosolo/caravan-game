@@ -19,6 +19,7 @@
  * shape-checked by the API client; a bad shape is an ErrorBox with Retry. The server decides
  * who is offered, which phase the trip is in and what is at stake; this screen relays.
  */
+import type { LayoutView } from "../../api/types.ts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/client.ts";
 import type { BankResult, TripEncounterView, TripView } from "../../api/tripTypes.ts";
@@ -52,7 +53,7 @@ type Loaded =
   | { kind: "error"; error: ApiError }
   | { kind: "unsearched"; caravanId: string; encounterIndex: number }
   | { kind: "menu"; caravanId: string; encounterIndex: number; menu: CandidateMenuView }
-  | { kind: "ready"; caravanId: string; trip: ManifestView; encounterIndex: number; initial: FormationView | null; scout: ScoutedEncounter }
+  | { kind: "ready"; caravanId: string; trip: ManifestView; encounterIndex: number; initial: FormationView | null; layout: LayoutView | null; scout: ScoutedEncounter }
   | { kind: "resolving"; caravanId: string; encounterIndex: number }
   | { kind: "unavailable"; encounterIndex: number }
   | { kind: "decide"; caravanId: string; tripId: string; encounter: TripEncounterView; autoplay: boolean }
@@ -185,8 +186,9 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
       const manifest = await openManifest(api, caravan.id);
       if (!manifest) throw new ApiError(0, "bad_payload", STRINGS.app.badPayload, "GET manifest: the open trip has no open manifest");
       // r2 N10: no draft yet is the normal state on a cold load: asked for as an empty state, not a 404.
-      const initial: FormationView | null = await api.formationIfAny(caravan.id, encounterIndex);
-      setState({ kind: "ready", caravanId: caravan.id, trip: manifest, encounterIndex, initial, scout: encounterFromCandidate(encounterIndex, chosen) });
+      const read = await api.formationRead(caravan.id, encounterIndex);
+      const initial: FormationView | null = read.formation;
+      setState({ kind: "ready", caravanId: caravan.id, trip: manifest, encounterIndex, initial, layout: read.layout ?? null, scout: encounterFromCandidate(encounterIndex, chosen) });
     } catch (err) {
       setState({ kind: "error", error: asApiError(err) });
     }
@@ -408,6 +410,7 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
             trip={state.trip}
             encounterIndex={state.encounterIndex}
             initial={state.initial}
+            layout={state.layout}
             scout={state.scout}
             onCommitted={() => {
               committedJustNow.current = true;

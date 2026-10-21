@@ -12,7 +12,6 @@ import { formationIfAnyVia } from "../../test/townFixtures.ts";
 import { STRINGS } from "../../strings.ts";
 import { FormationScreen, clearLocalDrafts } from "./FormationScreen.tsx";
 import { fixtureCandidate, fixtureEncounter } from "./scoutFixture.ts";
-import { sidesOf } from "./FormationScreen.tsx";
 
 // The canvas needs WebGL; in jsdom it is replaced by buttons that fire the same callbacks
 // the real one fires from taps. Placement logic is in placement.ts and tested there. The
@@ -82,7 +81,7 @@ vi.mock("../../iso/index.ts", async () => {
 
 function fakeApi(over: Partial<Api> = {}): Api {
   const notCalled = () => Promise.reject(new Error("not expected"));
-  const api: Omit<Api, "formationIfAny"> = {
+  const api: Omit<Api, "formationIfAny" | "formationRead"> = {
     register: notCalled,
     login: notCalled,
     logout: notCalled,
@@ -149,7 +148,8 @@ function fakeApi(over: Partial<Api> = {}): Api {
     adminDashboard: notCalled,
     ...over,
   };
-  return { ...api, formationIfAny: over.formationIfAny ?? formationIfAnyVia(api) };
+  const formationIfAny = over.formationIfAny ?? formationIfAnyVia(api);
+  return { ...api, formationIfAny, formationRead: over.formationRead ?? (async (c, n) => ({ formation: await formationIfAny(c, n), layout: null })) };
 }
 
 function trip(): ManifestView {
@@ -303,19 +303,6 @@ describe("FormationScreen", () => {
     expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-placing", "fence");
     await user.click(screen.getByText("tap-on-fence"));
     expect(screen.queryByTestId("drop-refused")).toBeNull();
-  });
-
-  it("final play-test review r2 N11: 'Start from my last arrangement' says when the last party came from other sides", async () => {
-    const now = sidesOf(scout.scout.units);
-    // The last party came from one side only; this one from more (or others).
-    const other = now.length === 1 && now[0] === "north" ? "south" : "north";
-    const prev = fixtureCandidate(2);
-    const prevMoved = { ...prev, scout: { ...prev.scout, units: prev.scout.units.map((u) => ({ ...u, edge: other })) } };
-    const candidates = vi.fn(async () => ({ menu: { candidates: [prevMoved], chosen: { candidateId: prevMoved.candidateId, chosenAt: "" } } as never }));
-    render(screenWith(fakeApi({ candidates })));
-    const button = await screen.findByTestId("start-from-last");
-    await waitFor(() => expect(button).toHaveTextContent(`it faced ${STRINGS.trail.edgeName(other)}; this party comes from`));
-    expect(candidates).toHaveBeenCalledWith("c1", 2);
   });
 
   it("B2: a post's circles are the resolver's reach, at true radii (aggro and attack include UNIT_RADIUS)", async () => {

@@ -35,6 +35,7 @@
  * index; escalation is chunk 14's integer function of the index. The wall clock enters
  * only as `nowMs` for the trip cap (when a trip may start) and the trickle flush.
  */
+import { rememberLayout } from "../circle/layout.js";
 import {
   formationFromJson,
   manifestFromJson,
@@ -215,6 +216,7 @@ export async function commitEncounter(
     if (!prev || prev.decision !== "pushed") throw conflict("decide_first", `bank or push after encounter ${encounterIndex - 1} before committing encounter ${encounterIndex}`);
   }
   await commitFormation(client, caravan, encounterIndex);
+  await rememberLayout(client, caravan, encounterIndex);
   const row = await findFormation(client, trip.manifest_id, encounterIndex);
   if (!row?.committed_at || !row.survivors_snapshot) throw new Error(`encounter ${encounterIndex}: formation not committed with a survivors snapshot`);
   const formation = JSON.parse(serializeFormation(formationFromJson(row.formation))) as JsonObject;

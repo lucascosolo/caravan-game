@@ -7,7 +7,7 @@ import { EMPTY_FORMATION, RING_SEGMENTS, ringSegment, validateFormation } from "
 import { TUNABLES } from "@caravan/content";
 import { describe, expect, it } from "vitest";
 import { packedManifest, survivorsManifest } from "../../test/circleFixtures.ts";
-import { carryForward, fenceSide, fencesBySide, nextUnplacedOfKind, openOnSide, placeFence, placePost, placeTrap, setStance, sidePositions, snapToRing } from "./placement.ts";
+import { fenceSide, fencesBySide, nextUnplacedOfKind, openOnSide, placeFence, placePost, placeTrap, setStance, sidePositions, snapToRing } from "./placement.ts";
 
 describe("quick arrange (final play-test review S3)", () => {
   it("Fence this side closes every open position on that side with the next segments, healthiest first", () => {
@@ -52,21 +52,6 @@ describe("quick arrange (final play-test review S3)", () => {
     expect(snapToRing({ x: seg.x, y: seg.y + 1 })).toEqual(seg);
     expect(snapToRing({ x: 15, y: 15 })).toBeNull();
     expect(snapToRing({ x: 2, y: 2 })).toBeNull();
-  });
-
-  it("Start from my last arrangement keeps only what survives, with stances, and is legal", () => {
-    const packed = packedManifest();
-    let prev = placeFence(placeFence(placeFence(EMPTY_FORMATION, "f0", 0), "f1", 1), "f2", 2);
-    prev = placeTrap(placeTrap(prev, "t0", { x: 14, y: 12 }), "t1", { x: 16, y: 12 });
-    prev = setStance(placePost(placePost(placePost(prev, "u-rider", { x: 12, y: 12 }), "u-digger", { x: 13, y: 13 }), "u-canteen", { x: 13, y: 18 }), "u-rider", "hold");
-    expect(validateFormation(packed, prev, () => true).ok).toBe(true);
-    const now = survivorsManifest(); // f0 destroyed, t0 spent, u-digger dead
-    const f = carryForward(now, prev);
-    expect(f.fences.map((p) => p.ref).sort()).toEqual(["f1", "f2"]);
-    expect(f.traps.map((p) => p.ref)).toEqual(["t1"]);
-    expect(f.posts.map((p) => p.ref).sort()).toEqual(["u-canteen", "u-rider"]);
-    expect(f.posts.find((p) => p.ref === "u-rider")!.stance).toBe("hold");
-    expect(validateFormation(now, f, () => true).ok).toBe(true);
   });
 
   it("the commit dialog's by-side line counts fenced and open positions per side (N14)", () => {

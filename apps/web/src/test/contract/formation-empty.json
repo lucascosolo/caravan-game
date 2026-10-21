@@ -3,6 +3,7 @@
   "status": 200,
   "body": {
     "formation": null,
-    "encounterIndex": 1
+    "encounterIndex": 1,
+    "layout": null
   }
 }

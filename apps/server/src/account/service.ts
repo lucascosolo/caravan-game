@@ -174,6 +174,7 @@ export async function exportAccount(db: Queryable, accountId: string, maxBytes: 
       units,
       manifests,
       formations: await rows(db, "SELECT f.* FROM wagon_formation f JOIN wagon_manifest m ON m.id = f.manifest_id WHERE m.caravan_id = $1 ORDER BY m.created_at, f.encounter_index", [cid]),
+      layouts: await rows(db, "SELECT * FROM caravan_layout WHERE caravan_id = $1 ORDER BY slot", [cid]),
       refugeeMenus: await rows(db, "SELECT * FROM refugee_menu WHERE caravan_id = $1 ORDER BY sequence", [cid]),
       trips,
       tripEncounters: await rows(db, "SELECT te.* FROM trip_encounter te JOIN trip t ON t.id = te.trip_id WHERE t.caravan_id = $1 ORDER BY te.settled_at, te.trip_id, te.encounter_index", [cid]),

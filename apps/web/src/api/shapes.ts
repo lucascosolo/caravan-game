@@ -19,6 +19,7 @@ import type {
   ChoiceView,
   EconomyView,
   FormationReadResponse,
+  LayoutView,
   FormationResponse,
   FormationView,
   InventoryStatusView,
@@ -224,7 +225,16 @@ const formationView: Guard<FormationView> = object({
 
 export const formationShape: Guard<FormationResponse> = object({ formation: formationView });
 /** r2 N10: `GET …/formation?ifNone=null` — the formation, or null when no draft exists yet. */
-export const formationReadShape: Guard<FormationReadResponse> = object({ formation: nullable(formationView), encounterIndex: optional(integer({ min: 1, max: 1_000_000 })) });
+const edgeShape = predicate(isEntryEdge, "an entry edge");
+const LEFT_OUT_REASONS = ["wagon", "broken", "spent", "dead", "not_packed", "blocked"] as const;
+const layoutView: Guard<LayoutView> = object({
+  loaded: formationBody,
+  leftOut: array(object({ kind: literal("fence", "trap", "post"), typeId: ID, instanceId: nullable(ID), edge: edgeShape, reason: literal(...LEFT_OUT_REASONS) }), { maxLength: 1024 }),
+  savedSides: array(edgeShape, { maxLength: 4 }),
+  hintsOn: boolean(),
+  unavailable: nullable(literal("battlefield_version")),
+});
+export const formationReadShape: Guard<FormationReadResponse> = object({ formation: nullable(formationView), encounterIndex: optional(integer({ min: 1, max: 1_000_000 })), layout: optional(nullable(layoutView)) });
 
 // ── Matchmaking & scouting (chunk 14 routes) ─────────────────────────────────────────
 

@@ -828,7 +828,7 @@ describe("final play-test review N10 / N5: empty states are 200, and the read ca
     // r2 N10: no formation draft yet — 200 { formation: null } for a client that asks (?ifNone=null), the 404 otherwise.
     const noDraft = await call(d, "GET", `/caravans/${d.caravanId}/encounters/1/formation?ifNone=null`);
     expect(noDraft.statusCode).toBe(200);
-    expect(noDraft.json()).toEqual({ formation: null, encounterIndex: 1 });
+    expect(noDraft.json()).toEqual({ formation: null, encounterIndex: 1, layout: null });
     const legacy = await call(d, "GET", `/caravans/${d.caravanId}/encounters/1/formation`);
     expect([legacy.statusCode, legacy.json().error]).toEqual([404, "no_formation"]);
   });

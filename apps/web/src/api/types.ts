@@ -270,6 +270,17 @@ export interface FormationResponse {
 export interface FormationReadResponse {
   readonly formation: FormationView | null;
   readonly encounterIndex?: number | undefined;
+  /** Chunk 51: the caravan's last layout turned to face this encounter's chosen party (absent from older servers). */
+  readonly layout?: LayoutView | null | undefined;
+}
+
+/** Chunk 51: the loaded layout beside the draft. `leftOut` is shown always; hints only while `hintsOn`. */
+export interface LayoutView {
+  readonly loaded: FormationBody;
+  readonly leftOut: readonly import("@caravan/circle").LeftOut[];
+  readonly savedSides: readonly import("@caravan/circle").EntryEdge[];
+  readonly hintsOn: boolean;
+  readonly unavailable: "battlefield_version" | null;
 }
 
 /** `POST .../search` (201) and `GET .../candidates` → `{ menu }`. */
