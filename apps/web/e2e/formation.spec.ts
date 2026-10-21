@@ -102,20 +102,20 @@ test("search, scout three candidates, choose, drag a fence and a post, set a sta
   await expect(page.locator(".iso__unavailable")).toHaveCount(0);
   await expect.poll(() => latticeAlpha(page)).toBe(0);
 
-  // Manifest tray reflects the pack: 20 segments in the wagon, 1 trap, 2 riders.
-  await expect(page.getByTestId("fence-tray-line")).toContainText("20 in the wagon · 0 on the ring · 0 destroyed · 20 packed");
+  // Manifest tray reflects the pack: 11 segments in the wagon, 1 trap, 2 riders.
+  await expect(page.getByTestId("fence-tray-line")).toContainText("11 in the wagon · 0 on the ring · 0 destroyed · 11 packed");
   await expect(page.getByTestId("tray-trap-t0")).toContainText("Fires once");
   const riderChips = page.locator('[data-testid^="tray-unit-"]');
   await expect(riderChips).toHaveCount(2);
 
-  // Drag the next fence segment onto ring position 0 (north side, cell (12, 11)). The map is
+  // Drag the next fence segment onto ring position 0 (north side, cell (17, 11)). The map is
   // sticky, so the chip is scrolled to the viewport centre first and the target measured after.
   const fenceChip = page.getByTestId("tray-fence-next").getByRole("button");
   await fenceChip.evaluate((el) => el.scrollIntoView({ block: "center" }));
   const fenceBox = (await fenceChip.boundingBox())!;
-  const ring0 = await cellToClient(page, { x: 12, y: 11 });
+  const ring0 = await cellToClient(page, { x: 17, y: 11 });
   await dragTo(page, { x: fenceBox.x + 40, y: fenceBox.y + fenceBox.height / 2 }, ring0);
-  await expect(page.getByTestId("budget-meter")).toContainText("1 of 20 segments placed · 28 ring positions");
+  await expect(page.getByTestId("budget-meter")).toContainText("1 of 11 segments placed · 16 ring positions");
   await expect(page.getByTestId("gaps-line")).toContainText("27 open positions");
 
   // Drag a rider to (13, 13), inside the ring; the stance picker appears; choose Hold.
@@ -163,7 +163,7 @@ test("search, scout three candidates, choose, drag a fence and a post, set a sta
   await touch("touchStart", [s0]);
   for (let i = 1; i <= 12; i++) await touch("touchMove", [{ x: s0.x, y: s0.y - i * 25, id: 3 }]);
   await touch("touchEnd", []);
-  await expect(page.getByTestId("budget-meter")).toContainText("1 of 20 segments placed");
+  await expect(page.getByTestId("budget-meter")).toContainText("1 of 11 segments placed");
   // S12: the wheel zooms the map and leaves the page where it was.
   await page.evaluate(() => window.scrollTo(0, 0));
   const canvasBox = (await page.getByTestId("iso-canvas").boundingBox())!;

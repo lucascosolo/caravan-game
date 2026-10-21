@@ -237,7 +237,7 @@ test("a fresh account: register, the first screen, a refugee, the first trip gui
   await tapWithCircleInView(page, "guide-do-trap");
   await expect(page.getByTestId("guide-step-trap")).toHaveAttribute("data-done", "true");
   await tapWithCircleInView(page, "guide-do-rest");
-  await expect(page.getByTestId("budget-meter")).toContainText("20 of 20 segments placed");
+  await expect(page.getByTestId("budget-meter")).toContainText("11 of 11 segments placed");
   await expect(page.getByTestId("guide-steps-done")).toBeVisible();
   await expect(page.getByTestId("guide-why")).toContainText("one way through");
   await expect(arrange).toContainText("does not guarantee a hold");
@@ -380,7 +380,7 @@ for (const branch of [
       await page.getByTestId("guide-do-trap").click();
       await expect(page.getByTestId("guide-step-trap")).toHaveAttribute("data-done", "true");
     }
-    await expect(page.getByTestId("budget-meter")).toContainText("0 of 20 segments placed");
+    await expect(page.getByTestId("budget-meter")).toContainText("0 of 11 segments placed");
     await commit(page);
 
     // ── the summary: the trip ended in an overrun ──

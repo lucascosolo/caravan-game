@@ -139,8 +139,8 @@ test("a full trip: outfit, ride out, three encounters (a rider dies at the secon
   // ── encounter 1: search, choose, arrange (fence, trap, two posts), commit ──
   await chooseFirstCandidate(page, 1);
   await page.getByTestId("tray-fence-next").getByRole("button").click();
-  await tapCell(page, { x: 12, y: 11 });
-  await expect(page.getByTestId("budget-meter")).toContainText("1 of 20 segments placed");
+  await tapCell(page, { x: 17, y: 11 });
+  await expect(page.getByTestId("budget-meter")).toContainText("1 of 11 segments placed");
   // Final play-test review S3: the selection moved on to the NEXT segment; "Done" lets go of it.
   await expect(page.getByTestId("tray-fence-next").getByRole("button")).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("region", { name: "Selected" }).getByRole("button", { name: "Done" }).click();

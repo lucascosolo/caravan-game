@@ -211,7 +211,7 @@ test("claim a refugee, merge by drag with confirm, set up the party, outfit and 
   await expect(page.getByTestId("outfit-units-meter")).toHaveText("1 of 8 deployment slots");
   await page.getByTestId("outfit-traps").getByRole("button", { name: "Add Spike Pit" }).click();
   await page.getByTestId("outfit-fence-tier").selectOption("fence.brush_pile");
-  await expect(page.getByTestId("outfit-fence-meter")).toContainText("20 of 20 segments");
+  await expect(page.getByTestId("outfit-fence-meter")).toContainText("11 of 11 segments");
   await expect(page.getByTestId("outfit-forecast")).toContainText("Your store has room for");
   await fitsPortrait(page);
   await page.getByTestId("outfit-ride-out").click();

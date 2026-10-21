@@ -118,7 +118,7 @@ async function openTrip() {
   const me = await (await fetch(`${api}/me`, { headers: { Authorization: `Bearer ${token}` } })).json();
   const caravan = me.caravans[0];
   const riders = caravan.units.filter((u) => u.unit_type_id === "desert.dust_rider").map((u) => u.id);
-  const pack = await post(`/caravans/${caravan.id}/manifest`, { units: riders.slice(0, 2), traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 20 } }, token);
+  const pack = await post(`/caravans/${caravan.id}/manifest`, { units: riders.slice(0, 2), traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 11 } }, token);
   if (pack.status !== 201) throw new Error(`${label}: pack failed: ${pack.status} ${await pack.text()}`);
   const start = await post(`/me/caravans/${caravan.id}/trip/start`, undefined, token);
   if (start.status !== 201) throw new Error(`${label}: ride out failed: ${start.status} ${await start.text()}`);
