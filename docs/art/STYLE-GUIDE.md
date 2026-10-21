@@ -20,6 +20,17 @@ source is turned into it by the build step (§7).
 Not this look: glossy 3D or "stylized 3D" (the Clash of Clans finish), painterly blur, vector
 flat design, realistic rendering, or noisy retro pixel art with heavy dithering.
 
+**Rendering decision, later on 2026-10-20: the "middle path" (owner: "Do the middle path").**
+Generated characters, wagons and other objects are used directly, not pixel-snapped. Each is
+resampled smoothly to its exact on-screen device size (so the browser never rescales it), its
+colours are nudged about a third of the way toward the §4 palette, and the same dark outline
+(`#2a1a14`, 2 device px on a 3× screen) is drawn around every object in code, so the set reads
+as one family. The tool is `paint.py` (look-test pipeline). The pixel step stays for pieces that
+are drawn as true pixel art, such as the ground, fences and decals. Wherever pixel-snapping rules
+below conflict with this, this wins for generated objects. Why: shrinking detailed generated art
+onto a small pixel grid destroyed the detail the owner liked (plank lines, faces, cargo), and the
+owner preferred the painted result side by side.
+
 ## 2. The owner's picks (2026-10-20)
 
 | Knob | Pick | What it means in practice |

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-20T23:05:00Z",
+  "updated_at": "2026-10-21T03:25:00Z",
   "written_by": "PC session, Phase 2 start (art direction reopened before building the pipeline)",
   "handoff_note": "roadmap/HANDOFF.md",
   "repo": {
@@ -331,6 +331,16 @@
           "GPT Image 2 on magenta keys cleanly with no fringe; fallback",
           "the coyote stands on all fours when asked explicitly"
         ]
+      },
+      {
+        "id": "pass-3-wagons",
+        "date": "2026-10-20",
+        "approved_by_owner_usd": 0.42,
+        "charged_usd": 0.424,
+        "images": 8,
+        "design": "openai/gpt-image-2.5-flare high 1k, background transparent, reference = the pass-2 vault wagon; 4 views x 2 tries: covered wagon front/rear 3/4, open supply wagon front/rear 3/4",
+        "where": "~/.cache/caravan/wiro/gen-2026-10-20-pass3/ (PROVENANCE.json in wagons-pass3/)",
+        "accepted": "chosen tries used in the look test (not yet in the repo)"
       }
     ],
     "transparent_background_models": {
@@ -351,6 +361,34 @@
       "detail": "the detail of the bigger option at the same physical size: a 1.5x finer grid (36x48 drawing in a 24x32 footprint)",
       "props": "bigger: characters must look as if they could ride inside the wagon; wagons 84x62 footprint (from 64x48); saguaro to about 20x44",
       "spend_so_far_usd": 1.2568
+    },
+    "spend_total_usd": 1.6808,
+    "rendering_decision": {
+      "date": "2026-10-20",
+      "owner_said": "Do the middle path",
+      "what": "generated objects used directly: smooth resample to exact device size, colours nudged ~35% toward the palette (CIELAB), a shared #2a1a14 outline in code; the pixel step stays for true pixel-art pieces (ground, fences, decals)",
+      "tools": "~/.cache/caravan/wiro/paint.py (and looktest tools/paint_exact.py); pixel step v2 ~/.cache/caravan/wiro/pixelize2.py (grid-aware) for pixel pieces"
+    },
+    "owner_rules_2026_10_20": [
+      "every Kenney asset must earn its place and fit in, else replace with our own",
+      "look at assets/reference/style-board-v1.png before every generation brief",
+      "new-player hints for layouts are gentle and never force a change",
+      "6 wagons, natural spacing, round wagon circle (chunk 50)",
+      "whole camp visible on a phone by default; scene drawn ~20% smaller"
+    ],
+    "design_work_2026_10_20": {
+      "camp_look_test": {
+        "url": "https://claude.ai/artifact/EGHs2F88GqNcDEN2xh3hgy",
+        "version": 7,
+        "state": "round wagon circle, painted characters and wagons (4 covered + 2 supply, oriented along the ring), smooth fence curve, packed-dirt camp floor, ruts, wash, HUD frame; reviewer score 4 -> 7 before the integration pass; mismatched Kenney boulders removed"
+      },
+      "screen_mockups": {
+        "url": "https://claude.ai/artifact/L5BRzGcJVEfBEpyVeZNWQu",
+        "what": "UI system (UI-SYSTEM.md), kit (parchment, wood, brass, iron, leather, rope; Jersey 15 + Atkinson Hyperlegible Next), and mock-ups of town, trail and formation, replay and results, party/webs/inbox/store",
+        "sources": "~/.cache/caravan/ui-system/ (not committed)",
+        "battle_canvas_in_mockups": "older round-camp image; refresh from camp-latest.png"
+      },
+      "status": "awaiting owner feedback; nothing in apps/ changed"
     }
   },
   "open_balance_questions": [
