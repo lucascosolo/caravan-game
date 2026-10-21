@@ -42,6 +42,8 @@ export const STRINGS = {
     resize: "Resize sheet",
     dismiss: "Dismiss",
     hold: "Hold to confirm",
+    holdTap: "Or confirm with a tap:",
+    holdCancel: "Cancel",
     resources: "Resources",
     offline: "No road to town right now. Your caravan is safe; try again once you are back online.",
   },

@@ -384,6 +384,10 @@
 .cv-pop--tail-right::after { content: ""; position: absolute; pointer-events: none; background-repeat: no-repeat; background-size: 100% 100%; width: calc(16 * var(--px)); height: calc(26 * var(--px)); left: calc(100% - 2 * var(--px)); top: calc(var(--at, 50%) - 13 * var(--px)); background-image: url(./assets/chrome/v2/tail-right.png); }
 .cv-pop__who { display: block; font-family: var(--font-display); font-size: var(--type-label); line-height: 1; text-transform: uppercase; letter-spacing: var(--px); color: var(--ink-soft); margin-bottom: 2px; }
 .cv-pop .cv-medal { margin: -6px -8px -6px 0; }
+.cv-holdtap { flex-direction: column; align-items: stretch; align-self: center; margin-top: 10px; max-width: 320px; }
+.cv-holdtap > span { display: contents; }
+.cv-holdtap__line { font-size: var(--type-small, 14px); }
+.cv-holdtap__row { display: flex !important; gap: 8px; justify-content: flex-end; align-items: center; }
 
 /* toasts: a paper slip nailed over the scene */
 .cv-toast { position: relative; display: flex; align-items: center; gap: 8px; padding: 14px 12px 10px 8px;
