@@ -17,9 +17,9 @@ function packedManifest(): ManifestView {
     v: 1 as const,
     units: [{ ref: uid(1), typeId: "desert.dust_rider", mergeLevel: 1, maxHp: 400, hp: 400 }],
     traps: [{ ref: "t0", typeId: "trap.spike_pit", spent: false }],
-    fences: Array.from({ length: 20 }, (_, i) => ({ ref: `f${i}`, tierId: "fence.brush_pile", maxHp: 100, hp: 100 })),
+    fences: Array.from({ length: TUNABLES.FENCE_MATERIAL_BUDGET }, (_, i) => ({ ref: `f${i}`, tierId: "fence.brush_pile", maxHp: 100, hp: 100 })),
   };
-  return { id: uid(500), caravanId: CARAVAN_ID, encountersResolved: 0, createdAt: "", closedAt: null, packed: body, survivors: body, summary: { unitsAlive: 1, unitsDead: 0, trapsUnspent: 1, trapsSpent: 0, fencesIntact: 20, fencesDestroyed: 0 }, formations: [] } as unknown as ManifestView;
+  return { id: uid(500), caravanId: CARAVAN_ID, encountersResolved: 0, createdAt: "", closedAt: null, packed: body, survivors: body, summary: { unitsAlive: 1, unitsDead: 0, trapsUnspent: 1, trapsSpent: 0, fencesIntact: TUNABLES.FENCE_MATERIAL_BUDGET, fencesDestroyed: 0 }, formations: [] } as unknown as ManifestView;
 }
 
 function api(over = {}) {
@@ -59,7 +59,7 @@ describe("OutfitScreen", () => {
     expect(screen.getByTestId("outfit-fence-tier")).toHaveValue("fence.brush_pile");
     expect(screen.getByTestId("outfit-units-meter")).toHaveTextContent(`0 of ${CAP} deployment slots`);
     const again = screen.getByTestId("outfit-same-as-last");
-    expect(again).toHaveTextContent("2 units, 4 traps, 20 fence segments");
+    expect(again).toHaveTextContent(`2 units, 4 traps, ${TUNABLES.FENCE_MATERIAL_BUDGET} fence segments`);
     expect(screen.getByTestId("outfit-last")).toHaveTextContent("1 unit from last trip is no longer in the roster.");
     await user.click(again);
     expect(screen.getByTestId("outfit-units-meter")).toHaveTextContent(`2 of ${CAP} deployment slots`);
@@ -87,7 +87,7 @@ describe("OutfitScreen", () => {
     expect(trap.getByRole("button", { name: "Add Spike Pit" })).toBeEnabled();
     // Fence: the full budget by default, which is below the ring, so gaps are forced.
     await user.selectOptions(screen.getByTestId("outfit-fence-tier"), "fence.brush_pile");
-    expect(screen.getByTestId("outfit-fence-meter")).toHaveTextContent(`${TUNABLES.FENCE_MATERIAL_BUDGET} of ${TUNABLES.FENCE_MATERIAL_BUDGET} segments (the ring has 28 positions, so gaps are forced)`);
+    expect(screen.getByTestId("outfit-fence-meter")).toHaveTextContent(`${TUNABLES.FENCE_MATERIAL_BUDGET} of ${TUNABLES.FENCE_MATERIAL_BUDGET} segments (the ring has 16 positions, so gaps are forced)`);
     // The Coin forecast is the server's message.
     expect(screen.getByTestId("outfit-forecast")).toHaveTextContent("Your store has room for 48800 more Coin right now.");
   });
@@ -150,7 +150,7 @@ describe("OutfitScreen", () => {
     await user.click(screen.getByTestId("outfit-ride-out"));
     await user.click(screen.getByTestId("outfit-confirm"));
     expect(await screen.findByTestId("outfit-packed")).toHaveTextContent("Packed, waiting to ride out.");
-    expect(screen.getByTestId("packed-summary")).toHaveTextContent("1 unit · 1 trap · 20 fence segments");
+    expect(screen.getByTestId("packed-summary")).toHaveTextContent(`1 unit · 1 trap · ${TUNABLES.FENCE_MATERIAL_BUDGET} fence segments`);
     expect(screen.getByTestId("ride-out-refused")).toHaveTextContent("No trip is available right now. The next one returns in 20 min");
     expect(screen.getByTestId("ride-out-open-confirm")).toBeDisabled();
     expect(onRodeOut).not.toHaveBeenCalled();

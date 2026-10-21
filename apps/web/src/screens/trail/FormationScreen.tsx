@@ -3,7 +3,7 @@
  *
  * The player is mid-trip, facing ONE scouted party. They read it (ScoutPanel), see what
  * survives of what they packed (ManifestTray), and arrange the wagon circle against it on
- * the isometric scene: fence segments on the 28 ring positions under a budget that forces
+ * the isometric scene: fence segments on the ring positions under a budget that forces
  * gaps, traps and posts on free cells, a stance per post. The server decides legality on
  * every save and commit and its issue list is shown with the player's names for things;
  * where a drop may land is answered by @caravan/circle's own rules (placement.ts).
@@ -23,7 +23,8 @@ import {
   ENTRY_EDGES,
   GRID_HEIGHT,
   GRID_WIDTH,
-  RING_ANCHORS,
+  RING_ORDER,
+  WAGONS,
   RING_SEGMENTS,
   formationGaps,
   ringSegment,
@@ -86,15 +87,15 @@ export const CIRCLE_GEOMETRY: SceneGeometry = {
   height: GRID_HEIGHT,
   coreCells: CORE_CELLS,
   ringCells: RING_SEGMENTS.map((s) => s.cell),
-  anchorCells: RING_ANCHORS,
+  wagons: WAGONS,
   entryBandDepth: ENTRY_BAND_DEPTH,
 };
 
 /** What "zoom to the ring" frames when a tray item is selected (QA S10): the ring plus a margin for posts around it. */
 const RING_FOCUS_MARGIN = 4;
 const RING_RECT: CellRect = (() => {
-  const xs = RING_SEGMENTS.map((s) => s.cell.x);
-  const ys = RING_SEGMENTS.map((s) => s.cell.y);
+  const xs = RING_ORDER.map((c) => c.x);
+  const ys = RING_ORDER.map((c) => c.y);
   return {
     x0: Math.max(0, Math.min(...xs) - RING_FOCUS_MARGIN),
     y0: Math.max(0, Math.min(...ys) - RING_FOCUS_MARGIN),
@@ -109,8 +110,8 @@ const RING_RECT: CellRect = (() => {
  */
 export const RING_OPEN_MARGIN = 3;
 const CIRCLE_FRAME: FrameRect = (() => {
-  const xs = RING_SEGMENTS.map((s) => s.cell.x);
-  const ys = RING_SEGMENTS.map((s) => s.cell.y);
+  const xs = RING_ORDER.map((c) => c.x);
+  const ys = RING_ORDER.map((c) => c.y);
   const x0 = Math.max(0, Math.min(...xs) - RING_OPEN_MARGIN);
   const y0 = Math.max(0, Math.min(...ys) - RING_OPEN_MARGIN);
   return { x: x0, y: y0, w: Math.min(GRID_WIDTH, Math.max(...xs) + RING_OPEN_MARGIN + 1) - x0, h: Math.min(GRID_HEIGHT, Math.max(...ys) + RING_OPEN_MARGIN + 1) - y0 };

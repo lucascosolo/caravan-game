@@ -4,6 +4,7 @@
  * real renderer is chunk 08's and is exercised by the e2e (which also proves the real canvas
  * keeps updating: pixels and the renderer's frame counter, QA S9).
  */
+import { RING_SEGMENTS } from "@caravan/circle";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { forwardRef, useImperativeHandle } from "react";
@@ -351,7 +352,7 @@ describe("a golden log with traps, fence breaks and abilities plays through the 
     expect(screen.getByTestId("replay-outcome")).toHaveTextContent("Your caravan was overrun.");
     expect(screen.getByTestId("replay-depth")).toHaveTextContent("The raiders reached your core.");
     expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-units", "24");
-    expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-fences", "28");
+    expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-fences", String(RING_SEGMENTS.length));
     expect(screen.queryByTestId("replay-siege")).toBeNull();
     await userEvent.click(screen.getByTestId("replay-to-end"));
     clockStub.flush(100, 15);

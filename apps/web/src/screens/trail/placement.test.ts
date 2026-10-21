@@ -152,7 +152,7 @@ describe("placement model", () => {
 
   it("B2/N11: post reach is the resolver's — the battlefield's radii plus UNIT_RADIUS — and reserve counts by attack reach", () => {
     const m = packedManifest();
-    const bf = toBattlefield(m, { v: 2, fences: [], traps: [], posts: [{ ref: "u-rider", cell: inner, stance: "guard" }] }).posts[0]!;
+    const bf = toBattlefield(m, { v: 3, fences: [], traps: [], posts: [{ ref: "u-rider", cell: inner, stance: "guard" }] }).posts[0]!;
     const R = resolverTunables().unitRadius;
     expect(postReach(m, "u-rider")).toEqual({ aggroReach: (bf.aggroRadius + R) / FIXED_POINT_SCALE, leash: bf.leashDistance / FIXED_POINT_SCALE, attackReach: (bf.attackRange + R) / FIXED_POINT_SCALE });
     expect(postReach(m, "t1")).toBeNull();

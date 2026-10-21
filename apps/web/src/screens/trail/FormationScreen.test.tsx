@@ -219,8 +219,8 @@ describe("FormationScreen", () => {
     expect(screen.getByTestId("manifest-tray").textContent).not.toMatch(/\b(f\d+|t\d+|u-[a-z]+)\b/);
     // The scouting panel is on the screen before anything is committed.
     expect(screen.getByTestId("scout-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("budget-meter")).toHaveTextContent(`0 of ${TUNABLES.FENCE_MATERIAL_BUDGET - 1} segments placed · 28 ring positions`);
-    expect(screen.getByTestId("gaps-line")).toHaveTextContent("28 open positions");
+    expect(screen.getByTestId("budget-meter")).toHaveTextContent(`0 of ${TUNABLES.FENCE_MATERIAL_BUDGET - 1} segments placed · 16 ring positions`);
+    expect(screen.getByTestId("gaps-line")).toHaveTextContent("16 open positions");
   });
 
   it("round 3: tapping the auto-selected next unit's card keeps it selected; a second tap deselects it", async () => {
@@ -266,7 +266,7 @@ describe("FormationScreen", () => {
     await user.click(screen.getByText("tap-ring-3"));
     expect(screen.getByTestId("iso-canvas").getAttribute("data-fences")).toBe("1");
     expect(screen.getByTestId("budget-meter")).toHaveTextContent("1 of");
-    expect(screen.getByTestId("gaps-line")).toHaveTextContent("27 open positions");
+    expect(screen.getByTestId("gaps-line")).toHaveTextContent("15 open positions");
     // Take the post back.
     await user.click(screen.getByText("tap-u-rider"));
     await user.click(screen.getByTestId("selection-remove"));
@@ -350,7 +350,7 @@ describe("FormationScreen", () => {
     await user.click(within(screen.getByTestId("tray-fence-next")).getByRole("button"));
     const picker = within(screen.getByTestId("placement-picker"));
     const select = picker.getByTestId("picker-select") as HTMLSelectElement;
-    expect(select.querySelectorAll("option:not([value=''])")).toHaveLength(28);
+    expect(select.querySelectorAll("option:not([value=''])")).toHaveLength(16);
     expect(select.querySelectorAll("optgroup")).toHaveLength(4);
     const ring5 = ringSegment(5).cell;
     await user.selectOptions(select, `${ring5.x},${ring5.y}`);
@@ -440,7 +440,7 @@ describe("FormationScreen", () => {
     expect(screen.getByTestId("tray-unit-u-canteen")).toHaveClass("chip--issue");
     await user.click(screen.getByTestId("issue-show-u-canteen"));
     expect(screen.getByTestId("tray-unit-u-canteen")).toHaveClass("chip--selected");
-    expect(saveFormation).toHaveBeenCalledWith("c1", 3, expect.objectContaining({ v: 2 }));
+    expect(saveFormation).toHaveBeenCalledWith("c1", 3, expect.objectContaining({ v: 3 }));
     // Nothing on the screen calls a gap a warning, error or mistake.
     expect(document.body.textContent).not.toMatch(/gap[^.]*(warning|error|mistake|fix)/i);
     expect(document.body.textContent).not.toMatch(/(warning|error|mistake|fix)[^.]*gap/i);
@@ -490,7 +490,7 @@ describe("FormationScreen", () => {
     expect(saveFormation).not.toHaveBeenCalled();
     window.dispatchEvent(new Event("pagehide"));
     expect(saveFormation).toHaveBeenCalledTimes(1);
-    expect(saveFormation).toHaveBeenCalledWith("c1", 3, expect.objectContaining({ v: 2 }), { keepalive: true });
+    expect(saveFormation).toHaveBeenCalledWith("c1", 3, expect.objectContaining({ v: 3 }), { keepalive: true });
     // Flushed once: a second pagehide with nothing pending sends nothing.
     window.dispatchEvent(new Event("pagehide"));
     expect(saveFormation).toHaveBeenCalledTimes(1);
@@ -552,11 +552,11 @@ describe("FormationScreen", () => {
     expect(dialog).toHaveAttribute("aria-modal", "true");
     expect(dialog.getAttribute("aria-describedby")).toBeTruthy();
     expect(document.getElementById(dialog.getAttribute("aria-describedby")!)).toHaveTextContent("1 fence segment on ring positions #3");
-    expect(dialog).toHaveTextContent("27 ring positions left open");
+    expect(dialog).toHaveTextContent("15 ring positions left open");
     expect(dialog).toHaveTextContent("1 unit posted");
     expect(screen.getByTestId("commit-item-u-rider")).toHaveTextContent("Dust Rider · (12, 12) · Guard");
     // Healthiest-first then ref order: with every intact segment at full HP, "f10" sorts before "f2".
-    expect(screen.getByTestId("commit-item-f10")).toHaveTextContent("Brush Pile · ring position 3, North");
+    expect(screen.getByTestId("commit-item-f10")).toHaveTextContent("Brush Pile · ring position 3, East");
     await waitFor(() => expect(screen.getByTestId("commit-confirm")).toBeEnabled());
     // The shell is inert while the dialog is open; focus is inside it.
     expect(dialog.contains(document.activeElement)).toBe(true);

@@ -48,7 +48,8 @@ export interface SceneGeometry {
   readonly height: number;
   readonly coreCells: readonly CellLike[];
   readonly ringCells: readonly CellLike[];
-  readonly anchorCells: readonly CellLike[];
+  /** The parked wagons: each draws once, at the midpoint of its two cells (facing is for a future skin). */
+  readonly wagons: readonly { readonly cells: readonly [CellLike, CellLike]; readonly facing: string }[];
   readonly entryBandDepth: number;
   /**
    * Which fixed features the place has: the wagon circle's core and parked wagons
@@ -441,7 +442,7 @@ export class IsoScene {
         g.poly(pts(cellDiamond(c))).fill({ color: free ? PALETTE.lattice : PALETTE.outlineDark, alpha: free ? 0.22 : 0.15 });
       }
     }
-    // Ring positions while a fence is being dragged or placed by tap, so the 28 targets are visible.
+    // Ring positions while a fence is being dragged or placed by tap, so every fence position is visible.
     if (state.drag?.kind === "fence" || state.placing === "fence") {
       const taken = new Set(state.fences.map((f) => `${f.cell.x},${f.cell.y}`));
       for (const c of geo.ringCells) {
@@ -578,14 +579,18 @@ export class IsoScene {
     const seen = new Set<string>();
     const geo = this.opts.geometry;
     this.mineActive = state.mine?.active ?? false;
-    // Fixed features first: the core and the four parked wagons (the wagon circle only).
+    // Fixed features first: the core and the parked wagons (the wagon circle only).
     if ((geo.fixtures ?? "circle") === "circle" && geo.coreCells.length > 0) {
       const coreCenter = {
         x: geo.coreCells.reduce((s, c) => s + c.x + 0.5, 0) / geo.coreCells.length,
         y: geo.coreCells.reduce((s, c) => s + c.y + 0.5, 0) / geo.coreCells.length,
       };
       this.keep(seen, "core", "", coreCenter, 1, () => this.marker(this.skins.core(), coreCenter, 1.6, 1, false));
-      geo.anchorCells.forEach((a, i) => this.keep(seen, `anchor:${i}`, "", cellToWorld(a), 1, () => this.marker(this.skins.wagonAnchor(), cellToWorld(a), 1, 1, false)));
+      geo.wagons.forEach((w, i) => {
+        const [p, q] = [cellToWorld(w.cells[0]), cellToWorld(w.cells[1])];
+        const mid = { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 };
+        this.keep(seen, `anchor:${i}`, "", mid, 1, () => this.marker(this.skins.wagonAnchor(), mid, 1, 1, false));
+      });
     }
     // Town structures (chunk 17): inert scenery, drawn from the state, never simulated.
     for (const s of state.structures ?? []) {

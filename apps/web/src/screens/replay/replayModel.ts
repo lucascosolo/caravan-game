@@ -22,7 +22,7 @@
  * A log the reader refuses (truncated, edited, a format it cannot read) fails loudly with
  * the reader's message and is never drawn.
  */
-import { CORE_CELLS, ENTRY_BAND_DEPTH, GRID_HEIGHT, GRID_WIDTH, RING_ANCHORS, RING_SEGMENTS } from "@caravan/circle";
+import { CORE_CELLS, ENTRY_BAND_DEPTH, GRID_HEIGHT, GRID_WIDTH, RING_ORDER, RING_SEGMENTS, WAGONS } from "@caravan/circle";
 import { FIXED_POINT_SCALE } from "@caravan/content";
 import { readReplay, type Replay, type ReplayFrame } from "@caravan/resolver/replay";
 import type { ReplayLabelsView, ReplayView, ReplayViewer } from "../../api/replayTypes.ts";
@@ -145,7 +145,7 @@ export const REPLAY_GEOMETRY: SceneGeometry = {
   height: GRID_HEIGHT,
   coreCells: CORE_CELLS,
   ringCells: RING_SEGMENTS.map((s) => s.cell),
-  anchorCells: RING_ANCHORS,
+  wagons: WAGONS,
   entryBandDepth: ENTRY_BAND_DEPTH,
 };
 
@@ -370,8 +370,8 @@ function buildModel(view: ReplayView, replay: Replay): ReplayModel {
   edges.sort((a, b) => order.indexOf(a) - order.indexOf(b));
 
   // S2: the ring's bounding box, reaching APPROACH_CELLS further toward each edge raiders entered from.
-  const ringXs = RING_SEGMENTS.map((s) => s.cell.x);
-  const ringYs = RING_SEGMENTS.map((s) => s.cell.y);
+  const ringXs = RING_ORDER.map((c) => c.x);
+  const ringYs = RING_ORDER.map((c) => c.y);
   let x0 = Math.min(...ringXs) - 1;
   let x1 = Math.max(...ringXs) + 2;
   let y0 = Math.min(...ringYs) - 1;

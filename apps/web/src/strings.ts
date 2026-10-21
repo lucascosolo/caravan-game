@@ -411,7 +411,7 @@ export const STRINGS = {
     // refusals: circle's per-entry codes, worded for the player (the code is shown beside it)
     refusal: (code: string): string =>
       ({
-        bad_segment: "A fence segment goes on one of the 28 ring positions.",
+        bad_segment: "A fence segment goes on one of the ring positions.",
         duplicate_segment: "That ring position already holds a segment.",
         bad_cell: "That is off the ground.",
         cell_reserved: "That cell is reserved: the fence ring, a parked wagon, the core or an entry band.",

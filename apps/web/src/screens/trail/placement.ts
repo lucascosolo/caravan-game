@@ -19,6 +19,7 @@ import {
   GRID_HEIGHT,
   GRID_WIDTH,
   RING_SEGMENTS,
+  sideSegments,
   ENTRY_EDGES,
   cellKey,
   formationGaps,
@@ -383,7 +384,7 @@ export interface PickerOption {
 
 /**
  * Every target for `ref`, grouped by the side of the circle it faces, each with circle's
- * refusal (or none). A fence gets the 28 ring positions; a trap or post every placeable
+ * refusal (or none). A fence gets the ring positions; a trap or post every placeable
  * cell (legal ones only — the reserved cells are listed once as a rule, not 400 times).
  * A cell's side is the edge it is nearest: |dx| > |dy| from the core centre → east/west.
  */
@@ -414,7 +415,7 @@ export function pickerOptions(m: Manifest, f: Formation, ref: string): ReadonlyM
 
 /** Ring positions on one side, in ring order. */
 export function sidePositions(edge: EntryEdge): readonly number[] {
-  return RING_SEGMENTS.filter((s) => s.edge === edge).map((s) => s.index);
+  return sideSegments(edge);
 }
 
 /** How many of a side's positions are still open (no fence on them). */

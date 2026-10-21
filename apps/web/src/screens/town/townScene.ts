@@ -19,7 +19,7 @@ export const TOWN_GEOMETRY: SceneGeometry = {
   height: GRID_HEIGHT,
   coreCells: [],
   ringCells: [],
-  anchorCells: [],
+  wagons: [],
   entryBandDepth: ENTRY_BAND_DEPTH,
   fixtures: "town",
 };

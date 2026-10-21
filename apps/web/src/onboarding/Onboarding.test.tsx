@@ -247,7 +247,7 @@ describe("the guided arrangement on the formation screen (chunk 24)", () => {
     await user.click(screen.getByTestId("guide-do-fence"));
     expect(within(screen.getByTestId("guide-current")).getByTestId("guide-step-post")).toBeInTheDocument();
     expect(screen.getByTestId("guide-step-fence")).toHaveAttribute("data-done", "true");
-    expect(screen.getByTestId("budget-meter")).toHaveTextContent("6 of 20 segments placed");
+    expect(screen.getByTestId("budget-meter")).toHaveTextContent("2 of 11 segments placed");
     expect(screen.getByTestId("guide-step-gap")).toHaveAttribute("data-done", "true");
     await user.click(screen.getByTestId("guide-do-post"));
     expect(screen.getByTestId("guide-step-post")).toHaveAttribute("data-done", "true");
@@ -256,10 +256,10 @@ describe("the guided arrangement on the formation screen (chunk 24)", () => {
     expect(screen.getByTestId("guide-step-trap")).toHaveAttribute("data-done", "true");
     expect(screen.getByTestId("iso-canvas")).toHaveAttribute("data-traps", "1");
     await user.click(screen.getByTestId("guide-do-rest"));
-    expect(screen.getByTestId("budget-meter")).toHaveTextContent("20 of 20 segments placed");
+    expect(screen.getByTestId("budget-meter")).toHaveTextContent("11 of 11 segments placed");
     // Every step done: "now scout why" opens in full.
     expect(screen.getByTestId("guide-steps-done")).toBeInTheDocument();
-    expect(screen.getByTestId("guide-why")).toHaveTextContent("The 2 raiders from the north meet a fence with one way through, position 3");
+    expect(screen.getByTestId("guide-why")).toHaveTextContent("The 2 raiders from the north meet a fence with one way through, position 0");
     // Honest: no promise of a hold.
     expect(guide).toHaveTextContent("does not guarantee a hold");
     expect(guide.textContent).not.toMatch(/\b(base|camp)\b/i);

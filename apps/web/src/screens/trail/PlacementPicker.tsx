@@ -2,7 +2,7 @@
  * The DOM placement picker (chunk 08 QA D3; PHASE-2 §35): the keyboard and screen-reader
  * path to every target the canvas offers. For the selected tray item it lists where it can
  * go, grouped by the side of the circle each place faces, with @caravan/circle's refusal
- * (and code) on any ring position that is taken. A fence chooses among the 28 ring
+ * (and code) on any ring position that is taken. A fence chooses among the ring
  * positions; a trap or post among every legal cell. "Place here" does exactly what a drop
  * on that cell does (the same `dropAt`).
  */

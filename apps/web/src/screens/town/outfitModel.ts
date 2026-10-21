@@ -113,7 +113,7 @@ export function loadLastOutfit(caravanId: string): OutfitDraft | null {
     const v = JSON.parse(raw) as { units?: unknown; traps?: unknown; fence?: unknown };
     const strings = (x: unknown): string[] => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : []);
     const f = v.fence as { tierId?: unknown; count?: unknown } | null | undefined;
-    const fence = f && typeof f.tierId === "string" && typeof f.count === "number" && Number.isInteger(f.count) && f.count >= 0 ? { tierId: f.tierId, count: f.count } : null;
+    const fence = f && typeof f.tierId === "string" && typeof f.count === "number" && Number.isInteger(f.count) && f.count >= 0 ? { tierId: f.tierId, count: Math.min(f.count, FENCE_BUDGET) } : null;
     return { units: strings(v.units), traps: strings(v.traps), fence };
   } catch {
     return null;

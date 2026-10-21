@@ -15,7 +15,7 @@ describe("quick arrange (final play-test review S3)", () => {
     const f = fenceSide(m, EMPTY_FORMATION, "west");
     expect(openOnSide(f, "west")).toBe(0);
     expect(f.fences.map((p) => p.segment).sort((a, b) => a - b)).toEqual([...sidePositions("west")].sort((a, b) => a - b));
-    // Destroyed f0 is never used; the chipped f1 goes last (not on a 7-position side with 18 healthy left).
+    // Destroyed f0 is never used; the chipped f1 goes last (not on a 5-position side with healthy ones left).
     expect(f.fences.some((p) => p.ref === "f0" || p.ref === "f1")).toBe(false);
     expect(validateFormation(m, placePost(placePost(f, "u-rider", { x: 12, y: 12 }), "u-canteen", { x: 13, y: 18 }), () => true).ok).toBe(true);
     // A side already partly fenced keeps what is there and fills the rest.
@@ -46,7 +46,7 @@ describe("quick arrange (final play-test review S3)", () => {
   });
 
   it("a tap next to the ring snaps to the nearest ring position; a tap far from it does not", () => {
-    const seg = ringSegment(3).cell;
+    const seg = ringSegment(0).cell;
     expect(snapToRing(seg)).toEqual(seg);
     expect(snapToRing({ x: seg.x, y: seg.y - 1 })).toEqual(seg);
     expect(snapToRing({ x: seg.x, y: seg.y + 1 })).toEqual(seg);
@@ -72,7 +72,7 @@ describe("quick arrange (final play-test review S3)", () => {
   it("the commit dialog's by-side line counts fenced and open positions per side (N14)", () => {
     const f = fenceSide(packedManifest(), EMPTY_FORMATION, "north");
     const by = fencesBySide(f);
-    expect(by.find((s) => s.edge === "north")).toEqual({ edge: "north", placed: 7, open: 0 });
-    expect(by.find((s) => s.edge === "west")).toEqual({ edge: "west", placed: 0, open: 7 });
+    expect(by.find((s) => s.edge === "north")).toEqual({ edge: "north", placed: 3, open: 0 });
+    expect(by.find((s) => s.edge === "west")).toEqual({ edge: "west", placed: 0, open: 5 });
   });
 });

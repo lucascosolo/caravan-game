@@ -95,7 +95,7 @@ export function coreDistSq(x: number, y: number): number {
  * RING_SPAN: the Chebyshev distance from the core block to the ring's farthest outer edge,
  * fixed-point, derived from RING_ORDER. With core 14..16 and ring 10..20 it is 4 cells.
  */
-export const RING_SPAN = (() => {
+export const RING_SPAN = /* @__PURE__ */ (() => {
   let span = 0;
   for (const c of RING_ORDER) {
     const dx = c.x < CORE_ORIGIN.x ? CORE_ORIGIN.x - c.x : c.x + 1 - (CORE_ORIGIN.x + CORE_SIZE);

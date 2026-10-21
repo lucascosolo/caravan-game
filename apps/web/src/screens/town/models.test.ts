@@ -107,7 +107,7 @@ describe("board model", () => {
   it("the town scene is a settlement: no core, no wagons, no posts or attackers; units static; board cells only for a drag", () => {
     expect(TOWN_GEOMETRY.fixtures).toBe("town");
     expect(TOWN_GEOMETRY.coreCells).toHaveLength(0);
-    expect(TOWN_GEOMETRY.anchorCells).toHaveLength(0);
+    expect(TOWN_GEOMETRY.wagons).toHaveLength(0);
     // No structure overlaps the board.
     for (const s of TOWN_STRUCTURES) for (let x = s.cell.x; x < s.cell.x + s.w; x++) for (let y = s.cell.y; y < s.cell.y + s.h; y++) expect(isBoardCell({ x, y })).toBe(false);
     const units = [rider(1), rider(2), digger(3)];

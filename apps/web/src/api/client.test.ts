@@ -31,7 +31,7 @@ describe("api client", () => {
       return new Response(JSON.stringify({ error: "x", message: "x" }), { status: 400 });
     }) as typeof fetch;
     const api = createApi({ getToken: () => "tok", fetchImpl });
-    const f = { v: 2 as const, fences: [], traps: [], posts: [] };
+    const f = { v: 3 as const, fences: [], traps: [], posts: [] };
     await api.saveFormation("c1", 1, f, { keepalive: true }).catch(() => undefined);
     await api.saveFormation("c1", 1, f).catch(() => undefined);
     expect(inits[0]!.keepalive).toBe(true);
@@ -55,7 +55,7 @@ describe("api client", () => {
       "POST /me/caravans/c1/encounters/1/search": () => ({ status: 409, body: { error: "reroll_cooldown", message: "the next free search opens in 42 s", availableAtMs: 1_700_000_000_000, gate: "time" } }),
     });
     const api = createApi({ getToken: () => "tok", fetchImpl: ff.fetch });
-    const bad = (await api.saveFormation("c1", 1, { v: 2, fences: [], traps: [], posts: [] }).catch((e: unknown) => e)) as ApiError;
+    const bad = (await api.saveFormation("c1", 1, { v: 3, fences: [], traps: [], posts: [] }).catch((e: unknown) => e)) as ApiError;
     expect(bad).toBeInstanceOf(ApiError);
     expect(bad.status).toBe(400);
     expect(bad.issues).toEqual([{ code: "unit_not_posted", message: "living unit 'u1' has no post", subject: "u1" }]);
@@ -76,7 +76,7 @@ describe("api client", () => {
       "GET /caravans/c1/manifest": () => ({ status: 200, body: { manifest: good } }),
       "GET /caravans/c2/manifest": () => ({ status: 200, body: { manifest: { ...good, survivors: { ...survivors, units: [{ ...survivors.units[0]!, hp: 1.5 }] } } } }),
       "GET /me/caravans/c1/encounters/1/candidates": () => ({ status: 200, body: { menu: { tripId: "t1", candidates: "nope" } } }),
-      "GET /caravans/c1/encounters/1/formation": () => ({ status: 200, body: { formation: { manifestId: "m1", encounterIndex: 1, formation: { v: 2, fences: [], traps: [], posts: [{ ref: "u-rider", cell: { x: 12, y: 12 } }] }, hash: "h", gaps: [], committedAt: null } } }),
+      "GET /caravans/c1/encounters/1/formation": () => ({ status: 200, body: { formation: { manifestId: "m1", encounterIndex: 1, formation: { v: 3, fences: [], traps: [], posts: [{ ref: "u-rider", cell: { x: 12, y: 12 } }] }, hash: "h", gaps: [], committedAt: null } } }),
     });
     const api = createApi({ getToken: () => "tok", fetchImpl: ff.fetch });
     const ok = await api.manifest("c1");
