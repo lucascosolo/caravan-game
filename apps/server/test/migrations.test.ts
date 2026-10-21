@@ -45,7 +45,7 @@ describe("migrations", () => {
     expect(ran.length).toBe(all.length);
     expect(await appliedMigrationIds(pool)).toEqual(all.map((m) => m.id));
     expect(await tableNames()).toEqual([
-      "account", "account_admin", "account_analytics", "account_erasure_active", "account_erasure_audit", "account_onboarding", "analytics_client_event", "authored_party", "caravan", "cosmetic_equip", "cosmetic_ownership", "device", "encounter_candidates", "encounter_log", "encounter_log_retention", "encounter_log_summary", "home_town", "inbox_preference", "inbox_read", "ledger_event", "ledger_snapshot", "pack_purchase", "pool_progress", "refugee_menu", "region",
+      "account", "account_admin", "account_analytics", "account_erasure_active", "account_erasure_audit", "account_onboarding", "analytics_client_event", "authored_party", "caravan", "caravan_layout", "cosmetic_equip", "cosmetic_ownership", "device", "encounter_candidates", "encounter_log", "encounter_log_retention", "encounter_log_summary", "home_town", "inbox_preference", "inbox_read", "ledger_event", "ledger_snapshot", "pack_purchase", "pool_progress", "refugee_menu", "region",
       "resolution_job", "schema_migrations", "session", "standing_party", "trip", "trip_cap", "trip_cap_use", "trip_encounter", "unit_instance",
       "wagon_formation", "wagon_manifest",
     ]);
@@ -69,9 +69,15 @@ describe("migrations", () => {
 
   it("does not model a persistent defensive layout, and the only purchase-shaped table is chunk 20's sandboxed pack record", async () => {
     const names = await tableNames();
+    // Chunk 51 (owner, 2026-10-20): caravan_layout is the one layout-shaped table: a caravan's last
+    // committed arrangement offered as a STARTING DRAFT. Nothing resolves from it (the per-encounter
+    // check below still holds), and it is keyed by caravan, never by account.
     for (const forbidden of ["base", "layout", "defense", "billing", "entitlement"]) {
-      expect(names.some((n) => n.includes(forbidden)), `table matching '${forbidden}'`).toBe(false);
+      expect(names.filter((n) => n.includes(forbidden) && n !== "caravan_layout"), `table matching '${forbidden}'`).toEqual([]);
     }
+    const layoutCols = (await pool.query<{ column_name: string }>("SELECT column_name FROM information_schema.columns WHERE table_name = 'caravan_layout'")).rows.map((r) => r.column_name);
+    expect(layoutCols).toContain("caravan_id");
+    expect(layoutCols).not.toContain("account_id");
     // Chunk 20 (store-guards.test.ts proves nothing battle-side references it).
     expect(names.filter((n) => n.includes("purchase"))).toEqual(["pack_purchase"]);
     // A formation may exist only per ENCOUNTER of a trip-locked manifest (chunk 07), never as
