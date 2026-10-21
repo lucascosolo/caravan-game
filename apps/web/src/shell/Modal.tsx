@@ -12,10 +12,9 @@
  * preview that is still loading, or that the server refused, is shown inside the same
  * dialog rather than a second one.
  */
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-
-const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+import { useModalFocus } from "./useModalFocus.ts";
 
 export interface ModalProps {
   readonly title: string;
@@ -37,57 +36,7 @@ export function Modal({ title, busy, onCancel, testId, children, actions, restor
   const latest = useRef({ busy, onCancel, restoreFocusTo });
   latest.current = { busy, onCancel, restoreFocusTo };
 
-  useEffect(() => {
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const dialog = ref.current;
-    const host = dialog?.parentElement ?? null;
-    const made: Element[] = [];
-    for (const el of Array.from(document.body.children)) {
-      if (el === host || el.tagName === "SCRIPT" || el.hasAttribute("inert")) continue;
-      el.setAttribute("inert", "");
-      made.push(el);
-    }
-    const first = dialog?.querySelector<HTMLElement>(FOCUSABLE);
-    (first ?? dialog)?.focus();
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        if (!latest.current.busy) latest.current.onCancel();
-        return;
-      }
-      if (e.key !== "Tab" || !dialog) return;
-      const items = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE));
-      if (items.length === 0) {
-        e.preventDefault();
-        return;
-      }
-      const firstEl = items[0]!;
-      const lastEl = items[items.length - 1]!;
-      const active = document.activeElement;
-      const inside = dialog.contains(active);
-      if (e.shiftKey && (active === firstEl || !inside)) {
-        e.preventDefault();
-        lastEl.focus();
-      } else if (!e.shiftKey && (active === lastEl || !inside)) {
-        e.preventDefault();
-        firstEl.focus();
-      }
-    };
-    document.addEventListener("keydown", onKey, true);
-    return () => {
-      document.removeEventListener("keydown", onKey, true);
-      for (const el of made) el.removeAttribute("inert");
-      if (opener?.isConnected) {
-        opener.focus();
-        return;
-      }
-      const fallback = latest.current.restoreFocusTo?.() ?? document.querySelector<HTMLElement>("main");
-      if (fallback) {
-        if (!fallback.matches(FOCUSABLE) && !fallback.hasAttribute("tabindex")) fallback.setAttribute("tabindex", "-1");
-        fallback.focus();
-      }
-    };
-  }, []);
+  useModalFocus(ref, latest);
 
   return createPortal(
     <div className={size === "full" ? "dialog-backdrop dialog-backdrop--full" : "dialog-backdrop"} data-testid={testId} onClick={() => !latest.current.busy && latest.current.onCancel()}>

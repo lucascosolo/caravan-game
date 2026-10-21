@@ -12,22 +12,67 @@
  * (--tap, --tab-h) are px on purpose.
  */
 :root {
-  --bg: #1b1a17;
-  --bg-raised: #27251f;
-  --bg-sunken: #121110;
-  --fg: #f1e9d6;
-  --fg-muted: #b5ac98;
-  --line: #3f3b32;
-  --accent: #e69f00; /* Okabe–Ito orange: primary actions */
-  --accent-fg: #1b1a17;
-  --ok: #009e73; /* Okabe–Ito bluish green: reached */
-  --info: #56b4e9; /* Okabe–Ito sky blue: affordable */
-  --warn: #d55e00; /* Okabe–Ito vermillion: errors */
-  --locked: #7a7468;
-  --radius: 10px;
-  --tap: 44px; /* minimum touch target */
-  --tab-h: calc(56px + env(safe-area-inset-bottom, 0px));
-  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* UI kit v2 tokens (UI-SYSTEM.md §3.1, §5, §11), moved here from apps/web/src/ui/kit.css. */
+  color-scheme: light;
+  accent-color: var(--brass-dark);
+
+  /* the art pixel: 2 device px on a 3x phone. The shell overrides it from iso artPixelCss() (§4.1). */
+  --px: calc(2px / 3);
+
+  --ink: #2a1a14;            --ink-soft: #5d3826;       --highlight: #fff6ce;
+  --parchment: #f9e5b0;      --parchment-shade: #deb87b;
+  --wood: #ce8445;           --wood-dark: #895225;
+  --leather: #a2622e;        --leather-dark: #683d16;
+  --brass: #fcc83a;          --brass-dark: #c18a19;
+  --iron: #626a7c;           --iron-dark: #3a4151;
+  --stone: #aaa190;          --stone-dark: #756b5f;
+  --sand: #f2c970;           --sand-shade: #dba654;     --sand-light: #fddf93;   --earth: #c28345;
+  --reached: #7aa66b;        --reached-dark: #52703d;
+  --error: #d9a196;          --error-dark: #a46c66;
+  /* reserved for units: never a UI state */
+  --settler: #4fb8b0;        --settler-dark: #247778;
+  --raider: #ec5231;         --raider-dark: #a52d16;
+
+  --scrim: rgba(42, 26, 20, .35);       /* --ink at 0.35: DOM pages only. Canvas scenes dim by palette remap (§8.7) */
+  --drop: rgba(42, 26, 20, .25);        /* --ink at 0.25: the only shadow, 2 ap down, never blurred */
+
+  --font-display: "Jersey 15", "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  --font-body: "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  --type-banner: 3.375rem;   /* 54 px: 3 ap per font pixel */
+  --type-title: 2.25rem;     /* 36 px: 2 ap per font pixel */
+  --type-label: 1.125rem;    /* 18 px: 1 ap per font pixel */
+  --type-body: 1rem;
+  --type-small: .875rem;
+  --type-sheet-title: 2.25rem; /* 36 px: every sheet and screen title, 2 ap per font pixel. Never 30 px (§5.2). */
+  --type-micro: .75rem;        /* 12 px Atkinson 700 caps: micro captions (AT RISK). Jersey 15 never goes below 18 px. */
+
+  --t-instant: 80ms; --t-quick: 160ms; --t-move: 240ms; --t-scene: 400ms; --t-moment: 1200ms;
+  --ease-ui: cubic-bezier(.2, .8, .2, 1);
+  --ease-in: cubic-bezier(.4, 0, 1, 1);
+  --ease-reward: cubic-bezier(.34, 1.56, .64, 1);
+  --stagger: 30ms;
+
+  --hud-h: 60px; --shelf-h: 64px; --target: 44px;
+  --gutter: 16px;
+
+  /* Legacy names (chunk 06 Okabe-Ito theme) mapped onto the kit (UI-SYSTEM.md §3.4), so screens not yet
+     re-skinned keep working: ink on parchment and sand, brass for primary, iron for locked. */
+  --bg: var(--sand);
+  --bg-raised: var(--parchment);
+  --bg-sunken: var(--parchment-shade);
+  --fg: var(--ink);
+  --fg-muted: var(--ink-soft);
+  --line: var(--ink);
+  --accent: var(--brass);
+  --accent-fg: var(--ink);
+  --ok: var(--reached-dark);
+  --info: var(--brass-dark);
+  --warn: var(--error-dark);
+  --locked: var(--iron);
+  --radius: 14px; /* only the focus ring and code-drawn bars round with CSS (§4.2) */
+  --tap: var(--target);
+  --tab-h: calc(64px + 8px + env(safe-area-inset-bottom, 0px)); /* the saddlebag strap floats 8 px up */
+  --font: var(--font-body);
 }
 
 * {

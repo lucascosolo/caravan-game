@@ -36,6 +36,14 @@ export const STRINGS = {
     party: "Party",
     webs: "Webs",
   },
+  /** C4a: default labels of the shared UI kit components (apps/web/src/ui). */
+  ui: {
+    close: "Close",
+    resize: "Resize sheet",
+    dismiss: "Dismiss",
+    hold: "Hold to confirm",
+    resources: "Resources",
+  },
   auth: {
     signIn: "Sign in",
     register: "Start a caravan",
