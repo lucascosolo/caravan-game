@@ -44,6 +44,62 @@ overrun costs −20.
 
 ---
 
+## Pass 9 — 2026-10-21 (chunk 50: the guide's layout on the round wagon ring). RESOLVER_VERSION 10 (chunk 50's bump).
+
+No unit stat, authored party or tunable changed: `AUTHORED_SET_VERSION`, `FENCE_MATERIAL_BUDGET`
+(11) and the 60 % gate are as chunk 50 left them. Only the guide's "Arrange for me" rule changed
+(`@caravan/circle` `guideLayout.ts`, shared by the client checklist and the harness).
+
+**Why the guided layout lost on the round ring.** One raider reaching the core is an overrun, and
+the ring's core sits about four cells inside it. Two things in the square-camp rule broke:
+
+- *The leftover openings faced the raiders.* The rest of the fence went side by side (main side,
+  then sides by raider count, then ENTRY_EDGES order). The ring's sides are labels on a circle:
+  "west" positions 13 and 14 sit on the north-west diagonal, a few cells from the north band, and
+  with 11 segments for 16 positions they were the ones left open. Dry Gulch Boys (2 core runners,
+  one edge) went straight through them: overrun at tick 150 with the defenders untouched, 7 / 56.
+- *Every post stood behind the main gap.* Against 2- and 4-edge `nearest` parties the far-side
+  raiders broke or walked through an opening the posts could not reach in time (Windmill, Alkali,
+  Hardrock overruns at ~85–90 % defender HP, no deaths).
+
+A fence budget sweep 8..15 did not help because neither cause is the amount of fence.
+
+**The rule now.** Step 3: posts go round-robin over the edges raiders start on (most raiders
+first); a main-side unit behind the gap as before, any other side's unit on the core front two
+cells toward that side. Step 5: the rest of the fence goes nearest a raider's entry edge first,
+so the openings the budget cannot close are the farthest from the raiders. Steps 1, 2 and 4 are
+unchanged. Variants measured and rejected (`low-bands.ts`, held of 56, outfits under the bar):
+posts deeper / shallower / at the core or midway (5–7 under); threat-ordered fence with the old
+posts (5 under: Dry Gulch fixed, the multi-edge outfits not); posts evenly round the core (4–5
+under); the sum of edge distances instead of the nearest (2 under: Hardrock, Snake Oil).
+
+`low-bands.ts`, guided vs 56 fresh guided packs, before → after:
+
+| outfit | before | after |
+|---|---|---|
+| Dry Gulch Boys (b0, 2 core, 1 edge) | 7 | 56 |
+| Prairie Wolf Pack (b0, 2 nearest, 2 edges) | 26 | 56 |
+| Alkali Freighters (b0, 4 nearest, 4 edges) | 33 | 56 |
+| Windmill Gang (b0, 4 nearest, 4 edges) | 30 | 56 |
+| Hardrock Hirelings (b0, 4 nearest, 4 edges) | 26 | 40 |
+| Claim Jumpers' League (b0) | 41 | 52 |
+| Snake Oil Caravan (b1, 4 nearest, 4 edges) | 13 | 37 |
+| Rattler Den Gang (b1) | 46 | 42 |
+| Buffalo Wallow Crew (b1) | 35 | 56 |
+| Vulture Roost Crew (b1) | 47 | 46 |
+| Mesa Line Riders (b1) | 43 | 47 |
+| The Avalanche Club (b1) | 49 | 53 |
+| The Cistern Gang (b1) | 51 | 51 |
+| every other band 0–1 outfit | 56 | 56 |
+
+- Band 0 74 % → **97 %**, band 1 84 % → **91 %** (square camp, pass 8: 97 % / 93 %). Under the
+  bar: 6 → 0. Lowest: Snake Oil 37 / 56 (66 %) and Hardrock 40 / 56 (71 %), the two 4-edge
+  `nearest` outfits; the next balance pass should watch them.
+- The CI slice (`balance-sweep.test.ts`) passes whole: first trip ≥ 70 % and pushed encounter 2
+  ≥ 60 %, the authored-only phase ≥ 50 %, the raised gate, skill over naive.
+
+---
+
 ## Pass 8 — 2026-10-20 (the authored-only phase: bands 0–1 re-authored; the guide's raise). RESOLVER_VERSION unchanged at 9.
 
 No resolver code changed, and no unit stat or tunable that a fight reads changed. The goldens and

@@ -10,6 +10,7 @@ export {
   GUIDE_POST_NEAR_GAP_CELLS,
   GUIDE_TRAP_NEAR_GAP_CELLS,
   applyMainFence,
+  postTarget,
   applyOpenGap,
   applyPosts,
   applyRestOfFence,

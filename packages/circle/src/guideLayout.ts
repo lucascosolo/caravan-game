@@ -9,13 +9,18 @@
  *      west; no units: the party's first scouted edge, else north);
  *   2. the gap = the middle ring position of that side; every other position on that side is
  *      fenced with the healthiest intact segments still in the wagon (then by ref);
- *   3. every living, unposted unit is posted, in manifest order, on the legal cell nearest the
- *      cell two steps inward from the gap (squared distance, then row, then column), keeping the
- *      cell one step inward free; default stance (guard);
+ *   3. every living, unposted unit is posted, in manifest order, round-robin over the edges
+ *      raiders start on (most raiders first, the main side first): a main-side unit on the legal
+ *      cell nearest the cell two steps inward from the gap, any other side's unit on the legal
+ *      cell nearest the core front two cells toward that side (squared distance, then row, then
+ *      column), keeping the cell one step inward from the gap free; default stance (guard). On the
+ *      round ring (chunk 50) one raider through any opening overruns the core, which sits close to
+ *      the ring, so a party from several sides needs a post on each (BALANCE-LOG pass 9);
  *   4. the first unspent, unplaced trap is laid on the legal cell nearest one step inward from
  *      the gap, avoiding posted cells;
- *   5. the rest of the fence: the main side, then the other sides by raiders (most first, ties
- *      in ENTRY_EDGES order), each side in ring order, gap left open, until the wagon is empty.
+ *   5. the rest of the fence: every other position, nearest a raider's entry edge first (ties in
+ *      ring order), gap left open, until the wagon is empty, so the openings the material cannot
+ *      close are the ones farthest from the raiders (BALANCE-LOG pass 9).
  * Destroyed segments, spent traps and dead units are simply absent from what can be placed, so
  * the same rule serves encounter 1 and a pushed encounter 2 with its carried-forward losses.
  *
@@ -25,7 +30,7 @@
  * shape, not a solver: nothing here predicts or simulates the fight.
  */
 import { DEFAULT_DEFENSIVE_STANCE, EMPTY_FORMATION, FORMATION_VERSION, validateFormation, type Formation } from "./formation.js";
-import { ENTRY_EDGES, GRID_HEIGHT, GRID_WIDTH, RING_SEGMENTS, isAnyEntryCell, isCell, isCoreCell, isRingOrAnchorCell, ringIndexAt, ringSegment, sameCell, type Cell, type EntryEdge } from "./lattice.js";
+import { CORE_CENTER_CELL, ENTRY_EDGES, GRID_HEIGHT, GRID_WIDTH, RING_SEGMENTS, isAnyEntryCell, isCell, isCoreCell, isRingOrAnchorCell, ringIndexAt, ringSegment, sameCell, type Cell, type EntryEdge } from "./lattice.js";
 import { isFenceIntact, isUnitAlive, type Manifest } from "./manifest.js";
 
 /** What the layout reads of the chosen party: each raider's entry edge, and the edges it uses. */
@@ -70,7 +75,26 @@ export function gapSegment(edge: EntryEdge): number {
   return side[Math.floor(side.length / 2)]!;
 }
 
-/** Cells `k` steps inward from the gap: 1 = where the trap goes, 2 = where the post goes. */
+/** The edges raiders start on, most first (the main edge alone when none is scouted). */
+function threatenedEdges(scout: GuideScoutLike): readonly EntryEdge[] {
+  const edges = raidersByEdge(scout).filter((e) => e.raiders > 0).map((e) => e.edge);
+  return edges.length > 0 ? edges : [mainEdge(scout)];
+}
+
+/** Where the i-th unit posted goes: behind the gap for the main side, else the core front toward its side. */
+export function postTarget(scout: GuideScoutLike, i: number): Cell {
+  const main = mainEdge(scout);
+  const edges = threatenedEdges(scout);
+  const edge = edges[i % edges.length]!;
+  return edge === main ? inwardFromGap(main, 2) : add(CORE_CENTER_CELL, INWARD[edge], -2);
+}
+
+/** Cells from `cell` to `edge`'s side of the lattice. */
+function edgeDistance(edge: EntryEdge, cell: Cell): number {
+  return edge === "north" ? cell.y : edge === "south" ? GRID_HEIGHT - 1 - cell.y : edge === "west" ? cell.x : GRID_WIDTH - 1 - cell.x;
+}
+
+/** Cells `k` steps inward from the gap: 1 = where the trap goes, 2 = where the main side's post goes. */
 export function inwardFromGap(edge: EntryEdge, k: number): Cell {
   return add(ringSegment(gapSegment(edge)).cell, INWARD[edge], k);
 }
@@ -213,9 +237,9 @@ export function arrangeStatus(m: Manifest, f: Formation, scout: GuideScoutLike):
   const freeTraps = unplacedTrapRefs(m, f);
   const unposted = unpostedUnitRefs(m, f);
   const trapCell = inwardFromGap(edge, 1);
-  const postCell = inwardFromGap(edge, 2);
   const firstUnposted = unposted[0];
-  const nextPost = firstUnposted ? cellFor(m, f, firstUnposted, postCell, [trapCell]) : null;
+  const postedAlive = m.units.filter((u) => isUnitAlive(u) && f.posts.some((p) => p.ref === u.ref)).length;
+  const nextPost = firstUnposted ? cellFor(m, f, firstUnposted, postTarget(scout, postedAlive), [trapCell]) : null;
   const firstTrap = freeTraps[0];
   const nextTrap = traps.length === 0 && firstTrap ? cellFor(m, f, firstTrap, trapCell, f.posts.map((p) => p.cell)) : null;
   return {
@@ -263,15 +287,14 @@ export function applyOpenGap(f: Formation, scout: GuideScoutLike): Formation {
   return ref ? without(f, ref) : f;
 }
 
-/** Post every living, unposted unit as near the spot behind the gap as circle allows, keeping the trap's cell free. */
+/** Post every living, unposted unit round-robin over the raiders' edges (postTarget), keeping the trap's cell free. */
 export function applyPosts(m: Manifest, f: Formation, scout: GuideScoutLike): Formation {
-  const edge = mainEdge(scout);
-  const target = inwardFromGap(edge, 2);
-  const keep = inwardFromGap(edge, 1);
+  const keep = inwardFromGap(mainEdge(scout), 1);
   let out = f;
+  let i = 0;
   for (const u of m.units.filter(isUnitAlive)) {
     if (out.posts.some((p) => p.ref === u.ref)) continue;
-    const cell = nearestLegalCell(m, out, u.ref, target, [keep]);
+    const cell = nearestLegalCell(m, out, u.ref, postTarget(scout, i++), [keep]);
     if (cell) out = withPost(out, u.ref, cell);
   }
   return out;
@@ -285,19 +308,18 @@ export function applyTrap(m: Manifest, f: Formation, scout: GuideScoutLike): For
   return cell ? withTrap(f, t, cell) : f;
 }
 
-/** The remaining segments on the other sides, most raiders first, each side in ring order; the gap stays open. */
+/** The remaining positions, nearest a raider's entry edge first (ties in ring order); the gap stays open. */
 export function applyRestOfFence(m: Manifest, f: Formation, scout: GuideScoutLike): Formation {
-  const edge = mainEdge(scout);
-  const gap = gapSegment(edge);
-  const order = [edge, ...raidersByEdge(scout).map((e) => e.edge).filter((e) => e !== edge)];
+  const gap = gapSegment(mainEdge(scout));
+  const edges = threatenedEdges(scout);
+  const near = (s: number): number => Math.min(...edges.map((e) => edgeDistance(e, ringSegment(s).cell)));
+  const order = RING_SEGMENTS.map((s) => s.index).sort((a, b) => near(a) - near(b) || a - b);
   let out = f;
-  for (const e of order) {
-    for (const s of sideSegments(e)) {
-      if (s === gap || fenceAtSegment(out, s) !== null) continue;
-      const ref = unplacedFenceRefs(m, out)[0];
-      if (!ref) return out;
-      if (guideDropOk(m, out, ref, ringSegment(s).cell)) out = withFence(out, ref, s);
-    }
+  for (const s of order) {
+    if (s === gap || fenceAtSegment(out, s) !== null) continue;
+    const ref = unplacedFenceRefs(m, out)[0];
+    if (!ref) return out;
+    if (guideDropOk(m, out, ref, ringSegment(s).cell)) out = withFence(out, ref, s);
   }
   return out;
 }

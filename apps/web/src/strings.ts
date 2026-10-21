@@ -1487,13 +1487,13 @@ export const STRINGS = {
     stepPost: (unit: string): string => `Post your ${unit} behind the gap`,
     stepPostWhy: (x: number, y: number): string => `At (${x}, ${y}), just inside the gap, it can reach whatever comes through.`,
     stepPostDo: (unit: string, x: number, y: number): string => `Post ${unit} at (${x}, ${y})`,
-    stepPostMore: (n: number): string => `Post the other ${n === 1 ? "unit" : `${n} units`} near the gap`,
+    stepPostMore: (n: number): string => `Post the other ${n === 1 ? "unit" : `${n} units`}: one in front of the core toward each side raiders come from, the rest behind the gap`,
     stepTrap: (trap: string): string => `Lay the ${trap} in the gap's path`,
     stepTrapWhy: (x: number, y: number): string => `At (${x}, ${y}), between the gap and your post: a raider coming through steps on it first.`,
     stepTrapDo: (trap: string, x: number, y: number): string => `Lay ${trap} at (${x}, ${y})`,
     stepTrapNone: "No trap left to lay this encounter.",
     stepRest: "Use the rest of the fence",
-    stepRestWhy: "Every opening is a way in. The rest of your segments go on the sides with the most raiders first. Your budget cannot close the whole ring, so some gaps stay: you choose where.",
+    stepRestWhy: "Every opening is a way in. The rest of your segments go on the positions nearest where raiders start. Your budget cannot close the whole ring, so some gaps stay: you choose where.",
     stepRestDo: "Place the rest of the fence",
     stepDone: "Done",
     stepTodo: "To do",
@@ -1547,7 +1547,7 @@ export const STRINGS = {
     freeTitle: "Encounter 2: your arrangement",
     /** Round 3 decision: the authored-only phase's optional help, after the onboarding guide. */
     assistArrangeLine: (edge: string): string =>
-      `The guide's shape for this party: fence the ${edge} side but its middle, post your units behind that gap with a trap in front if you packed one, then the rest of the fence. It replaces what is placed now; you can change anything before you commit.`,
+      `The guide's shape for this party: fence the ${edge} side but its middle, post a unit behind that gap and one in front of the core toward each other side raiders come from, with a trap in front of the gap if you packed one, then the rest of the fence nearest the raiders. It replaces what is placed now; you can change anything before you commit.`,
     assistArrangeDo: "Arrange for me",
     assistAdviceTitle: "The guide's reading",
     /** Round 3: the guided steps come back at every guided encounter, read off this party and what is left. */

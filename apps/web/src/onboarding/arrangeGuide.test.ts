@@ -1,9 +1,9 @@
-import { EMPTY_FORMATION, formationGaps, ringSegment, validateFormation } from "@caravan/circle";
+import { CORE_CENTER_CELL, EMPTY_FORMATION, formationGaps, ringSegment, validateFormation } from "@caravan/circle";
 import { TUNABLES } from "@caravan/content";
 import { describe, expect, it } from "vitest";
 import { packedManifest, survivorsManifest } from "../test/circleFixtures.ts";
 import { fixtureScoutFor } from "../screens/trail/scoutFixture.ts";
-import { applyMainFence, applyOpenGap, applyPosts, applyRestOfFence, applyTrap, arrangeStatus, gapSegment, guidedFormation, inwardFromGap, mainEdge, raidersByEdge, sideSegments } from "./arrangeGuide.ts";
+import { applyMainFence, applyOpenGap, applyPosts, applyRestOfFence, applyTrap, arrangeStatus, gapSegment, guidedFormation, inwardFromGap, mainEdge, postTarget, raidersByEdge, sideSegments } from "./arrangeGuide.ts";
 
 const scout = fixtureScoutFor(1); // 2 raiders north, 1 east
 const west = fixtureScoutFor(2); // 4 west, 1 south
@@ -95,5 +95,40 @@ describe("the guided arrangement (chunk 24)", () => {
     }
     // A pushed encounter from the west: the gap moves to the west side's middle.
     expect(guidedFormation(survivorsManifest(), west).posts[0]!.cell).toEqual(inwardFromGap("west", 2));
+  });
+});
+
+describe("round ring: posts spread over the threatened edges, the rest of the fence nearest the raiders", () => {
+  it("postTarget: unit 0 behind the main gap, the next threatened edge at the core centre moved two cells toward it", () => {
+    expect(postTarget(scout, 0)).toEqual(inwardFromGap("north", 2));
+    expect(postTarget(scout, 1)).toEqual({ x: CORE_CENTER_CELL.x + 2, y: CORE_CENTER_CELL.y }); // east: the core centre + 2 in x
+    expect(postTarget(scout, 2)).toEqual(postTarget(scout, 0));
+  });
+
+  it("the guided posts put unit 0 north and unit 1 east of the core, a third back on the main edge", () => {
+    const f = applyPosts(packedManifest(), EMPTY_FORMATION, scout);
+    expect(f.posts).toHaveLength(3);
+    expect(f.posts[0]!.cell).toEqual({ x: 17, y: 13 });
+    expect(f.posts[1]!.cell.x).toBeGreaterThan(CORE_CENTER_CELL.x);
+    expect(f.posts[2]!.cell.y).toBeLessThan(CORE_CENTER_CELL.y);
+  });
+
+  it("nextPost, once one unit is posted, targets the second threatened edge", () => {
+    const m = packedManifest();
+    const f = { ...EMPTY_FORMATION, posts: [{ ref: m.units[0]!.ref, cell: { x: 17, y: 13 }, stance: "guard" as const }] };
+    const next = arrangeStatus(m, f, scout).nextPost!;
+    expect(next.ref).toBe(m.units[1]!.ref);
+    expect(next.cell.x).toBeGreaterThan(CORE_CENTER_CELL.x);
+  });
+
+  it("a north-only scout leaves the far (south) side of the ring open", () => {
+    const m = packedManifest();
+    const north = { units: [{ edge: "north" as const }, { edge: "north" as const }], edges: ["north" as const] };
+    const f = applyRestOfFence(m, applyOpenGap(applyMainFence(m, EMPTY_FORMATION, north), north), north);
+    expect(f.fences).toHaveLength(TUNABLES.FENCE_MATERIAL_BUDGET);
+    const fenced = new Set(f.fences.map((p) => p.segment));
+    const open = [...Array(16).keys()].filter((i) => !fenced.has(i) && i !== gapSegment("north"));
+    expect(open.length).toBeGreaterThan(0);
+    for (const i of open) expect(ringSegment(i).cell.y).toBeGreaterThan(CORE_CENTER_CELL.x);
   });
 });

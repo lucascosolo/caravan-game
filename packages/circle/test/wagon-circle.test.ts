@@ -115,6 +115,13 @@ describe("Arrange for me (guidedFormation) on the round ring", () => {
           expect(isGuidePlaceableCell(c)).toBe(true);
         }
       });
+      it("fences the sides nearest the raiders first: no open position is nearer the main edge than a fenced one", () => {
+        const dist = (c: Cell): number => (edge === "north" ? c.y : edge === "south" ? 2 * CORE_CENTER_CELL.y - c.y : edge === "west" ? c.x : 2 * CORE_CENTER_CELL.x - c.x);
+        const open = RING_SEGMENTS.filter((s) => s.index !== gapSegment(edge) && !f.fences.some((p) => p.segment === s.index));
+        expect(open.length).toBeGreaterThan(0);
+        const maxFenced = Math.max(...f.fences.map((p) => dist(RING_SEGMENTS[p.segment]!.cell)));
+        for (const s of open) expect(dist(s.cell)).toBeGreaterThanOrEqual(maxFenced);
+      });
     });
   }
 });
