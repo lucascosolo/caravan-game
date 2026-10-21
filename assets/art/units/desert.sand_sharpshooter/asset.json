@@ -1,0 +1,15 @@
+{
+  "footprint": [
+    20,
+    27
+  ],
+  "anchor": [
+    9.33,
+    26.33
+  ],
+  "poses": {
+    "idle": [
+      "master.png"
+    ]
+  }
+}

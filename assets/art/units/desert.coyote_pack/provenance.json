@@ -1,0 +1,31 @@
+{
+  "source": "wiro/gen-2026-10-20-pass2/gpt-image-2.5-flare-transparent__coyote__ref_0.png",
+  "model": "openai/gpt-image-2.5-flare (via Wiro, transparent background)",
+  "prompt": "Use the attached image only as a reference for the design, colours, outline weight and proportions. Draw a new, clean, more detailed version of the same subject in the same style. A single game sprite for a cosy frontier pixel-art game: a clean 2D illustration with flat colours and simple two-tone shading, chunky simple shapes with few small details, chunky cute proportions with a big head, a large clear face with big simple eyes, big hands, a thick dark brown outline around the whole silhouette, light from the upper left. Isometric three-quarter view, facing down and to the right, the whole subject visible and centred. No ground, no cast shadow, no text, no border. The background is fully transparent. Subject: a real desert coyote standing on all four legs (an animal, not standing upright), seen from the side and turned slightly toward the viewer, lean body, oversized pointed ears, a bushy dark-tipped tail, tawny brown fur, wearing a turquoise neckerchief.",
+  "params": {
+    "resolution": "1k",
+    "ratio": "1:1",
+    "quality": "medium",
+    "background": "transparent",
+    "outputFormat": "png",
+    "samples": "1",
+    "moderation": "low"
+  },
+  "seed": null,
+  "cost_usd": 0.013,
+  "date": "2026-10-20T22:58:22Z",
+  "wiro_task": "4718828",
+  "reference": "the look-test sprite of the same subject (assets/reference/look-test-2026-10-20)",
+  "licence": "Generated for the owner of Caravan Vaults with OpenAI GPT Image 2.5 through Wiro (paid by the owner); output owned by the owner under the provider's terms; no third-party assets.",
+  "accepted": "owner, 2026-10-20 (middle-path painted look)",
+  "intake": {
+    "tool": "pnpm art:intake",
+    "harmonise_strength": 0.35,
+    "outline_px": {
+      "1": 1,
+      "2": 1,
+      "3": 2
+    },
+    "master_dpr": 3
+  }
+}
