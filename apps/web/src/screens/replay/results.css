@@ -1,0 +1,74 @@
+/* C4c: the replay and the post-fight screens on kit v2 (UI-SYSTEM §14.7–14.9). Layout only; every
+   material, stamp and meter is a kit class. */
+
+/* ---------- moments: banner, stamp, depth, ribbon */
+.rs-outcome { margin: 18px auto 12px; max-width: 100%; }
+.rs-outcome .cv-outcome__word { gap: 8px; min-width: 0; max-width: 100%; font-size: var(--type-title); white-space: normal; text-wrap: balance; padding-left: calc(40 * var(--px)); padding-right: calc(40 * var(--px)); }
+.rs-outcome__emblem { flex: none; }
+.rs-outcome .rs-stamp { position: absolute; right: 4px; top: -14px; z-index: 2; }
+.rs-outcome--hero .cv-outcome__word { font-size: var(--type-banner); }
+.rs-depth { margin: 6px 0; }
+.rs-depth__pct { font-size: var(--type-title); min-width: 2.6em; text-align: left; }
+.rs-depth__words { flex: 1; min-width: 0; line-height: 1.3; }
+.rs-ribbon { flex: none; }
+
+/* ---------- ledger rows (§8.10): icon, words, value right */
+.rs-ledger { list-style: none; margin: 0; padding: 0; }
+.rs-ledger > li { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 0; border-bottom: var(--px) solid var(--parchment-shade); line-height: 1.3; }
+.rs-ledger > li:last-child { border-bottom: 0; }
+.rs-ledger > li > .cv-art { flex: none; }
+.rs-ledger .hint { margin: 0; }
+.rs-group + .rs-group { margin-top: 8px; }
+.rs-group > .cv-label { display: flex; align-items: center; gap: 6px; margin: 4px 0 2px; }
+.rs-group > .cv-label::after { content: ""; flex: 1; height: calc(3 * var(--px)); background: var(--wood-dark); box-shadow: 0 var(--px) 0 var(--ink); }
+
+/* ---------- a result card: the banner hangs above the parchment card */
+.rs-result { display: grid; gap: 6px; }
+.rs-result__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.rs-result__head > :is(h2, h3) { margin: 0; font-family: var(--font-display); font-size: var(--type-label); text-transform: uppercase; letter-spacing: var(--px); font-weight: 400; }
+.rs-coinline { display: flex; align-items: center; gap: 10px; }
+
+/* ---------- the decision: stakes as nailed notes, the two choices side by side */
+.rs-decide { display: grid; gap: 14px; }
+.rs-decide > h1 { font-family: var(--font-display); font-size: var(--type-sheet-title); font-weight: 400; line-height: 1.05; margin: 8px 0 0; }
+.rs-decide .cv-note > h2, .rs-decide .cv-card > h2 { font-family: var(--font-display); font-size: var(--type-label); font-weight: 400; text-transform: uppercase; letter-spacing: var(--px); margin: 0 0 4px; }
+.rs-stake-big { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rs-risk { position: relative; }
+.rs-choices { position: sticky; bottom: 0; z-index: 2; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: end; padding: 10px 0 6px; }
+.rs-choices .cv-btn { width: 100%; }
+.rs-choices .cv-btn--primary { min-height: calc(84 * var(--px)); }
+.rs-choice-cap { display: block; font-family: var(--font-body); font-size: var(--type-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; text-align: center; margin-bottom: 2px; color: var(--ink); }
+.rs-unit { display: grid; gap: 2px; }
+.rs-unit[data-alive="false"] { color: var(--ink-soft); }
+.rs-unit__name { display: flex; align-items: center; gap: 6px; font-weight: 700; }
+
+/* ---------- trip end */
+.rs-summary { display: grid; gap: 14px; }
+.rs-summary > h1 { font-family: var(--font-display); font-size: var(--type-sheet-title); font-weight: 400; margin: 8px 0 0; text-align: center; }
+.rs-summary__encounters { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.rs-summary__encounters > li > details > summary { cursor: pointer; padding: 8px 0; font-family: var(--font-display); font-size: var(--type-label); text-transform: uppercase; letter-spacing: var(--px); }
+
+/* ---------- the replay: sand stage, ticker scrim over the field, medallion transport */
+.rs-replay .replay__stage { background: var(--sand) url(../../ui/assets/tiles/sand.png) 0 0 / calc(864 * var(--px)) calc(576 * var(--px)) repeat; border-bottom: 0; padding-bottom: 0; }
+.rs-replay .replay__field { overflow: hidden; }
+.rs-siege { position: absolute; left: 8px; top: 8px; z-index: 2; max-width: calc(100% - 16px); }
+.rs-siege .cv-small { white-space: normal; }
+.rs-ticker { position: relative; height: auto; min-height: calc(3 * 1.35em + 30px); margin: 0 -16px; list-style: none; }
+.rs-ticker > li { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.rs-ticker > li:first-child { font-weight: 700; }
+.rs-ticker .hint, .rs-ticker .replay__at { color: var(--brass); margin-right: 4px; }
+.rs-transport { display: flex; align-items: flex-start; justify-content: center; gap: 6px; flex-wrap: wrap; }
+.rs-transport .cv-medlab__word { white-space: nowrap; }
+.rs-scrubrow { display: flex; align-items: center; gap: 10px; }
+.rs-scrubrow .replay__scrub { flex: 1; accent-color: var(--brass-dark); }
+.rs-scrubrow .replay__time { font-family: var(--font-display); font-size: var(--type-label); flex: none; }
+.rs-speeds { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.rs-end { margin-top: 8px; display: grid; gap: 6px; justify-items: center; text-align: center; }
+.rs-end .rs-outcome { margin-top: 10px; }
+.rs-end__row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; width: 100%; }
+.rs-feed .cv-tabs { padding: 0 0 6px; }
+.rs-feed .replay__line { border-bottom: var(--px) solid var(--parchment-shade); }
+.rs-feed > .sheet__head { display: grid; gap: 4px; }
+.rs-feed > .sheet__head h3 { margin: 0; font-family: var(--font-display); font-size: var(--type-label); font-weight: 400; text-transform: uppercase; letter-spacing: var(--px); }
+.rs-summary-note { margin-top: 6px; }
+.rs-summary-note h3, .rs-summary-note .h3 { font-family: var(--font-display); font-size: var(--type-label); font-weight: 400; text-transform: uppercase; letter-spacing: var(--px); margin: 8px 0 2px; }
