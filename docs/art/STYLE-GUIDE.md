@@ -198,6 +198,12 @@ Image 2.5 (Flare)** matched that look at about a quarter of the price ($0.013 ag
 per medium 1k image) and returned a real transparent background, so it is the default for
 production runs. GPT Image 2 on a solid magenta backdrop also keys cleanly and is the fallback.
 
+**Before every generation brief, look at the owner's original board**,
+`assets/reference/style-board-v1.png` (owner, 2026-10-20: "revisit the original reference photo
+before generating buildings and other assets"). Take its traits into the prompt (exaggerated but
+readable silhouettes, false fronts, porches, water towers and signs, lived-in detail, warm but not
+uniformly orange) and pass it as a reference image where the model accepts more than one.
+
 **Generating sources:** ask for a clean, flat-colour
 illustration at large size, not for "pixel art". Generators draw fake pixels that sit off the
 grid, and downscaling clean flat art works better. A prompt names the subject and its one
