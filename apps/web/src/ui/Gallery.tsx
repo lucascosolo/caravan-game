@@ -6,6 +6,7 @@ import { StrictMode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "../theme.css";
 import "./kit.css";
+import { SessionProvider } from "../auth/session.tsx";
 import { AppShell } from "../shell/AppShell.tsx";
 import { HudPortal } from "../shell/HudPortal.tsx";
 import { Button, CommitBanner } from "./Button.tsx";
@@ -108,8 +109,12 @@ function Gallery(): JSX.Element {
   );
 }
 
+const stubFetch = (async () => new Response(JSON.stringify({ unreadCount: 2 }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <Gallery />
+    <SessionProvider fetchImpl={stubFetch} autoResume={false}>
+      <Gallery />
+    </SessionProvider>
   </StrictMode>,
 );

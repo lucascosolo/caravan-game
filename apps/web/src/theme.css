@@ -116,6 +116,21 @@ a {
   height: auto;
   flex-wrap: nowrap;
   min-width: 0;
+  gap: 4px;
+  padding-left: 14px;
+  padding-right: var(--gutter);
+}
+/* At 320-390 px the player chip gives way first: its name truncates, the screen's chips keep their numbers. */
+.shell .cv-hud > .cv-chip:first-child {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.shell .cv-hud > .cv-chip:first-child .cv-num {
+  min-width: 0;
+  max-width: 7em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .shell__slot {
   display: contents;
@@ -1371,3 +1386,21 @@ h1.cv-sign {
 .admin-rate__track { display: inline-block; width: 60px; height: 6px; background: var(--bg-sunken); border-radius: 3px; overflow: hidden; }
 .admin-rate__fill { display: block; height: 100%; background: var(--info); border-radius: 3px; }
 .admin-window select { min-height: var(--tap); }
+
+/* ---------- kit Sheet host (ui/Sheet.tsx): the DOM scrim over the page, the sheet pinned to the bottom ---------- */
+.cv-sheet-host {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: var(--scrim);
+}
+.cv-sheet-host > .cv-sheet {
+  left: max(0px, calc(50% - 360px));
+  right: max(0px, calc(50% - 360px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.cv-sheet-host > .cv-sheet--half {
+  height: auto;
+  min-height: 50%;
+  max-height: calc(100% - var(--hud-h) - 4px);
+}
