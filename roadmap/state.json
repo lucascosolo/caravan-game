@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-21T03:25:00Z",
+  "updated_at": "2026-10-21T09:40:00Z",
   "written_by": "PC session, Phase 2 start (art direction reopened before building the pipeline)",
   "handoff_note": "roadmap/HANDOFF.md",
   "repo": {
@@ -76,8 +76,8 @@
       "index_label": "built"
     },
     "26": {
-      "status": "not_started",
-      "note": "art pipeline; iso/skins.ts throws on kind sprite"
+      "status": "built",
+      "note": "art pipeline built 2026-10-21; QA pending"
     },
     "27": {
       "status": "not_started",
@@ -137,6 +137,12 @@
     },
     "46-49": {
       "status": "out_of_scope_v1"
+    },
+    "50": {
+      "status": "built"
+    },
+    "51": {
+      "status": "built"
     }
   },
   "chunk_status_note": "punch_list_closed means the punch list is closed and the chunk passed the final review rounds and the confirmation reviews; nobody has re-labelled it done in INDEX.md yet",
@@ -488,5 +494,56 @@
       "e2e:hosting"
     ],
     "note": "the first run's one server-test failure came from trust auth in the new local cluster; fixed by switching pg_hba to scram"
+  },
+  "playtest_build": {
+    "plan": "roadmap/plans/playtest-build.md",
+    "owner_said": "Keep working until the game is ready for me to test",
+    "head": "16680ec",
+    "chunks": {
+      "26_art_pipeline": "built (packages/art, assets/art with 8 painted assets, sprite skins, art:check in pnpm check)",
+      "50_round_wagon_circle": "built (RESOLVER_VERSION 10, BATTLEFIELD_VERSION 3, migration 031, guide layout retuned, BALANCE-LOG pass 9)",
+      "51_saved_layouts": "built (migration 032 caravan_layout, auto-load with rotation, hints until 10 banked trips)",
+      "camp_renderer": "built (tile 40x20, whole camp framed at ~89% width, baked ground, curved fence runs, DPR 3); not yet seen on a WebGL screen by the coordinator",
+      "ui_reskin": "built (UI kit v2: shell, town, party, webs, inbox, store, account, login, trail, formation, replay, results; hold-to-commit on Circle the wagons and Ride out)"
+    },
+    "last_check": {
+      "command": "DETERMINISM_BASE_REF=3d13921 ~/.cache/caravan/with-pg.sh pnpm check",
+      "commit": "16680ec",
+      "finished_at": "2026-10-21T09:37:00Z",
+      "passed": [
+        "typecheck",
+        "lint",
+        "test:boundary",
+        "test",
+        "determinism",
+        "perf:resolver",
+        "build",
+        "art:check",
+        "migrate",
+        "smoke"
+      ],
+      "failed": [
+        "e2e (no browser on Ubuntu 26.04)"
+      ],
+      "not_run": [
+        "e2e:hosting"
+      ],
+      "tests": {
+        "server": "854 passed, 1 skipped",
+        "web": 607,
+        "resolver": 637,
+        "circle": 188,
+        "content": 82,
+        "art": 34
+      }
+    },
+    "how_to_test": "~/.cache/caravan/run-playtest.sh in the owner's own terminal (builds, migrates, seeds, serves game+API on 0.0.0.0:3000; prints LAN addresses); hosting on a server needs the owner's yes",
+    "known_gaps": [
+      "no e2e run on this PC (Playwright cannot install browsers on Ubuntu 26.04)",
+      "camp renderer not visually verified by the coordinator (no WebGL in its browsers); harness at https://claude.ai/artifact/Gsp2hPyfwtX995dD6JkG9g",
+      "only 3 of 32 unit types and the wagons have painted art; the rest use placeholder skins",
+      "town buildings are code-drawn; generate them next, starting from the style board",
+      "bank-or-push screen is still a long column of cards; candidates stack rather than swipe"
+    ]
   }
 }
