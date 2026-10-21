@@ -9,9 +9,11 @@ import {
   GRID_WIDTH,
   HALF_CELL,
   PATH_CONNECTIVITY,
+  INTERIOR_POST_CELLS,
   PERIMETER_SEGMENTS,
   RING_ANCHORS,
   RING_ANCHOR_CELLS,
+  RING_ORDER,
   RING_SEGMENTS,
   cellCenter,
   cellDistSq,
@@ -27,6 +29,7 @@ import {
   isCoreReachableFrom,
   isEntryCell,
   isInBounds,
+  isInsideRing,
   isRingCell,
   isRingOrAnchorCell,
   neighbours4,
@@ -85,45 +88,43 @@ describe("caravan core", () => {
 });
 
 describe("fence ring", () => {
-  it("has PERIMETER_SEGMENTS positions which, with the four anchors, form one closed loop around the core", () => {
-    expect(PERIMETER_SEGMENTS).toBe(28);
-    expect(TUNABLES.PERIMETER_SEGMENTS).toBe(28);
-    expect(RING_SEGMENTS).toHaveLength(28);
+  it("has PERIMETER_SEGMENTS positions which, with the twelve wagon cells, form one closed loop around the core", () => {
+    expect(PERIMETER_SEGMENTS).toBe(16);
+    expect(TUNABLES.PERIMETER_SEGMENTS).toBe(16);
+    expect(RING_SEGMENTS).toHaveLength(16);
     RING_SEGMENTS.forEach((s, i) => {
       expect(s.index).toBe(i);
       expect(isInBounds(s.cell)).toBe(true);
       expect(ringIndexAt(s.cell)).toBe(i);
       expect(ringSegment(i)).toBe(s);
       expect(isAnchorCell(s.cell)).toBe(false);
-      const next = RING_SEGMENTS[(i + 1) % 28]!;
-      const d = cellDistSq(s.cell, next.cell);
-      // Consecutive segments touch, or sit diagonally across one anchor at a corner.
-      expect([1, 2]).toContain(d);
-      if (d === 2) {
-        expect(isAnchorCell({ x: s.edge === "north" || s.edge === "south" ? next.cell.x : s.cell.x, y: s.edge === "north" || s.edge === "south" ? s.cell.y : next.cell.y })).toBe(true);
-        expect(RING_ANCHORS.some((a) => cellDistSq(a, s.cell) === 1 && cellDistSq(a, next.cell) === 1)).toBe(true);
-      }
     });
-    expect(new Set(RING_SEGMENTS.map((s) => cellKey(s.cell))).size).toBe(28);
+    // Consecutive ring cells (fence positions and wagon cells interleaved, in RING_ORDER) touch, diagonally at most.
+    RING_ORDER.forEach((c, i) => expect([1, 2]).toContain(cellDistSq(c, RING_ORDER[(i + 1) % RING_ORDER.length]!)));
+    expect(RING_ORDER).toHaveLength(28);
+    expect(new Set(RING_SEGMENTS.map((s) => cellKey(s.cell))).size).toBe(16);
     const keys = new Set([...RING_SEGMENTS.map((s) => cellKey(s.cell)), ...RING_ANCHORS.map(cellKey)]);
-    expect(keys.size).toBe(32);
+    expect(keys.size).toBe(28);
     for (const a of RING_ANCHORS) expect(isAnchorCell(a) && !isRingCell(a) && ringIndexAt(a) === null).toBe(true);
-    for (const edge of ENTRY_EDGES) expect(RING_SEGMENTS.filter((s) => s.edge === edge)).toHaveLength(7);
-    expect(RING_SEGMENTS[0]!.cell).toEqual({ x: 12, y: 11 });
-    expect(RING_SEGMENTS[7]!.cell).toEqual({ x: 19, y: 12 });
-    expect(RING_SEGMENTS[14]!.cell).toEqual({ x: 18, y: 19 });
-    expect(RING_SEGMENTS[21]!.cell).toEqual({ x: 11, y: 18 });
-    expect(() => ringSegment(28)).toThrow();
+    for (const edge of ENTRY_EDGES) expect(RING_SEGMENTS.filter((s) => s.edge === edge).length).toBeGreaterThan(0);
+    expect(RING_SEGMENTS.map((s) => s.edge)).toEqual(["north", "north", "east", "east", "east", "south", "south", "south", "south", "south", "west", "west", "west", "west", "west", "north"]);
+    expect(RING_SEGMENTS[0]!.cell).toEqual({ x: 17, y: 11 });
+    expect(RING_SEGMENTS[4]!.cell).toEqual({ x: 20, y: 16 });
+    expect(RING_SEGMENTS[7]!.cell).toEqual({ x: 16, y: 20 });
+    expect(RING_SEGMENTS[12]!.cell).toEqual({ x: 10, y: 16 });
+    expect(() => ringSegment(16)).toThrow();
   });
 
-  it("QA D2: the four corners are fixed wagon anchors — not fence positions, not placeable, always blocked", () => {
-    expect(TUNABLES.RING_ANCHOR_CELLS).toBe(4);
-    expect(RING_ANCHOR_CELLS).toBe(4);
+  it("QA D2: the twelve wagon cells (six two-cell wagons) are fixed — not fence positions, not placeable, always blocked", () => {
+    expect(TUNABLES.RING_ANCHOR_CELLS).toBe(12);
+    expect(RING_ANCHOR_CELLS).toBe(12);
     expect(RING_ANCHORS).toEqual([
-      { x: 11, y: 11 },
-      { x: 19, y: 11 },
-      { x: 19, y: 19 },
-      { x: 11, y: 19 },
+      { x: 15, y: 10 }, { x: 16, y: 10 },
+      { x: 20, y: 14 }, { x: 20, y: 15 },
+      { x: 19, y: 17 }, { x: 19, y: 18 },
+      { x: 15, y: 20 }, { x: 14, y: 20 },
+      { x: 10, y: 15 }, { x: 10, y: 14 },
+      { x: 12, y: 11 }, { x: 13, y: 11 },
     ]);
     for (const a of RING_ANCHORS) {
       expect(isAnchorCell(a)).toBe(true);
@@ -134,12 +135,12 @@ describe("fence ring", () => {
       // Even on an otherwise empty field, an anchor cannot be stepped on or started from.
       expect(isCoreReachableFrom(a, new Set())).toBe(false);
     }
-    expect(8 * TUNABLES.PERIMETER_RING_RADIUS - TUNABLES.RING_ANCHOR_CELLS).toBe(PERIMETER_SEGMENTS);
-    // Ring cells plus anchors are exactly the square at Chebyshev radius 4 round the core centre.
-    const square: Cell[] = [];
-    for (let y = 0; y < GRID_HEIGHT; y++) for (let x = 0; x < GRID_WIDTH; x++) if (Math.max(Math.abs(x - 15), Math.abs(y - 15)) === 4) square.push({ x, y });
-    expect(square).toHaveLength(32);
-    expect(square.every(isRingOrAnchorCell)).toBe(true);
+    expect(RING_ANCHOR_CELLS + PERIMETER_SEGMENTS).toBe(RING_ORDER.length);
+    // The ring is round: it strictly encloses the core and the interior post cells, and is not the old square.
+    for (const c of RING_ORDER) expect(isInsideRing(c)).toBe(false);
+    expect(CORE_CELLS.every(isInsideRing)).toBe(true);
+    expect(INTERIOR_POST_CELLS.every((c) => isInsideRing(c) && !isCoreCell(c) && !isRingOrAnchorCell(c) && !isAnyEntryCell(c))).toBe(true);
+    for (const c of [{ x: 11, y: 11 }, { x: 19, y: 11 }, { x: 19, y: 19 }, { x: 11, y: 19 }]) expect(isRingOrAnchorCell(c)).toBe(false);
   });
 
   it("QA D2: pathing is 4-connected with no corner cutting", () => {
@@ -159,7 +160,7 @@ describe("fence ring", () => {
     expect(isCoreReachableFrom({ x: 4, y: 3 }, blocked)).toBe(true);
   });
 
-  it("QA D2: all 28 segments fenced seals the core; any single non-corner gap opens it from every edge", () => {
+  it("QA D2: all 16 segments fenced seals the core; any single gap opens it from every edge", () => {
     const allFenced = new Set(RING_SEGMENTS.map((s) => cellKey(s.cell)));
     for (const edge of ENTRY_EDGES) for (const start of entryBand(edge)) expect(isCoreReachableFrom(start, allFenced)).toBe(false);
     for (const gap of RING_SEGMENTS) {
@@ -169,10 +170,10 @@ describe("fence ring", () => {
     }
   });
 
-  it("the material budget is below a full ring, so a gap is forced (20 of 28: 8 gaps)", () => {
+  it("the material budget is below a full ring, so a gap is forced (11 of 16: 5 gaps)", () => {
     expect(TUNABLES.FENCE_MATERIAL_BUDGET).toBeLessThan(PERIMETER_SEGMENTS);
-    expect(TUNABLES.FENCE_MATERIAL_BUDGET).toBe(20);
-    expect(PERIMETER_SEGMENTS - TUNABLES.FENCE_MATERIAL_BUDGET).toBe(8);
+    expect(TUNABLES.FENCE_MATERIAL_BUDGET).toBe(11);
+    expect(PERIMETER_SEGMENTS - TUNABLES.FENCE_MATERIAL_BUDGET).toBe(5);
   });
 });
 
@@ -214,11 +215,11 @@ describe("entry edges", () => {
     for (const edge of ENTRY_EDGES) expect(isCoreReachableFrom(entryBand(edge)[0]!, blocked)).toBe(true);
   });
 
-  it("a hypothetical full ring (unaffordable) plus the anchors would seal the core — which is why the budget is below it", () => {
+  it("a hypothetical full ring (unaffordable) plus the wagon cells would seal the core — which is why the budget is below it", () => {
     const sealed = new Set(RING_SEGMENTS.map((s) => cellKey(s.cell)));
     const start: Cell = { x: 0, y: 0 };
     expect(isCoreReachableFrom(start, sealed)).toBe(false);
-    // The four anchors need not be passed: they are blocked by the lattice itself.
-    expect(sealed.size).toBe(28);
+    // The twelve wagon cells need not be passed: they are blocked by the lattice itself.
+    expect(sealed.size).toBe(16);
   });
 });

@@ -28,10 +28,10 @@ describe("formation validation", () => {
     const res = validateFormation(m, f, ALLOW_ALL);
     expect(res.ok).toBe(true);
     expect(f.fences).toHaveLength(TUNABLES.FENCE_MATERIAL_BUDGET);
-    expect(formationGaps(f)).toEqual([0, 1, 2, 3, 24, 25, 26, 27]); // 28 segments − 20 budget = 8 gaps
+    expect(formationGaps(f)).toEqual([0, 1, 2, 3, 15]); // 16 segments − 11 budget = 5 gaps
     // The gap can go anywhere; a different read of the attacker, a different gap.
-    expect(validateFormation(m, arrange(m, 20), ALLOW_ALL).ok).toBe(true);
-    expect(formationGaps(arrange(m, 20))).toEqual([12, 13, 14, 15, 16, 17, 18, 19]);
+    expect(validateFormation(m, arrange(m, 12), ALLOW_ALL).ok).toBe(true);
+    expect(formationGaps(arrange(m, 12))).toEqual([7, 8, 9, 10, 11]);
     // Placing fewer segments than packed is fine too: holding material back is a choice.
     const sparse = { ...f, fences: f.fences.filter((p) => p.segment % 2 === 0) };
     expect(validateFormation(m, sparse, ALLOW_ALL).ok).toBe(true);
@@ -59,6 +59,7 @@ describe("formation validation", () => {
 
   it("QA N1: a wrong version is reported as bad_version", () => {
     expect(codes(m, { ...arrange(m), v: 1 as never })).toEqual(["bad_version"]);
+    expect(codes(m, { ...arrange(m), v: 2 as never })).toEqual(["bad_version"]);
   });
 
   it("QA D2: nothing may be placed on a wagon anchor", () => {
@@ -84,12 +85,12 @@ describe("formation validation", () => {
     // A legal-sized formation can still produce many issues — never more than the cap.
     expect(MAX_ISSUES).toBe(50);
     const noisy: Formation = {
-      v: 2,
-      fences: Array.from({ length: TUNABLES.PERIMETER_SEGMENTS }, (_, i) => ({ ref: `nope${i}`, segment: i })),
-      traps: Array.from({ length: TUNABLES.TRAP_SLOT_CAP }, (_, i) => ({ ref: `none${i}`, cell: { x: 12, y: 12 } })),
-      posts: many(TUNABLES.DEPLOYMENT_SLOT_CAP),
+      v: 3,
+      fences: Array.from({ length: TUNABLES.PERIMETER_SEGMENTS }, (_, i) => ({ ref: i < m.fences.length ? `f${i}` : `nope${i}`, segment: 99 })),
+      traps: Array.from({ length: TUNABLES.TRAP_SLOT_CAP }, (_, i) => ({ ref: `t${i}`, cell: CORE_CENTER_CELL })),
+      posts: m.units.map((u) => ({ ref: u.ref, cell: CORE_CENTER_CELL, stance: "nope" as never })),
     };
-    const r4 = validateFormation(m, noisy, ALLOW_ALL);
+    const r4 = validateFormation(m, noisy, () => false);
     expect(r4.ok).toBe(false);
     if (!r4.ok) expect(r4.issues).toHaveLength(MAX_ISSUES);
     // Validating an oversized list is O(1): it never walks the entries.
@@ -110,8 +111,8 @@ describe("formation validation", () => {
     // (The post list is at the slot cap, so a smuggled post REPLACES one — a ninth would be `oversized`.)
     expect(codes(m, { ...f, posts: [...f.posts.slice(1), { ref: "u-smuggled", cell: { x: 20, y: 20 }, stance: "guard" as const }] }).sort()).toEqual(["unit_not_posted", "unknown_ref"]);
     expect(codes(m, { ...f, traps: [...f.traps.slice(1), { ref: "t9", cell: { x: 20, y: 20 } }] })).toEqual(["unknown_ref"]);
-    expect(codes(m, { ...f, fences: [...f.fences, { ref: "f99", segment: 27 }] })).toEqual(["unknown_ref"]);
-    expect(codes(m, { ...f, fences: [...f.fences, { ref: "f0", segment: 27 }] })).toEqual(["duplicate_ref"]);
+    expect(codes(m, { ...f, fences: [...f.fences, { ref: "f99", segment: 15 }] })).toEqual(["unknown_ref"]);
+    expect(codes(m, { ...f, fences: [...f.fences, { ref: "f0", segment: 15 }] })).toEqual(["duplicate_ref"]);
     expect(codes(m, { ...f, posts: [...f.posts.slice(1), { ref: f.posts[1]!.ref, cell: { x: 20, y: 20 }, stance: "guard" as const }] }).sort()).toEqual(["duplicate_ref", "unit_not_posted"]);
   });
 

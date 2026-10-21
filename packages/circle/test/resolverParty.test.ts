@@ -33,7 +33,7 @@ describe("toResolverParty", () => {
 
   it("is accepted by the resolver's input contract and resolves to an end condition", () => {
     const input: ResolveInput = {
-      battlefield: { v: 2, grid: { width: GRID_WIDTH, height: GRID_HEIGHT }, pathConnectivity: 4, core: { cells: CORE_CELLS, center: CORE_CENTER }, anchors: RING_ANCHORS, entries: ENTRY_EDGES.map((edge) => ({ edge, cells: entryBand(edge) })), fences: [], traps: [], posts: [] },
+      battlefield: { v: 3, grid: { width: GRID_WIDTH, height: GRID_HEIGHT }, pathConnectivity: 4, core: { cells: CORE_CELLS, center: CORE_CENTER }, anchors: RING_ANCHORS, entries: ENTRY_EDGES.map((edge) => ({ edge, cells: entryBand(edge) })), fences: [], traps: [], posts: [] },
       party: toResolverParty(party),
       tunables: resolverTunables(),
     };

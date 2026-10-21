@@ -99,7 +99,7 @@ function trapOf(ref: string, typeId: string, cell: Cell): BattlefieldTrap {
 
 function field(fences: BattlefieldFence[], traps: BattlefieldTrap[], posts: BattlefieldPost[]): Battlefield {
   return {
-    v: 2,
+    v: 3,
     grid: { width: GRID_WIDTH, height: GRID_HEIGHT },
     pathConnectivity: 4,
     core: { cells: CORE_CELLS, center: CORE_CENTER },
@@ -125,12 +125,12 @@ const healEvents = (out: ResolveOutput) => out.log.filter((e): e is Extract<LogE
  * THE WORST-CASE HEALER TURTLE, built deliberately: every post at merge level 5 (max HP ×2.44),
  * four healers (all four content healers, every one's charges and radius) packed shoulder to
  * shoulder with the four sturdiest defenders (highest defense × HP) on `hold` around the core
- * so every post sits inside at least one healer's radius; the maximum 20 Stacked Stone
- * segments (the toughest tier) with the 8 unavoidable gaps spread two per side; six traps on
+ * so every post sits inside at least one healer's radius; the maximum 11 Stacked Stone
+ * segments (the toughest tier) with the 5 unavoidable gaps spread over all four sides; six traps on
  * the approaches. It is built to survive, not to kill.
  */
 function turtleCircle(withHealers: boolean, stance: PostStance = "hold"): { fences: BattlefieldFence[]; traps: BattlefieldTrap[]; posts: BattlefieldPost[] } {
-  const gaps = [0, 6, 7, 13, 14, 20, 21, 27];
+  const gaps = [0, 3, 7, 12, 14];
   const fences: BattlefieldFence[] = [];
   for (let s = 0; s < PERIMETER_SEGMENTS; s++) if (!gaps.includes(s)) fences.push(fenceOf(s, "fence.stacked_stone"));
   const tanks = ["mountain.grizzly", "mountain.hardrock_miner", "desert.well_digger", "mountain.pack_mule_train"];

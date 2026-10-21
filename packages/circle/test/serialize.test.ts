@@ -21,7 +21,7 @@ describe("formation snapshots", () => {
       posts: [...f.posts].reverse().map((p) => ({ stance: p.stance, cell: { y: p.cell.y, x: p.cell.x }, ref: p.ref })),
       traps: [...f.traps].sort(() => -1).map((t) => ({ cell: { y: t.cell.y, x: t.cell.x }, ref: t.ref })),
       fences: [...f.fences].reverse().map((p) => ({ segment: p.segment, ref: p.ref })),
-      v: 2,
+      v: 3,
     };
     expect(serializeFormation(shuffled)).toBe(a);
     expect(serializeFormation(f)).toBe(a);
@@ -32,7 +32,7 @@ describe("formation snapshots", () => {
   it("are compact, versioned, with sorted keys and no whitespace", () => {
     const s = serializeFormation(f);
     expect(s.startsWith('{"fences":[{"ref":"f0","segment":3}')).toBe(true);
-    expect(s.endsWith(',"v":2}')).toBe(true);
+    expect(s.endsWith(',"v":3}')).toBe(true);
     expect(/\s/.test(s)).toBe(false);
     expect(s.length).toBeLessThan(1500);
     // QA D1: every post's stance is written, even the default.
@@ -59,18 +59,22 @@ describe("formation snapshots", () => {
 
   it("QA S8: an oversized body is refused by the parser before any entry is looked at", () => {
     const many = (n: number) => Array.from({ length: n }, (_, i) => ({ ref: `z${i}`, cell: { x: 12, y: 12 } }));
-    expect(() => parseFormation(JSON.stringify({ v: 2, fences: [], traps: [], posts: many(9) }))).toThrow(/9 posts placed; a formation carries at most 8/);
-    expect(() => parseFormation(JSON.stringify({ v: 2, fences: [], traps: many(7), posts: [] }))).toThrow(/7 traps placed/);
-    expect(() => parseFormation(JSON.stringify({ v: 2, fences: Array.from({ length: 29 }, () => ({ ref: "f", segment: 0 })), traps: [], posts: [] }))).toThrow(/29 fences placed/);
+    expect(() => parseFormation(JSON.stringify({ v: 3, fences: [], traps: [], posts: many(9) }))).toThrow(/9 posts placed; a formation carries at most 8/);
+    expect(() => parseFormation(JSON.stringify({ v: 3, fences: [], traps: many(7), posts: [] }))).toThrow(/7 traps placed/);
+    expect(() => parseFormation(JSON.stringify({ v: 3, fences: Array.from({ length: TUNABLES.PERIMETER_SEGMENTS + 1 }, () => ({ ref: "f", segment: 0 })), traps: [], posts: [] }))).toThrow(/17 fences placed/);
     // Entries in an oversized list are never inspected: garbage inside is not what gets reported.
-    expect(() => parseFormation(JSON.stringify({ v: 2, fences: [], traps: [], posts: Array.from({ length: 60_000 }, () => "garbage") }))).toThrow(/60000 posts placed/);
+    expect(() => parseFormation(JSON.stringify({ v: 3, fences: [], traps: [], posts: Array.from({ length: 60_000 }, () => "garbage") }))).toThrow(/60000 posts placed/);
+  });
+
+  it("a version-2 (square ring) snapshot is refused, not reinterpreted", () => {
+    expect(() => parseFormation('{"v":2,"fences":[],"traps":[],"posts":[]}')).toThrow(/unsupported formation version/);
   });
 
   it("QA S3: arrays and non-objects are refused at every level", () => {
     expect(() => parseFormation("[]")).toThrow(/must be an object/);
-    expect(() => parseFormation('{"v":2,"fences":[],"traps":[],"posts":[[]]}')).toThrow(/posts\[0\] must be an object/);
-    expect(() => parseFormation('{"v":2,"fences":[],"traps":[],"posts":[{"ref":"a","cell":[12,12]}]}')).toThrow(/cell must be an object/);
-    expect(() => parseFormation('{"v":2,"fences":{},"traps":[],"posts":[]}')).toThrow(/fences must be an array/);
+    expect(() => parseFormation('{"v":3,"fences":[],"traps":[],"posts":[[]]}')).toThrow(/posts\[0\] must be an object/);
+    expect(() => parseFormation('{"v":3,"fences":[],"traps":[],"posts":[{"ref":"a","cell":[12,12]}]}')).toThrow(/cell must be an object/);
+    expect(() => parseFormation('{"v":3,"fences":{},"traps":[],"posts":[]}')).toThrow(/fences must be an array/);
   });
 
   it("parsing is strict: unknown keys, floats, bad versions and off-lattice cells are refused", () => {

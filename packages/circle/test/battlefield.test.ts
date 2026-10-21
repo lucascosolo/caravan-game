@@ -47,12 +47,12 @@ describe("toBattlefield", () => {
     expect(b.core.center).toEqual(CORE_CENTER);
     expect(b.grid).toEqual({ width: 32, height: 32 });
     expect(b.v).toBe(BATTLEFIELD_VERSION);
-    expect(BATTLEFIELD_VERSION).toBe(2);
+    expect(BATTLEFIELD_VERSION).toBe(3);
   });
 
-  it("QA D2: carries the four wagon anchors as blocked cells and the 4-connected pathing rule", () => {
+  it("QA D2: carries the twelve wagon cells (six two-cell wagons) as blocked cells and the 4-connected pathing rule", () => {
     expect(b.anchors).toEqual(RING_ANCHORS);
-    expect(b.anchors).toHaveLength(4);
+    expect(b.anchors).toHaveLength(12);
     expect(b.pathConnectivity).toBe(4);
     for (const a of b.anchors) expect(isAnchorCell(a)).toBe(true);
     // No fence, trap or post ever shares a cell with an anchor.
@@ -222,7 +222,7 @@ describe("the battlefield is flat: no elevation, terrain or scenery can be carri
     expect(() => assertBattlefield(mutated((o) => (fence(o)["hp"] = -1)))).toThrow(/not within 0..maxHp/);
     // The lattice-level invariants are pinned too.
     expect(() => assertBattlefield(mutated((o) => (o["pathConnectivity"] = 8)))).toThrow(/pathConnectivity must be 4/);
-    expect(() => assertBattlefield(mutated((o) => (o["anchors"] = [])))).toThrow(/anchors must list the 4/);
+    expect(() => assertBattlefield(mutated((o) => (o["anchors"] = [])))).toThrow(/anchors must list the 12 wagon cells/);
     expect(() => assertBattlefield(mutated((o) => (o["entries"] = (o["entries"] as unknown[]).slice(1))))).toThrow(/entries must list all 4 edges/);
     expect(() => assertBattlefield(mutated((o) => ((o["grid"] as Record<string, unknown>)["width"] = 64)))).toThrow(/grid is not 32/);
     expect(() => assertBattlefield(mutated((o) => (o["v"] = 1)))).toThrow(/version 1/);

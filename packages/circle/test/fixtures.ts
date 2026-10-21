@@ -1,5 +1,5 @@
 import { TUNABLES } from "@caravan/content";
-import { DEFAULT_DEFENSIVE_STANCE, packManifest, type AccessCheck, type Formation, type Manifest, FORMATION_VERSION, RING_ANCHORS, RING_SEGMENTS, type Cell } from "../src/index.js";
+import { DEFAULT_DEFENSIVE_STANCE, packManifest, type AccessCheck, type Formation, type Manifest, FORMATION_VERSION, INTERIOR_POST_CELLS, RING_SEGMENTS, type Cell } from "../src/index.js";
 
 export const ALLOW_ALL: AccessCheck = () => true;
 
@@ -26,12 +26,9 @@ export function fullPack(): Manifest {
   return res.value;
 }
 
-/** Cells just inside the ring, on the north-west quadrant, for posts and traps. */
+/** Cells inside the round ring, in the north of the interior, for posts and traps. */
 export function innerCells(): Cell[] {
-  const out: Cell[] = [];
-  const c = RING_ANCHORS[0]!; // the north-west wagon anchor
-  for (let y = c.y + 1; y < c.y + 4; y++) for (let x = c.x + 1; x < c.x + 8; x++) out.push({ x, y });
-  return out;
+  return INTERIOR_POST_CELLS.slice(0, 21).map((c) => ({ x: c.x, y: c.y }));
 }
 
 /**
