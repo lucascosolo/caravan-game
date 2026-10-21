@@ -38,7 +38,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import { ApiError, type Api } from "../../api/client.ts";
 import { onViewerReset } from "../../auth/session.tsx";
 import type { FormationView, IssueView, ManifestView } from "../../api/types.ts";
-import { IsoCanvas, cellToWorld, type CellRect, type FrameRect, type HitResult, type IsoCanvasHandle, type IsoSceneState, type SceneGeometry } from "../../iso/index.ts";
+import { IsoCanvas, campFrameOf, cellToWorld, type CampFrame, type CellRect, type FrameRect, type HitResult, type IsoCanvasHandle, type IsoSceneState, type SceneGeometry } from "../../iso/index.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { Modal } from "../../shell/Modal.tsx";
 import { formatWhen, humanizeIssue } from "../../shell/issues.ts";
@@ -87,9 +87,13 @@ export const CIRCLE_GEOMETRY: SceneGeometry = {
   height: GRID_HEIGHT,
   coreCells: CORE_CELLS,
   ringCells: RING_SEGMENTS.map((s) => s.cell),
+  ringOrder: RING_ORDER,
   wagons: WAGONS,
   entryBandDepth: ENTRY_BAND_DEPTH,
 };
+
+/** C3 / chunk 50: the camera opens on the whole camp, the ring across ~90% of a phone's width. */
+export const CIRCLE_CAMP: CampFrame = campFrameOf({ ringOrder: RING_ORDER, coreCells: CORE_CELLS, wagons: WAGONS });
 
 /** What "zoom to the ring" frames when a tray item is selected (QA S10): the ring plus a margin for posts around it. */
 const RING_FOCUS_MARGIN = 4;
@@ -759,6 +763,7 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
         onDragCancel={cancelDrag}
         focus={focus}
         frame={CIRCLE_FRAME}
+        openCamp={CIRCLE_CAMP}
         onUnavailable={() => setCanvasDown(T.canvasUnavailable)}
       />
       {canvasDown && <p className="hint">{canvasDown}</p>}

@@ -32,9 +32,9 @@ export interface ArtManifest {
 const found = import.meta.glob<ArtManifest>("../art/generated/manifest.json", { eager: true, import: "default" });
 export const ART_MANIFEST: ArtManifest | null = Object.values(found)[0] ?? null;
 
-/** The renderer's resolution (scene.ts); the atlas DPR follows it. */
+/** The renderer's resolution (scene.ts); the atlas DPR follows it. Up to 3 (C3: the 3x atlas, painted sprites at native device size). */
 export function renderResolution(): number {
-  return Math.min(2, typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1);
+  return Math.min(3,typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1);
 }
 
 export function atlasDpr(resolution: number): 1 | 2 | 3 {

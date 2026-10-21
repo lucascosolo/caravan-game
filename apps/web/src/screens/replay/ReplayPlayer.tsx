@@ -33,7 +33,7 @@ import { IsoCanvas } from "../../iso/index.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { STRINGS } from "../../strings.ts";
 import { depthPercent } from "./depth.ts";
-import { END_HOLD_SECONDS, REPLAY_GEOMETRY, clock, nextKeyframe, openReplay, prevKeyframe, type FeedLine, type ReplayModel } from "./replayModel.ts";
+import { END_HOLD_SECONDS, REPLAY_CAMP, REPLAY_GEOMETRY, clock, nextKeyframe, openReplay, prevKeyframe, type FeedLine, type ReplayModel } from "./replayModel.ts";
 
 const T = STRINGS.replay;
 /** The speeds offered (PHASE-2 §22). */
@@ -377,6 +377,7 @@ function Playback({ view, model, settled, autoPlay, initialSpeed }: { readonly v
             state={scene}
             label={T.canvasLabel}
             frame={model.frameRect}
+            openCamp={REPLAY_CAMP}
             focus={at >= model.closeTick ? { key: "close", rect: { x0: model.closeRect.x, y0: model.closeRect.y, x1: model.closeRect.x + model.closeRect.w - 1, y1: model.closeRect.y + model.closeRect.h - 1 }, minCellPx: model.closeRect.minCellPx ?? 0 } : null}
             touchScroll
             sleepWhenIdle

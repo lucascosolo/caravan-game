@@ -166,6 +166,8 @@ export interface ThreatOverlay {
 
 export interface IsoSceneState {
   readonly fences: readonly FenceEntity[];
+  /** Replay (C3): segments the log has broken by this tick, drawn as broken runs where they stood. Never hit-tested. */
+  readonly brokenFences?: readonly FenceEntity[];
   readonly traps: readonly TrapEntity[];
   readonly posts: readonly PostEntity[];
   readonly attackers: readonly AttackerEntity[];

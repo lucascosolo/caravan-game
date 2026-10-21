@@ -20,8 +20,8 @@
  */
 import { FIXED_POINT_SCALE } from "@caravan/content";
 
-/** PROJECTION tunable: 2:1 isometric. Tile width in screen pixels at zoom 1 (height is half). */
-export const TILE_W = 48;
+/** PROJECTION tunable: 2:1 isometric. Tile width in screen pixels at zoom 1 (height is half). 40 since chunk 50 (was 48): the whole camp fits a phone. */
+export const TILE_W = 40;
 export const TILE_H = TILE_W / 2;
 
 export interface WorldPoint {

@@ -44,6 +44,7 @@ import {
   type WorldPoint,
 } from "./projection.ts";
 import { IsoScene, type SceneGeometry } from "./scene.ts";
+import { campCamera, type CampFrame } from "./camp.ts";
 import type { HitResult, IsoSceneState } from "./types.ts";
 
 export interface IsoCanvasHandle {
@@ -91,6 +92,11 @@ export interface IsoCanvasProps {
    * lattice fits. Pinch / wheel still zoom out to the whole island either way.
    */
   readonly frame?: FrameRect;
+  /**
+   * C3 / chunk 50: open on the whole camp instead (camp.ts: the ring across ~90% of the width, the
+   * camp inside the gutter). Wins over `frame` for the opening camera; pinch / pan as ever.
+   */
+  readonly openCamp?: CampFrame;
   /**
    * Chunk 22 QA S2: the canvas sits inside a page that must scroll (the replay dialog). A
    * vertical one-finger swipe then scrolls the page (`touch-action: pan-y`); a sideways drag
@@ -144,6 +150,8 @@ export const IsoCanvas = forwardRef<IsoCanvasHandle, IsoCanvasProps>(function Is
   const { geometry, state, label, background = 0x1b1a17, focus, onUnavailable, frame } = props;
   const frameRef = useRef(frame);
   frameRef.current = frame;
+  const campRef = useRef(props.openCamp);
+  campRef.current = props.openCamp;
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<IsoScene | null>(null);
@@ -221,9 +229,12 @@ export const IsoCanvas = forwardRef<IsoCanvasHandle, IsoCanvasProps>(function Is
     const first = measure();
     sizeRef.current = first;
     const opening = frameRef.current;
-    camRef.current = opening
-      ? clampCamera(frameCamera(first.w, first.h, opening), first.w, first.h, geometry.width, geometry.height)
-      : fitCamera(first.w, first.h, geometry.width, geometry.height);
+    const camp = campRef.current;
+    camRef.current = camp
+      ? clampCamera(campCamera(first.w, first.h, camp), first.w, first.h, geometry.width, geometry.height)
+      : opening
+        ? clampCamera(frameCamera(first.w, first.h, opening), first.w, first.h, geometry.width, geometry.height)
+        : fitCamera(first.w, first.h, geometry.width, geometry.height);
     scene
       .mount(canvas, first.w, first.h)
       .then(() => {

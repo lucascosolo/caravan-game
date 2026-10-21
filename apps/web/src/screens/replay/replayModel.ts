@@ -35,6 +35,8 @@ import {
   type ReplayMarkEntity,
   type ReplayUnitEntity,
   type SceneGeometry,
+  type CampFrame,
+  campFrameOf,
   type SiegeEntity,
   type WorldPoint,
 } from "../../iso/index.ts";
@@ -145,9 +147,13 @@ export const REPLAY_GEOMETRY: SceneGeometry = {
   height: GRID_HEIGHT,
   coreCells: CORE_CELLS,
   ringCells: RING_SEGMENTS.map((s) => s.cell),
+  ringOrder: RING_ORDER,
   wagons: WAGONS,
   entryBandDepth: ENTRY_BAND_DEPTH,
 };
+
+/** C3 / chunk 50: the replay opens on the whole camp, like the trail (entry bands need not be in frame at rest). */
+export const REPLAY_CAMP: CampFrame = campFrameOf({ ringOrder: RING_ORDER, coreCells: CORE_CELLS, wagons: WAGONS });
 
 const cap = (s: string): string => (s.length === 0 ? s : s[0]!.toUpperCase() + s.slice(1));
 
@@ -514,7 +520,13 @@ function buildModel(view: ReplayView, replay: Replay): ReplayModel {
         if (pos) marks.push({ id: `m${i}`, pos, kind, age, ...(from ? { from } : {}) });
       }
     }
-    return { ...EMPTY_SCENE, showRadii: false, fences, traps, replayUnits, marks, siege };
+    // C3: a broken segment stays on the ring where the log broke it, drawn broken (scene state only; never hit-tested).
+    const brokenFences = a.fences.flatMap((f) => {
+      const label = log.fences[f.f]!;
+      const seg = RING_SEGMENTS[label.segment];
+      return !f.intact && seg ? [{ id: `f${f.f}`, cell: seg.cell, tierId: label.tierId, hp: 0, maxHp: label.maxHp }] : [];
+    });
+    return { ...EMPTY_SCENE, showRadii: false, fences, brokenFences, traps, replayUnits, marks, siege };
   };
 
   const deepest = log.outcome.deepestUnit;

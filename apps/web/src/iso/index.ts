@@ -8,6 +8,7 @@
  * Chunks 17 (town) and 22 (replay) reuse these; they never build a second renderer.
  */
 export * from "./projection.ts";
+export * from "./camp.ts";
 export * from "./hit.ts";
 export * from "./skins.ts";
 export { ART_MANIFEST, atlasDpr, loadSceneSkins, type ArtManifest, type ArtScene } from "./art.ts";

@@ -25,8 +25,10 @@
 // PixiJS compiles its uniform / shader sync functions with `new Function` unless this module swaps in
 // the eval-free implementations; it must load before any renderer is created.
 import "pixi.js/unsafe-eval";
-import { Application, Container, Graphics, Text, UPDATE_PRIORITY } from "pixi.js";
-import { TUNABLES } from "@caravan/content";
+import { Application, Container, Graphics, ImageSource, Sprite, Text, Texture, UPDATE_PRIORITY } from "pixi.js";
+import { TUNABLES, getFenceTier } from "@caravan/content";
+import { fenceLayout, type FencePost, type FenceRail } from "./fenceRuns.ts";
+import { GROUND, groundPixels } from "./ground.ts";
 import {
   TILE_H,
   TILE_W,
@@ -53,6 +55,8 @@ export interface SceneGeometry {
   /** The parked wagons: each draws once, at the midpoint of its two cells (facing is for a future skin). */
   readonly wagons: readonly { readonly cells: readonly [CellLike, CellLike]; readonly facing: string }[];
   readonly entryBandDepth: number;
+  /** The ring positions in order (C3): fence runs follow it, and the baked ground's camp floor fills it. Absent: no runs, no floor. */
+  readonly ringOrder?: readonly CellLike[];
   /**
    * Which fixed features the place has: the wagon circle's core and parked wagons
    * ("circle", the default) or none ("town" — the settlement draws its own structures from
@@ -103,6 +107,22 @@ const SCRUB: readonly { x: number; y: number; r: number }[] = [
   { x: 38, y: 16, r: 0.4 },
 ];
 
+/** C3: one ground pixel is about this many art px wide (the look test's fine grid, FD = 1.85), rounded to whole device pixels. */
+const GROUND_FINE_PER_ART = 1.85;
+/** C3: after a zoom, sprites are resampled to the new device size and the ground re-baked once the camera rests this long (ms). */
+const RESCALE_SETTLE_MS = 180;
+/** C3 fence drawing (art px): post height / width, rail heights above the ground, the shadow colour of flat contact shadows. */
+const FENCE = { post: 17, endPost: 20, postW: 4, rails: [6, 12] as const, outline: 0x2a1a14 } as const;
+const CONTACT_SHADOW = { color: 0x6b4223, alpha: 0.32 } as const;
+
+/** Rail / post colours per fence category: lit, shade. */
+function fenceColours(tierId: string): { lit: number; shade: number; rail: number; railW: number } {
+  const c = getFenceTier(tierId)?.category;
+  if (c === "wire") return { lit: 0xc48550, shade: 0x83542e, rail: 0xa8acb2, railW: 1.2 };
+  if (c === "stone") return { lit: 0xa8a092, shade: 0x746c62, rail: 0xa8a092, railW: 3.4 };
+  return { lit: 0xc48550, shade: 0x83542e, rail: 0xb67b48, railW: 2.4 };
+}
+
 /** QA-22 N9: the ticker sleeps after this many frames with nothing changing (it wakes on any update, camera move or resize). */
 const IDLE_FRAMES_BEFORE_STOP = 3;
 
@@ -144,6 +164,14 @@ export class IsoScene {
   private app: Application | null = null;
   private readonly world = new Container();
   private readonly island = new Graphics();
+  /** C3: the baked camp ground (circle fixtures) and the flat contact shadows / camp decor above it. */
+  private readonly groundLayer = new Container();
+  private groundDensity = 0;
+  private readonly decor = new Graphics();
+  /** C3: the camera zoom the sprites and the ground were last resampled for; `zoom` is the live one. */
+  private texZoom = 0;
+  private zoom = 1;
+  private rescaleTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly lattice = new Graphics();
   /** Threat bands and gap markers: redrawn only when the threat overlay itself changes (QA S2). */
   private readonly threatLayer = new Graphics();
@@ -181,7 +209,7 @@ export class IsoScene {
     this.entities.sortableChildren = true;
     this.lattice.alpha = 0;
     this.reducedMotion = opts.reducedMotion;
-    this.world.addChild(this.island, this.lattice, this.threatLayer, this.overlays, this.entities, this.marksLayer, this.ghost);
+    this.world.addChild(this.island, this.groundLayer, this.decor, this.lattice, this.threatLayer, this.overlays, this.entities, this.marksLayer, this.ghost);
   }
 
   /**
@@ -209,7 +237,7 @@ export class IsoScene {
         canvas,
         width,
         height,
-        background: this.opts.background,
+        background: this.isCircle() ? GROUND.sand : this.opts.background,
         antialias: true,
         resolution: renderResolution(),
         autoDensity: true,
@@ -233,7 +261,9 @@ export class IsoScene {
     (app.renderer as unknown as { accessibility?: { destroy(): void } }).accessibility?.destroy();
     this.mounted = true;
     app.stage.addChild(this.world);
-    this.drawIsland();
+    // The circle's ground is baked on the first camera (its pixel follows the zoom); the town keeps its island.
+    if (this.isCircle()) this.drawDecor();
+    else this.drawIsland();
     this.drawLattice();
     app.ticker.add((ticker) => this.tick(ticker.deltaMS));
     // After the render (LOW priority): count the frame, then stop the ticker once nothing has changed for a few frames.
@@ -295,12 +325,119 @@ export class IsoScene {
   }
 
   setCamera(cam: Camera): void {
-    this.world.position.set(cam.offsetX, cam.offsetY);
+    // C3: the world origin sits on a whole device pixel, so snapped nodes land on whole device pixels.
+    const r = renderResolution();
+    this.world.position.set(Math.round(cam.offsetX * r) / r, Math.round(cam.offsetY * r) / r);
     this.world.scale.set(cam.zoom);
+    this.zoom = cam.zoom;
+    if (this.mounted && this.texZoom === 0) this.rescale();
+    else if (this.mounted && cam.zoom !== this.texZoom) {
+      if (this.rescaleTimer !== null) clearTimeout(this.rescaleTimer);
+      this.rescaleTimer = setTimeout(() => this.rescale(), RESCALE_SETTLE_MS);
+    }
     this.wake();
   }
 
+  private isCircle(): boolean {
+    return (this.opts.geometry.fixtures ?? "circle") === "circle";
+  }
+
+  /** Device pixels per art px at the resampled zoom (0 before the first camera). */
+  private get deviceScale(): number {
+    return this.texZoom > 0 ? this.texZoom * renderResolution() : 0;
+  }
+
+  /** A projected coordinate on a whole device pixel at the resampled zoom. */
+  private snap(v: number): number {
+    const k = this.deviceScale;
+    return k > 0 ? Math.round(v * k) / k : v;
+  }
+
+  /** The camera rested at a new zoom: resample every sprite to its new device size and re-bake the ground if its pixel changed. */
+  private rescale(): void {
+    this.rescaleTimer = null;
+    if (!this.mounted || this.zoom === this.texZoom) return;
+    this.texZoom = this.zoom;
+    if (this.isCircle()) this.drawGround();
+    for (const { node } of this.nodes.values()) node.destroy({ children: true });
+    this.nodes.clear();
+    if (this.state) this.update(this.state);
+  }
+
+  /** The baked ground (ground.ts), one ground pixel = a whole number of device pixels at the resampled zoom. */
+  private drawGround(): void {
+    const k = Math.max(0.5, this.deviceScale || renderResolution());
+    const g = Math.max(1, Math.round(k / GROUND_FINE_PER_ART));
+    const density = k / g;
+    const geo = this.opts.geometry;
+    if (Math.abs(density - this.groundDensity) > 1e-6) {
+      this.groundDensity = density;
+      for (const c of this.groundLayer.removeChildren()) c.destroy(true);
+      const canvas = typeof document !== "undefined" ? document.createElement("canvas") : null;
+      let ctx: CanvasRenderingContext2D | null = null;
+      try {
+        ctx = canvas?.getContext("2d") ?? null;
+      } catch {
+        ctx = null;
+      }
+      const px = groundPixels({ width: geo.width, height: geo.height, ringOrder: geo.ringOrder ?? geo.ringCells, coreCells: geo.coreCells }, density);
+      if (canvas && ctx) {
+        canvas.width = px.w;
+        canvas.height = px.h;
+        ctx.putImageData(new ImageData(px.data, px.w, px.h), 0, 0);
+        const sprite = new Sprite(new Texture({ source: new ImageSource({ resource: canvas, resolution: density, scaleMode: "nearest" }) }));
+        sprite.label = "ground";
+        sprite.position.set(px.x0, px.y0);
+        this.groundLayer.addChild(sprite);
+      } else {
+        const field = [project({ x: 0, y: 0 }), project({ x: geo.width, y: 0 }), project({ x: geo.width, y: geo.height }), project({ x: 0, y: geo.height })];
+        this.groundLayer.addChild(new Graphics().poly(pts(field)).fill(GROUND.sand));
+      }
+    }
+    const s = this.groundLayer.children[0];
+    if (s && s.label === "ground") s.position.set(this.snap(s.position.x), this.snap(s.position.y));
+  }
+
+  /** Flat contact shadows under the parked wagons and the vault wagon, and the camp fire beside the vault (decor; inert). */
+  private drawDecor(): void {
+    const g = this.decor;
+    const geo = this.opts.geometry;
+    g.clear();
+    const shadow = (a: WorldPoint, b: WorldPoint): void => {
+      // A flat parallelogram along the wagon's axis, pushed a little down-right (light from the upper left).
+      const ax = { x: (b.x - a.x) * 0.95, y: (b.y - a.y) * 0.95 };
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const nrm = { x: -ax.y * 0.42, y: ax.x * 0.42 };
+      const corners = [
+        { x: mid.x - ax.x - nrm.x, y: mid.y - ax.y - nrm.y },
+        { x: mid.x + ax.x - nrm.x, y: mid.y + ax.y - nrm.y },
+        { x: mid.x + ax.x + nrm.x, y: mid.y + ax.y + nrm.y },
+        { x: mid.x - ax.x + nrm.x, y: mid.y - ax.y + nrm.y },
+      ].map((p) => {
+        const s = project(p);
+        return { x: s.x + 4, y: s.y + 2 };
+      });
+      g.poly(pts(corners)).fill(CONTACT_SHADOW);
+    };
+    for (const w of geo.wagons) shadow(cellToWorld(w.cells[0]), cellToWorld(w.cells[1]));
+    if (geo.coreCells.length > 0) {
+      const c = { x: geo.coreCells.reduce((s, p) => s + p.x + 0.5, 0) / geo.coreCells.length, y: geo.coreCells.reduce((s, p) => s + p.y + 0.5, 0) / geo.coreCells.length };
+      shadow({ x: c.x - 0.5, y: c.y }, { x: c.x + 0.5, y: c.y });
+      // The camp fire: a ring of stones and a small flame, right of the vault wagon.
+      const f = project({ x: c.x + 1.5, y: c.y - 1.4 });
+      g.ellipse(f.x, f.y, 9, 4.5).fill({ color: 0x5a3b2c, alpha: 0.55 });
+      for (let i = 0; i < 7; i++) {
+        const a = (i / 7) * Math.PI * 2;
+        g.ellipse(f.x + Math.cos(a) * 8, f.y + Math.sin(a) * 4, 2.4, 1.6).fill(0xa8a092).stroke({ width: 0.8, color: FENCE.outline });
+      }
+      g.poly([f.x - 4, f.y, f.x - 1, f.y - 9, f.x + 1, f.y - 4, f.x + 3, f.y - 10, f.x + 5, f.y]).fill(0xf2a03a).stroke({ width: 0.8, color: FENCE.outline });
+      g.poly([f.x - 1.5, f.y, f.x + 0.5, f.y - 5, f.x + 2.5, f.y]).fill(0xfcc83a);
+    }
+  }
+
   destroy(): void {
+    if (this.rescaleTimer !== null) clearTimeout(this.rescaleTimer);
+    this.rescaleTimer = null;
     this.disposed = true;
     this.mounted = false;
     if (this.app) destroyApp(this.app, this.canvas !== null && canvasSlot(this.canvas).queued > 0);
@@ -462,8 +599,8 @@ export class IsoScene {
     }
     // Aggro / leash / attack reach as continuous circles at TRUE radii (QA B2: projected world circles).
     if (state.showRadii) for (const p of state.posts) this.drawRadii(g, p.pos, p, p.selected ? 0.9 : 0.5);
-    // Entry-band tint for the core so the goal is readable.
-    if ((geo.fixtures ?? "circle") === "circle") for (const c of geo.coreCells) g.poly(pts(cellDiamond(c))).fill({ color: PALETTE.core, alpha: 0.18 });
+    // The core's cells while placing (C3: at rest the vault wagon itself marks the goal).
+    if ((geo.fixtures ?? "circle") === "circle" && (state.drag || state.placing)) for (const c of geo.coreCells) g.poly(pts(cellDiamond(c))).fill({ color: PALETTE.core, alpha: 0.18 });
   }
 
   /**
@@ -579,9 +716,104 @@ export class IsoScene {
     }
     if (pos) {
       const s = project(pos);
-      node.position.set(s.x, s.y);
+      node.position.set(this.snap(s.x), this.snap(s.y));
       node.zIndex = depthKey(pos, layerBias);
     }
+    return node;
+  }
+
+  /** C3 fence runs: one post per fence cell, rails as one curve through the posts, braced end posts at openings, broken pieces down. */
+  private drawFences(state: IsoSceneState, seen: Set<string>): void {
+    const geo = this.opts.geometry;
+    const all = [...state.fences, ...(state.brokenFences ?? [])];
+    const brokenIds = new Set((state.brokenFences ?? []).map((f) => f.id));
+    const byId = new Map(all.map((f) => [f.id, f]));
+    if (!geo.ringOrder) {
+      for (const f of state.fences) {
+        const pos = cellToWorld(f.cell);
+        this.keep(seen, `fence:${f.id}`, `${f.tierId}|${f.hp}/${f.maxHp}|${f.selected ? 1 : 0}`, pos, 1, () => this.marker(this.skins.fence(f.tierId), pos, 1, 1, f.selected ?? false));
+      }
+      return;
+    }
+    const layout = fenceLayout({ ringOrder: geo.ringOrder, wagonCells: geo.wagons.flatMap((w) => [w.cells[0], w.cells[1]]), fences: all.map((f) => ({ id: f.id, cell: f.cell, broken: brokenIds.has(f.id) })) });
+    const tierAt = new Map(all.map((f) => [`${f.cell.x},${f.cell.y}`, f.tierId]));
+    for (const rail of layout.rails) {
+      const [a, b] = rail.key.split("-").map((i) => geo.ringOrder![Number(i)]!);
+      const tier = tierAt.get(`${a!.x},${a!.y}`) ?? tierAt.get(`${b!.x},${b!.y}`) ?? "";
+      this.keep(seen, `rail:${rail.key}`, `${tier}|${rail.broken ? 1 : 0}|${rail.from.x},${rail.from.y},${rail.to.x},${rail.to.y}`, rail.mid, 0.5, () => this.rail(rail, tier));
+    }
+    for (const p of layout.posts) {
+      const f = byId.get(p.id)!;
+      this.keep(seen, `fence:${f.id}`, `${f.tierId}|${f.hp}/${f.maxHp}|${f.selected ? 1 : 0}|${p.end ? 1 : 0}|${p.braceDir?.x ?? ""},${p.braceDir?.y ?? ""}|${p.broken ? 1 : 0}`, p.pos, 1, () => {
+        const node = this.post(p, f.tierId, f.selected ?? false);
+        if (!p.broken && f.hp < f.maxHp) {
+          const bar = this.hpBar(f.hp / Math.max(1, f.maxHp), PALETTE.defender);
+          bar.position.set(0, -FENCE.endPost - 6);
+          node.addChild(bar);
+        }
+        return node;
+      });
+    }
+  }
+
+  private post(p: FencePost, tierId: string, selected: boolean): Container {
+    const node = new Container();
+    const g = new Graphics();
+    const col = fenceColours(tierId);
+    const hw = FENCE.postW / 2;
+    if (selected) g.ellipse(0, 0, 10, 5).stroke({ width: 2, color: PALETTE.lattice });
+    g.ellipse(1.5, 0.5, 4, 2).fill(CONTACT_SHADOW);
+    if (p.broken) {
+      // A snapped stump with a splintered top and a leaning splinter beside it.
+      g.poly([-hw, 0, hw, 0, hw, -6, 0.5, -8, -0.5, -6.5, -hw, -7]).fill(col.shade).stroke({ width: 1, color: FENCE.outline });
+      g.poly([hw + 1, 1, hw + 9, -3, hw + 9.5, -1.5, hw + 1.5, 2]).fill(col.lit).stroke({ width: 0.8, color: FENCE.outline });
+    } else {
+      const h = p.end ? FENCE.endPost : FENCE.post;
+      if (p.end && p.braceDir) {
+        // The brace: from high on the post down to the ground on the open side, so the gap reads as built, not missing.
+        const e = project({ x: p.braceDir.x * 0.42, y: p.braceDir.y * 0.42 });
+        g.moveTo(0, -h * 0.65).lineTo(e.x, e.y).stroke({ width: 3.4, color: FENCE.outline });
+        g.moveTo(0, -h * 0.65).lineTo(e.x, e.y).stroke({ width: 1.8, color: col.lit });
+      }
+      g.rect(-hw, -h, FENCE.postW, h).fill(col.lit);
+      g.rect(0, -h, hw, h).fill(col.shade);
+      g.rect(-hw, -h, FENCE.postW, h).stroke({ width: 1, color: FENCE.outline });
+      g.rect(-hw, -h, FENCE.postW, 1.5).fill(0xf6dc9c);
+    }
+    node.addChild(g);
+    return node;
+  }
+
+  private rail(rail: FenceRail, tierId: string): Container {
+    const node = new Container();
+    const g = new Graphics();
+    const col = fenceColours(tierId);
+    const m = project(rail.mid);
+    const ptsAt = rail.points.map((p) => {
+      const s = project(p);
+      return { x: s.x - m.x, y: s.y - m.y };
+    });
+    const n = ptsAt.length - 1;
+    const stroke = (path: readonly { x: number; y: number }[], lift: number, droop: number): void => {
+      if (path.length < 2) return;
+      const draw = (w: number, c: number): void => {
+        g.moveTo(path[0]!.x, path[0]!.y - lift);
+        path.slice(1).forEach((p, i) => g.lineTo(p.x, p.y - lift + (i === path.length - 2 ? droop : 0)));
+        g.stroke({ width: w, color: c, cap: "round", join: "round" });
+      };
+      draw(col.railW + 1.6, FENCE.outline);
+      draw(col.railW, col.rail);
+    };
+    for (const lift of FENCE.rails) {
+      if (rail.broken) {
+        // Snapped: a stub hangs from each post, its free end dropped toward the ground.
+        const k = Math.max(1, Math.round(n * 0.35));
+        stroke(ptsAt.slice(0, k + 1), lift, lift * 0.7);
+        stroke(ptsAt.slice(n - k).reverse(), lift, lift * 0.7);
+      } else stroke(ptsAt, lift, 0);
+    }
+    if (rail.broken) g.poly([-6, 1, 5, -1, 6, 0.6, -5, 2.6]).fill(col.lit).stroke({ width: 0.8, color: FENCE.outline });
+    node.addChild(g);
     return node;
   }
 
@@ -624,16 +856,7 @@ export class IsoScene {
         return node;
       });
     }
-    for (const f of state.fences) {
-      const pos = cellToWorld(f.cell);
-      this.keep(seen, `fence:${f.id}`, `${f.tierId}|${f.hp}/${f.maxHp}|${f.selected ? 1 : 0}`, pos, 1, () => {
-        const node = this.marker(this.skins.fence(f.tierId), pos, 1, 1, f.selected ?? false);
-        const bar = this.hpBar(f.hp / Math.max(1, f.maxHp), PALETTE.defender);
-        bar.position.set(0, -TILE_H * 0.9);
-        node.addChild(bar);
-        return node;
-      });
-    }
+    this.drawFences(state, seen);
     for (const t of state.traps) {
       this.keep(seen, `trap:${t.id}`, `${t.typeId}|${t.spent ? 1 : 0}|${t.selected ? 1 : 0}`, t.pos, 1, () => {
         const skin = this.skins.trap(t.typeId);
@@ -819,7 +1042,7 @@ export class IsoScene {
     node.position.set(s.x, s.y);
     node.zIndex = depthKey(pos, layerBias);
     // Sprites stay at native device size, so `scaleMul` (a placeholder sizing hint) does not apply to them.
-    node.addChild(skin.kind === "sprite" ? drawSprite(skin, selected) : this.placeholder(skin, scaleMul, selected));
+    node.addChild(skin.kind === "sprite" ? drawSprite(skin, selected, this.deviceScale) : this.placeholder(skin, scaleMul, selected));
     return node;
   }
 
