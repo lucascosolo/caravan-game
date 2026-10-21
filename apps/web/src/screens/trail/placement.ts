@@ -484,32 +484,6 @@ export function snapToRing(cell: Cell, reach = 1): Cell | null {
   return best;
 }
 
-/**
- * "Start from my last arrangement": the previous encounter's committed formation, kept to
- * what survives now — a destroyed segment, a spent trap and a dead unit drop out — and
- * re-applied through `dropRefusal` one item at a time (fences, then traps, then posts), so
- * the result is exactly what hand drops could have made. Stances carry over.
- */
-export function carryForward(m: Manifest, previous: Formation): Formation {
-  let out: Formation = clearAll();
-  for (const p of previous.fences) {
-    const x = m.fences.find((q) => q.ref === p.ref);
-    if (!x || !isFenceIntact(x)) continue;
-    if (dropRefusal(m, out, p.ref, ringSegment(p.segment).cell) === null) out = placeFence(out, p.ref, p.segment);
-  }
-  for (const p of previous.traps) {
-    const t = m.traps.find((q) => q.ref === p.ref);
-    if (!t || t.spent) continue;
-    if (dropRefusal(m, out, p.ref, p.cell) === null) out = placeTrap(out, p.ref, p.cell);
-  }
-  for (const p of previous.posts) {
-    const u = m.units.find((q) => q.ref === p.ref);
-    if (!u || !isUnitAlive(u)) continue;
-    if (dropRefusal(m, out, p.ref, p.cell) === null) out = placePost(out, p.ref, p.cell, p.stance);
-  }
-  return out;
-}
-
 /** The commit summary's fence line by side (N14): "north 7, east 7, west 6". */
 export function fencesBySide(f: Formation): readonly { readonly edge: EntryEdge; readonly placed: number; readonly open: number }[] {
   return ENTRY_EDGES.map((edge) => {

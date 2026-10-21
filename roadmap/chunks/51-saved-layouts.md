@@ -1,6 +1,6 @@
 # Chunk 51 — Saved layouts
 
-**Depends on:** 50, 08, 15, 24. **Status:** not started.
+**Depends on:** 50, 08, 15, 24. **Status:** built.
 Read `/roadmap/GUARDRAILS.md` in full first, including §0 on which way round the game runs.
 
 ## Goal
@@ -199,3 +199,9 @@ INDEX.md rather than a half-built UI.
 - **Depends on a chunk 50 owner question:** wagon placement that is not quarter-turn
   symmetric is why the "already walled by a wagon here" rule exists. If the owner picks a
   symmetric arrangement, that rule becomes dead code and is dropped.
+
+## Build notes (2026-10-21)
+
+- Pure rules: `packages/circle/src/layout.ts` (`saveLayout`, `loadLayout`, `layoutHints`, `savedSidesFacing`, `rotateCell`). Fences are stored by normalised ring CELL, so a fence committed beside a wagon still has a normalised position; on load a turned fence on a wagon cell is left out as "wagon".
+- Server: migration 032 `caravan_layout` (slot 0 only, CHECK widens for named layouts); `apps/server/src/circle/layout.ts`. Saved on every commit (trip commit and the circle commit route); auto-loaded as the draft in the `choose` transaction when no draft exists and the loaded formation validates; otherwise the client starts from `layout.loaded` (GET …/formation carries `layout`). `GET /me/export` includes the layouts.
+- **Follow-up (deferred):** named layouts (slots 1–3, `SAVED_LAYOUT_SLOTS`, `LAYOUT_NAME_MAX_CHARS`) and the e2e flow (bank, new trip from another side, edit one piece, lock in): e2e cannot launch a browser on the build host. An all-hints-off account preference was not built.

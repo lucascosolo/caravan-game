@@ -17,6 +17,8 @@
  * arrangement is also held in memory for this encounter, and a tab switch inside the app
  * does not lose it.
  */
+import { LayoutHints, LayoutLeftOutNote } from "./LayoutNotes.tsx";
+import type { LayoutView } from "../../api/types.ts";
 import {
   CORE_CELLS,
   ENTRY_BAND_DEPTH,
@@ -46,7 +48,6 @@ import { STRINGS } from "../../strings.ts";
 import { CommitDialog, type CommitCheck } from "./CommitDialog.tsx";
 import { ManifestTray } from "./ManifestTray.tsx";
 import {
-  carryForward,
   clearAll,
   dropAt,
   dropRefusal,
@@ -76,10 +77,6 @@ import { TrayGesture, TRAY_LONG_PRESS_MS } from "./trayGesture.ts";
 
 const T = STRINGS.trail;
 
-/** The entry sides a party's raiders start on, in ENTRY_EDGES order (r2 N11). */
-export function sidesOf(units: readonly { readonly edge: string }[]): readonly string[] {
-  return ENTRY_EDGES.filter((e) => units.some((u) => u.edge === e));
-}
 
 /** The lattice and fixed features, from the resolver's geometry (one source of truth). */
 export const CIRCLE_GEOMETRY: SceneGeometry = {
@@ -138,6 +135,8 @@ export interface FormationScreenProps {
   readonly trip: ManifestView;
   readonly encounterIndex: number;
   readonly initial: FormationView | null;
+  /** Chunk 51: the caravan's last layout turned to face this party: the starting draft when none is saved, its left-out note and hints. */
+  readonly layout?: LayoutView | null;
   readonly scout: ScoutedEncounter;
   /** Autosave debounce; tests pass a large value to keep it out of the way, or a small one to exercise it. */
   readonly autosaveMs?: number;
@@ -171,10 +170,10 @@ interface Drag {
 
 type Focus = "notice" | "issues" | null;
 
-export function FormationScreen({ api, caravanId, trip, encounterIndex, initial, scout, autosaveMs = AUTOSAVE_DEBOUNCE_MS, onCommitted, onStaleMenu, guide }: FormationScreenProps): JSX.Element {
+export function FormationScreen({ api, caravanId, trip, encounterIndex, initial, layout = null, scout, autosaveMs = AUTOSAVE_DEBOUNCE_MS, onCommitted, onStaleMenu, guide }: FormationScreenProps): JSX.Element {
   const manifest = trip.survivors;
   const draftKey = `${caravanId}:${encounterIndex}:${scout.candidateId}`;
-  const [formation, setFormationRaw] = useState<Formation>(() => (initial?.committedAt ? initial.formation : (localDrafts.get(draftKey) ?? initial?.formation ?? clearAll())));
+  const [formation, setFormationRaw] = useState<Formation>(() => (initial?.committedAt ? initial.formation : (localDrafts.get(draftKey) ?? initial?.formation ?? (layout && !layout.unavailable ? layout.loaded : clearAll()))));
   const [saved, setSaved] = useState<FormationView | null>(initial);
   const [selectedRef, setSelectedRef] = useState<string | null>(null);
   // Final play-test review r3: the item the selection auto-advanced to. Tapping its card (the natural
@@ -662,55 +661,11 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
   };
 
   // ── S3: fast arranging ──────────────────────────────────────────────────────────────
-  const [lastBusy, setLastBusy] = useState(false);
   const applyQuick = (next: Formation, message: string | null): void => {
     setFormation(next);
     setSelectedRef(null);
     setRefused(null);
     setStatus(message);
-  };
-  // Final play-test review r2 N11: which sides the LAST encounter's raiders came from, so "Start
-  // from my last arrangement" says when it would face the wrong way. Best effort: a failed or
-  // missing read just leaves the plain label.
-  const [lastSides, setLastSides] = useState<readonly string[] | null>(null);
-  useEffect(() => {
-    if (encounterIndex <= 1 || locked) return;
-    let live = true;
-    api
-      .candidates(caravanId, encounterIndex - 1)
-      .then((r) => {
-        const menu = r.menu;
-        const chosen = menu?.chosen ? menu.candidates.find((c) => c.candidateId === menu.chosen!.candidateId) : undefined;
-        if (live && chosen) setLastSides(sidesOf(chosen.scout.units));
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [api, caravanId, encounterIndex, locked]);
-  const nowSides = sidesOf(scout.scout.units);
-  const sideList = (sides: readonly string[]): string => sides.map((e) => T.edgeName(e)).join(" and ");
-  const lastOtherSides = lastSides !== null && lastSides.length > 0 && nowSides.length > 0 && lastSides.join() !== nowSides.join() ? { was: sideList(lastSides), now: sideList(nowSides) } : null;
-
-  const startFromLast = async (): Promise<void> => {
-    if (encounterIndex <= 1) return;
-    setLastBusy(true);
-    setError(null);
-    try {
-      const prev = await api.formationIfAny(caravanId, encounterIndex - 1);
-      if (!prev) {
-        setStatus(T.lastNone);
-        return;
-      }
-      const next = carryForward(manifest, prev.formation);
-      const message = isEmptyFormation(next) ? T.lastNothing : T.lastApplied(next.fences.length, next.traps.length, next.posts.length);
-      applyQuick(next, lastOtherSides && !isEmptyFormation(next) ? `${message} ${T.lastAppliedOtherSides(lastOtherSides.was, lastOtherSides.now)}` : message);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 404) setStatus(T.lastNone);
-      else fail(err);
-    } finally {
-      setLastBusy(false);
-    }
   };
   const fenceLeft = nextFenceRef(manifest, formation) !== null;
 
@@ -784,6 +739,13 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
         },
       })}
 
+      {layout && !committedAt && (
+        <>
+          <LayoutLeftOutNote layout={layout} />
+          <LayoutHints layout={layout} formation={formation} scout={scout.scout} names={names} />
+        </>
+      )}
+
       {refused && (
         <p className="notice" role="status" data-testid="drop-refused" data-code={refused.refusal.code}>
           {T.refusedDrop(refused.name, refused.refusal.message)}
@@ -795,11 +757,6 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
           <h2 id="quick-heading" className="h3">
             {T.quickHeading}
           </h2>
-          {encounterIndex > 1 && (
-            <button type="button" className="btn btn--block" disabled={lastBusy} onClick={() => void startFromLast()} data-testid="start-from-last">
-              {lastBusy ? T.lastLoading : lastOtherSides ? T.lastButtonOtherSides(lastOtherSides.was, lastOtherSides.now) : T.lastButton}
-            </button>
-          )}
           <div className="quick__sides">
             {ENTRY_EDGES.map((edge) => {
               const open = openOnSide(formation, edge);

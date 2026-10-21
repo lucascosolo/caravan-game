@@ -377,15 +377,16 @@ export const STRINGS = {
     quickHeading: "Quick arrange",
     quickHint: "Each side button fences that side's open positions with the next segments in the wagon. Then pick a unit and tap where it stands: the next unit is picked for you.",
     fenceSide: (edge: string, raiders: number): string => `Fence ${edge}${raiders > 0 ? ` (${raiders} raider${raiders === 1 ? "" : "s"})` : ""}`,
-    lastButton: "Start from my last arrangement",
-    /** Final play-test review r2 N11: the last arrangement was shaped against raiders from other sides. */
-    lastButtonOtherSides: (was: string, now: string): string => `Start from my last arrangement (it faced ${was}; this party comes from ${now})`,
-    lastAppliedOtherSides: (was: string, now: string): string => `Careful: that arrangement was shaped against raiders from ${was}. This party comes from ${now}: move the gap and the posts to face it.`,
-    lastLoading: "Loading the last arrangement…",
-    lastApplied: (fences: number, traps: number, posts: number): string =>
-      `Your last arrangement is back, minus what broke, was spent or died: ${fences} segment${fences === 1 ? "" : "s"}, ${traps} trap${traps === 1 ? "" : "s"}, ${posts} post${posts === 1 ? "" : "s"}. Adjust it for this party.`,
-    lastNothing: "Nothing from the last arrangement survives to re-use.",
-    lastNone: "There is no earlier arrangement on this trip to start from.",
+    // Chunk 51: the saved layout. The left-out note never fades; hints are information, never a verdict.
+    layoutLeftOutHeading: "Your last layout, turned to face this party. Left out:",
+    layoutLeftOutItem: (name: string, side: string, reason: string): string => `${name} (${side}): ${reason}`,
+    layoutReason: (reason: string): string =>
+      ({ wagon: "already walled by a wagon here", broken: "broken", spent: "spent", dead: "dead", not_packed: "not packed", blocked: "its spot is taken or not placeable" })[reason] ?? reason,
+    layoutUnavailable: "Your last layout was made for the old wagon circle, so this encounter starts empty.",
+    layoutHintGap: (side: string, raiders: number, total: number): string => `Your gap faces ${side}, where ${raiders} of ${total} raider${total === 1 ? "" : "s"} come from.`,
+    layoutHintTrap: (name: string, side: string): string => `${name} is on the ${side} side; no raider comes from the ${side}.`,
+    layoutHintDirection: (was: string, now: string): string => `This layout was made against raiders from ${was}. This party comes from ${now}.`,
+    layoutHintDismiss: "Dismiss",
     budgetMeter: (placed: number, budget: number, ring: number): string => `${placed} of ${budget} segments placed · ${ring} ring positions`,
     budgetNote: (gapsAtLeast: number): string => `The budget is below a full ring on purpose: at least ${gapsAtLeast} positions stay open. Where they go is your call.`,
     gapsLine: (n: number): string => `${n} open position${n === 1 ? "" : "s"}`,

@@ -642,6 +642,12 @@ export const TUNABLES = {
    * started.)
    */
   AUTHORED_ONLY_UNTIL_BANKS: 2,
+  /**
+   * TUNABLE (chunk 51). Saved-layout hints (gap facing the main edge, trap on an unused side,
+   * direction changed) show while the caravan has BANKED fewer than this many trips; voided and
+   * overrun trips do not count. The left-out note is not a hint and never fades. 0 turns hints off.
+   */
+  LAYOUT_HINTS_UNTIL_BANKS: 10,
 
   // ────────────────────────────────────────────────────────────────────────────────────
   // Chunk 16 — Coin economy and merge pricing. Coin buys PACE only (GUARDRAILS §2): nothing

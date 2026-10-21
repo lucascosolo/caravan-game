@@ -64,7 +64,7 @@ import type { RecentFightsView, ReplayView } from "./replayTypes.ts";
 import { accountViewShape, deleteResultShape, devicesShape, exportShape, linkResultShape, revokeOthersShape } from "./accountShapes.ts";
 import type { AccountExport, AccountView, DeleteResult, DevicesView, LinkResult, RevokeOthersResult } from "./accountTypes.ts";
 import type { BankResult, EncounterCommitResult, PushResult, StakesPreview, TripStartResult, TripStatusView } from "./tripTypes.ts";
-import type { ManifestReadResponse, CandidatesReadResponse,
+import type { ManifestReadResponse, CandidatesReadResponse, FormationReadResponse,
   AuthResponse,
   ApiErrorBody,
   CandidateMenuResponse,
@@ -179,6 +179,8 @@ export interface Api {
   formation(caravanId: string, encounterIndex: number): Promise<FormationResponse>;
   /** r2 N10: `?ifNone=null` — 200 `{ formation: null }` where no draft exists yet (an older server's 404 \`no_formation\` reads as null too). */
   formationIfAny(caravanId: string, encounterIndex: number): Promise<FormationView | null>;
+  /** Chunk 51: the draft (or null) and the loaded layout beside it. */
+  formationRead(caravanId: string, encounterIndex: number): Promise<FormationReadResponse>;
   commitFormation(caravanId: string, encounterIndex: number): Promise<FormationResponse>;
   // Matchmaking & scouting (chunk 14 routes). The reroll is free and time-gated: a 409
   // `reroll_cooldown` carries `availableAtMs` in `ApiError.body`; nothing here can shorten it.
@@ -354,6 +356,7 @@ export function createApi(opts: ApiOptions): Api {
         throw err;
       }
     },
+    formationRead: (caravanId, n) => request("GET", `${caravans(caravanId)}/encounters/${n}/formation?ifNone=null`, formationReadShape),
     commitFormation: (caravanId, n) => request("POST", `${caravans(caravanId)}/encounters/${n}/formation/commit`, formationShape),
     searchCandidates: (caravanId, n) => request("POST", `/me${caravans(caravanId)}/encounters/${n}/search`, menuShape),
     candidates: (caravanId, n) => request("GET", `/me${caravans(caravanId)}/encounters/${n}/candidates`, candidatesReadShape),

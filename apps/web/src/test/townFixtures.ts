@@ -13,7 +13,7 @@ export { ACCOUNT_ID, CARAVAN_ID };
 
 export function fakeApi(over: Partial<Api> = {}): Api {
   const notCalled = (): Promise<never> => Promise.reject(new Error("not expected"));
-  const api: Omit<Api, "formationIfAny"> = {
+  const api: Omit<Api, "formationIfAny" | "formationRead"> = {
     register: notCalled,
     login: notCalled,
     logout: notCalled,
@@ -80,7 +80,8 @@ export function fakeApi(over: Partial<Api> = {}): Api {
     adminDashboard: notCalled,
     ...over,
   };
-  return { ...api, formationIfAny: over.formationIfAny ?? formationIfAnyVia(api) };
+  const formationIfAny = over.formationIfAny ?? formationIfAnyVia(api);
+  return { ...api, formationIfAny, formationRead: over.formationRead ?? (async (c, n) => ({ formation: await formationIfAny(c, n), layout: null })) };
 }
 
 export const uid = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;

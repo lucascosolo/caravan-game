@@ -63,7 +63,7 @@ building the mirror image of this game is the easiest mistake available.
 | 19 | [Stakes & loss wiring](chunks/19-stakes-and-loss.md) | Per-death merge-level regression, total loss when overrun, unbanked-Coin transfer to the winning party's owner. | 13, 15, 16 | done (S3 closed with chunk 15 S4) |
 | 20 | [Monetization packs](chunks/20-monetization-packs.md) | Weekly rotating $5/$10/$25 packs, fixed and previewed contents, sandboxed purchase flow. | 16 | done |
 | 50 | [Round wagon circle](chunks/50-round-wagon-circle.md) | The square ring becomes a round laager from the owner-approved mock-up: ~6 permanent wagons, fences between, RESOLVER_VERSION bump, open trips voided, balance re-run, and a 20% smaller draw scale so the whole camp fits a phone. (Owner, 2026-10-20.) | 07, 08, 10–13, 22, 24, 25, 37 | not started |
-| 51 | [Saved layouts](chunks/51-saved-layouts.md) | The caravan's last layout auto-loads at every encounter, turned to the scouted main edge, missing pieces noted; dismissible hints for newer players that never force a change; optional 3 named layouts. (Owner, 2026-10-20.) | 50, 08, 15, 24 | not started |
+| 51 | [Saved layouts](chunks/51-saved-layouts.md) | The caravan's last layout auto-loads at every encounter, turned to the scouted main edge, missing pieces noted; dismissible hints for newer players that never force a change; optional 3 named layouts. (Owner, 2026-10-20.) Follow-up: named layouts (slots 1–3) and the e2e flow deferred. | 50, 08, 15, 24 | built |
 
 ---
 

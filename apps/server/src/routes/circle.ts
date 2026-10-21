@@ -20,6 +20,7 @@
  * client-facing close is the unpack of a manifest that never rode out: closing a trip's
  * manifest belongs to the trip loop (chunk 15), outcomes to the resolution path (chunk 13).
  */
+import { layoutView, rememberLayout } from "../circle/layout.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { withTransaction } from "../db/pool.js";
 import type { CaravanRow } from "../db/types.js";
@@ -121,13 +122,13 @@ export async function circleRoutes(app: FastifyInstance): Promise<void> {
     // that has ended (the manifest is closed, nothing is packed): no draft there either.
     if (req.query.ifNone === "null") {
       try {
-        return { formation: await getFormation(app.db, caravan, n) };
+        return { formation: await getFormation(app.db, caravan, n), layout: await layoutView(app.db, caravan, n) };
       } catch (err) {
-        if (err instanceof AppError && (err.code === "no_formation" || err.code === "no_open_manifest")) return { formation: null, encounterIndex: n };
+        if (err instanceof AppError && (err.code === "no_formation" || err.code === "no_open_manifest")) return { formation: null, encounterIndex: n, layout: await layoutView(app.db, caravan, n) };
         throw err;
       }
     }
-    return { formation: await getFormation(app.db, caravan, n) };
+    return { formation: await getFormation(app.db, caravan, n), layout: await layoutView(app.db, caravan, n) };
   });
 
   app.post<{ Params: EncounterParams }>("/caravans/:caravanId/encounters/:n/formation/commit", { preHandler: requireAuth }, async (req) => {
@@ -139,7 +140,9 @@ export async function circleRoutes(app: FastifyInstance): Promise<void> {
       const trip = await findOpenTrip(client, caravan.id);
       if (!trip) throw conflict("no_trip", "a formation is committed on a trip: ride out first");
       if (!(await chosenCandidate(client, trip.id, n))) throw conflict("no_candidate_chosen", `scout and choose the party for encounter ${n} before committing the circle against it`);
-      return commitFormation(client, caravan, n);
+      const committed = await commitFormation(client, caravan, n);
+      await rememberLayout(client, caravan, n);
+      return committed;
     });
     return { formation };
   });

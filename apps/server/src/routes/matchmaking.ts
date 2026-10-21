@@ -12,6 +12,7 @@
  * carry a payment, and nothing here reads Coin, purchases or entitlements (GUARDRAILS §2).
  * Trip start/end and resolution are chunk 15's.
  */
+import { autoLoadDraft } from "../circle/layout.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { withTransaction } from "../db/pool.js";
 import type { CaravanRow } from "../db/types.js";
@@ -61,7 +62,11 @@ export async function matchmakingRoutes(app: FastifyInstance): Promise<void> {
     const caravan = await ownCaravan(req);
     const n = encounterIndex(req.params.n);
     const candidateId = parseChoice(req.body);
-    return withTransaction(app.db, (client) => chooseCandidate(client, caravan, n, candidateId, Date.now()));
+    return withTransaction(app.db, async (client) => {
+      const choice = await chooseCandidate(client, caravan, n, candidateId, Date.now());
+      await autoLoadDraft(client, caravan, n);
+      return choice;
+    });
   });
 
   // The reroll gate says exactly when the next free search opens; nothing else is attached.
