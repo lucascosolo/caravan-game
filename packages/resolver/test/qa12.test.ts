@@ -83,7 +83,7 @@ describe("QA-12 B1: a dash springs its traps inside phase 7, and core_reached co
   });
 
   it("two attackers dashing over one trap on the same tick: the lower id springs it (dashes apply in ascending id)", () => {
-    const out = resolve(input(battlefield({ traps: [trap("t", { x: 15, y: 6 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, hp: 5000 }), unit({ ref: "b", cell: { x: 15, y: 0 }, hp: 5000 })]), { ...SHORT_TUNABLES, abilityFirstUseDelayMult: fx(341) }));
+    const out = resolve(input(battlefield({ traps: [trap("t", { x: 14, y: 6 })] }), party([unit({ ref: "a", cell: { x: 14, y: 0 }, hp: 5000 }), unit({ ref: "b", cell: { x: 14, y: 0 }, hp: 5000 })]), { ...SHORT_TUNABLES, abilityFirstUseDelayMult: fx(341) }));
     const fired = events(out, "trap_fired");
     expect(fired.map((e) => [e.t, e.u])).toEqual([[59, 0]]);
     expect(out.log.filter((e) => e.k === "ability" && e.t === 59).map((e) => (e as { u: number }).u)).toEqual([0, 1]);

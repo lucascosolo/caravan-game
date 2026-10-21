@@ -132,17 +132,17 @@ describe("ABILITY_COOLDOWN, ABILITY_FIRST_USE_DELAY, ABILITY_TRIGGER_RULE", () =
   });
 
   it("an ability whose condition becomes satisfiable during the tick (phase 3 movement) fires that tick; one made satisfiable only by another ability in the same phase 7 waits for the next tick", () => {
-    // Mid-tick via movement: the full resolve. A core-stance attacker walks up x = 15 past a
-    // hold post at (15,20) carrying a 6 s burst (ready from tick 120). The attacker moves 51
+    // Mid-tick via movement: the full resolve. A core-stance attacker walks up x = 16 past a
+    // hold post at (16,22) carrying a 6 s burst (ready from tick 120). The attacker moves 51
     // per tick from y = C(31); after tick t's movement it is at C(31) − 51 (t + 1), first within
-    // 2 + 0.35 cells of the post at t = 173 — and the burst fires on exactly that tick.
-    const out = resolve(input(battlefield({ posts: [post("p", { x: 15, y: 20 }, { stance: "hold", ability: { ...BURST, cooldown: ms(6000) } as Ability, hp: BIG, maxHp: BIG })] }), party([unit({ ref: "a", cell: { x: 15, y: 31 }, edge: "south", hp: BIG, moveSpeed: 1024 })]), SHORT_TUNABLES));
+    // 2 + 0.35 cells of the post at t = 133 — and the burst fires on exactly that tick.
+    const out = resolve(input(battlefield({ posts: [post("p", { x: 16, y: 22 }, { stance: "hold", ability: { ...BURST, cooldown: ms(6000) } as Ability, hp: BIG, maxHp: BIG })] }), party([unit({ ref: "a", cell: { x: 16, y: 31 }, edge: "south", hp: BIG, moveSpeed: 1024 })]), SHORT_TUNABLES));
     const burst = abilities(out.log).find((e) => e.a === "burst_radius")!;
     const reach = (2048 + UR) * (2048 + UR);
     const y = (t: number) => C(31) - 51 * (t + 1);
-    expect(burst.t).toBe(173);
-    expect((y(173) - C(20)) ** 2).toBeLessThanOrEqual(reach);
-    expect((y(172) - C(20)) ** 2).toBeGreaterThan(reach);
+    expect(burst.t).toBe(133);
+    expect((y(133) - C(22)) ** 2).toBeLessThanOrEqual(reach);
+    expect((y(132) - C(22)) ** 2).toBeGreaterThan(reach);
 
     // Same phase: a dash (id 0) would carry the attacker into the post's burst reach, but the
     // burst decides against the start-of-phase-7 state — it waits one tick.
@@ -306,7 +306,7 @@ describe("heal_radius", () => {
   });
 
   it("charges reset per encounter (fresh state per resolve), never accumulate: two battles in a row each start with exactly 4", () => {
-    const inp = input(battlefield({ posts: [post("h", { x: 15, y: 9 }, { ability: HEAL, stance: "hold" }), post("t", { x: 15, y: 10 }, { stance: "hold", hp: 5000, maxHp: 5000 })] }), party([unit({ ref: "a", stance: "nearest", hp: 50_000, offense: 60 })]));
+    const inp = input(battlefield({ posts: [post("h", { x: 14, y: 8 }, { ability: HEAL, stance: "hold" }), post("t", { x: 14, y: 9 }, { stance: "hold", hp: 5000, maxHp: 5000 })] }), party([unit({ ref: "a", stance: "nearest", hp: 50_000, offense: 60 })]));
     const first = resolve(clone(inp));
     const heals1 = abilities(first.log).filter((e) => e.a === "heal_radius");
     expect(heals1.length).toBe(4);
@@ -439,12 +439,12 @@ describe("self_buff", () => {
 
 describe("dash", () => {
   it("is a movement leg: on a straight route the position at every tick is start + legOffset(d, speed × (t+1) + distance × dashes so far, len), and the event's (x, y) is where the unit stands", () => {
-    // 1.0 cell/s = 51 per tick, so the 16 190-long leg is still running when the dashes land.
-    const out = resolve(input(battlefield(), party([unit({ ref: "a", cell: { x: 10, y: 0 }, moveSpeed: 1024 })]), { ...SHORT_TUNABLES, keyframeIntervalMs: ms(50) }));
+    // 1.0 cell/s = 51 per tick, so the 17 498-long leg (from the east edge, a line that clears the wagons) is still running when the dashes land.
+    const out = resolve(input(battlefield(), party([unit({ ref: "a", edge: "east", cell: { x: 31, y: 9 }, moveSpeed: 1024 })]), { ...SHORT_TUNABLES, keyframeIntervalMs: ms(50) }));
     const dashes = abilities(out.log).filter((e): e is Extract<AbilityEvent, { a: "dash" }> => e.a === "dash");
     expect(dashes[0]!.t).toBe(180);
     expect(dashes[0]!.tg[0]!.amount).toBe(3584);
-    const start = cellCenter({ x: 10, y: 0 });
+    const start = cellCenter({ x: 31, y: 9 });
     const end = cellCenter({ x: 15, y: 15 });
     const dx = end.x - start.x;
     const dy = end.y - start.y;
@@ -464,13 +464,13 @@ describe("dash", () => {
   });
 
   it("never passes through an intact fence: a dash that would cross a breach segment stops on the adjacent cell; a unit standing at an intact segment does not dash at all", () => {
-    // Sealed 300-HP ring: the unit walks down x = 15 to (15,10), next to segment 3 at (15,11).
-    const s = mk(input(battlefield({ fences: ringExcept([], 300) }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), { ...SHORT_TUNABLES, abilityFirstUseDelayMult: fx(0) }));
+    // Sealed 300-HP ring: the unit walks down x = 14 to (14,9), next to segment 15 at (14,10).
+    const s = mk(input(battlefield({ fences: ringExcept([], 300) }), party([unit({ ref: "a", cell: { x: 14, y: 0 } })]), { ...SHORT_TUNABLES, abilityFirstUseDelayMult: fx(0) }));
     const a = s.units[0]!;
     // Plan as phase 2 would, from (15,8): the route's breach waypoint is the fence cell.
     s.tick = 0;
     const log: LogEvent[] = [];
-    place(a, C(15), C(8));
+    place(a, C(14), C(8));
     a.target = { kind: "core" };
     a.pathDirty = true;
     // Run phases 1–2 through the public tick pieces.
@@ -478,9 +478,9 @@ describe("dash", () => {
     expect(a.waypoints.some((w) => w.breach >= 0)).toBe(true);
     const [e] = abilities(phase7(s, 0));
     expect(e!.a).toBe("dash");
-    // 3.5 cells would carry it to y ≈ 11.5 — inside the segment's cell. It stops on (15,10)'s centre.
-    expect(cellOf({ x: a.x, y: a.y })).toEqual({ x: 15, y: 10 });
-    expect(e!.tg[0]!.amount).toBe(2 * 1024);
+    // 3.5 cells would carry it to y ≈ 12 — past the segment's cell. It stops on (14,9)'s centre.
+    expect(cellOf({ x: a.x, y: a.y })).toEqual({ x: 14, y: 9 });
+    expect(e!.tg[0]!.amount).toBe(1024);
     expect(a.breaching).toBeGreaterThanOrEqual(0);
     // Now standing at the intact segment: ready again, but no dash.
     a.abilityReadyTick = 1;
@@ -488,7 +488,7 @@ describe("dash", () => {
   });
 
   it("over a whole sealed-ring fight with dashing raiders, no unit ever stands in an intact fence or anchor cell", () => {
-    const out = resolve(input(battlefield({ fences: ringExcept([], 300) }), party([unit({ ref: "a" }), unit({ ref: "b", cell: { x: 0, y: 15 }, edge: "west" }), unit({ ref: "c", cell: { x: 31, y: 20 }, edge: "east", moveSpeed: 2600 })]), { ...SHORT_TUNABLES, keyframeIntervalMs: ms(50), abilityFirstUseDelayMult: fx(256) }));
+    const out = resolve(input(battlefield({ fences: ringExcept([], 300) }), party([unit({ ref: "a" }), unit({ ref: "b", cell: { x: 0, y: 16 }, edge: "west" }), unit({ ref: "c", cell: { x: 31, y: 20 }, edge: "east", moveSpeed: 2600 })]), { ...SHORT_TUNABLES, keyframeIntervalMs: ms(50), abilityFirstUseDelayMult: fx(256) }));
     expect(abilities(out.log).filter((e) => e.a === "dash").length).toBeGreaterThanOrEqual(3);
     const intactAt: boolean[] = out.fences.map(() => true);
     for (const e of out.log) {
@@ -505,8 +505,8 @@ describe("dash", () => {
   });
 
   it("DASH_SPRINGS_TRAPS (QA-12 B1): a dash that carries an attacker over a trap springs it in phase 7 of the dash tick, right after the dash — a dash cannot tunnel", () => {
-    // Down x = 15 at 76/tick; first dash at floor(180 × 341/1024) = 59: y 5072 → 8656, over the trap at (15,6) (centre 6656, reach 1126).
-    const out = resolve(input(battlefield({ traps: [trap("t", { x: 15, y: 6 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), { ...SHORT_TUNABLES, abilityFirstUseDelayMult: fx(341) }));
+    // Down x = 14 at 76/tick; first dash at floor(180 × 341/1024) = 59: y 5072 → 8656, over the trap at (14,6) (centre 6656, reach 1126).
+    const out = resolve(input(battlefield({ traps: [trap("t", { x: 14, y: 6 })] }), party([unit({ ref: "a", cell: { x: 14, y: 0 } })]), { ...SHORT_TUNABLES, abilityFirstUseDelayMult: fx(341) }));
     const dash = abilities(out.log).find((e) => e.a === "dash")!;
     expect(dash.t).toBe(59);
     expect(events(out, "trap_fired").map((e) => [e.t, e.i, e.u])).toEqual([[59, 0, 0]]);
@@ -516,10 +516,10 @@ describe("dash", () => {
   });
 
   it("a posted guard dashes only while pursuing, never past its leash", () => {
-    const out = resolve(input(battlefield({ posts: [post("g", { x: 15, y: 8 }, { ability: DASH, aggroRadius: fx(6144), leashDistance: fx(4096), hp: BIG, maxHp: BIG })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, hp: BIG, attackRange: fx(4096), moveSpeed: 1024 })]), { ...SHORT_TUNABLES, keyframeIntervalMs: ms(50), abilityFirstUseDelayMult: fx(0) }));
+    const out = resolve(input(battlefield({ posts: [post("g", { x: 14, y: 8 }, { ability: DASH, aggroRadius: fx(6144), leashDistance: fx(4096), hp: BIG, maxHp: BIG })] }), party([unit({ ref: "a", cell: { x: 14, y: 0 }, hp: BIG, attackRange: fx(4096), moveSpeed: 1024 })]), { ...SHORT_TUNABLES, keyframeIntervalMs: ms(50), abilityFirstUseDelayMult: fx(0) }));
     const postDashes = abilities(out.log).filter((e) => e.u === 1 && e.a === "dash");
     expect(postDashes.length).toBeGreaterThan(0);
-    const home = cellCenter({ x: 15, y: 8 });
+    const home = cellCenter({ x: 14, y: 8 });
     for (const e of out.log) if (e.k === "keyframe") expect((e.units[1]!.x - home.x) ** 2 + (e.units[1]!.y - home.y) ** 2).toBeLessThanOrEqual(4096 * 4096);
   });
 });
@@ -550,7 +550,7 @@ describe("structure_breaker", () => {
   });
 
   it("fires when breaching (after phase 6's hit, on the same segment), logs the fence and its HP; never fires for a posted unit (posts never hit fences)", () => {
-    const out = resolve(input(battlefield({ fences: ringExcept([], 3000), posts: [post("p", { x: 15, y: 13 }, { ability: BREAKER, stance: "hold" })] }), party([unit({ ref: "a", ability: BREAKER, cell: { x: 15, y: 0 } })]), { ...SHORT_TUNABLES, abilityFirstUseDelayMult: fx(0) }));
+    const out = resolve(input(battlefield({ fences: ringExcept([], 3000), posts: [post("p", { x: 15, y: 13 }, { ability: BREAKER, stance: "hold" })] }), party([unit({ ref: "a", ability: BREAKER, cell: { x: 14, y: 0 } })]), { ...SHORT_TUNABLES, abilityFirstUseDelayMult: fx(0) }));
     const casts = abilities(out.log).filter((e) => e.a === "structure_breaker");
     expect(casts.length).toBeGreaterThan(0);
     expect(casts.every((c) => c.u === 0)).toBe(true);

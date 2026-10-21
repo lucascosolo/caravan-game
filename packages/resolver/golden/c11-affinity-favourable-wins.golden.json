@@ -1,23 +1,23 @@
 {
 "scenario": "c11-affinity-favourable-wins",
-"resolverVersion": 9,
-"outcome": {"kind":"caravan_overrun","end":"core_overrun","endTick":561,"depth":1024,"deepestUnit":0},
-"ticks": 562,
+"resolverVersion": 10,
+"outcome": {"kind":"caravan_overrun","end":"core_overrun","endTick":562,"depth":1024,"deepestUnit":0},
+"ticks": 563,
 "units": [
-{"id":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","mergeLevel":1,"ability":"dash","x":15872,"y":14344,"startHp":900,"hp":80,"maxHp":900,"alive":true,"reachedCoreTick":561,"diedTick":-1},
-{"id":1,"side":"defender","ref":"p","typeId":"desert.well_digger","mergeLevel":1,"ability":"heavy_strike","x":15872,"y":8704,"startHp":1000,"hp":0,"maxHp":1000,"alive":false,"reachedCoreTick":-1,"diedTick":469}
+{"id":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","mergeLevel":1,"ability":"dash","x":15540,"y":14346,"startHp":900,"hp":80,"maxHp":900,"alive":true,"reachedCoreTick":562,"diedTick":-1},
+{"id":1,"side":"defender","ref":"p","typeId":"desert.well_digger","mergeLevel":1,"ability":"heavy_strike","x":14848,"y":8704,"startHp":1000,"hp":0,"maxHp":1000,"alive":false,"reachedCoreTick":-1,"diedTick":469}
 ],
 "fences": [],
 "traps": [],
-"replay": {"format":"caravan-replay","v":2,"resolverVersion":9,"tickRate":20,"tickCap":2400,"keyframeInterval":100,"ticks":562,"outcome":{"kind":"caravan_overrun","end":"core_overrun","endTick":561,"depth":1024,"deepestUnit":0},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":900,"hp":900,"ab":4},{"u":1,"side":"defender","ref":"p","typeId":"desert.well_digger","level":1,"maxHp":1000,"hp":1000,"ab":1}],"fences":[],"traps":[],"count":56,"check":4208820626,"events":[
-[0,"s",0,15872,512],
-[0,"s",1,15872,8704],
+"replay": {"format":"caravan-replay","v":2,"resolverVersion":10,"tickRate":20,"tickCap":2400,"keyframeInterval":100,"ticks":563,"outcome":{"kind":"caravan_overrun","end":"core_overrun","endTick":562,"depth":1024,"deepestUnit":0},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":900,"hp":900,"ab":4},{"u":1,"side":"defender","ref":"p","typeId":"desert.well_digger","level":1,"maxHp":1000,"hp":1000,"ab":1}],"fences":[],"traps":[],"count":57,"check":893575373,"events":[
+[0,"s",0,14848,512],
+[0,"s",1,14848,8704],
 [0,"tg",0,1,1],
-[0,"p",0,76,15872,8704,-1],
+[0,"p",0,76,14848,8704,-1],
 [89,"x",0,1,52,948],
 [89,"x",1,0,41,859],
 [90,"h",0,1],
-[99,"kf",2,0,15872,7352,859,10,0,0,11520,1,15872,8704,948,10,0,0,19200,0,0],
+[99,"kf",2,0,14848,7352,859,10,0,0,11520,1,14848,8704,948,10,0,0,19200,0,0],
 [109,"x",0,1,52,896],
 [109,"x",1,0,41,818],
 [129,"x",0,1,52,844],
@@ -28,7 +28,7 @@
 [169,"x",1,0,41,695],
 [189,"x",0,1,52,688],
 [189,"x",1,0,41,654],
-[199,"kf",2,0,15872,7352,654,10,0,0,11520,1,15872,8704,688,10,0,0,19200,0,0],
+[199,"kf",2,0,14848,7352,654,10,0,0,11520,1,14848,8704,688,10,0,0,19200,0,0],
 [209,"x",0,1,52,636],
 [209,"x",1,0,41,613],
 [229,"x",0,1,52,584],
@@ -39,7 +39,7 @@
 [269,"x",1,0,41,490],
 [289,"x",0,1,52,428],
 [289,"x",1,0,41,449],
-[299,"kf",2,0,15872,7352,449,10,0,0,11520,1,15872,8704,428,10,0,0,19200,0,0],
+[299,"kf",2,0,14848,7352,449,10,0,0,11520,1,14848,8704,428,10,0,0,19200,0,0],
 [309,"x",0,1,52,376],
 [309,"x",1,0,41,408],
 [329,"x",0,1,52,324],
@@ -50,7 +50,7 @@
 [369,"x",1,0,41,285],
 [389,"x",0,1,52,168],
 [389,"x",1,0,41,244],
-[399,"kf",2,0,15872,7352,244,10,0,0,11520,1,15872,8704,168,10,0,0,19200,0,0],
+[399,"kf",2,0,14848,7352,244,10,0,0,11520,1,14848,8704,168,10,0,0,19200,0,0],
 [409,"x",0,1,52,116],
 [409,"x",1,0,41,203],
 [429,"x",0,1,52,64],
@@ -61,10 +61,11 @@
 [469,"x",1,0,41,80],
 [469,"d",1],
 [470,"tg",0,0,-1],
-[470,"p",0,76,15872,15872,-1],
+[470,"p",0,76,14848,11776,-1,15872,15872,-1],
 [470,"h",0,0],
-[499,"kf",2,0,15872,9632,80,0,0,0,11520,1,15872,8704,0,20,0,0,19200,0,0],
-[561,"c",0],
-[561,"kf",1,0,15872,14344,80,0,0,0,11520,0,0]
+[499,"kf",2,0,14848,9632,80,0,0,0,11520,1,14848,8704,0,20,0,0,19200,0,0],
+[520,"p",0,76,15872,15872,-1],
+[562,"c",0],
+[562,"kf",1,0,15540,14346,80,0,0,0,11520,0,0]
 ]}
 }

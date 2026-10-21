@@ -2,7 +2,7 @@
  * Budgets — time (chunk 11) and the replay's size (chunk 13 LOG_SIZE_BUDGET: 100 KB per raid,
  * compressed). Measured, not assumed; every number is printed.
  *
- * Three full-load fights (16 raiders, 8 posts, all 28 segments, 6 traps, 2 siege — twice the
+ * Three full-load fights (16 raiders, 8 posts, all 16 segments, 6 traps, 2 siege — twice the
  * PARTY_SLOT_CAP of 8):
  *   - `fullLoadScenario` as `resolve` plays it (chunk 13 end conditions: it ends at the first
  *     arrival);

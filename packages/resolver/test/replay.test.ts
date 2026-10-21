@@ -34,7 +34,7 @@ describe("LOG_FORMAT v2", () => {
     expect(log.outcome).toEqual({ kind: out.outcome.kind, end: out.end, endTick: out.ticks - 1, depth: out.outcome.depth, deepestUnit: out.outcome.deepestUnit });
     expect(log.units.map((u) => u.u)).toEqual(out.units.map((u) => u.id));
     expect(log.units[0]).toEqual({ u: 0, side: "attacker", ref: out.units[0]!.ref, typeId: out.units[0]!.typeId, level: out.units[0]!.mergeLevel, maxHp: out.units[0]!.maxHp, hp: out.units[0]!.startHp, ab: ABILITY_ARCHETYPES.indexOf(out.units[0]!.ability) });
-    expect(log.fences).toHaveLength(28);
+    expect(log.fences).toHaveLength(16);
     expect(log.traps.every((t) => Number.isSafeInteger(t.x) && Number.isSafeInteger(t.y))).toBe(true);
     expect(log.count).toBe(log.events.length);
   });

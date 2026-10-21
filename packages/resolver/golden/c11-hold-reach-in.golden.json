@@ -1,25 +1,26 @@
 {
 "scenario": "c11-hold-reach-in",
-"resolverVersion": 9,
+"resolverVersion": 10,
 "outcome": {"kind":"caravan_overrun","end":"core_overrun","endTick":180,"depth":1024,"deepestUnit":0},
 "ticks": 181,
 "units": [
 {"id":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","mergeLevel":1,"ability":"dash","x":15872,"y":15872,"startHp":5000,"hp":4960,"maxHp":5000,"alive":true,"reachedCoreTick":180,"diedTick":-1},
-{"id":1,"side":"defender","ref":"p","typeId":"desert.well_digger","mergeLevel":1,"ability":"heavy_strike","x":14848,"y":8704,"startHp":1100,"hp":986,"maxHp":1100,"alive":true,"reachedCoreTick":-1,"diedTick":-1}
+{"id":1,"side":"defender","ref":"p","typeId":"desert.well_digger","mergeLevel":1,"ability":"heavy_strike","x":13824,"y":8704,"startHp":1100,"hp":986,"maxHp":1100,"alive":true,"reachedCoreTick":-1,"diedTick":-1}
 ],
 "fences": [],
 "traps": [],
-"replay": {"format":"caravan-replay","v":2,"resolverVersion":9,"tickRate":20,"tickCap":600,"keyframeInterval":100,"ticks":181,"outcome":{"kind":"caravan_overrun","end":"core_overrun","endTick":180,"depth":1024,"deepestUnit":0},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":5000,"hp":5000,"ab":4},{"u":1,"side":"defender","ref":"p","typeId":"desert.well_digger","level":1,"maxHp":1100,"hp":1100,"ab":1}],"fences":[],"traps":[],"count":11,"check":1825121865,"events":[
-[0,"s",0,15872,512],
-[0,"s",1,14848,8704],
+"replay": {"format":"caravan-replay","v":2,"resolverVersion":10,"tickRate":20,"tickCap":600,"keyframeInterval":100,"ticks":181,"outcome":{"kind":"caravan_overrun","end":"core_overrun","endTick":180,"depth":1024,"deepestUnit":0},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":5000,"hp":5000,"ab":4},{"u":1,"side":"defender","ref":"p","typeId":"desert.well_digger","level":1,"maxHp":1100,"hp":1100,"ab":1}],"fences":[],"traps":[],"count":12,"check":993372797,"events":[
+[0,"s",0,14848,512],
+[0,"s",1,13824,8704],
 [0,"tg",0,0,-1],
-[0,"p",0,76,15872,15872,-1],
+[0,"p",0,76,14848,11776,-1,15872,15872,-1],
 [95,"x",0,1,57,1043],
 [95,"x",1,0,40,4960],
-[99,"kf",2,0,15872,8112,4960,16,0,0,180,1,14848,8704,1043,24,0,0,300,0,0],
+[99,"kf",2,0,14848,8112,4960,16,0,0,180,1,13824,8704,1043,24,0,0,300,0,0],
 [115,"x",0,1,57,986],
-[180,"ab",0,4,15872,15872,0,0,1604,4960],
+[140,"p",0,76,15872,15872,-1],
+[180,"ab",0,4,15872,15872,0,0,1713,4960],
 [180,"c",0],
-[180,"kf",2,0,15872,15872,4960,0,0,0,360,1,14848,8704,986,0,0,0,300,0,0]
+[180,"kf",2,0,15872,15872,4960,0,0,0,360,1,13824,8704,986,0,0,0,300,0,0]
 ]}
 }

@@ -1,6 +1,6 @@
 {
 "scenario": "c10-fast-mover-no-tunnelling",
-"resolverVersion": 9,
+"resolverVersion": 10,
 "outcome": {"kind":"caravan_overrun","end":"core_overrun","endTick":4,"depth":1024,"deepestUnit":0},
 "ticks": 5,
 "units": [
@@ -8,12 +8,12 @@
 ],
 "fences": [],
 "traps": [
-{"i":0,"ref":"t","typeId":"trap.spike_pit","x":15872,"y":5632,"spent":true,"spentTick":1}
+{"i":0,"ref":"t","typeId":"trap.spike_pit","x":14848,"y":5632,"spent":true,"spentTick":1}
 ],
-"replay": {"format":"caravan-replay","v":2,"resolverVersion":9,"tickRate":20,"tickCap":600,"keyframeInterval":100,"ticks":5,"outcome":{"kind":"caravan_overrun","end":"core_overrun","endTick":4,"depth":1024,"deepestUnit":0},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":620,"hp":620,"ab":4}],"fences":[],"traps":[{"i":0,"ref":"t","typeId":"trap.spike_pit","x":15872,"y":5632}],"count":6,"check":4197049819,"events":[
-[0,"s",0,15872,512],
+"replay": {"format":"caravan-replay","v":2,"resolverVersion":10,"tickRate":20,"tickCap":600,"keyframeInterval":100,"ticks":5,"outcome":{"kind":"caravan_overrun","end":"core_overrun","endTick":4,"depth":1024,"deepestUnit":0},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":620,"hp":620,"ab":4}],"fences":[],"traps":[{"i":0,"ref":"t","typeId":"trap.spike_pit","x":14848,"y":5632}],"count":6,"check":3830205770,"events":[
+[0,"s",0,14848,512],
 [0,"tg",0,0,-1],
-[0,"p",0,3276,15872,15872,-1],
+[0,"p",0,3276,14848,11776,-1,15872,15872,-1],
 [1,"tf",0,0,199,421,0],
 [4,"c",0],
 [4,"kf",1,0,15872,15872,421,0,0,0,180,0,1,0]

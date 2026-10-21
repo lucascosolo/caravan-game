@@ -7,7 +7,7 @@
  * Every whole fight named here is also a golden (test/fixtures.ts → packages/resolver/golden).
  */
 import { describe, expect, it } from "vitest";
-import { CORE_ORIGIN, CORE_SIZE, DEPTH_SCALE, FIXED_POINT_SCALE, PERIMETER_RING_RADIUS, RING_SEGMENTS, RING_SPAN, coreDistCheb, resolve, unitDepth, type UnitState } from "../src/index.js";
+import { CORE_ORIGIN, DEPTH_SCALE, FIXED_POINT_SCALE, RING_ORDER, RING_SPAN, coreDistCheb, resolve, unitDepth, type UnitState } from "../src/index.js";
 import { clone, scenarios } from "./fixtures.js";
 
 const S = FIXED_POINT_SCALE;
@@ -15,14 +15,23 @@ const depthAt = (closest: number) => unitDepth({ coreClosest: closest } as UnitS
 const byName = (name: string) => resolve(clone(scenarios().find((s) => s.name === name)!.input));
 
 describe("D1: DEPTH_METRIC is measured from the ring line", () => {
-  it("RING_SPAN is the Chebyshev distance from the core block to the ring's outer edge, the same on all four sides", () => {
-    expect(RING_SPAN).toBe((PERIMETER_RING_RADIUS - Math.trunc(CORE_SIZE / 2)) * S);
-    expect(RING_SPAN).toBe(3 * S);
-    // The outer edge of every ring cell, on its outward side, is exactly RING_SPAN from the core block.
-    for (const seg of RING_SEGMENTS) {
-      const out = seg.edge === "north" ? { x: seg.cell.x * S + S / 2, y: seg.cell.y * S } : seg.edge === "south" ? { x: seg.cell.x * S + S / 2, y: (seg.cell.y + 1) * S - 1 } : seg.edge === "west" ? { x: seg.cell.x * S, y: seg.cell.y * S + S / 2 } : { x: (seg.cell.x + 1) * S - 1, y: seg.cell.y * S + S / 2 };
-      expect(coreDistCheb(out.x, out.y), `segment ${seg.index}`).toBe(RING_SPAN);
+  it("RING_SPAN is the Chebyshev distance from the core block to the round ring's farthest outer edge: no ring cell lies beyond it, the four cardinal wagon/fence cells reach it", () => {
+    expect(RING_SPAN).toBe(4 * S);
+    let reached = 0;
+    for (const c of RING_ORDER) {
+      // The farthest point of the cell from the core block, on its outward corner.
+      const x = c.x < CORE_ORIGIN.x ? c.x * S : (c.x + 1) * S - 1;
+      const y = c.y < CORE_ORIGIN.y ? c.y * S : (c.y + 1) * S - 1;
+      const far = coreDistCheb(x, y);
+      expect(far, `ring cell (${c.x},${c.y})`).toBeLessThanOrEqual(RING_SPAN);
+      if (far === RING_SPAN) reached++;
     }
+    expect(reached).toBeGreaterThanOrEqual(4);
+    // Due north, east, south and west of the core centre the ring's outer edge is exactly RING_SPAN away.
+    expect(coreDistCheb(15 * S + S / 2, 10 * S)).toBe(RING_SPAN);
+    expect(coreDistCheb(21 * S - 1, 15 * S + S / 2)).toBe(RING_SPAN);
+    expect(coreDistCheb(15 * S + S / 2, 21 * S - 1)).toBe(RING_SPAN);
+    expect(coreDistCheb(10 * S, 15 * S + S / 2)).toBe(RING_SPAN);
     expect(coreDistCheb(CORE_ORIGIN.x * S, CORE_ORIGIN.y * S)).toBe(0);
   });
 

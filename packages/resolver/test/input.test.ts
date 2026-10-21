@@ -43,11 +43,11 @@ describe("assertResolveInput", () => {
     expect(() => assertResolveInput(mutated((o) => ((pt(o).units as Mut[])[0]!.stance = "flank")))).toThrow(/stance/);
     expect(() => assertResolveInput(mutated((o) => ((pt(o).units as Mut[])[0]!.entry = { edge: "north", cell: { x: 15, y: 2 } })))).toThrow(/entry band/);
     expect(() => assertResolveInput(mutated((o) => ((pt(o).units as Mut[])[0]!.entry = { edge: "up", cell: { x: 15, y: 0 } })))).toThrow(/edge/);
-    expect(() => assertResolveInput(mutated((o) => ((bf(o).fences as Mut[])[0]!.segment = 28)))).toThrow(/ring segment/);
+    expect(() => assertResolveInput(mutated((o) => ((bf(o).fences as Mut[])[0]!.segment = 16)))).toThrow(/ring segment/);
     expect(() => assertResolveInput(mutated((o) => ((bf(o).fences as Mut[])[0]!.cell = { x: 13, y: 11 })))).toThrow(/segment 0's cell/);
     expect(() => assertResolveInput(mutated((o) => (bf(o).anchors = [])))).toThrow(/anchors/);
     expect(() => assertResolveInput(mutated((o) => (bf(o).anchors = [...RING_ANCHORS].reverse())))).toThrow(/anchors/);
-    expect(() => assertResolveInput(mutated((o) => ((bf(o).posts as Mut[])[0]!.cell = { x: 11, y: 11 })))).toThrow(/anchor/);
+    expect(() => assertResolveInput(mutated((o) => ((bf(o).posts as Mut[])[0]!.cell = { x: 15, y: 10 })))).toThrow(/anchor/);
     expect(() => assertResolveInput(mutated((o) => ((bf(o).posts as Mut[])[0]!.stance = "charge")))).toThrow(/stance/);
     expect(() => assertResolveInput(mutated((o) => (bf(o).grid = { width: 64, height: 64 })))).toThrow(/lattice/);
   });

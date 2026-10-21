@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { ABILITY_ARCHETYPES, RESOLVER_VERSION, endOfTick, initialState, normalizeInput, readReplay, resolve, runTick, type LogEvent, type SimState } from "../src/index.js";
+import { ABILITY_ARCHETYPES, PERIMETER_SEGMENTS, RESOLVER_VERSION, endOfTick, initialState, normalizeInput, readReplay, resolve, runTick, type LogEvent, type SimState } from "../src/index.js";
 import { clone, scenarios } from "./fixtures.js";
 import { GOLDEN_SUFFIX, WORK_COUNTERS_FILE, goldenText } from "./golden.js";
 
@@ -140,7 +140,7 @@ describe("determinism harness", () => {
       input.party.units.forEach((u) => attackerStances.add(u.stance));
       input.battlefield.posts.forEach((p) => postStances.add(p.stance));
       const nf = input.battlefield.fences.length;
-      if (nf === 28) sealed++;
+      if (nf === PERIMETER_SEGMENTS) sealed++;
       else if (nf > 0) gapped++;
       else open++;
       for (const s of input.party.siege) {

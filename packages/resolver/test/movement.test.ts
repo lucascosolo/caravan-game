@@ -68,22 +68,27 @@ describe("fixed-timestep loop", () => {
 
 describe("continuous movement", () => {
   it("moves 76 fixed units per tick at 1.5 cells/s (floor of 1536 / 20), sub-cell, never snapped to cell centres", () => {
-    const out = resolve(input(battlefield(), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), { ...DEFAULT_TUNABLES, battleLengthCapSeconds: 1, keyframeIntervalMs: ms(50) }));
+    // From (31,9) the line to the core centre clears every wagon: one straight leg, so the position after
+    // k ticks is the start plus legOffset(d, 76 × k, len), a displacement of exactly 76 per tick.
+    const out = resolve(input(battlefield(), party([unit({ ref: "a", edge: "east", cell: { x: 31, y: 9 } })]), { ...DEFAULT_TUNABLES, battleLengthCapSeconds: 1, keyframeIntervalMs: ms(50) }));
     const ks = keyframes(out);
     expect(ks).toHaveLength(20);
-    // Straight south toward the core: x constant, y advancing 76 per tick from the cell centre.
+    const start = cellCenter({ x: 31, y: 9 });
+    const dx = CORE_CENTER.x - start.x;
+    const dy = CORE_CENTER.y - start.y;
+    const len = Math.floor(Math.sqrt(dx * dx + dy * dy));
     for (let i = 0; i < 20; i++) {
-      expect(ks[i]!.units[0]!.x).toBe(15 * 1024 + 512);
-      expect(ks[i]!.units[0]!.y).toBe(512 + 76 * (i + 1));
+      expect(ks[i]!.units[0]!.x).toBe(start.x + legOffset(dx, 76 * (i + 1), len));
+      expect(ks[i]!.units[0]!.y).toBe(start.y + legOffset(dy, 76 * (i + 1), len));
     }
     // Positions between cell centres are the norm: most are not on a centre.
-    const offCentre = ks.filter((k) => (k.units[0]!.y - 512) % 1024 !== 0);
+    const offCentre = ks.filter((k) => (k.units[0]!.y - 512) % 1024 !== 0 || (k.units[0]!.x - 512) % 1024 !== 0);
     expect(offCentre.length).toBeGreaterThan(15);
   });
 
   it("reaches the core through a deliberate gap in the ring and stops at the core centre", () => {
-    // Gap at segment 3 (cell (15,11)): the unit's straight line south to the core.
-    const out = resolve(input(battlefield({ fences: ringExcept([3]) }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES));
+    // Gap at segment 15 (cell (14,10)): the unit's straight line south to the core, between two wagons.
+    const out = resolve(input(battlefield({ fences: ringExcept([15]) }), party([unit({ ref: "a", cell: { x: 14, y: 0 } })]), SHORT_TUNABLES));
     const a = out.units[0]!;
     expect(a.reachedCoreTick).toBeGreaterThan(0);
     expect(a.reachedCoreTick).toBeLessThan(300);
@@ -94,33 +99,34 @@ describe("continuous movement", () => {
   });
 
   it("goes round through a gap when that is cheaper than breaking through", () => {
-    // Gap at segment 6 (cell (18,11)), three cells east of the unit's line; brush pile is 300 HP,
-    // offense 95 → (4 − 1) hits × 20 ticks × 76 = 4560 (≈ 4.5 cells) of standing still vs a
-    // detour of about a cell on foot: the detour wins; a sturdier fence makes it unambiguous.
-    const out = resolve(input(battlefield({ fences: ringExcept([6], 1000) }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES));
+    // The only gap is segment 0 (cell (17,11)), three cells east of the unit's line and past the two north
+    // wagons; a 1000-HP fence at offense 95 is (11 − 1) hits × 20 ticks × 76 = 15 200 (≈ 15 cells) of
+    // standing still vs a detour of a few cells on foot: the detour wins.
+    const out = resolve(input(battlefield({ fences: ringExcept([0], 1000) }), party([unit({ ref: "a", cell: { x: 14, y: 0 } })]), SHORT_TUNABLES));
     expect(out.units[0]!.reachedCoreTick).toBeGreaterThan(0);
     expect(events(out, "fence_hit")).toHaveLength(0);
     expect(out.fences.every((f) => f.intact)).toBe(true);
   });
 
   it("breaks through when the detour is dearer, chipping the segment's HP on its attack cooldown until it breaks", () => {
-    // Only gap is on the far (south) side: a 100-HP timber segment right in the way is cheaper.
-    const out = resolve(input(battlefield({ fences: ringExcept([17], 100) }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, offense: 40, attackCooldown: 1000 })]), { ...SHORT_TUNABLES, keyframeIntervalMs: ms(50) }));
+    // Only gap is on the far (south) side, segment 7 (16,20): a 100-HP timber segment right in the way (segment 15, (14,10)) is cheaper.
+    const out = resolve(input(battlefield({ fences: ringExcept([7], 100) }), party([unit({ ref: "a", cell: { x: 14, y: 0 }, offense: 40, attackCooldown: 1000 })]), { ...SHORT_TUNABLES, keyframeIntervalMs: ms(50) }));
     const hits = events(out, "fence_hit");
+    const f15 = out.fences.find((f) => f.segment === 15)!.f;
     expect(hits.length).toBe(3); // ⌈100 / 40⌉
-    expect(hits.every((h) => h.f === 3 && h.u === 0 && h.damage === 40)).toBe(true);
+    expect(hits.every((h) => h.f === f15 && h.u === 0 && h.damage === 40)).toBe(true);
     expect(hits.map((h) => h.hp)).toEqual([60, 20, 0]);
     // One hit per attack cooldown (1000 ms = 20 ticks), the first on arrival.
     expect(hits[1]!.t - hits[0]!.t).toBe(20);
     expect(hits[2]!.t - hits[1]!.t).toBe(20);
     const broken = events(out, "fence_broken");
-    expect(broken).toEqual([{ t: hits[2]!.t, k: "fence_broken", f: 3 }]);
-    expect(out.fences.find((f) => f.segment === 3)).toMatchObject({ hp: 0, intact: false, brokenTick: hits[2]!.t });
-    // The unit stood in the adjacent cell (15,10) while breaching, then went on to the core.
+    expect(broken).toEqual([{ t: hits[2]!.t, k: "fence_broken", f: f15 }]);
+    expect(out.fences.find((f) => f.segment === 15)).toMatchObject({ hp: 0, intact: false, brokenTick: hits[2]!.t });
+    // The unit stood in the adjacent cell (14,9) while breaching, then went on to the core.
     const holdOn = events(out, "hold").find((h) => h.holding);
     expect(holdOn).toBeDefined();
     const atHold = keyframes(out).find((k) => k.t >= holdOn!.t)!;
-    expect(cellOf({ x: atHold.units[0]!.x as never, y: atHold.units[0]!.y as never })).toEqual({ x: 15, y: 10 });
+    expect(cellOf({ x: atHold.units[0]!.x as never, y: atHold.units[0]!.y as never })).toEqual({ x: 14, y: 9 });
     expect(out.units[0]!.reachedCoreTick).toBeGreaterThan(hits[2]!.t);
     // A fence break recomputes every unit's path on the next tick.
     const pathAfterBreak = events(out, "path").find((p) => p.t === hits[2]!.t + 1);
@@ -128,7 +134,7 @@ describe("continuous movement", () => {
   });
 
   it("a fully sealed ring (no gap) still terminates: the unit breaches and reaches the core, or the cap ends it", () => {
-    const out = resolve(input(battlefield({ fences: ringExcept([], 300) }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES));
+    const out = resolve(input(battlefield({ fences: ringExcept([], 300) }), party([unit({ ref: "a", cell: { x: 14, y: 0 } })]), SHORT_TUNABLES));
     // Chunk 13: reaching the core ends the fight that tick (an overrun).
     expect(out.end).toBe("core_overrun");
     expect(out.ticks).toBe(out.units[0]!.reachedCoreTick + 1);
@@ -138,7 +144,7 @@ describe("continuous movement", () => {
 
   it("a unit standing on a decision boundary — equal cost to breach or detour — takes a deterministic choice", () => {
     // 95 offense vs 95 HP → 1 hit × 20 ticks × 76 = 1520 breach cost. Pinned.
-    const run = () => resolve(input(battlefield({ fences: ringExcept([4], 95) }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES));
+    const run = () => resolve(input(battlefield({ fences: ringExcept([0], 95) }), party([unit({ ref: "a", cell: { x: 14, y: 0 } })]), SHORT_TUNABLES));
     const a = run();
     const b = run();
     expect(JSON.stringify(a)).toBe(JSON.stringify(b));
@@ -166,7 +172,7 @@ describe("continuous movement", () => {
   });
 
   it("units do not collide: two units on identical positions and paths move identically and overlap", () => {
-    const out = resolve(input(battlefield({ fences: ringExcept([3]) }), party([unit({ ref: "a", cell: { x: 15, y: 0 } }), unit({ ref: "b", cell: { x: 15, y: 0 } })]), { ...SHORT_TUNABLES, keyframeIntervalMs: ms(50) }));
+    const out = resolve(input(battlefield({ fences: ringExcept([15]) }), party([unit({ ref: "a", cell: { x: 14, y: 0 } }), unit({ ref: "b", cell: { x: 14, y: 0 } })]), { ...SHORT_TUNABLES, keyframeIntervalMs: ms(50) }));
     for (const k of keyframes(out)) expect([k.units[0]!.x, k.units[0]!.y]).toEqual([k.units[1]!.x, k.units[1]!.y]);
     expect(out.units[0]!.reachedCoreTick).toBe(out.units[1]!.reachedCoreTick);
   });
@@ -174,7 +180,7 @@ describe("continuous movement", () => {
 
 describe("stances and the retarget rule", () => {
   it("core: beelines for the core centre and ignores posts and traps", () => {
-    const out = resolve(input(battlefield({ traps: [trap("t", { x: 15, y: 5 })], posts: [post("p", { x: 15, y: 7 })] }), party([unit({ ref: "a", stance: "core", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES));
+    const out = resolve(input(battlefield({ traps: [trap("t", { x: 14, y: 5 })], posts: [post("p", { x: 14, y: 7 })] }), party([unit({ ref: "a", stance: "core", cell: { x: 14, y: 0 } })]), SHORT_TUNABLES));
     expect(events(out, "target")[0]).toEqual({ t: 0, k: "target", u: 0, target: { kind: "core", id: -1 } });
     expect({ x: out.units[0]!.x, y: out.units[0]!.y }).toEqual(CORE_CENTER);
   });
@@ -182,7 +188,7 @@ describe("stances and the retarget rule", () => {
   it("nearest: targets the nearest posted unit (tie → lowest id), closes to attack reach and HOLDS there", () => {
     // Two posts equidistant from the unit; "p1" sorts before "p2" so it gets the lower id. The
     // posts `hold` so they stay put (chunk 11), and the fight is cut before anyone dies.
-    const inp = normalizeInput(input(battlefield({ posts: [post("p2", { x: 17, y: 6 }, { stance: "hold" }), post("p1", { x: 13, y: 6 }, { stance: "hold" })] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES));
+    const inp = normalizeInput(input(battlefield({ posts: [post("p2", { x: 16, y: 6 }, { stance: "hold" }), post("p1", { x: 12, y: 6 }, { stance: "hold" })] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 14, y: 0 } })]), SHORT_TUNABLES));
     const state = initialState(inp);
     const log: LogEvent[] = [];
     expect(state.units[1]!.ref).toBe("p1");
@@ -190,9 +196,9 @@ describe("stances and the retarget rule", () => {
     expect(log.filter((e) => e.k === "target")[0]).toEqual({ t: 0, k: "target", u: 0, target: { kind: "unit", id: 1 } });
     const a = state.units[0]!;
     // REACH: it stopped once p1's centre was within attackRange + unitRadius.
-    expect(distSq({ x: a.x, y: a.y }, cellCenter({ x: 13, y: 6 }))).toBeLessThanOrEqual(reachSq(1024));
+    expect(distSq({ x: a.x, y: a.y }, cellCenter({ x: 12, y: 6 }))).toBeLessThanOrEqual(reachSq(1024));
     // ... and not before: one more tick's step (76) would have been needed to get there earlier.
-    expect(distSq({ x: a.x, y: a.y }, cellCenter({ x: 13, y: 6 }))).toBeGreaterThan((1024 + 358 - 76) * (1024 + 358 - 76));
+    expect(distSq({ x: a.x, y: a.y }, cellCenter({ x: 12, y: 6 }))).toBeGreaterThan((1024 + 358 - 76) * (1024 + 358 - 76));
     expect(a.reachedCoreTick).toBe(-1);
     expect(a.holding).toBe(true);
     expect(state.units[1]!.alive).toBe(true);
@@ -210,7 +216,7 @@ describe("stances and the retarget rule", () => {
   });
 
   it("traps: goes to the nearest unspent trap (tie → lowest trap index), springs it, then moves on to the next trap", () => {
-    const out = resolve(input(battlefield({ traps: [trap("t2", { x: 18, y: 6 }), trap("t1", { x: 12, y: 6 })], posts: [post("p", { x: 15, y: 8 }, { stance: "hold" })] }), party([unit({ ref: "a", stance: "traps", cell: { x: 15, y: 0 }, hp: 2000 })]), SHORT_TUNABLES));
+    const out = resolve(input(battlefield({ traps: [trap("t2", { x: 17, y: 6 }), trap("t1", { x: 11, y: 6 })], posts: [post("p", { x: 14, y: 8 }, { stance: "hold" })] }), party([unit({ ref: "a", stance: "traps", cell: { x: 14, y: 0 }, hp: 2000 })]), SHORT_TUNABLES));
     expect(out.traps.map((t) => t.ref)).toEqual(["t1", "t2"]);
     expect(events(out, "target")[0]!.target).toEqual({ kind: "trap", id: 0 });
     // Chunk 11: the trap fires on the swept path, is spent, and the spent target sends the unit to t2.
@@ -232,14 +238,14 @@ describe("stances and the retarget rule", () => {
   });
 
   it("traps with no traps falls back to nearest post, then to the core", () => {
-    const withPost = resolve(input(battlefield({ posts: [post("p", { x: 15, y: 8 })] }), party([unit({ ref: "a", stance: "traps", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES));
+    const withPost = resolve(input(battlefield({ posts: [post("p", { x: 14, y: 8 })] }), party([unit({ ref: "a", stance: "traps", cell: { x: 14, y: 0 } })]), SHORT_TUNABLES));
     expect(events(withPost, "target")[0]!.target).toEqual({ kind: "unit", id: 1 });
     const bare = resolve(input(battlefield(), party([unit({ ref: "a", stance: "traps" })]), SHORT_TUNABLES));
     expect(events(bare, "target")[0]!.target).toEqual({ kind: "core", id: -1 });
   });
 
   it("retargets only when the target becomes invalid: a post dying mid-fight sends the unit to the next candidate", () => {
-    const inp = normalizeInput(input(battlefield({ posts: [post("p1", { x: 15, y: 8 }), post("p2", { x: 15, y: 22 })] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES));
+    const inp = normalizeInput(input(battlefield({ posts: [post("p1", { x: 14, y: 8 }), post("p2", { x: 14, y: 22 })] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 14, y: 0 } })]), SHORT_TUNABLES));
     const state = initialState(inp);
     const log: LogEvent[] = [];
     for (; state.tick < 100; state.tick++) runTick(state, log);
@@ -264,7 +270,7 @@ describe("tie-breaks and ordering", () => {
   });
 
   it("shuffled input arrays produce a byte-identical output", () => {
-    const base = input(battlefield({ fences: ringExcept([3, 10]), traps: [trap("t1", { x: 13, y: 13 }), trap("t2", { x: 17, y: 17 })], posts: [post("p1", { x: 15, y: 13 }), post("p2", { x: 14, y: 17 })] }), party([unit({ ref: "a", stance: "core", cell: { x: 15, y: 0 } }), unit({ ref: "b", stance: "nearest", cell: { x: 20, y: 0 } }), unit({ ref: "c", stance: "traps", edge: "south", cell: { x: 10, y: GRID_HEIGHT - 1 } })]), SHORT_TUNABLES);
+    const base = input(battlefield({ fences: ringExcept([15, 4]), traps: [trap("t1", { x: 13, y: 13 }), trap("t2", { x: 17, y: 17 })], posts: [post("p1", { x: 15, y: 13 }), post("p2", { x: 14, y: 17 })] }), party([unit({ ref: "a", stance: "core", cell: { x: 14, y: 0 } }), unit({ ref: "b", stance: "nearest", cell: { x: 20, y: 0 } }), unit({ ref: "c", stance: "traps", edge: "south", cell: { x: 10, y: GRID_HEIGHT - 1 } })]), SHORT_TUNABLES);
     const shuffled = {
       ...base,
       battlefield: { ...base.battlefield, fences: [...base.battlefield.fences].reverse(), traps: [...base.battlefield.traps].reverse(), posts: [...base.battlefield.posts].reverse() },
@@ -274,32 +280,33 @@ describe("tie-breaks and ordering", () => {
   });
 
   it("two units at identical positions with equidistant choices make the same choice; ids break the tie in the log order", () => {
-    const out = resolve(input(battlefield({ posts: [post("p1", { x: 13, y: 6 }), post("p2", { x: 17, y: 6 })] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 15, y: 0 } }), unit({ ref: "b", stance: "nearest", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES));
+    const out = resolve(input(battlefield({ posts: [post("p1", { x: 12, y: 6 }), post("p2", { x: 16, y: 6 })] }), party([unit({ ref: "a", stance: "nearest", cell: { x: 14, y: 0 } }), unit({ ref: "b", stance: "nearest", cell: { x: 14, y: 0 } })]), SHORT_TUNABLES));
     const targets = events(out, "target").filter((e) => e.t === 0);
     expect(targets.map((e) => e.u)).toEqual([0, 1]);
     expect(targets.map((e) => e.target!.id)).toEqual([2, 2]);
   });
 
   it("two units reaching a segment on the same tick: hits land in id order, a segment at 0 HP takes no further hit, both re-plan through the opening", () => {
-    // Identical units from the same cell arrive adjacent to segment 3 on the same tick.
+    // Identical units from the same cell arrive adjacent to segment 15 (14,10) on the same tick.
     // 80 HP vs 40 offense ×3 (each capped at half the segment, 40 — QA-12 D1): a (id 0) then
     // b take it to 0; c's would-be hit on the same tick is skipped.
-    const one = resolve(input(battlefield({ fences: ringExcept([17], 80) }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, offense: 40 }), unit({ ref: "b", cell: { x: 15, y: 0 }, offense: 40 }), unit({ ref: "c", cell: { x: 15, y: 0 }, offense: 40 })]), SHORT_TUNABLES));
+    const one = resolve(input(battlefield({ fences: ringExcept([7], 80) }), party([unit({ ref: "a", cell: { x: 14, y: 0 }, offense: 40 }), unit({ ref: "b", cell: { x: 14, y: 0 }, offense: 40 }), unit({ ref: "c", cell: { x: 14, y: 0 }, offense: 40 })]), SHORT_TUNABLES));
+    const f15 = one.fences.find((f) => f.segment === 15)!.f;
     expect(events(one, "fence_broken")).toHaveLength(1);
     const t1 = events(one, "fence_broken")[0]!.t;
     expect(events(one, "fence_hit")).toEqual([
-      { t: t1, k: "fence_hit", u: 0, f: 3, damage: 40, hp: 40 },
-      { t: t1, k: "fence_hit", u: 1, f: 3, damage: 40, hp: 0 },
+      { t: t1, k: "fence_hit", u: 0, f: f15, damage: 40, hp: 40 },
+      { t: t1, k: "fence_hit", u: 1, f: f15, damage: 40, hp: 0 },
     ]);
     expect(one.units.every((u) => u.reachedCoreTick > 0)).toBe(true);
     expect(one.units[0]!.reachedCoreTick).toBe(one.units[1]!.reachedCoreTick);
     expect(one.units[2]!.reachedCoreTick).toBe(one.units[1]!.reachedCoreTick);
     // 80 HP: a then b on the same tick, in id order; the segment breaks on that tick.
-    const two = resolve(input(battlefield({ fences: ringExcept([17], 80) }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, offense: 40 }), unit({ ref: "b", cell: { x: 15, y: 0 }, offense: 40 })]), SHORT_TUNABLES));
+    const two = resolve(input(battlefield({ fences: ringExcept([7], 80) }), party([unit({ ref: "a", cell: { x: 14, y: 0 }, offense: 40 }), unit({ ref: "b", cell: { x: 14, y: 0 }, offense: 40 })]), SHORT_TUNABLES));
     const t = events(two, "fence_broken")[0]!.t;
     expect(events(two, "fence_hit")).toEqual([
-      { t, k: "fence_hit", u: 0, f: 3, damage: 40, hp: 40 },
-      { t, k: "fence_hit", u: 1, f: 3, damage: 40, hp: 0 },
+      { t, k: "fence_hit", u: 0, f: f15, damage: 40, hp: 40 },
+      { t, k: "fence_hit", u: 1, f: f15, damage: 40, hp: 0 },
     ]);
   });
 });
@@ -331,20 +338,20 @@ describe("QA-10 round 1 regressions", () => {
   });
 
   it("S2: movement is leg-parametric — the position after k ticks is anchor + legOffset(d, k × speed, len), so rounding never accumulates; a same-route recompute keeps the leg", () => {
-    // Open field from (10,0) to the core (a line that clears the ring anchors): one diagonal
-    // leg of ≈ 15.8 cells that every 10-tick recompute re-derives identically, so the route
+    // Open field from (31,9) to the core (a line that clears the wagons): one diagonal
+    // leg of ≈ 17.1 cells that every 10-tick recompute re-derives identically, so the route
     // is set once and the leg is never restarted.
     // runToCap: the leg runs on to the core centre, past the core edge where the fight would end.
-    const out = runToCap(input(battlefield(), party([unit({ ref: "a", cell: { x: 10, y: 0 } })]), quiet({ ...SHORT_TUNABLES, keyframeIntervalMs: ms(50) })));
+    const out = runToCap(input(battlefield(), party([unit({ ref: "a", edge: "east", cell: { x: 31, y: 9 } })]), quiet({ ...SHORT_TUNABLES, keyframeIntervalMs: ms(50) })));
     const paths = events(out, "path");
     expect(paths).toHaveLength(1);
     expect(paths[0]!.t).toBe(0);
     expect(paths[0]!.wp).toEqual([[CORE_CENTER.x, CORE_CENTER.y, -1]]);
-    const start = cellCenter({ x: 10, y: 0 });
+    const start = cellCenter({ x: 31, y: 9 });
     const dx = CORE_CENTER.x - start.x;
     const dy = CORE_CENTER.y - start.y;
     const len = Math.floor(Math.sqrt(dx * dx + dy * dy));
-    expect(len).toBe(16190);
+    expect(len).toBe(17498);
     let checked = 0;
     for (const k of keyframes(out)) {
       const progress = 76 * (k.t + 1);
@@ -352,14 +359,14 @@ describe("QA-10 round 1 regressions", () => {
       expect([k.units[0]!.x, k.units[0]!.y], `tick ${k.t}`).toEqual([start.x + legOffset(dx, progress, len), start.y + legOffset(dy, progress, len)]);
       checked++;
     }
-    expect(checked).toBe(213); // ticks 0..212 are mid-leg; tick 213 lands exactly on the centre
-    expect(keyframes(out)[213]!.units[0]).toMatchObject({ x: CORE_CENTER.x, y: CORE_CENTER.y });
-    expect(events(out, "hold")).toEqual([{ t: 214, k: "hold", u: 0, holding: true }]);
-    // v1 re-aimed from the rounded position each tick, so drift accumulated over 213 ticks;
+    expect(checked).toBe(230); // ticks 0..229 are mid-leg; tick 230 lands exactly on the centre
+    expect(keyframes(out)[230]!.units[0]).toMatchObject({ x: CORE_CENTER.x, y: CORE_CENTER.y });
+    expect(events(out, "hold")).toEqual([{ t: 231, k: "hold", u: 0, holding: true }]);
+    // v1 re-aimed from the rounded position each tick, so drift accumulated over 230 ticks;
     // the parametric position is within one unit of the exact line to the end.
-    const last = keyframes(out)[212]!.units[0]!;
-    expect(Math.abs(last.x - (start.x + (dx * 76 * 213) / len))).toBeLessThan(1);
-    expect(Math.abs(last.y - (start.y + (dy * 76 * 213) / len))).toBeLessThan(1);
+    const last = keyframes(out)[229]!.units[0]!;
+    expect(Math.abs(last.x - (start.x + (dx * 76 * 230) / len))).toBeLessThan(1);
+    expect(Math.abs(last.y - (start.y + (dy * 76 * 230) / len))).toBeLessThan(1);
   });
 
   it("N1: a step that would land exactly on a waypoint consumes it in the same tick, and a negative leg never reaches its waypoint early", () => {
@@ -413,7 +420,7 @@ describe("QA-10 round 1 regressions", () => {
   it("S1: breach vs detour is decided by MEASURED time — resolved both ways, the chosen route is the quicker one to within one attack cooldown, exactly at the unambiguous ends", () => {
     const cooldownTicks = 20; // 1000 ms at 20 ticks/s; one hit's worth, the planner's resolution
     const timeTo = (gaps: number[], hp: number) => {
-      const out = resolve(input(field(gaps, hp), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), QUIET_SHORT_TUNABLES));
+      const out = resolve(input(field(gaps, hp), party([unit({ ref: "a", cell: { x: 14, y: 0 } })]), QUIET_SHORT_TUNABLES));
       return { t: out.units[0]!.reachedCoreTick, breached: events(out, "fence_hit").length > 0 };
     };
     // A forced breach of h hits costs exactly (h − 2) cooldowns over a two-hit breach. (Since
@@ -422,7 +429,7 @@ describe("QA-10 round 1 regressions", () => {
     expect(timeTo([], 95 * 2).t).toBeGreaterThan(0);
     expect(timeTo([], 95 * 5).t - timeTo([], 95 * 2).t).toBe(3 * cooldownTicks);
     expect(timeTo([], 95).t - timeTo([], 95 * 2).t).toBe(cooldownTicks);
-    for (const gap of [5, 6, 7]) {
+    for (const gap of [0, 1, 2]) {
       const detour = timeTo([gap], 1_000_000);
       expect(detour.breached).toBe(false);
       for (const hits of [1, 2, 3, 4, 5, 8, 12]) {
@@ -436,9 +443,9 @@ describe("QA-10 round 1 regressions", () => {
       expect(timeTo([gap], 1).breached, `gap ${gap}: a one-hit segment (1 HP: the per-tick cap is at least 1) beats any detour`).toBe(true);
       expect(timeTo([gap], 95 * 12).breached, `gap ${gap}: eleven cooldowns never beat the detour`).toBe(false);
     }
-    // The v1 lattice-only comparison breached through a 190-HP segment with a gap two cells away
-    // (4 lattice steps ≈ 54 ticks "saved" for a walk that really costs 5): pinned.
-    expect(timeTo([5], 190).breached).toBe(false);
+    // The v1 lattice-only comparison breached through a 190-HP segment with a gap nearby
+    // (lattice steps "saved" for a walk that really costs more): pinned on the round ring with gap 0.
+    expect(timeTo([0], 190).breached).toBe(false);
   });
 
   it("S3: a 1 000 000-HP sealed ring is breached, not treated as a wall — the unit keeps its target, stands at the segment and chips it all fight", () => {
@@ -446,10 +453,10 @@ describe("QA-10 round 1 regressions", () => {
     expect(events(out, "target")).toEqual([{ t: 0, k: "target", u: 0, target: { kind: "core", id: -1 } }]);
     const hits = events(out, "fence_hit");
     expect(hits).toHaveLength(24); // arrival + every 20 ticks until the 600-tick cap
-    const seg3 = out.fences.find((f) => f.segment === 3)!;
-    expect(hits.every((h) => h.f === seg3.f && h.damage === 1)).toBe(true);
-    expect(seg3.hp).toBe(1_000_000 - 24);
-    expect(cellOf({ x: out.units[0]!.x as never, y: out.units[0]!.y as never })).toEqual({ x: 15, y: 10 });
+    const seg15 = out.fences.find((f) => f.segment === 15)!;
+    expect(hits.every((h) => h.f === seg15.f && h.damage === 1)).toBe(true);
+    expect(seg15.hp).toBe(1_000_000 - 24);
+    expect(cellOf({ x: out.units[0]!.x as never, y: out.units[0]!.y as never })).toEqual({ x: 14, y: 9 });
     expect(events(out, "hold").map((h) => h.holding)).toEqual([true]);
   });
 });

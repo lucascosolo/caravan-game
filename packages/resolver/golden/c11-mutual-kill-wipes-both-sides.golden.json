@@ -1,23 +1,23 @@
 {
 "scenario": "c11-mutual-kill-wipes-both-sides",
-"resolverVersion": 9,
+"resolverVersion": 10,
 "outcome": {"kind":"caravan_held","end":"party_wiped","endTick":89,"depth":0,"deepestUnit":-1},
 "ticks": 90,
 "units": [
-{"id":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","mergeLevel":1,"ability":"dash","x":15872,"y":7352,"startHp":40,"hp":0,"maxHp":40,"alive":false,"reachedCoreTick":-1,"diedTick":89},
-{"id":1,"side":"defender","ref":"p","typeId":"desert.well_digger","mergeLevel":1,"ability":"heavy_strike","x":15872,"y":8704,"startHp":57,"hp":0,"maxHp":1100,"alive":false,"reachedCoreTick":-1,"diedTick":89}
+{"id":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","mergeLevel":1,"ability":"dash","x":14848,"y":7352,"startHp":40,"hp":0,"maxHp":40,"alive":false,"reachedCoreTick":-1,"diedTick":89},
+{"id":1,"side":"defender","ref":"p","typeId":"desert.well_digger","mergeLevel":1,"ability":"heavy_strike","x":14848,"y":8704,"startHp":57,"hp":0,"maxHp":1100,"alive":false,"reachedCoreTick":-1,"diedTick":89}
 ],
 "fences": [],
 "traps": [],
-"replay": {"format":"caravan-replay","v":2,"resolverVersion":9,"tickRate":20,"tickCap":600,"keyframeInterval":100,"ticks":90,"outcome":{"kind":"caravan_held","end":"party_wiped","endTick":89,"depth":0,"deepestUnit":-1},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":40,"hp":40,"ab":4},{"u":1,"side":"defender","ref":"p","typeId":"desert.well_digger","level":1,"maxHp":1100,"hp":57,"ab":1}],"fences":[],"traps":[],"count":9,"check":2747996447,"events":[
-[0,"s",0,15872,512],
-[0,"s",1,15872,8704],
+"replay": {"format":"caravan-replay","v":2,"resolverVersion":10,"tickRate":20,"tickCap":600,"keyframeInterval":100,"ticks":90,"outcome":{"kind":"caravan_held","end":"party_wiped","endTick":89,"depth":0,"deepestUnit":-1},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":40,"hp":40,"ab":4},{"u":1,"side":"defender","ref":"p","typeId":"desert.well_digger","level":1,"maxHp":1100,"hp":57,"ab":1}],"fences":[],"traps":[],"count":9,"check":2802095860,"events":[
+[0,"s",0,14848,512],
+[0,"s",1,14848,8704],
 [0,"tg",0,1,1],
-[0,"p",0,76,15872,8704,-1],
+[0,"p",0,76,14848,8704,-1],
 [89,"x",0,1,57,0],
 [89,"x",1,0,40,0],
 [89,"d",0],
 [89,"d",1],
-[89,"kf",2,0,15872,7352,0,20,0,0,180,1,15872,8704,0,28,0,0,300,0,0]
+[89,"kf",2,0,14848,7352,0,20,0,0,180,1,14848,8704,0,28,0,0,300,0,0]
 ]}
 }

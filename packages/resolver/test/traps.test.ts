@@ -41,7 +41,7 @@ describe("segmentDistSq and sweepCrosses", () => {
 describe("TRAP_TRIGGER_TEST", () => {
   it("fires once when the swept path first comes within trigger radius + unitRadius, with the trap's affinity applied, then is spent", () => {
     // Straight south along x = 15: the trap at (15,5) is reached when y ≥ 5632 − 1126 = 4506 → tick 52 (y = 4540).
-    const out = resolve(input(battlefield({ traps: [trap("t", { x: 15, y: 5 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), PER_TICK_KEYFRAMES));
+    const out = resolve(input(battlefield({ traps: [trap("t", { x: 14, y: 5 })] }), party([unit({ ref: "a", cell: { x: 14, y: 0 } })]), PER_TICK_KEYFRAMES));
     const fired = events(out, "trap_fired");
     // grit trap vs beast unit: disadvantage → 250 × 819/1024 = 199.9 → 199
     expect(fired).toEqual([{ t: 52, k: "trap_fired", i: 0, u: 0, damage: 199, hp: 421, effect: null }]);
@@ -52,16 +52,16 @@ describe("TRAP_TRIGGER_TEST", () => {
     expect(out.units[0]!.hp).toBe(421);
     expect(events(out, "unit_died")).toHaveLength(0);
     // An advantaged trap: powder vs beast → 250 × 1.25 = 312.
-    const powder = resolve(input(battlefield({ traps: [trap("t", { x: 15, y: 5 }, { category: "powder", affinity: "powder" })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES));
+    const powder = resolve(input(battlefield({ traps: [trap("t", { x: 14, y: 5 }, { category: "powder", affinity: "powder" })] }), party([unit({ ref: "a", cell: { x: 14, y: 0 } })]), SHORT_TUNABLES));
     expect(events(powder, "trap_fired")[0]!.damage).toBe(312);
   });
 
   it("no tunnelling: a unit fast enough to cross the trap entirely between two ticks still springs it, where a landing-position test would miss it", () => {
     // 64 cells/s → 3276 per tick; the trap at (15,5) is 1844 behind the tick-0 landing and 1432 past the tick-1 landing.
-    const out = resolve(input(battlefield({ traps: [trap("t", { x: 15, y: 5 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, moveSpeed: 65536 })]), PER_TICK_KEYFRAMES));
+    const out = resolve(input(battlefield({ traps: [trap("t", { x: 14, y: 5 })] }), party([unit({ ref: "a", cell: { x: 14, y: 0 }, moveSpeed: 65536 })]), PER_TICK_KEYFRAMES));
     expect(keyframes(out)[0]!.units[0]!.y).toBe(512 + 3276);
     expect(keyframes(out)[1]!.units[0]!.y).toBe(512 + 2 * 3276);
-    const trapY = cellCenter({ x: 15, y: 5 }).y;
+    const trapY = cellCenter({ x: 14, y: 5 }).y;
     expect(trapY - (512 + 3276)).toBeGreaterThan(TRAP_REACH);
     expect(512 + 2 * 3276 - trapY).toBeGreaterThan(TRAP_REACH);
     expect(events(out, "trap_fired")).toEqual([{ t: 1, k: "trap_fired", i: 0, u: 0, damage: 199, hp: 421, effect: null }]);
@@ -80,14 +80,14 @@ describe("TRAP_TRIGGER_TEST", () => {
   });
 
   it("TRAP_TIE_BREAK: two units crossing one trap on the same tick — the lower id springs it, the other is untouched, and it fires exactly once", () => {
-    const out = resolve(input(battlefield({ traps: [trap("t", { x: 15, y: 5 })] }), party([unit({ ref: "b", cell: { x: 15, y: 0 } }), unit({ ref: "a", cell: { x: 15, y: 0 } })]), SHORT_TUNABLES));
+    const out = resolve(input(battlefield({ traps: [trap("t", { x: 14, y: 5 })] }), party([unit({ ref: "b", cell: { x: 14, y: 0 } }), unit({ ref: "a", cell: { x: 14, y: 0 } })]), SHORT_TUNABLES));
     expect(out.units.map((u) => u.ref)).toEqual(["a", "b"]);
     expect(events(out, "trap_fired")).toEqual([{ t: 52, k: "trap_fired", i: 0, u: 0, damage: 199, hp: 421, effect: null }]);
     expect(out.units[1]!.hp).toBe(620);
   });
 
   it("one unit crossing two traps on one tick springs both, in trap index order", () => {
-    const out = resolve(input(battlefield({ traps: [trap("t2", { x: 15, y: 6 }), trap("t1", { x: 15, y: 5 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, moveSpeed: 65536 })]), SHORT_TUNABLES));
+    const out = resolve(input(battlefield({ traps: [trap("t2", { x: 14, y: 6 }), trap("t1", { x: 14, y: 5 })] }), party([unit({ ref: "a", cell: { x: 14, y: 0 }, moveSpeed: 65536 })]), SHORT_TUNABLES));
     expect(out.traps.map((t) => t.ref)).toEqual(["t1", "t2"]);
     expect(events(out, "trap_fired")).toEqual([
       { t: 1, k: "trap_fired", i: 0, u: 0, damage: 199, hp: 421, effect: null },
@@ -96,7 +96,7 @@ describe("TRAP_TRIGGER_TEST", () => {
   });
 
   it("a trap that kills the unit still spends; the unit dies in phase 8 of that tick", () => {
-    const out = resolve(input(battlefield({ traps: [trap("t", { x: 15, y: 5 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, hp: 100 })]), SHORT_TUNABLES));
+    const out = resolve(input(battlefield({ traps: [trap("t", { x: 14, y: 5 })] }), party([unit({ ref: "a", cell: { x: 14, y: 0 }, hp: 100 })]), SHORT_TUNABLES));
     expect(events(out, "trap_fired")[0]).toMatchObject({ t: 52, damage: 199, hp: 0 });
     expect(events(out, "unit_died")).toEqual([{ t: 52, k: "unit_died", u: 0 }]);
     expect(out.units[0]).toMatchObject({ alive: false, hp: 0, diedTick: 52, reachedCoreTick: -1 });
@@ -105,19 +105,19 @@ describe("TRAP_TRIGGER_TEST", () => {
 
 describe("SIEGE_TRAP_NULLIFY", () => {
   it("a siege piece countering the trap's category makes it fire blank — no damage, no effect — and it is still spent; a mismatched piece changes nothing", () => {
-    const field = battlefield({ traps: [trap("t", { x: 15, y: 5 }, { effect: ROOT })] });
-    const matched = resolve(input(field, party([unit({ ref: "a", cell: { x: 15, y: 0 } })], [{ ref: "s", typeId: "siege.bridging_planks", counters: { kind: "trap", category: "groundwork" } }]), PER_TICK_KEYFRAMES));
+    const field = battlefield({ traps: [trap("t", { x: 14, y: 5 }, { effect: ROOT })] });
+    const matched = resolve(input(field, party([unit({ ref: "a", cell: { x: 14, y: 0 } })], [{ ref: "s", typeId: "siege.bridging_planks", counters: { kind: "trap", category: "groundwork" } }]), PER_TICK_KEYFRAMES));
     expect(events(matched, "trap_nullified")).toEqual([{ t: 52, k: "trap_nullified", i: 0, u: 0 }]);
     expect(events(matched, "trap_fired")).toHaveLength(0);
     expect(events(matched, "speed")).toHaveLength(0);
     expect(matched.traps[0]).toMatchObject({ spent: true, spentTick: 52 });
     expect(matched.units[0]!.hp).toBe(620);
     expect(keyframes(matched)[53]!.units[0]!.y).toBe(512 + 76 * 54); // never rooted
-    const mismatched = resolve(input(field, party([unit({ ref: "a", cell: { x: 15, y: 0 } })], [{ ref: "s", typeId: "siege.dousing_wagon", counters: { kind: "trap", category: "powder" } }]), SHORT_TUNABLES));
+    const mismatched = resolve(input(field, party([unit({ ref: "a", cell: { x: 14, y: 0 } })], [{ ref: "s", typeId: "siege.dousing_wagon", counters: { kind: "trap", category: "powder" } }]), SHORT_TUNABLES));
     expect(events(mismatched, "trap_fired")).toHaveLength(1);
     expect(events(mismatched, "trap_nullified")).toHaveLength(0);
     // A spent (nullified) trap is not there for the next unit.
-    const two = resolve(input(field, party([unit({ ref: "a", cell: { x: 15, y: 0 } }), unit({ ref: "b", cell: { x: 15, y: 1 } })], [{ ref: "s", typeId: "siege.bridging_planks", counters: { kind: "trap", category: "groundwork" } }]), SHORT_TUNABLES));
+    const two = resolve(input(field, party([unit({ ref: "a", cell: { x: 14, y: 0 } }), unit({ ref: "b", cell: { x: 14, y: 1 } })], [{ ref: "s", typeId: "siege.bridging_planks", counters: { kind: "trap", category: "groundwork" } }]), SHORT_TUNABLES));
     expect(events(two, "trap_nullified")).toHaveLength(1);
     expect(events(two, "trap_fired")).toHaveLength(0);
   });
@@ -126,7 +126,7 @@ describe("SIEGE_TRAP_NULLIFY", () => {
 describe("TRAP_EFFECTS", () => {
   it("root: 0 movement for exactly msToTicks(duration) ticks after the trigger, with `speed` 0 / restore events and `hold` edges", () => {
     // runToCap: the third `hold` edge is the arrival at the core centre, past the core edge that ends a real fight.
-    const out = runToCap(input(battlefield({ traps: [trap("t", { x: 15, y: 5 }, { effect: ROOT })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), PER_TICK_KEYFRAMES));
+    const out = runToCap(input(battlefield({ traps: [trap("t", { x: 14, y: 5 }, { effect: ROOT })] }), party([unit({ ref: "a", cell: { x: 14, y: 0 } })]), PER_TICK_KEYFRAMES));
     expect(events(out, "trap_fired")[0]).toMatchObject({ t: 52, effect: "root" });
     expect(events(out, "speed")).toEqual([
       { t: 52, k: "speed", u: 0, speed: 0 },
@@ -147,7 +147,7 @@ describe("TRAP_EFFECTS", () => {
   });
 
   it("slow: −magnitude of the per-tick speed (floored) for msToTicks(duration) ticks, then the base speed again", () => {
-    const out = resolve(input(battlefield({ traps: [trap("t", { x: 15, y: 5 }, { effect: SLOW })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), PER_TICK_KEYFRAMES));
+    const out = resolve(input(battlefield({ traps: [trap("t", { x: 14, y: 5 }, { effect: SLOW })] }), party([unit({ ref: "a", cell: { x: 14, y: 0 } })]), PER_TICK_KEYFRAMES));
     // 76 − floor(76 × 410/1024) = 76 − 30 = 46, for 3000 ms = 60 ticks.
     expect(events(out, "speed")).toEqual([
       { t: 52, k: "speed", u: 0, speed: 46 },
@@ -177,7 +177,7 @@ describe("TRAP_EFFECTS", () => {
   });
 
   it("effect durations are converted with the tick rate: at 40 ticks/s a 1.5 s root is 60 ticks", () => {
-    const out = resolve(input(battlefield({ traps: [trap("t", { x: 15, y: 5 }, { effect: ROOT })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 } })]), { ...DEFAULT_TUNABLES, battleLengthCapSeconds: 10, tickRate: 40 }));
+    const out = resolve(input(battlefield({ traps: [trap("t", { x: 14, y: 5 }, { effect: ROOT })] }), party([unit({ ref: "a", cell: { x: 14, y: 0 } })]), { ...DEFAULT_TUNABLES, battleLengthCapSeconds: 10, tickRate: 40 }));
     const [slowed, restored] = events(out, "speed");
     expect(restored!.t - slowed!.t).toBe(60);
   });
@@ -196,13 +196,13 @@ describe("posted units and traps", () => {
   });
 
   it("end to end: a guard chasing back and forth over a trap cell leaves it unspent, while the attacker it chases stops short of it", () => {
-    // Guard at (15,9) with an 8-cell aggro and a 4-cell leash; the attacker holds at the core centre
-    // (6 cells away) — out of the guard's reach at full leash, so it oscillates across the trap at (15,12).
+    // Guard at (14,9) with an 8-cell aggro and a 4-cell leash; the attacker holds at the core centre
+    // (6 cells away) — out of the guard's reach at full leash, so it oscillates across the trap at (14,12).
     // runToCap: the oscillation happens while the raider holds on the core (an overrun ends a real fight).
-    const out = runToCap(input(battlefield({ traps: [trap("t", { x: 15, y: 12 })], posts: [post("p", { x: 15, y: 9 }, { aggroRadius: 8192 as Fixed })] }), party([unit({ ref: "a", edge: "south", cell: { x: 15, y: 31 } })]), SHORT_TUNABLES));
+    const out = runToCap(input(battlefield({ traps: [trap("t", { x: 14, y: 12 })], posts: [post("p", { x: 14, y: 9 }, { aggroRadius: 8192 as Fixed })] }), party([unit({ ref: "a", edge: "south", cell: { x: 16, y: 31 } })]), SHORT_TUNABLES));
     expect(events(out, "aggro").length).toBeGreaterThan(1);
     const ks = keyframes(out);
-    expect(ks.some((k) => k.units[1]!.y > cellCenter({ x: 15, y: 12 }).y)).toBe(true);
+    expect(ks.some((k) => k.units[1]!.y > cellCenter({ x: 14, y: 12 }).y)).toBe(true);
     expect(out.traps[0]!.spent).toBe(false);
   });
 });

@@ -1,29 +1,30 @@
 {
 "scenario": "c13-overrun-and-wipe-same-tick",
-"resolverVersion": 9,
+"resolverVersion": 10,
 "outcome": {"kind":"caravan_overrun","end":"core_overrun","endTick":180,"depth":1024,"deepestUnit":0},
 "ticks": 181,
 "units": [
 {"id":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","mergeLevel":1,"ability":"dash","x":15872,"y":15872,"startHp":620,"hp":620,"maxHp":620,"alive":true,"reachedCoreTick":180,"diedTick":-1},
-{"id":1,"side":"attacker","ref":"b","typeId":"desert.dust_rider","mergeLevel":1,"ability":"dash","x":19573,"y":4770,"startHp":100,"hp":0,"maxHp":100,"alive":false,"reachedCoreTick":-1,"diedTick":180}
+{"id":1,"side":"attacker","ref":"b","typeId":"desert.dust_rider","mergeLevel":1,"ability":"dash","x":19811,"y":4842,"startHp":100,"hp":0,"maxHp":100,"alive":false,"reachedCoreTick":-1,"diedTick":180}
 ],
 "fences": [],
 "traps": [
 {"i":0,"ref":"t","typeId":"trap.spike_pit","x":20992,"y":3584,"spent":true,"spentTick":180}
 ],
-"replay": {"format":"caravan-replay","v":2,"resolverVersion":9,"tickRate":20,"tickCap":600,"keyframeInterval":100,"ticks":181,"outcome":{"kind":"caravan_overrun","end":"core_overrun","endTick":180,"depth":1024,"deepestUnit":0},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":620,"hp":620,"ab":4},{"u":1,"side":"attacker","ref":"b","typeId":"desert.dust_rider","level":1,"maxHp":100,"hp":100,"ab":4}],"fences":[],"traps":[{"i":0,"ref":"t","typeId":"trap.spike_pit","x":20992,"y":3584}],"count":13,"check":4026925910,"events":[
-[0,"s",0,15872,512],
+"replay": {"format":"caravan-replay","v":2,"resolverVersion":10,"tickRate":20,"tickCap":600,"keyframeInterval":100,"ticks":181,"outcome":{"kind":"caravan_overrun","end":"core_overrun","endTick":180,"depth":1024,"deepestUnit":0},"units":[{"u":0,"side":"attacker","ref":"a","typeId":"desert.dust_rider","level":1,"maxHp":620,"hp":620,"ab":4},{"u":1,"side":"attacker","ref":"b","typeId":"desert.dust_rider","level":1,"maxHp":100,"hp":100,"ab":4}],"fences":[],"traps":[{"i":0,"ref":"t","typeId":"trap.spike_pit","x":20992,"y":3584}],"count":14,"check":3392856069,"events":[
+[0,"s",0,14848,512],
 [0,"s",1,20992,512],
 [0,"tg",0,0,-1],
 [0,"tg",1,0,-1],
-[0,"p",0,76,15872,15872,-1],
-[0,"p",1,5,15872,15872,-1],
-[99,"kf",2,0,15872,8112,620,0,0,0,180,1,20834,986,100,0,0,0,180,0,0],
-[180,"ab",0,4,15872,15872,0,0,1604,620],
+[0,"p",0,76,14848,11776,-1,15872,15872,-1],
+[0,"p",1,5,17920,11776,-1,15872,15872,-1],
+[99,"kf",2,0,14848,8112,620,0,0,0,180,1,20861,994,100,0,0,0,180,0,0],
+[140,"p",0,76,15872,15872,-1],
+[180,"ab",0,4,15872,15872,0,0,1713,620],
 [180,"c",0],
-[180,"ab",1,4,19573,4770,0,1,3584,100],
+[180,"ab",1,4,19811,4842,0,1,3584,100],
 [180,"tf",0,1,199,0,0],
 [180,"d",1],
-[180,"kf",2,0,15872,15872,620,0,0,0,360,1,19573,4770,0,0,0,0,360,0,1,0]
+[180,"kf",2,0,15872,15872,620,0,0,0,360,1,19811,4842,0,0,0,0,360,0,1,0]
 ]}
 }

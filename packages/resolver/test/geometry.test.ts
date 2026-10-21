@@ -1,6 +1,6 @@
 /**
  * The battlefield geometry the resolver owns: the lattice, the one lattice→continuous
- * conversion, the 28-segment ring with its four permanent anchors, and reachability.
+ * conversion, the 16-segment round ring with its six permanent wagons, and reachability.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -81,12 +81,14 @@ describe("core, ring and anchors", () => {
     expect(isCoreCell({ x: 13, y: 15 })).toBe(false);
   });
 
-  it("the four ring corners are permanent anchors, not segments", () => {
+  it("the six wagons are permanent anchors, not segments", () => {
     expect(RING_ANCHORS).toEqual([
-      { x: 11, y: 11 },
-      { x: 19, y: 11 },
-      { x: 19, y: 19 },
-      { x: 11, y: 19 },
+      { x: 15, y: 10 }, { x: 16, y: 10 },
+      { x: 20, y: 14 }, { x: 20, y: 15 },
+      { x: 19, y: 17 }, { x: 19, y: 18 },
+      { x: 15, y: 20 }, { x: 14, y: 20 },
+      { x: 10, y: 15 }, { x: 10, y: 14 },
+      { x: 12, y: 11 }, { x: 13, y: 11 },
     ]);
     for (const a of RING_ANCHORS) {
       expect(isAnchorCell(a)).toBe(true);
@@ -95,35 +97,29 @@ describe("core, ring and anchors", () => {
     }
   });
 
-  it("has 28 buyable segments forming, with the anchors, one closed loop around the core", () => {
-    expect(PERIMETER_SEGMENTS).toBe(28);
-    expect(RING_SEGMENTS).toHaveLength(28);
+  it("has 16 buyable segments forming, with the wagon cells, one closed loop around the core", () => {
+    expect(PERIMETER_SEGMENTS).toBe(16);
+    expect(RING_SEGMENTS).toHaveLength(16);
     RING_SEGMENTS.forEach((s, i) => {
       expect(s.index).toBe(i);
       expect(isInBounds(s.cell)).toBe(true);
       expect(ringIndexAt(s.cell)).toBe(i);
       expect(ringSegment(i)).toBe(s);
-      expect(Math.max(Math.abs(s.cell.x - 15), Math.abs(s.cell.y - 15))).toBe(4);
+      const reach = Math.max(Math.abs(s.cell.x - 15), Math.abs(s.cell.y - 15));
+      expect(reach === 4 || reach === 5).toBe(true);
     });
     const loop = [...RING_SEGMENTS.map((s) => s.cell), ...RING_ANCHORS];
-    expect(new Set(loop.map(cellKey)).size).toBe(32);
-    // Consecutive segments touch except across a corner, where the anchor sits between them.
-    for (let i = 0; i < 28; i++) {
-      const a = RING_SEGMENTS[i]!.cell;
-      const b = RING_SEGMENTS[(i + 1) % 28]!.cell;
-      const d = cellDistSq(a, b);
-      if (d !== 1) {
-        expect(d).toBe(2);
-        const corner = RING_ANCHORS.find((c) => cellDistSq(c, a) === 1 && cellDistSq(c, b) === 1);
-        expect(corner).toBeDefined();
-      }
-    }
-    for (const edge of ENTRY_EDGES) expect(RING_SEGMENTS.filter((s) => s.edge === edge)).toHaveLength(7);
-    expect(RING_SEGMENTS[0]!.cell).toEqual({ x: 12, y: 11 });
-    expect(RING_SEGMENTS[7]!.cell).toEqual({ x: 19, y: 12 });
-    expect(RING_SEGMENTS[14]!.cell).toEqual({ x: 18, y: 19 });
-    expect(RING_SEGMENTS[21]!.cell).toEqual({ x: 11, y: 18 });
-    expect(() => ringSegment(28)).toThrow();
+    expect(new Set(loop.map(cellKey)).size).toBe(28);
+    // A thin closed curve: every cell has at least two ring neighbours one step away, axis or diagonal.
+    for (const a of loop) expect(loop.filter((b) => cellDistSq(a, b) === 1 || cellDistSq(a, b) === 2).length).toBeGreaterThanOrEqual(2);
+    const perEdge = Object.fromEntries(ENTRY_EDGES.map((edge) => [edge, RING_SEGMENTS.filter((s) => s.edge === edge).length]));
+    expect(perEdge).toEqual({ north: 3, east: 3, south: 5, west: 5 });
+    expect(RING_SEGMENTS[0]!.cell).toEqual({ x: 17, y: 11 });
+    expect(RING_SEGMENTS[4]!.cell).toEqual({ x: 20, y: 16 });
+    expect(RING_SEGMENTS[7]!.cell).toEqual({ x: 16, y: 20 });
+    expect(RING_SEGMENTS[10]!.cell).toEqual({ x: 11, y: 18 });
+    expect(RING_SEGMENTS[15]!.cell).toEqual({ x: 14, y: 10 });
+    expect(() => ringSegment(16)).toThrow();
   });
 
   it("entry bands are the outermost two cells of every edge", () => {
@@ -133,15 +129,16 @@ describe("core, ring and anchors", () => {
     expect(isEntryCell({ x: 0, y: 15 }, "west") && isEntryCell({ x: 31, y: 15 }, "east") && isEntryCell({ x: 15, y: 31 }, "south")).toBe(true);
   });
 
-  it("a fully fenced 28-segment ring plus the anchors seals the core; one gap opens it", () => {
+  it("a fully fenced 16-segment ring plus the wagons seals the core; one gap opens it", () => {
     const sealed = blockedBy([...RING_SEGMENTS.map((s) => s.cell), ...RING_ANCHORS]);
     for (const edge of ENTRY_EDGES) for (const start of entryBand(edge)) expect(isCoreReachableFrom(start, sealed)).toBe(false);
     const oneGap = blockedBy([...RING_SEGMENTS.filter((s) => s.index !== 9).map((s) => s.cell), ...RING_ANCHORS]);
     for (const edge of ENTRY_EDGES) expect(isCoreReachableFrom(entryBand(edge)[0]!, oneGap)).toBe(true);
     // The anchors alone (no fences) block nothing that matters.
     expect(isCoreReachableFrom({ x: 0, y: 0 }, blockedBy(RING_ANCHORS))).toBe(true);
-    // 4-connected: a diagonal gap between two blocked cells is NOT a passage.
-    const diagonalOnly = blockedBy([...RING_SEGMENTS.filter((s) => s.index !== 0).map((s) => s.cell), ...RING_ANCHORS, { x: 12, y: 10 }, { x: 12, y: 12 }]);
+    // 4-connected: a diagonal gap between two blocked cells is NOT a passage. Segment 0 (17,11) is open, but its only
+    // outside neighbour (17,10) is blocked, so the open outside cell (18,10) touches it only diagonally.
+    const diagonalOnly = blockedBy([...RING_SEGMENTS.filter((s) => s.index !== 0).map((s) => s.cell), ...RING_ANCHORS, { x: 17, y: 10 }]);
     expect(isCoreReachableFrom({ x: 0, y: 0 }, diagonalOnly)).toBe(false);
   });
 });

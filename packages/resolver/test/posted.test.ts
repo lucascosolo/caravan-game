@@ -208,19 +208,19 @@ describe("guard: leash and hysteresis", () => {
 
 describe("guard: pursuit and the fight", () => {
   it("end to end: a guard notices a passing attacker, chases it within its leash, drops it, returns, and goes idle — every transition logged", () => {
-    // The attacker (core stance) walks straight down x = 15 past a guard at (12,8), 3 cells off its line.
+    // The attacker (core stance) walks straight down x = 14 past a guard at (11,8), 3 cells off its line.
     // runToCap: the walk home happens after the raider reaches the core (which ends a real fight).
-    const out = runToCap(input(battlefield({ posts: [guardAt({ x: 12, y: 8 })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, hp: 5000 })]), QUIET_SHORT_TUNABLES));
+    const out = runToCap(input(battlefield({ posts: [guardAt({ x: 11, y: 8 })] }), party([unit({ ref: "a", cell: { x: 14, y: 0 }, hp: 5000 })]), QUIET_SHORT_TUNABLES));
     const kinds = out.log.filter((e) => (e.k === "aggro" || e.k === "disengage" || e.k === "returned") && e.u === 1).map((e) => e.k);
     expect(kinds).toEqual(["aggro", "disengage", "returned"]);
     // Following the attacker keeps it inside aggro reach, so it is the leash that ends the chase.
     expect(events(out, "disengage")[0]!.why).toBe("leash");
     // At 51/tick it cannot catch a 76/tick attacker: it chased (left its post) but never got a hit in.
-    const postCell = cellCenter({ x: 12, y: 8 });
+    const postCell = cellCenter({ x: 11, y: 8 });
     expect(keyframes(out).some((k) => k.units[1]!.x !== postCell.x || k.units[1]!.y !== postCell.y)).toBe(true);
     expect(events(out, "hit").filter((h) => h.u === 1)).toHaveLength(0);
     expect(out.units[1]!.alive).toBe(true);
-    expect([out.units[1]!.x, out.units[1]!.y]).toEqual([cellCenter({ x: 12, y: 8 }).x, cellCenter({ x: 12, y: 8 }).y]);
+    expect([out.units[1]!.x, out.units[1]!.y]).toEqual([cellCenter({ x: 11, y: 8 }).x, cellCenter({ x: 11, y: 8 }).y]);
     expect(out.units[0]!.reachedCoreTick).toBeGreaterThan(0);
     // Posted-unit movement is in the log on the attacker's terms: path / hold / speed only.
     const pathsForGuard = events(out, "path").filter((p) => p.u === 1);
@@ -305,14 +305,14 @@ describe("hold", () => {
 describe("reserve", () => {
   it("is released by an attacker whose cell is strictly inside the ring: a ring (gap) cell does not count, one cell inside does", () => {
     const state = mk(input(battlefield({ posts: [post("p", { x: 15, y: 13 }, { stance: "reserve" })] }), party([unit({ ref: "a" })])));
-    const c = cellCenter({ x: 15, y: 11 }); // segment 3's cell: Chebyshev distance 4 from (15,15)
+    const c = cellCenter({ x: 14, y: 10 }); // segment 15 (the north gap), a ring cell
     place(state, 0, c.x, c.y);
     expect(attackerInsideRing(state)).toBe(-1);
-    place(state, 0, c.x, (12 * 1024) as Fixed); // the first fixed unit of row 12: distance 3
+    place(state, 0, c.x, (11 * 1024) as Fixed); // the first fixed unit of row 11, inside the ring
     expect(attackerInsideRing(state)).toBe(0);
-    place(state, 0, (11 * 1024) as Fixed, (12 * 1024) as Fixed); // the north-west anchor row/col: distance 4
+    place(state, 0, (11 * 1024) as Fixed, (12 * 1024) as Fixed); // segment 14 (11,12), a ring cell
     expect(attackerInsideRing(state)).toBe(-1);
-    place(state, 0, (12 * 1024) as Fixed, (12 * 1024) as Fixed); // (12,12): distance 3
+    place(state, 0, (12 * 1024) as Fixed, (12 * 1024) as Fixed); // (12,12), inside the ring
     expect(attackerInsideRing(state)).toBe(0);
   });
 
@@ -347,15 +347,15 @@ describe("reserve", () => {
     expect(r.postMode).toBe("pursuing");
   });
 
-  it("end to end: released the tick the first attacker's cell enters row 12 through the gap at segment 3", () => {
+  it("end to end: released the tick the first attacker's cell enters row 11 through the gap at segment 15", () => {
     // The reserve post at (17,17) is 2.83 cells from the core centre: inside its aggro reach once released.
     // runToCap: the released post's hits land after the raider stands on the core.
-    const out = runToCap(input(battlefield({ fences: ringExcept([3]), posts: [post("p", { x: 17, y: 17 }, { stance: "reserve" })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, hp: 5000 })]), { ...SHORT_TUNABLES, keyframeIntervalMs: ms(50) }));
+    const out = runToCap(input(battlefield({ fences: ringExcept([15]), posts: [post("p", { x: 17, y: 17 }, { stance: "reserve" })] }), party([unit({ ref: "a", cell: { x: 14, y: 0 }, hp: 5000 })]), { ...SHORT_TUNABLES, keyframeIntervalMs: ms(50) }));
     const released = events(out, "released")[0]!;
     expect(released).toMatchObject({ u: 1, v: 0 });
     const ks = keyframes(out);
-    expect(cellOf({ x: ks[released.t]!.units[0]!.x as Fixed, y: ks[released.t]!.units[0]!.y as Fixed }).y).toBe(12);
-    expect(cellOf({ x: ks[released.t - 1]!.units[0]!.x as Fixed, y: ks[released.t - 1]!.units[0]!.y as Fixed }).y).toBe(11);
+    expect(cellOf({ x: ks[released.t]!.units[0]!.x as Fixed, y: ks[released.t]!.units[0]!.y as Fixed }).y).toBe(11);
+    expect(cellOf({ x: ks[released.t - 1]!.units[0]!.x as Fixed, y: ks[released.t - 1]!.units[0]!.y as Fixed }).y).toBe(10);
     expect(events(out, "aggro")[0]!.t).toBeGreaterThanOrEqual(released.t);
     expect(events(out, "hit").filter((h) => h.u === 1).length).toBeGreaterThan(0);
     expect(CORE_CENTER.y).toBe(15 * 1024 + 512);
@@ -364,7 +364,7 @@ describe("reserve", () => {
 
 describe("stance is data", () => {
   it("the same layout with the three stances produces three different fights", () => {
-    const run = (stance: "guard" | "hold" | "reserve") => JSON.stringify(resolve(input(battlefield({ fences: ringExcept([3]), posts: [post("p", { x: 13, y: 12 }, { stance })] }), party([unit({ ref: "a", cell: { x: 15, y: 0 }, hp: 5000 })]), SHORT_TUNABLES)).log);
+    const run = (stance: "guard" | "hold" | "reserve") => JSON.stringify(resolve(input(battlefield({ fences: ringExcept([15]), posts: [post("p", { x: 13, y: 12 }, { stance })] }), party([unit({ ref: "a", cell: { x: 14, y: 0 }, hp: 5000 })]), SHORT_TUNABLES)).log);
     const g = run("guard");
     const h = run("hold");
     const r = run("reserve");
