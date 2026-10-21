@@ -1130,6 +1130,29 @@ export const STRINGS = {
   // ── chunk 22: the replay player, for the caravan's player AND the standing party's owner ──
   // Copy rule: the caravan DEFENDS (the player was there); the party RAIDS (its owner was not).
   // Nothing here says the player attacked anything, and the town is never in it.
+  // C4c: the game-moment words of the replay and the post-fight screens (UI-SYSTEM §14.7–14.9).
+  results: {
+    moment: {
+      held: "The circle held!",
+      overrun: "Overrun",
+      delivered: "Delivered!",
+      theyHeld: "They held",
+      brokeThrough: "Broke through",
+      voided: "Called off",
+    } as Record<string, string>,
+    stamp: { held: "Held", overrun: "Overrun", delivered: "Delivered", cleanHold: "Clean hold", theyHeld: "They held", brokeThrough: "Broke through" } as Record<string, string>,
+    encounterSub: (n: number): string => `Encounter ${n}`,
+    afterEncounters: (n: number): string => `After ${n} encounter${n === 1 ? "" : "s"}`,
+    tripOverAt: (n: number): string => `Encounter ${n} · trip over`,
+    depthPct: (pct: number): string => `${Math.max(0, Math.min(100, pct))}%`,
+    coinWord: "Coin",
+    atRisk: "At risk",
+    ridesWithYou: "Rides with you, unbanked",
+    toVault: "To the Vault",
+    ifOverrunWord: "If overrun",
+    nextWord: "Next encounter",
+    endDone: "Fight over",
+  },
   replay: {
     title: (n: number): string => `Encounter ${n}: the fight`,
     close: "Close",

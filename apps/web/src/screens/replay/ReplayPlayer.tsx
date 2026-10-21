@@ -31,8 +31,10 @@ import type { ReplayView } from "../../api/replayTypes.ts";
 import { useApi } from "../../auth/session.tsx";
 import { IsoCanvas } from "../../iso/index.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
+import { Icon, cx } from "../../ui/Icon.tsx";
 import { STRINGS } from "../../strings.ts";
 import { depthPercent } from "./depth.ts";
+import { DepthMeter, OutcomeBanner, momentOf } from "./Moments.tsx";
 import { END_HOLD_SECONDS, REPLAY_CAMP, REPLAY_GEOMETRY, clock, nextKeyframe, openReplay, prevKeyframe, type FeedLine, type ReplayModel } from "./replayModel.ts";
 
 const T = STRINGS.replay;
@@ -125,11 +127,11 @@ export function ReplayPlayer({ jobId, encounterIndex, api: apiProp, settled = nu
               ? T.notFound
               : null;
     return known ? (
-      <div className="card" role="status" data-testid="replay-unavailable" data-code={e.code}>
+      <div className="cv-card" role="status" data-testid="replay-unavailable" data-code={e.code}>
         <p>{known}</p>
         {/* QA N6: a fight still being resolved can be asked for again. */}
         {e.code === "not_resolved" && (
-          <button type="button" className="btn btn--block" data-testid="replay-retry" onClick={() => void fetchIt()}>
+          <button type="button" className="cv-btn cv-btn--secondary cv-btn--block" data-testid="replay-retry" onClick={() => void fetchIt()}>
             {STRINGS.app.retry}
           </button>
         )}
@@ -147,7 +149,7 @@ function ReplayBody({ view, expected, settled, autoPlay, initialSpeed }: { reado
     const archived = opened.compacted === true;
     return (
       <div data-testid="replay-not-renderable" data-no-log={opened.noLog ? "true" : "false"} data-compacted={archived ? "true" : "false"}>
-        <section className="card" role="status">
+        <section className="cv-card rs-summary-note" role="status">
           <h3>{archived ? T.compactedTitle : opened.noLog ? T.noLogTitle : T.cannotPlayTitle}</h3>
           <p>{archived ? T.compactedBody : opened.noLog ? T.noLogBody : T.cannotPlayBody}</p>
           {/* QA N6: the reader's raw reason, kept, but under the plain sentence. */}
@@ -220,16 +222,18 @@ function Summary({ view, model, settled }: { readonly view: ReplayView; readonly
   const pct = o ? depthPercent(o.depth, o.kind === "caravan_overrun" || (t?.coreReached ?? false)) : 0;
   const lines = settledLines(view, settled);
   return (
-    <section className="card" data-testid="replay-summary" data-outcome={o?.kind ?? ""}>
+    <section className="cv-card rs-summary-note" data-testid="replay-summary" data-outcome={o?.kind ?? ""}>
       <h3>{T.summaryHeading}</h3>
       <p data-testid="replay-outcome">
         <strong>{o ? T.outcome(o.kind, v) : T.outcomeUnknown}</strong>
       </p>
       {o && (
         <>
-          <p data-testid="replay-depth">
-            {T.depth(pct, v)} {deepestName ? T.deepest(deepestName) : null}
-          </p>
+          <DepthMeter pct={pct}>
+            <span data-testid="replay-depth">
+              {T.depth(pct, v)} {deepestName ? T.deepest(deepestName) : null}
+            </span>
+          </DepthMeter>
           <p className="hint" data-testid="replay-depth-explained">
             {T.depthExplained}
           </p>
@@ -369,7 +373,7 @@ function Playback({ view, model, settled, autoPlay, initialSpeed }: { readonly v
   const step = model.keyframeSeconds;
 
   return (
-    <div className="replay" data-testid="replay-player" data-viewer={view.viewer}>
+    <div className="replay rs-replay" data-testid="replay-player" data-viewer={view.viewer}>
       <div className="replay__stage" data-testid="replay-stage">
         <div className="replay__field">
           <IsoCanvas
@@ -383,8 +387,9 @@ function Playback({ view, model, settled, autoPlay, initialSpeed }: { readonly v
             sleepWhenIdle
           />
           {showEnd && (
-            <section className="replay__end card" data-testid="replay-end-card" data-outcome={o?.kind ?? ""} aria-live="polite">
-              <h3>{T.endTitle}</h3>
+            <section className="replay__end cv-card rs-end" data-testid="replay-end-card" data-outcome={o?.kind ?? ""} aria-live="polite">
+              {o && <OutcomeBanner moment={momentOf(o.kind, view.viewer)} clean={o.kind !== "caravan_overrun" && pct <= 0} />}
+              <h3 className="cv-label">{T.endTitle}</h3>
               <p>
                 <strong>{o ? T.outcome(o.kind, view.viewer) : T.outcomeUnknown}</strong>
               </p>
@@ -395,13 +400,13 @@ function Playback({ view, model, settled, autoPlay, initialSpeed }: { readonly v
                   {transferredLine(view) && <p data-testid="replay-end-transferred">{transferredLine(view)}</p>}
                 </>
               )}
-              <div className="replay__row">
-                <button type="button" className="btn" data-testid="replay-end-dismiss" onClick={() => setEndDismissed(true)}>
+              <div className="rs-end__row">
+                <button type="button" className="cv-btn cv-btn--secondary" data-testid="replay-end-dismiss" onClick={() => setEndDismissed(true)}>
                   {T.endDismiss}
                 </button>
                 <button
                   type="button"
-                  className="btn btn--primary"
+                  className="cv-btn cv-btn--primary"
                   data-testid="replay-end-again"
                   onClick={() => {
                     setAt(0);
@@ -416,11 +421,12 @@ function Playback({ view, model, settled, autoPlay, initialSpeed }: { readonly v
         </div>
         {/* D1: the party's siege, under the field (an overlay hid the ring's top at phone width). */}
         {model.siegeNames.length > 0 && (
-          <p className="hint replay__siege" data-testid="replay-siege">
+          <p className="cv-plaque cv-small replay__siege" data-testid="replay-siege">
+            <Icon name="wheel" />
             {T.siegeLegend(model.siegeNames.join(", "))}
           </p>
         )}
-        <ol className="plain replay__strip" data-testid="replay-strip" aria-label={T.stripLabel}>
+        <ol className="cv-ticker rs-ticker replay__strip" data-testid="replay-strip" aria-label={T.stripLabel}>
           {strip.length === 0 ? (
             <li className="hint">{T.feedEmpty}</li>
           ) : (
@@ -438,67 +444,59 @@ function Playback({ view, model, settled, autoPlay, initialSpeed }: { readonly v
         </p>
       )}
       <div className="replay__controls" data-testid="replay-controls">
-        <div className="replay__row">
-          <button
-            type="button"
-            className="btn btn--primary replay__play"
-            data-testid="replay-play"
+        <div className="rs-scrubrow">
+          <input
+            type="range"
+            className="replay__scrub"
+            data-testid="replay-scrub"
+            min={0}
+            max={last}
+            step={1}
+            value={tick}
+            aria-label={T.scrubLabel}
+            aria-valuetext={T.scrubValue(now, total)}
+            onPointerDown={scrubStart}
+            onPointerUp={scrubEnd}
+            onPointerCancel={scrubEnd}
+            onBlur={scrubEnd}
+            onChange={(e) => seek(Number(e.currentTarget.value))}
+          />
+          <span className="replay__time" data-testid="replay-time" aria-hidden="true">
+            {T.timeOf(now, total)}
+          </span>
+        </div>
+        <div className="rs-transport">
+          <Medal icon="back5" word={T.back(step)} testId="replay-prev-keyframe" caption={false} onClick={() => seek(prevKeyframe(model, at))} />
+          <Medal
+            icon={playing ? "pause" : atEnd ? "rotate" : "play"}
+            word={playing ? T.pause : atEnd ? T.replayAgain : T.play}
+            testId="replay-play"
+            size="lg"
+            brass
+            className="replay__play"
             onClick={() => {
               if (atEnd) {
                 setAt(0);
                 setPlaying(true);
               } else setPlaying((p) => !p);
             }}
-          >
-            {playing ? T.pause : atEnd ? T.replayAgain : T.play}
-          </button>
-          <span className="replay__time" data-testid="replay-time" aria-hidden="true">
-            {T.timeOf(now, total)}
-          </span>
-        </div>
-        <input
-          type="range"
-          className="replay__scrub"
-          data-testid="replay-scrub"
-          min={0}
-          max={last}
-          step={1}
-          value={tick}
-          aria-label={T.scrubLabel}
-          aria-valuetext={T.scrubValue(now, total)}
-          onPointerDown={scrubStart}
-          onPointerUp={scrubEnd}
-          onPointerCancel={scrubEnd}
-          onBlur={scrubEnd}
-          onChange={(e) => seek(Number(e.currentTarget.value))}
-        />
-        <div className="replay__row">
-          <button type="button" className="btn" data-testid="replay-prev-keyframe" onClick={() => seek(prevKeyframe(model, at))}>
-            <span aria-hidden="true">⏮ </span>
-            {T.back(step)}
-          </button>
-          <button type="button" className="btn" data-testid="replay-next-keyframe" onClick={() => seek(nextKeyframe(model, at))}>
-            {T.forward(step)}
-            <span aria-hidden="true"> ⏭</span>
-          </button>
-          <button
-            type="button"
-            className="btn"
-            data-testid="replay-to-end"
+          />
+          <Medal icon="fwd5" word={T.forward(step)} testId="replay-next-keyframe" caption={false} onClick={() => seek(nextKeyframe(model, at))} />
+          <Medal
+            icon="skip-end"
+            word={T.toEnd}
+            testId="replay-to-end"
+            caption={false}
             onClick={() => {
               setPlaying(false);
               seek(last);
             }}
-          >
-            {T.toEnd}
-          </button>
+          />
         </div>
-        <div className="replay__row" role="group" aria-label={T.speedLabel}>
-          <span className="hint">{T.speedLabel}</span>
+        <div className="rs-speeds" role="group" aria-label={T.speedLabel}>
+          <span className="cv-micro">{T.speedLabel}</span>
           {REPLAY_SPEEDS.map((s) => (
-            <button key={s} type="button" className="btn" aria-pressed={speed === s} data-testid={`replay-speed-${s}`} onClick={() => setSpeed(s)}>
-              {T.speedName(s)}
-            </button>
+            <Medal key={s} icon={`speed-${s}`} word={T.speedName(s)} size="sm" pressed={speed === s} testId={`replay-speed-${s}`} onClick={() => setSpeed(s)} />
           ))}
         </div>
         {model.hasStances && <p className="hint">{T.stanceLegend}</p>}
@@ -510,14 +508,14 @@ function Playback({ view, model, settled, autoPlay, initialSpeed }: { readonly v
         <summary>{T.summaryToggle(o ? T.outcome(o.kind, view.viewer) : T.outcomeUnknown)}</summary>
         <Summary view={view} model={model} settled={settled} />
       </details>
-      <section className="replay__feed" aria-labelledby="replay-feed-heading">
+      <section className="replay__feed cv-card rs-feed" aria-labelledby="replay-feed-heading">
         <div className="sheet__head">
           <h3 id="replay-feed-heading">{T.feedHeading}</h3>
-          <div role="group" aria-label={T.feedFilterLabel} className="replay__row">
-            <button type="button" className="btn btn--small" aria-pressed={!keyOnly} data-testid="replay-feed-all" onClick={() => setKeyOnly(false)}>
+          <div role="group" aria-label={T.feedFilterLabel} className="cv-tabs">
+            <button type="button" className={cx("cv-tabs__tab", !keyOnly && "is-on")} aria-pressed={!keyOnly} data-testid="replay-feed-all" onClick={() => setKeyOnly(false)}>
               {T.feedAll}
             </button>
-            <button type="button" className="btn btn--small" aria-pressed={keyOnly} data-testid="replay-feed-key" onClick={() => setKeyOnly(true)}>
+            <button type="button" className={cx("cv-tabs__tab", keyOnly && "is-on")} aria-pressed={keyOnly} data-testid="replay-feed-key" onClick={() => setKeyOnly(true)}>
               {T.feedKey}
             </button>
           </div>
@@ -551,5 +549,22 @@ function Playback({ view, model, settled, autoPlay, initialSpeed }: { readonly v
         </ol>
       </section>
     </div>
+  );
+}
+
+/** A transport medallion: the word is its accessible name (inside, visually hidden) and its caption (outside, hidden from AT). */
+function Medal({ icon, word, testId, onClick, pressed, size, brass = false, caption = true, className }: { readonly icon: string; readonly caption?: boolean; readonly word: string; readonly testId: string; readonly onClick: () => void; readonly pressed?: boolean; readonly size?: "sm" | "lg"; readonly brass?: boolean; readonly className?: string }): JSX.Element {
+  return (
+    <span className={cx("cv-medlab", pressed && "is-on")}>
+      <button type="button" className={cx("cv-medal", size && `cv-medal--${size}`, brass && "cv-medal--brass", pressed && "is-on", className)} data-testid={testId} aria-pressed={pressed} onClick={onClick}>
+        <Icon name={icon} />
+        <span className="cv-sr">{word}</span>
+      </button>
+      {caption && (
+        <span className="cv-medlab__word" aria-hidden="true">
+          {word}
+        </span>
+      )}
+    </span>
   );
 }

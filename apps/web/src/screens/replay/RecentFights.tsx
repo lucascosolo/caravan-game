@@ -12,6 +12,7 @@ import { useApi } from "../../auth/session.tsx";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { STRINGS } from "../../strings.ts";
 import { WatchFight } from "./WatchFight.tsx";
+import { Stamp } from "./Moments.tsx";
 
 const T = STRINGS.replay;
 
@@ -37,7 +38,7 @@ export function RecentFights({ api: apiProp }: { readonly api?: Api }): JSX.Elem
   return (
     <section className="recent-fights" data-testid="recent-fights" aria-labelledby="recent-fights-heading">
       <h2 id="recent-fights-heading">{T.recentHeading}</h2>
-      <button type="button" className="btn btn--block" aria-expanded={open} data-testid="recent-fights-toggle" onClick={() => (open ? setState({ k: "closed" }) : void load())}>
+      <button type="button" className="cv-btn cv-btn--secondary cv-btn--block" aria-expanded={open} data-testid="recent-fights-toggle" onClick={() => (open ? setState({ k: "closed" }) : void load())}>
         {open ? T.recentHide : T.recentOpen}
       </button>
       {state.k === "loading" && (
@@ -54,8 +55,11 @@ export function RecentFights({ api: apiProp }: { readonly api?: Api }): JSX.Elem
           ) : (
             <ul className="cards" data-testid="recent-fights-list">
               {state.view.encounters.map((e) => (
-                <li key={e.jobId} className="card" data-testid={`recent-fight-${e.jobId}`} data-replay={e.replay}>
-                  <div className="card__line">{T.recentLine(e.encounterIndex, T.recentOutcome(e.outcome), when(e.settledAt))}</div>
+                <li key={e.jobId} className="cv-card rs-result" data-testid={`recent-fight-${e.jobId}`} data-replay={e.replay}>
+                  <div className="rs-result__head">
+                    <div className="card__line">{T.recentLine(e.encounterIndex, T.recentOutcome(e.outcome), when(e.settledAt))}</div>
+                    {e.outcome === "caravan_overrun" ? <Stamp name="overrun" word={STRINGS.results.stamp.overrun!} /> : <Stamp name="held" word={STRINGS.results.stamp.held!} />}
+                  </div>
                   {e.replay === "pruned" ? (
                     <p className="hint">{T.recentPruned}</p>
                   ) : (

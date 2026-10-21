@@ -56,10 +56,10 @@ class ReplayChunkBoundary extends Component<{ readonly children: ReactNode; read
   override render(): ReactNode {
     if (!this.state.failed) return this.props.children;
     return (
-      <section className="card" role="alert" data-testid="replay-chunk-error">
+      <section className="cv-card" role="alert" data-testid="replay-chunk-error">
         <h3>{T.chunkFailedTitle}</h3>
         <p>{T.chunkFailedBody}</p>
-        <button type="button" className="btn" data-testid="replay-chunk-retry" onClick={this.props.onRetry}>
+        <button type="button" className="cv-btn cv-btn--secondary" data-testid="replay-chunk-retry" onClick={this.props.onRetry}>
           {T.chunkRetry}
         </button>
       </section>
@@ -83,7 +83,7 @@ export interface WatchFightProps {
   readonly autoOpen?: boolean;
 }
 
-export function WatchFight({ jobId, encounterIndex, label, api, settled = null, testId = "watch-fight", className = "btn btn--block", describedBy, autoOpen = false }: WatchFightProps): JSX.Element {
+export function WatchFight({ jobId, encounterIndex, label, api, settled = null, testId = "watch-fight", className = "cv-btn cv-btn--secondary cv-btn--block", describedBy, autoOpen = false }: WatchFightProps): JSX.Element {
   const [open, setOpen] = useState(autoOpen);
   // Only the first opening plays by itself; a later "Watch the fight" opens paused as before.
   const [auto, setAuto] = useState(autoOpen);
@@ -109,7 +109,7 @@ export function WatchFight({ jobId, encounterIndex, label, api, settled = null, 
           testId="replay-dialog"
           onCancel={() => setOpen(false)}
           actions={
-            <button type="button" className={auto ? "btn btn--primary" : "btn"} data-testid="replay-close" onClick={() => setOpen(false)}>
+            <button type="button" className={auto ? "cv-btn cv-btn--primary" : "cv-btn cv-btn--secondary"} data-testid="replay-close" onClick={() => setOpen(false)}>
               {auto ? T.skipToResult : T.close}
             </button>
           }
