@@ -482,6 +482,11 @@
 .cv-sign--title { height: calc(73 * var(--px)); padding: 0 calc(30 * var(--px)) calc(4 * var(--px)); font-size: var(--type-title); letter-spacing: 0; text-transform: none;
   border-image: url(./assets/chrome/v2/sign-title.png) 35 34 36 34 fill / calc(35 * var(--px)) calc(34 * var(--px)) calc(36 * var(--px)) calc(34 * var(--px)) round; }
 .cv-sign--title::before { left: calc(13 * var(--px)); } .cv-sign--title::after { right: calc(15 * var(--px)); }
+/* A screen-title sign hangs from the top edge of the screen (owner, 2026-10-21: "It should be hanging off the top of
+   the browser window with no empty space between"): its chains run up past the top of the page, so they always meet
+   the window's edge whatever padding sits above the sign; the HUD strap, which sits above in the stacking order, covers
+   them where it is shown. */
+.cv-sign--title::before, .cv-sign--title::after { height: 100vh; height: 100lvh; }
 .cv-sign .cv-badge { position: absolute; top: -10px; right: -12px; }
 .cv-sign.is-pressed, .cv-sign:active { transform: translateY(calc(2 * var(--px))); }
 .cv-sign.is-locked { border-image-source: url(./assets/chrome/v2/sign-dark.png); color: var(--stone); }
