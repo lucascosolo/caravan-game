@@ -20,6 +20,9 @@ import "../theme.css";
 
 const params = new URLSearchParams(location.search);
 const view = params.get("view") ?? "both";
+// `?dpr=3` emulates a 3x phone before the renderer reads the ratio (as the look test did).
+const dpr = Number(params.get("dpr") ?? 0);
+if (dpr > 0) Object.defineProperty(window, "devicePixelRatio", { get: () => dpr });
 
 /** Two open ring positions (the approved look test's gaps), every other non-wagon position fenced. */
 const GAP_INDICES = new Set([3, 12]);

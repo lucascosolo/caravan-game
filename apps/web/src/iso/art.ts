@@ -150,7 +150,9 @@ export async function loadSceneSkins(scene: ArtScene, resolution: number, manife
   const sc = manifest?.scenes[scene];
   if (!urls || !sc || !manifest) return null;
   const base = import.meta.env.BASE_URL;
-  const loaded = await loadAtlasImage({ webp: base + urls.webp, png: base + urls.png }, loadImageElement);
+  // A data: URL (the C3 harness inlines its atlas so it opens from file://) is used as is.
+  const at = (u: string): string => (u.startsWith("data:") ? u : base + u);
+  const loaded = await loadAtlasImage({ webp: at(urls.webp), png: at(urls.png) }, loadImageElement);
   if (!loaded) return null;
   const entries = Object.entries(sc.frames);
   const source = new ImageSource({ resource: loaded.image, resolution: dpr, scaleMode: "linear" });
