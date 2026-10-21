@@ -21,6 +21,7 @@
  * `prefers-reduced-motion` turns the lattice fade into an instant toggle.
  */
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
+import { loadSceneSkins, renderResolution } from "./art.ts";
 import { GestureMachine, type GestureEffect } from "./gestures.ts";
 import { hitRadiusPx, hitTestScreen } from "./hit.ts";
 import {
@@ -229,6 +230,12 @@ export const IsoCanvas = forwardRef<IsoCanvasHandle, IsoCanvasProps>(function Is
         if (disposed) return;
         scene.setCamera(camRef.current);
         scene.update(stateRef.current);
+        // Chunk 26: painted sprites replace placeholders per type once the scene's atlas loads; without one, placeholders stay.
+        void loadSceneSkins(geometry.fixtures === "town" ? "town" : "battle", renderResolution())
+          .then((skins) => {
+            if (skins && !disposed) scene.setSkins(skins);
+          })
+          .catch(() => undefined);
       })
       .catch((err: unknown) => {
         const reason = err instanceof Error ? err.message : String(err);
