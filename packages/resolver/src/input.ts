@@ -412,10 +412,10 @@ export function assertResolveInput(v: unknown): asserts v is ResolveInput {
   const b = i.battlefield as Battlefield;
   const tunables = i.tunables as ResolverTunables;
   if (b.grid.width !== GRID_WIDTH || b.grid.height !== GRID_HEIGHT) fail(`battlefield grid ${b.grid.width}×${b.grid.height} is not the ${GRID_WIDTH}×${GRID_HEIGHT} lattice`);
-  // The anchors are the four ring corners, exactly, in RING_ANCHORS order: the geometry
+  // The anchors are the wagon cells, exactly, in RING_ANCHORS order: the geometry
   // is the resolver's, the input only confirms it (a replay must mean the same thing).
   if (b.anchors.length !== RING_ANCHORS.length || b.anchors.some((c, k) => !sameCell(c, RING_ANCHORS[k]!))) {
-    fail(`battlefield.anchors must be exactly the ${RING_ANCHORS.length} ring corners in order`);
+    fail(`battlefield.anchors must be exactly the ${RING_ANCHORS.length} wagon cells in order`);
   }
   const refs: string[] = [];
   const takenCells: Cell[] = [];

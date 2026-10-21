@@ -10,10 +10,9 @@
  *             is within its reach measured from where it stands, which is its post.
  *   reserve — does not acquire and does not move (it still fires back at an attacker in
  *             reach) until an attacker is INSIDE THE RING: the lowest-id living attacker
- *             whose lattice cell has Chebyshev distance < PERIMETER_RING_RADIUS from the core
- *             centre cell (strictly inside the square the fence sits on; a ring cell itself —
- *             a gap — does not count, so a breacher standing on the ring cell releases it one
- *             cell later, by design). From that tick on, in that same phase, it behaves
+ *             whose lattice cell is inside the wagon circle (`isInsideRing`: the core and the
+ *             interior post cells, chunk 50; a ring cell itself — a gap — does not count, so a
+ *             breacher standing on the ring cell releases it one cell later, by design). From that tick on, in that same phase, it behaves
  *             exactly as `guard`, and it never reverts (`released`).
  *
  * GUARD STATE MACHINE (`postMode`), evaluated top to bottom every tick:
@@ -64,7 +63,7 @@
  * INTERPOLATION CONTRACT). Oscillation at the leash boundary stays bounded: after a leash
  * disengage the unit walks at least (1 − hysteresis) × leash back before it can re-acquire.
  */
-import { CORE_CENTER_CELL, PERIMETER_RING_RADIUS, cellOf, type FixedPoint } from "./battlefield.js";
+import { cellOf, isInsideRing, type FixedPoint } from "./battlefield.js";
 import { unitDistSq } from "./combat.js";
 import { COST_INFINITE } from "./fixed.js";
 import type { LogEvent } from "./log.js";
@@ -85,10 +84,7 @@ export function attackerInsideRing(state: SimState): number {
   for (let id = 0; id < state.attackerCount; id++) {
     const u = state.units[id]!;
     if (!u.alive) continue;
-    const c = cellOf({ x: u.x, y: u.y });
-    const dx = Math.abs(c.x - CORE_CENTER_CELL.x);
-    const dy = Math.abs(c.y - CORE_CENTER_CELL.y);
-    if ((dx > dy ? dx : dy) < PERIMETER_RING_RADIUS) return id;
+    if (isInsideRing(cellOf({ x: u.x, y: u.y }))) return id;
   }
   return -1;
 }

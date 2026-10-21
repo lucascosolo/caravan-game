@@ -56,9 +56,12 @@ export function mainEdge(scout: GuideScoutLike): EntryEdge {
   return top.raiders > 0 ? top.edge : (scout.edges[0] ?? "north");
 }
 
-/** Ring positions on one side, in ring order. */
+/** Ring positions on one side, clockwise along the ring (a side may wrap past segment 0). */
 export function sideSegments(edge: EntryEdge): readonly number[] {
-  return RING_SEGMENTS.filter((s) => s.edge === edge).map((s) => s.index);
+  const side = RING_SEGMENTS.filter((s) => s.edge === edge).map((s) => s.index);
+  const n = RING_SEGMENTS.length;
+  const start = side.findIndex((i) => !side.includes((i + n - 1) % n));
+  return start <= 0 ? side : [...side.slice(start), ...side.slice(0, start)];
 }
 
 /** The position left open on `edge`: the middle of that side. */

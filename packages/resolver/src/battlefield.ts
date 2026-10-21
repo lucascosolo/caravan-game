@@ -51,24 +51,21 @@ export const GRID_WIDTH = 32;
 export const GRID_HEIGHT = 32;
 /** The caravan core is a CORE_SIZE × CORE_SIZE block at the lattice centre, not player-placed. */
 export const CORE_SIZE = 3;
-/** Chebyshev radius of the fence ring around the core centre, in cells. */
-export const PERIMETER_RING_RADIUS = 4;
 /**
- * Segments forming the buyable ring: the 8 × radius cells of the ring square MINUS its four
- * corners, which are permanent wagon anchors (chunk 07 QA decision). Each segment is
- * independently placed or left as a gap.
+ * Fence positions on the round wagon circle (chunk 50): the ring cells of the owner-approved
+ * fixture that are not wagon cells. Each is independently placed or left as a gap.
  */
-export const PERIMETER_SEGMENTS = 28;
-/** The four ring corners: always-blocked wagon anchors, never fence segments, never breakable. */
-export const RING_ANCHOR_COUNT = 4;
+export const PERIMETER_SEGMENTS = 16;
+/** Wagon cells on the ring (6 wagons × 2 cells): always-blocked wall, never fence, never breakable. */
+export const RING_ANCHOR_COUNT = 12;
 /** Attackers start in the outermost ENTRY_BAND_DEPTH cells of their chosen edge. */
 export const ENTRY_BAND_DEPTH = 2;
 /**
  * Lattice pathing is 4-connected (chunk 07 QA D2, decided for chunk 10): orthogonal steps
  * only, no diagonals and therefore no corner cutting between two diagonally-touching blocked
  * cells. `isCoreReachableFrom` here, the A* in path.ts and `Battlefield.pathConnectivity`
- * all mean this one number; a full ring of fence plus the four anchors seals the core only
- * because diagonals are not steps.
+ * all mean this one number; a full ring of fence plus the wagon cells seals the core only
+ * because diagonals are not steps (the round ring is a thin 8-connected curve).
  */
 export const PATH_CONNECTIVITY = 4 as const;
 
@@ -200,57 +197,113 @@ export function isEntryEdge(value: unknown): value is EntryEdge {
 }
 
 export interface RingSegment {
-  /** 0..PERIMETER_SEGMENTS-1, clockwise from the north-west corner. */
+  /** 0..PERIMETER_SEGMENTS-1, clockwise along RING_ORDER from the first fence position clockwise of due north. */
   readonly index: number;
   readonly cell: Cell;
-  /** The side of the circle this segment faces. Corners belong to the side their run starts on. */
+  /** The entry edge this position faces (dominant axis from the core centre; an exact diagonal goes to the next edge clockwise). */
   readonly edge: EntryEdge;
 }
 
 /**
- * The ring square is the set of cells at Chebyshev distance PERIMETER_RING_RADIUS from the
- * core centre. Its four CORNERS are the wagon anchors (RING_ANCHORS): permanently blocked,
- * never placed, never breakable. The remaining cells are the segments, walked clockwise
- * from the cell right of the north-west corner: north side left→right, east side
- * top→bottom, south side right→left, west side bottom→top. Each side contributes
- * 2 × radius − 1 cells, so the ring has 8 × radius − 4 segments.
+ * THE ROUND WAGON CIRCLE (chunk 50, BATTLEFIELD_VERSION 3). Generated from the owner-approved
+ * fixture packages/resolver/geometry/round-ring.json; a test checks every constant below against
+ * that file, so nobody edits a cell here by hand. The fixture's core centre (5, 5) maps onto
+ * CORE_CENTER_CELL (15, 15), an offset of (+10, +10): the fixture's note says (16, 16) / +11,
+ * but this lattice's core block is 14..16, and the ring must be centred on the core.
+ *
+ * RING_ORDER is the ring's 28 cells clockwise from due north of the core centre, (15, 10). It
+ * is a thin closed 8-connected curve, axis and diagonal steps alternating: it seals the core
+ * only because pathing is 4-connected, and any single cell of it left open opens it.
+ * WAGON_RING_INDICES are the six wagons, two orthogonally adjacent RING_ORDER cells each:
+ * permanent, impassable, unbreakable wall (RING_ANCHORS), never fence, never a gap.
+ * SEGMENT ORDER: the other 16 cells are the fence positions, indexed clockwise in RING_ORDER
+ * order, so segment 0 is the first fence position clockwise of due north.
  */
-export const RING_ANCHORS: readonly Cell[] = (() => {
-  const r = PERIMETER_RING_RADIUS;
-  const c = CORE_CENTER_CELL;
-  return [
-    { x: c.x - r, y: c.y - r }, // north-west
-    { x: c.x + r, y: c.y - r }, // north-east
-    { x: c.x + r, y: c.y + r }, // south-east
-    { x: c.x - r, y: c.y + r }, // south-west
-  ];
-})();
+export const RING_ORDER: readonly Cell[] = [
+  [15, 10], [16, 10], [17, 11], [18, 11], [19, 12], [19, 13], [20, 14], [20, 15], [20, 16], [19, 17],
+  [19, 18], [18, 19], [17, 19], [16, 20], [15, 20], [14, 20], [13, 19], [12, 19], [11, 18], [11, 17],
+  [10, 16], [10, 15], [10, 14], [11, 13], [11, 12], [12, 11], [13, 11], [14, 10],
+].map(([x, y]) => ({ x: x!, y: y! }));
+
+export const WAGON_RING_INDICES: readonly (readonly [number, number])[] = [[0, 1], [6, 7], [9, 10], [14, 15], [21, 22], [25, 26]];
+
+/** The wagon cells, two per wagon, wagon by wagon in ring order: always-blocked wall. */
+export const RING_ANCHORS: readonly Cell[] = WAGON_RING_INDICES.flatMap(([a, b]) => [RING_ORDER[a]!, RING_ORDER[b]!]);
+
+/** A fence position's side: dominant axis from the core centre; an exact diagonal goes to the next edge clockwise. */
+function edgeOf(cell: Cell): EntryEdge {
+  const dx = cell.x - CORE_CENTER_CELL.x;
+  const dy = cell.y - CORE_CENTER_CELL.y;
+  const ax = Math.abs(dx);
+  const ay = Math.abs(dy);
+  if (ay > ax) return dy < 0 ? "north" : "south";
+  if (ax > ay) return dx > 0 ? "east" : "west";
+  if (dx > 0) return dy < 0 ? "east" : "south";
+  return dy > 0 ? "west" : "north";
+}
 
 export const RING_SEGMENTS: readonly RingSegment[] = (() => {
-  const r = PERIMETER_RING_RADIUS;
-  const c = CORE_CENTER_CELL;
-  const left = c.x - r;
-  const right = c.x + r;
-  const topRow = c.y - r;
-  const bottom = c.y + r;
+  const wagon = new Uint8Array(RING_ORDER.length);
+  for (const [a, b] of WAGON_RING_INDICES) wagon[a] = wagon[b] = 1;
   const out: RingSegment[] = [];
-  const push = (cell: Cell, edge: EntryEdge) => out.push({ index: out.length, cell, edge });
-  for (let x = left + 1; x < right; x++) push({ x, y: topRow }, "north");
-  for (let y = topRow + 1; y < bottom; y++) push({ x: right, y }, "east");
-  for (let x = right - 1; x > left; x--) push({ x, y: bottom }, "south");
-  for (let y = bottom - 1; y > topRow; y--) push({ x: left, y }, "west");
+  for (let k = 0; k < RING_ORDER.length; k++) if (wagon[k] === 0) out.push({ index: out.length, cell: RING_ORDER[k]!, edge: edgeOf(RING_ORDER[k]!) });
   return out;
 })();
 
+/** Membership tables by cell key. Plain typed arrays: no Map/Set (lint rule). */
+const ANCHOR_BY_KEY: Uint8Array = (() => {
+  const t = new Uint8Array(GRID_WIDTH * GRID_HEIGHT);
+  for (const a of RING_ANCHORS) t[cellKey(a)] = 1;
+  return t;
+})();
+
 export function isAnchorCell(cell: Cell): boolean {
-  return RING_ANCHORS.some((a) => a.x === cell.x && a.y === cell.y);
+  return isInBounds(cell) && ANCHOR_BY_KEY[cellKey(cell)] === 1;
 }
 
-/** Ring index by cell key, −1 off the ring. Plain typed array: no Map (lint rule). */
+/** Ring index by cell key, −1 off the fence positions. */
 const RING_INDEX_BY_KEY: Int32Array = (() => {
   const table = new Int32Array(GRID_WIDTH * GRID_HEIGHT).fill(-1);
   for (const s of RING_SEGMENTS) table[cellKey(s.cell)] = s.index;
   return table;
+})();
+
+/**
+ * INSIDE THE RING: the cells a 4-connected walk from the field corner cannot reach with the
+ * whole ring blocked, minus the ring itself — the core plus the interior post cells. The
+ * `reserve` stance wakes on it (posted.ts) and the depth metric's ring line is its edge.
+ */
+const INSIDE_BY_KEY: Uint8Array = (() => {
+  const blocked = new Uint8Array(GRID_WIDTH * GRID_HEIGHT);
+  for (const c of RING_ORDER) blocked[cellKey(c)] = 1;
+  const outside = new Uint8Array(GRID_WIDTH * GRID_HEIGHT);
+  const queue: Cell[] = [{ x: 0, y: 0 }];
+  outside[0] = 1;
+  for (let head = 0; head < queue.length; head++) {
+    const cur = queue[head]!;
+    for (const n of [{ x: cur.x, y: cur.y - 1 }, { x: cur.x - 1, y: cur.y }, { x: cur.x + 1, y: cur.y }, { x: cur.x, y: cur.y + 1 }]) {
+      if (!isInBounds(n)) continue;
+      const k = cellKey(n);
+      if (outside[k] === 1 || blocked[k] === 1) continue;
+      outside[k] = 1;
+      queue.push(n);
+    }
+  }
+  const inside = new Uint8Array(GRID_WIDTH * GRID_HEIGHT);
+  for (let k = 0; k < inside.length; k++) if (outside[k] === 0 && blocked[k] === 0) inside[k] = 1;
+  return inside;
+})();
+
+/** Strictly inside the wagon circle: a core or interior post cell, never a ring cell. */
+export function isInsideRing(cell: Cell): boolean {
+  return isInBounds(cell) && INSIDE_BY_KEY[cellKey(cell)] === 1;
+}
+
+/** The interior post cells: inside the ring and not the core, in compareCells order. */
+export const INTERIOR_POST_CELLS: readonly Cell[] = (() => {
+  const out: Cell[] = [];
+  for (let k = 0; k < INSIDE_BY_KEY.length; k++) if (INSIDE_BY_KEY[k] === 1 && !isCoreCell(cellFromKey(k))) out.push(cellFromKey(k));
+  return out;
 })();
 
 export function isRingSegmentIndex(value: unknown): value is number {
@@ -263,7 +316,7 @@ export function ringSegment(index: number): RingSegment {
   return seg;
 }
 
-/** The ring index at a cell, or null if the cell is not on the ring. */
+/** The ring index at a cell, or null if the cell is not a fence position. */
 export function ringIndexAt(cell: Cell): number | null {
   if (!isInBounds(cell)) return null;
   const i = RING_INDEX_BY_KEY[cellKey(cell)] ?? -1;
@@ -476,8 +529,8 @@ export interface BattlefieldEntry {
 }
 
 export interface Battlefield {
-  /** 2 since chunk 07 QA D1/D2 (stances, anchors, pathing). No battlefield was ever stored or consumed at 1. */
-  readonly v: 2;
+  /** 3 since chunk 50 (the round wagon circle); 2 was the square ring of chunk 07 QA D1/D2. */
+  readonly v: 3;
   readonly grid: { readonly width: number; readonly height: number };
   /**
    * Chunk 07 QA D2: lattice pathing is 4-connected (orthogonal steps, no corner cutting).
@@ -487,8 +540,8 @@ export interface Battlefield {
   readonly pathConnectivity: typeof PATH_CONNECTIVITY;
   readonly core: { readonly cells: readonly Cell[]; readonly center: FixedPoint };
   /**
-   * Chunk 07 QA D2: the four fixed wagon anchors at the ring's corners — permanently BLOCKED
-   * cells, exactly like an intact fence segment but with no HP and no owner. Never a gap.
+   * The wagon cells (chunk 50; RING_ANCHORS, in that order) — permanently BLOCKED cells, exactly
+   * like an intact fence segment but with no HP and no owner. Never a gap, never targeted.
    */
   readonly anchors: readonly Cell[];
   /** All four edges, always. A party may be split across any of them. */
@@ -498,7 +551,7 @@ export interface Battlefield {
   readonly posts: readonly BattlefieldPost[];
 }
 
-export const BATTLEFIELD_VERSION = 2 as const;
+export const BATTLEFIELD_VERSION = 3 as const;
 
 // ─────────────────────────────────────────────────────────────────────────────────────
 // Runtime shape guard. The type system keeps extra fields out of code; this keeps them
@@ -618,7 +671,7 @@ function assertTrapEffect(v: unknown, where: string, fail: (m: string) => never)
  * Throws unless `v` is exactly a Battlefield: closed keys at every level (content shapes
  * included), integers only, positions on the field, hp within 0..maxHp, every enum-valued
  * field one of the mirrored content enums, and the lattice-level invariants pinned (grid
- * size, pathConnectivity, the four anchors, all four entry edges). Nothing that is not on a
+ * size, pathConnectivity, the wagon cells, all four entry edges). Nothing that is not on a
  * whitelist survives this. (Chunk 07 QA S1's checks, moved here with the type in chunk 10.)
  */
 export function assertBattlefield(v: unknown): asserts v is Battlefield {
@@ -632,7 +685,7 @@ export function assertBattlefield(v: unknown): asserts v is Battlefield {
   eachOf(core.cells, "core.cells", fail).forEach((c, i) => assertCell(c, `core.cells[${i}]`, fail));
   assertFieldPoint(core.center, "core.center", fail);
   const anchors = eachOf(b.anchors, "anchors", fail);
-  if (anchors.length !== RING_ANCHORS.length) fail(`anchors must list the ${RING_ANCHORS.length} fixed wagon anchors`);
+  if (anchors.length !== RING_ANCHORS.length) fail(`anchors must list the ${RING_ANCHORS.length} wagon cells`);
   anchors.forEach((c, i) => assertCell(c, `anchors[${i}]`, fail));
   const entries = eachOf(b.entries, "entries", fail);
   if (entries.length !== ENTRY_EDGES.length) fail(`entries must list all ${ENTRY_EDGES.length} edges`);

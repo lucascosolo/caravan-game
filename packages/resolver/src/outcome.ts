@@ -21,9 +21,11 @@
  *   "How far the deepest raider got inside the wagon circle: the share of the distance from
  *    the ring's outer edge to the core that it closed."
  * Distance is the Chebyshev distance from a raider's centre to the core block (0 on a core
- * cell): max(|dx|, |dy|) to the block's nearest edge, integer fixed-point. The ring's outer
- * edge is at exactly RING_SPAN = (PERIMETER_RING_RADIUS − ⌊CORE_SIZE / 2⌋) cells by that
- * measure on all four sides, so "inside the ring line" is `distance < RING_SPAN`. A raider's
+ * cell): max(|dx|, |dy|) to the block's nearest edge, integer fixed-point. RING_SPAN is the
+ * farthest outer edge of the round wagon circle by that measure (chunk 50: the ring's bounding
+ * square, outer diameter 11 → (11 − CORE_SIZE) / 2 = 4 cells), so "inside the ring line" is
+ * `distance < RING_SPAN`; on the circle's diagonal stretches the ring itself lies inside that
+ * line, so a raider at a diagonal fence already reads a small depth (at most ¼ of the span). A raider's
  * depth is floor(1024 × (RING_SPAN − closest) / RING_SPAN) where `closest` is the smallest
  * distance it was sampled at; a raider that never crossed the ring line contributes 0. The
  * fight's depth is the largest over the attackers, an integer 0..1024 (DEPTH_SCALE,
@@ -45,7 +47,7 @@
  * the trip's Coin transfer + the party win instead) is computed by the server from them and
  * the encounter's Coin value, and credited there or not at all. The resolver never sees Coin.
  */
-import { CORE_ORIGIN, CORE_SIZE, PERIMETER_RING_RADIUS } from "./battlefield.js";
+import { CORE_ORIGIN, CORE_SIZE, RING_ORDER } from "./battlefield.js";
 import { FIXED_POINT_SCALE } from "./fixed.js";
 import type { SimState, UnitState } from "./state.js";
 
@@ -90,10 +92,19 @@ export function coreDistSq(x: number, y: number): number {
 }
 
 /**
- * RING_SPAN: the Chebyshev distance from the core block to the ring's outer edge, fixed-point.
- * With the v1 lattice (core 14..16, ring 11..19) it is 3 cells on every side.
+ * RING_SPAN: the Chebyshev distance from the core block to the ring's farthest outer edge,
+ * fixed-point, derived from RING_ORDER. With core 14..16 and ring 10..20 it is 4 cells.
  */
-export const RING_SPAN = (PERIMETER_RING_RADIUS - Math.trunc(CORE_SIZE / 2)) * FIXED_POINT_SCALE;
+export const RING_SPAN = (() => {
+  let span = 0;
+  for (const c of RING_ORDER) {
+    const dx = c.x < CORE_ORIGIN.x ? CORE_ORIGIN.x - c.x : c.x + 1 - (CORE_ORIGIN.x + CORE_SIZE);
+    const dy = c.y < CORE_ORIGIN.y ? CORE_ORIGIN.y - c.y : c.y + 1 - (CORE_ORIGIN.y + CORE_SIZE);
+    if (dx > span) span = dx;
+    if (dy > span) span = dy;
+  }
+  return span * FIXED_POINT_SCALE;
+})();
 
 /** Chebyshev distance from a fixed-point position to the core block (0 on a core cell). */
 export function coreDistCheb(x: number, y: number): number {

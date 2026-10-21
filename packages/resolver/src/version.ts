@@ -26,6 +26,8 @@
  * balance pass 5 (BALANCE-LOG.md): no resolver code changed, but every posted unit's aggro radius
  * and leash grew by TUNABLES.POST_ENGAGEMENT_BONUS, so a stored encounter input (formation,
  * survivors, party) now resolves to a different fight — the version marks that boundary for
- * stored logs as well as RESOLUTION_CONTENT_HASH marks it for queued jobs.
+ * stored logs as well as RESOLUTION_CONTENT_HASH marks it for queued jobs; 10 is chunk 50, the
+ * round wagon circle (BATTLEFIELD_VERSION 3): 16 fence positions and 6 two-cell wagons on a
+ * 28-cell ring, the interior-cell `reserve` wake and the depth metric's RING_SPAN of 4 cells.
  */
-export const RESOLVER_VERSION = 9;
+export const RESOLVER_VERSION = 10;

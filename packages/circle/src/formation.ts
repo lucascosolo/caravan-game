@@ -22,9 +22,9 @@
  *                 an attacker inside its aggro radius, chases up to its leash, returns.
  *   - `hold`    — fights only attackers within attack range of its post and never leaves
  *                 it (leash 0).
- *   - `reserve` — does not move or acquire a target until an attacker is INSIDE THE RING (any
- *                 lattice cell with Chebyshev distance < PERIMETER_RING_RADIUS from the core
- *                 centre), then behaves as `guard`. It still fires at anything in reach
+ *   - `reserve` — does not move or acquire a target until an attacker is INSIDE THE RING (a core
+ *                 or interior post cell of the wagon circle, `isInsideRing`, chunk 50), then
+ *                 behaves as `guard`. It still fires at anything in reach
  *                 before release (chunk 11 QA D1). This is the "kept safely in the back" choice of
  *                 §13.4, which is why every living unit must still be posted.
  * These are the DEFENDING side's stances. They are distinct from the attacking party's
@@ -78,13 +78,13 @@ export interface PostPlacement {
 
 export interface Formation {
   /** 2 since QA D1 (posts carry a stance). Version 1 snapshots were never stored outside tests. */
-  readonly v: 2;
+  readonly v: 3;
   readonly fences: readonly FencePlacement[];
   readonly traps: readonly TrapPlacement[];
   readonly posts: readonly PostPlacement[];
 }
 
-export const FORMATION_VERSION = 2 as const;
+export const FORMATION_VERSION = 3 as const;
 
 export const EMPTY_FORMATION: Formation = Object.freeze({
   v: FORMATION_VERSION,

@@ -325,38 +325,35 @@ export const TUNABLES = {
   GRID_WIDTH: 32,
   GRID_HEIGHT: 32,
   /**
-   * TUNABLE (chunk 07). Chebyshev radius of the fence ring around the core centre, in cells.
-   * The ring is the square of cells at exactly this radius: 8 × radius cells, of which the
-   * RING_ANCHOR_CELLS corners are fixed wagon anchors and the rest are fence positions, so
-   * PERIMETER_SEGMENTS below must equal 8 × radius − RING_ANCHOR_CELLS and a test asserts it.
+   * Fixed by design (chunk 50): the round wagon circle's six two-cell wagons are permanent,
+   * impassable, unbreakable wall — never buyable fence, never a gap. The Battlefield input
+   * carries them as blocked cells.
    *
-   * The geometry itself (ring cells, anchors, core, entry bands) is OWNED by
-   * @caravan/resolver (battlefield.ts) because a stored replay depends on it; these registry
-   * values mirror it for the UI and the circle model, and @caravan/circle asserts at import
-   * that the two agree.
+   * The geometry itself (ring cells, wagons, core, entry bands) is OWNED by @caravan/resolver
+   * (battlefield.ts, generated from the owner-approved fixture geometry/round-ring.json)
+   * because a stored replay depends on it; these registry values mirror it for the UI and the
+   * circle model, and @caravan/circle asserts at import that the two agree. A geometry change
+   * is a new fixture, a BATTLEFIELD_VERSION and a RESOLVER_VERSION bump, never a tunables edit.
    */
-  PERIMETER_RING_RADIUS: 4,
+  RING_ANCHOR_CELLS: 12,
+  /** Derived from the fixture (chunk 50): fence positions on the 28-cell ring, the cells that are not wagon cells, each independently placed or left as a gap. */
+  PERIMETER_SEGMENTS: 16,
   /**
-   * Fixed by design (chunk 07 QA D2): the ring's four corner cells are permanent, impassable
-   * wagon anchors — shown as parked wagons, never buyable fence, never a gap. The Battlefield
-   * input carries them as blocked cells. A square ring has exactly four corners.
+   * TUNABLE (chunk 07, re-derived in chunk 50). Fence segments a caravan can pack for a trip.
+   * THE most important balance lever in chunk 07: it is deliberately BELOW PERIMETER_SEGMENTS
+   * so a full ring is unaffordable and choosing where the gap goes is a real decision. Chunk
+   * 50's default keeps the square's 20-of-28 ratio: floor(16 × 20 / 28) = 11 of 16, so 5 gaps
+   * are forced. The wagons now cover 12 of the 28 ring cells, so the matchup sweep decides; if
+   * the ring closes too cheaply the next candidate is PERIMETER_SEGMENTS − 8 = 8. A test
+   * asserts FENCE_MATERIAL_BUDGET < PERIMETER_SEGMENTS; raising it to the ring size deletes
+   * the game.
    */
-  RING_ANCHOR_CELLS: 4,
-  /** TUNABLE (chunk 07). Fence positions on the ring (8 × radius − RING_ANCHOR_CELLS), each independently placed or left as a gap. */
-  PERIMETER_SEGMENTS: 28,
-  /**
-   * TUNABLE (chunk 07). Fence segments a caravan can pack for a trip. THE most important
-   * balance lever in chunk 07: it is deliberately BELOW PERIMETER_SEGMENTS so a full ring is
-   * unaffordable and choosing where the gap goes is a real decision (20 of 28 still forces 8
-   * gaps). A test asserts FENCE_MATERIAL_BUDGET < PERIMETER_SEGMENTS; raising it to the ring
-   * size deletes the game.
-   */
-  FENCE_MATERIAL_BUDGET: 20,
+  FENCE_MATERIAL_BUDGET: 11,
   /**
    * Fixed by design (chunk 07 QA D2, decided for chunk 10): lattice pathing is 4-connected —
    * orthogonal steps only, no diagonal moves and therefore no corner cutting between two
    * diagonally-touching blocked cells. The circle's reachability check and the resolver's
-   * pathfinder must both read this; a full ring of fence plus the four anchors seals the core
+   * pathfinder must both read this; a full ring of fence plus the wagon cells seals the core
    * only because diagonals are not steps.
    */
   PATH_CONNECTIVITY: 4,
