@@ -168,7 +168,12 @@ export function Stakes({ preview }: { readonly preview: StakesPreview }): JSX.El
         )}
         <p>{T.overrunLost}</p>
         <ul className="rs-ledger" data-testid="stake-overrun-lost">
-          {p.ifOverrun.unitsLostOutright.length === 0 ? <li className="hint">{T.none}</li> : p.ifOverrun.unitsLostOutright.map((u) => <li key={u.ref}>{unitLabel(u)}</li>)}
+          {p.ifOverrun.unitsLostOutright.length === 0 ? <li className="hint">{T.none}</li> : p.ifOverrun.unitsLostOutright.map((u) => (
+                <li key={u.ref}>
+                  <Icon name="grave" />
+                  {unitLabel(u)}
+                </li>
+              ))}
         </ul>
         {p.ifOverrun.unitsLostOutright.length > 0 && T.overrunFinalFight(p.ifOverrun.unitDyingInTheFinalFight) !== "" && (
           <p className="hint" data-testid="stake-overrun-final-fight">

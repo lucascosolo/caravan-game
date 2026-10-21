@@ -13,6 +13,7 @@ import { DeMergedList } from "./BankOrPushScreen.tsx";
 import { unitLabel, unitTypeName } from "./tripNames.ts";
 import { GuestSavePrompt } from "../account/GuestSavePrompt.tsx";
 import { CoinRibbon, OutcomeBanner } from "../replay/Moments.tsx";
+import { Icon } from "../../ui/Icon.tsx";
 
 const T = STRINGS.trip;
 
@@ -69,7 +70,12 @@ export function TripSummary({ trip, bank = null, balance = null, past = false, a
           <p data-testid="summary-coin-lost">{T.summaryCoinLost(e.coinLost)}</p>
           <p>{T.summaryLost}</p>
           <ul className="rs-ledger" data-testid="summary-lost">
-            {e.unitsLostOutright.length === 0 ? <li className="hint">{T.none}</li> : e.unitsLostOutright.map((u) => <li key={u.ref}>{unitLabel(u)}</li>)}
+            {e.unitsLostOutright.length === 0 ? <li className="hint">{T.none}</li> : e.unitsLostOutright.map((u) => (
+                <li key={u.ref}>
+                  <Icon name="grave" />
+                  {unitLabel(u)}
+                </li>
+              ))}
           </ul>
           <p>{T.summaryDemerged}</p>
           <ul className="rs-ledger" data-testid="summary-demerged">
@@ -78,6 +84,7 @@ export function TripSummary({ trip, bank = null, balance = null, past = false, a
             ) : (
               e.unitsDeMerged.map((u) => (
                 <li key={u.ref} data-testid={`summary-demerged-${u.ref}`}>
+                  <Icon name="wounded" />
                   {T.levelChange(unitTypeName(u.typeId), u.mergeLevel, u.mergeLevelAfter)}
                 </li>
               ))

@@ -465,7 +465,7 @@ function Playback({ view, model, settled, autoPlay, initialSpeed }: { readonly v
           </span>
         </div>
         <div className="rs-transport">
-          <Medal icon="back5" word={T.back(step)} testId="replay-prev-keyframe" onClick={() => seek(prevKeyframe(model, at))} />
+          <Medal icon="back5" word={T.back(step)} testId="replay-prev-keyframe" caption={false} onClick={() => seek(prevKeyframe(model, at))} />
           <Medal
             icon={playing ? "pause" : atEnd ? "rotate" : "play"}
             word={playing ? T.pause : atEnd ? T.replayAgain : T.play}
@@ -480,11 +480,12 @@ function Playback({ view, model, settled, autoPlay, initialSpeed }: { readonly v
               } else setPlaying((p) => !p);
             }}
           />
-          <Medal icon="fwd5" word={T.forward(step)} testId="replay-next-keyframe" onClick={() => seek(nextKeyframe(model, at))} />
+          <Medal icon="fwd5" word={T.forward(step)} testId="replay-next-keyframe" caption={false} onClick={() => seek(nextKeyframe(model, at))} />
           <Medal
             icon="skip-end"
             word={T.toEnd}
             testId="replay-to-end"
+            caption={false}
             onClick={() => {
               setPlaying(false);
               seek(last);
@@ -551,16 +552,18 @@ function Playback({ view, model, settled, autoPlay, initialSpeed }: { readonly v
 }
 
 /** A transport medallion: the word is its accessible name (inside, visually hidden) and its caption (outside, hidden from AT). */
-function Medal({ icon, word, testId, onClick, pressed, size, brass = false, className }: { readonly icon: string; readonly word: string; readonly testId: string; readonly onClick: () => void; readonly pressed?: boolean; readonly size?: "sm" | "lg"; readonly brass?: boolean; readonly className?: string }): JSX.Element {
+function Medal({ icon, word, testId, onClick, pressed, size, brass = false, caption = true, className }: { readonly icon: string; readonly caption?: boolean; readonly word: string; readonly testId: string; readonly onClick: () => void; readonly pressed?: boolean; readonly size?: "sm" | "lg"; readonly brass?: boolean; readonly className?: string }): JSX.Element {
   return (
     <span className={cx("cv-medlab", pressed && "is-on")}>
       <button type="button" className={cx("cv-medal", size && `cv-medal--${size}`, brass && "cv-medal--brass", pressed && "is-on", className)} data-testid={testId} aria-pressed={pressed} onClick={onClick}>
         <Icon name={icon} />
         <span className="cv-sr">{word}</span>
       </button>
-      <span className="cv-medlab__word" aria-hidden="true">
-        {word}
-      </span>
+      {caption && (
+        <span className="cv-medlab__word" aria-hidden="true">
+          {word}
+        </span>
+      )}
     </span>
   );
 }
