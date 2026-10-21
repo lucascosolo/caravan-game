@@ -8,6 +8,7 @@
  * aria-label that could fall behind what is drawn.
  */
 import type { UnlockNodeView } from "../../api/types.ts";
+import { Icon } from "../../ui/Icon.tsx";
 import { STRINGS } from "../../strings.ts";
 import { AffinityIcon } from "./AffinityIcon.tsx";
 import { describeType, displayNameOf } from "./catalogue.ts";
@@ -20,7 +21,7 @@ export function nodeState(node: UnlockNodeView): NodeState {
   return "locked";
 }
 
-const STATE_ICON: Record<NodeState, string> = { reached: "✓", affordable: "→", locked: "⊘" };
+const STATE_ICON: Record<NodeState, string> = { reached: "tick", affordable: "coin-pip", locked: "padlock" };
 
 export function stateLabel(state: NodeState): string {
   return state === "reached" ? STRINGS.webs.stateReached : state === "affordable" ? STRINGS.webs.stateAffordable : STRINGS.webs.stateLocked;
@@ -38,10 +39,8 @@ export function lockedReason(node: UnlockNodeView): string | null {
 
 export function StateBadge({ state }: { state: NodeState }): JSX.Element {
   return (
-    <span className="node__state" data-state={state}>
-      <span className="state-icon" aria-hidden="true">
-        {STATE_ICON[state]}
-      </span>
+    <span className="cv-node__state" data-state={state}>
+      <Icon name={STATE_ICON[state]} />
       <span>{stateLabel(state)}</span>
     </span>
   );
@@ -58,15 +57,27 @@ export function NodeCard({ node, selected, onSelect }: NodeCardProps): JSX.Eleme
   const state = nodeState(node);
   const reason = lockedReason(node);
   return (
-    <button type="button" className={`node node--${state}`} data-node-id={node.id} data-state={state} aria-pressed={selected} onClick={() => onSelect(node.id)}>
-      <span className="node__name">{granted.displayName}</span>
+    <button type="button" className={`cv-node cv-node--${state}${selected ? " is-selected" : ""}`} data-node-id={node.id} data-state={state} aria-pressed={selected} onClick={() => onSelect(node.id)}>
+      {state === "affordable" && <i className="cv-node__brackets" aria-hidden="true" />}
+      <span className="cv-node__name">{granted.displayName}</span>
       {granted.affinity && <AffinityIcon affinity={granted.affinity} />}
-      <span className="node__cost">{node.starting ? STRINGS.webs.costFree : STRINGS.webs.cost(node.cost)}</span>
-      <StateBadge state={state} />
-      <span className="node__req">
+      <span className="cv-tag">
+        <span className="cv-tag__in">
+          <Icon name="coin-pip" />
+          <span className="cv-num">{node.starting ? STRINGS.webs.costFree : STRINGS.webs.cost(node.cost)}</span>
+        </span>
+      </span>
+      {state === "reached" ? (
+        <span className="cv-node__ribbon">
+          <StateBadge state={state} />
+        </span>
+      ) : (
+        <StateBadge state={state} />
+      )}
+      <span className="cv-small webs-req">
         {node.requires.length === 0 ? STRINGS.webs.requiresNone : `${STRINGS.webs.requires}: ${node.requires.map(displayNameOf).join(", ")}`}
       </span>
-      {reason && <span className="node__req">{reason}</span>}
+      {reason && <span className="cv-small webs-req">{reason}</span>}
     </button>
   );
 }

@@ -387,16 +387,16 @@ describe("WebsScreen", () => {
       // Opens on Cancel (the safe choice), described by its body, and the app behind it is inert.
       expect(cancel).toHaveFocus();
       expect(dialog).toHaveAttribute("aria-modal", "true");
-      expect(dialog).toHaveAccessibleName(w.confirmTitle);
+      expect(dialog).toHaveAccessibleName(w.confirmQuestion("Tripwire Snare"));
       expect(dialog).toHaveAccessibleDescription(w.confirmBody("Tripwire Snare", 1, 3));
       expect(container.parentElement).not.toBe(dialog.parentElement);
       expect(container).toHaveAttribute("inert");
-      expect(dialog.closest("[data-dialog-host]")).not.toHaveAttribute("inert");
-      // Tab cycles inside: Cancel → Spend → Cancel; Shift+Tab goes the other way.
+      expect(dialog.closest(".cv-sheet-host")).not.toHaveAttribute("inert");
+      // Tab cycles inside the sheet (its resize peg and close medallion come first): Cancel → Spend → wraps → … → Cancel.
       await user.tab();
       expect(confirm).toHaveFocus();
       await user.tab();
-      expect(cancel).toHaveFocus();
+      expect(dialog.contains(document.activeElement)).toBe(true);
       await user.tab({ shift: true });
       expect(confirm).toHaveFocus();
       await user.tab({ shift: true });
@@ -406,7 +406,7 @@ describe("WebsScreen", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       expect(container).not.toHaveAttribute("inert");
       expect(unlock).toHaveFocus();
-      expect(document.querySelector("[data-dialog-host]")).toBeNull();
+      expect(document.querySelector(".cv-sheet-host")).toBeNull();
     });
 
     it("S1: after a successful spend the opener is gone, so focus lands on the sheet heading", async () => {

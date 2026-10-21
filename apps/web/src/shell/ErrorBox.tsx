@@ -7,6 +7,8 @@
  */
 import { ApiError, BAD_PAYLOAD, NETWORK } from "../api/client.ts";
 import { STRINGS } from "../strings.ts";
+import { Button } from "../ui/Button.tsx";
+import { Icon } from "../ui/Icon.tsx";
 
 export interface ErrorBoxProps {
   readonly error: ApiError;
@@ -23,19 +25,24 @@ export function playerMessage(error: ApiError): string {
 
 export function ErrorBox({ error, heading, onRetry }: ErrorBoxProps): JSX.Element {
   return (
-    <div className="error" role="alert" data-testid="api-error">
-      {heading && <div>{heading}</div>}
-      <div data-testid="api-error-message">{playerMessage(error)}</div>
-      <div className="error__code">
-        {error.status > 0 ? `${error.status} ` : ""}
-        {error.code}
-        {error.detail ? <span className="error__detail"> · {error.detail}</span> : null}
+    <div className="cv-error error" role="alert" data-testid="api-error">
+      <span className="cv-error__plate">
+        <Icon name="broken-wheel" />
+      </span>
+      <div className="cv-error__text">
+        {heading && <b>{heading}</b>}
+        <div data-testid="api-error-message">{playerMessage(error)}</div>
+        <div className="error__code">
+          {error.status > 0 ? `${error.status} ` : ""}
+          {error.code}
+          {error.detail ? <span className="error__detail"> · {error.detail}</span> : null}
+        </div>
+        {onRetry && (
+          <Button onClick={onRetry} block>
+            {STRINGS.app.retry}
+          </Button>
+        )}
       </div>
-      {onRetry && (
-        <button type="button" className="btn btn--block" style={{ marginTop: 8 }} onClick={onRetry}>
-          {STRINGS.app.retry}
-        </button>
-      )}
     </div>
   );
 }

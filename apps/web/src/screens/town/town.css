@@ -1,0 +1,43 @@
+.town { display: flex; flex-direction: column; gap: 12px; padding-bottom: calc(24 * var(--px)); }
+.town h1, .town h2 { margin: 0; }
+.town h1 { font-family: var(--font-display); font-size: var(--type-title); font-weight: 400; line-height: 1.05; }
+.town h2, .town-panel h2 { margin: 0; font-family: var(--font-display); font-size: var(--type-label); font-weight: 400; text-transform: uppercase; letter-spacing: var(--px); display: flex; align-items: center; gap: 8px; }
+.town h2::after, .town-panel h2::after { content: ""; flex: 1; height: calc(6 * var(--px)); background: url(../../ui/assets/tiles/divider-seam.png) 0 0 / calc(16 * var(--px)) calc(6 * var(--px)) repeat-x; }
+.town p { margin: 0; }
+.town-panel { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.town-panel p { margin: 0; }
+.town-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.town-list > li { min-width: 0; }
+.town-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.town-grow { flex: 1; min-width: 0; }
+.town-name { font-family: var(--font-display); font-size: var(--type-label); text-transform: uppercase; letter-spacing: var(--px); }
+.town-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.town-actions > * { flex: 1 1 auto; }
+.town-sel { display: flex; flex-direction: column; gap: 8px; }
+
+.town-scene { position: relative; }
+.town-signs { display: flex; flex-wrap: wrap; gap: 14px 10px; justify-content: center; padding: 4px 0 8px; }
+.town-sign { position: relative; display: inline-flex; }
+.town-pop { position: absolute; z-index: 3; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 6px; width: max-content; max-width: min(18rem, 80vw); }
+.town-pop .town-actions { margin-top: 6px; }
+.town-scene .town-note { position: absolute; z-index: 2; right: 8px; bottom: 8px; max-width: 11rem; }
+
+.town-shelf { position: sticky; bottom: var(--shelf-bottom, 8px); z-index: 4; }
+.town-shelf .cv-btn-wrap { width: 100%; }
+
+.town-meter { display: block; height: calc(10 * var(--px)); border: var(--px) solid var(--ink); background: var(--parchment-shade); }
+.town-meter__fill { display: block; height: 100%; background: var(--brass); }
+.town-meter.is-over .town-meter__fill { background: var(--brick, var(--warn)); }
+
+.town-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
+.town-field { display: flex; flex-direction: column; gap: 4px; }
+.town-field select, .town-field input { min-height: 44px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .town-sign .cv-badge { animation: town-nudge 1.4s steps(2, end) infinite; }
+}
+@keyframes town-nudge { 50% { transform: translateY(calc(-1 * var(--px))); } }
+
+.town-unit { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: 44px; font: inherit; color: inherit; text-align: left; cursor: pointer; touch-action: pan-y; }
+.town-unit:focus-visible { outline: calc(2 * var(--px)) solid var(--brass); outline-offset: calc(2 * var(--px)); }
+details.cv-card > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-family: var(--font-display); }

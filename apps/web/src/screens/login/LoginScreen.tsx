@@ -138,7 +138,7 @@ export function LoginScreen(): JSX.Element {
   if (resumeError && !resuming) {
     return (
       <section>
-        <h1>{STRINGS.app.title}</h1>
+        <h1 className="cv-sign cv-sign--title">{STRINGS.app.title}</h1>
         <div className="card" role="alert" data-testid="resume-failed">
           <h2>{s.resumeFailedTitle}</h2>
           <p>{s.resumeFailedBody}</p>
@@ -154,7 +154,7 @@ export function LoginScreen(): JSX.Element {
   if (continuing && continueStarted && !resuming && !pending) {
     return (
       <section>
-        <h1>{STRINGS.app.title}</h1>
+        <h1 className="cv-sign cv-sign--title">{STRINGS.app.title}</h1>
         <div className="card" role="alert" data-testid="continue-failed">
           <h2>{s.continueFailedTitle}</h2>
           <p>{s.continueFailedBody}</p>
@@ -172,7 +172,7 @@ export function LoginScreen(): JSX.Element {
   if (pending) {
     return (
       <section>
-        <h1>{STRINGS.app.title}</h1>
+        <h1 className="cv-sign cv-sign--title">{STRINGS.app.title}</h1>
         <div className="card card--danger" role="alertdialog" aria-labelledby="guest-on-device-title" data-testid="guest-on-device">
           <h2 id="guest-on-device-title">{s.guestOnDeviceTitle}</h2>
           <p>{s.guestOnDeviceBody}</p>
@@ -192,7 +192,7 @@ export function LoginScreen(): JSX.Element {
 
   return (
     <section>
-      <h1>{STRINGS.app.title}</h1>
+      <h1 className="cv-sign cv-sign--title">{STRINGS.app.title}</h1>
       {resuming && (
         <p className="hint" role="status">
           {s.resuming}

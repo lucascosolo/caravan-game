@@ -1,15 +1,12 @@
 /*
- * Theme (chunk 06 scaffold). Everything is a CSS variable on :root so later chunks restyle
- * without touching components.
+ * Theme. UI kit v2 tokens on :root (the kit stylesheet is ui/kit.css), then the LEGACY classes
+ * (.btn, .card, .dialog, .field, .badge, .notice ...) restyled to read as kit objects so screens that
+ * have not moved to the kit components still look like the game. Colour is never the only carrier of
+ * meaning: node states carry a word and an icon, affinities a shape, selected / danger / locked a
+ * dashed or doubled outline.
  *
- * Colour is never the only carrier of meaning (PHASE-2 §35): node states carry a word and
- * an icon, affinities carry a shape. The accent colours are from the Okabe–Ito palette,
- * which stays distinguishable under deuteranopia / protanopia / tritanopia.
- *
- * Type scales with the player's setting (QA-06 S5): the root is 100% (the browser / OS
- * preference, 16px by default), every font-size is in rem, nothing goes below 0.75rem,
- * and text-size-adjust is left to the platform. Box sizes that must stay thumb-sized
- * (--tap, --tab-h) are px on purpose.
+ * Type scales with the player's setting: every font-size is in rem, nothing goes below 0.75rem.
+ * Box sizes that must stay thumb-sized (--tap, --tab-h) are px on purpose.
  */
 :root {
   /* UI kit v2 tokens (UI-SYSTEM.md §3.1, §5, §11), moved here from apps/web/src/ui/kit.css. */
@@ -55,8 +52,7 @@
   --hud-h: 60px; --shelf-h: 64px; --target: 44px;
   --gutter: 16px;
 
-  /* Legacy names (chunk 06 Okabe-Ito theme) mapped onto the kit (UI-SYSTEM.md §3.4), so screens not yet
-     re-skinned keep working: ink on parchment and sand, brass for primary, iron for locked. */
+  /* Legacy names mapped onto the kit (UI-SYSTEM.md §3.4): ink on parchment and sand, brass for primary, iron for locked. */
   --bg: var(--sand);
   --bg-raised: var(--parchment);
   --bg-sunken: var(--parchment-shade);
@@ -83,8 +79,8 @@ body,
 #root {
   margin: 0;
   min-height: 100%;
-  background: var(--bg);
-  color: var(--fg);
+  background: var(--sand) url(./ui/assets/tiles/sand.png) 0 0 / calc(864 * var(--px)) calc(576 * var(--px)) repeat;
+  color: var(--ink);
   font-family: var(--font);
   line-height: 1.35;
 }
@@ -98,7 +94,8 @@ select {
   color: inherit;
 }
 a {
-  color: var(--info);
+  color: var(--ink);
+  text-decoration-thickness: calc(2 * var(--px));
 }
 
 /* ---------- shell ---------- */
@@ -109,125 +106,254 @@ a {
 }
 .shell__main {
   flex: 1;
-  padding: 16px 16px calc(var(--tab-h) + 16px);
+  padding: 12px var(--gutter) calc(var(--tab-h) + 16px);
   max-width: 720px;
   width: 100%;
   margin: 0 auto;
 }
-.tabbar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: var(--tab-h);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  display: flex;
-  background: var(--bg-sunken);
-  border-top: 1px solid var(--line);
-  z-index: 10;
+.shell .cv-hud {
+  min-height: var(--hud-h);
+  height: auto;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
-.tabbar__tab {
-  flex: 1;
-  min-height: 56px;
+.shell__slot {
+  display: contents;
+}
+.shell__headactions {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 2px;
-  background: none;
-  border: 0;
-  color: var(--fg-muted);
-  font-size: 0.75rem;
-  cursor: pointer;
+  gap: 8px;
+  flex-shrink: 0;
 }
-.tabbar__tab[aria-current="page"] {
-  color: var(--accent);
-  font-weight: 600;
-}
-.tabbar__glyph {
-  font-size: 1.25rem;
-  line-height: 1;
+.shell > .cv-tabbar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+  width: min(calc(100% - 16px), 704px);
+  margin: 0;
+  transform: translateX(-50%);
+  z-index: 10;
 }
 
 /* ---------- common ---------- */
 .btn {
-  min-height: var(--tap);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: calc(66 * var(--px));
   min-width: var(--tap);
-  padding: 10px 16px;
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
-  background: var(--bg-raised);
-  cursor: pointer;
+  padding: 4px calc(28 * var(--px)) calc(8 * var(--px));
+  border: 0 solid transparent;
+  border-radius: 999px;
+  border-image: url(./ui/assets/chrome/v2/btn-wood.png) 31 31 35 31 fill / calc(31 * var(--px)) calc(31 * var(--px)) calc(35 * var(--px)) calc(31 * var(--px)) round;
+  background: none;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: var(--type-label);
+  line-height: 1.1;
+  text-transform: uppercase;
+  letter-spacing: var(--px);
   text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+@media (hover: hover) {
+  .btn:hover:not(:disabled) {
+    border-image-source: url(./ui/assets/chrome/v2/btn-wood-hover.png);
+  }
+}
+.btn:active:not(:disabled) {
+  padding-top: calc(8 * var(--px));
+  padding-bottom: 2px;
+  border-image-source: url(./ui/assets/chrome/v2/btn-wood-pressed.png);
+  border-image-slice: 35 31 31 31 fill;
+  border-image-width: calc(35 * var(--px)) calc(31 * var(--px)) calc(31 * var(--px)) calc(31 * var(--px));
+}
+.btn:focus-visible,
+.field input:focus-visible,
+.field select:focus-visible,
+.picker__select:focus-visible,
+.chip__btn:focus-visible,
+.node:focus-visible,
+.pooltabs__tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brass), 0 0 0 5px var(--ink);
 }
 .btn--primary {
-  background: var(--accent);
-  color: var(--accent-fg);
-  border-color: var(--accent);
-  font-weight: 600;
+  min-height: calc(84 * var(--px));
+  min-width: calc(184 * var(--px));
+  padding: 4px calc(34 * var(--px)) calc(10 * var(--px));
+  border-radius: 12px;
+  border-image: url(./ui/assets/chrome/v2/banner.png) 40 26 44 26 fill / calc(40 * var(--px)) calc(26 * var(--px)) calc(44 * var(--px)) calc(26 * var(--px)) stretch;
+}
+.btn--primary.btn--block {
+  font-size: var(--type-title);
+  letter-spacing: 0;
+  text-transform: none;
+}
+@media (hover: hover) {
+  .btn--primary:hover:not(:disabled) {
+    border-image-source: url(./ui/assets/chrome/v2/banner.png);
+  }
+}
+.btn--primary:active:not(:disabled) {
+  padding: calc(8 * var(--px)) calc(34 * var(--px)) calc(4 * var(--px));
+  border-image-source: url(./ui/assets/chrome/v2/banner-pressed.png);
+  border-image-slice: 44 26 40 26 fill;
+  border-image-width: calc(44 * var(--px)) calc(26 * var(--px)) calc(40 * var(--px)) calc(26 * var(--px));
 }
 .btn--block {
-  display: block;
+  display: flex;
   width: 100%;
+}
+/* A destructive button is dark leather with the word on it, not a coloured wood pill. */
+.btn--small {
+  min-height: var(--tap);
+  padding-left: calc(20 * var(--px));
+  padding-right: calc(20 * var(--px));
+}
+/* A destructive button is dark leather with the word on it, not a coloured wood pill. */
+.btn--danger {
+  color: var(--parchment);
+  border-image-source: url(./ui/assets/chrome/v2/btn-leather.png);
+}
+@media (hover: hover) {
+  .btn--danger:hover:not(:disabled) {
+    border-image-source: url(./ui/assets/chrome/v2/btn-leather.png);
+  }
+}
+.btn--danger:active:not(:disabled) {
+  border-image-source: url(./ui/assets/chrome/v2/btn-leather-pressed.png);
+}
+/* A toggled-on button (a chosen stance, a replay speed) is the brass pill; it also says so via aria-pressed. */
+.stances__btn--on,
+.btn[aria-pressed="true"] {
+  border-image-source: url(./ui/assets/chrome/v2/btn-brass.png);
+  font-weight: 700;
 }
 .btn:disabled {
-  opacity: 0.55;
-  cursor: default;
+  cursor: not-allowed;
+  padding-top: calc(4 * var(--px));
+  padding-bottom: calc(6 * var(--px));
+  border-image-source: url(./ui/assets/chrome/v2/btn-stone.png);
+  border-image-slice: 33 31 33 31 fill;
+  border-image-width: calc(33 * var(--px)) calc(31 * var(--px)) calc(33 * var(--px)) calc(31 * var(--px));
+}
+.btn--primary:disabled {
+  border-image-source: url(./ui/assets/chrome/v2/banner-stone.png);
+  border-image-slice: 40 26 44 26 fill;
+  border-image-width: calc(40 * var(--px)) calc(26 * var(--px)) calc(44 * var(--px)) calc(26 * var(--px));
 }
 .field {
+  position: relative;
   display: block;
   margin-bottom: 12px;
+  padding-top: 14px;
 }
 .field__label {
-  display: block;
-  font-size: 0.8125rem;
-  color: var(--fg-muted);
-  margin-bottom: 4px;
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 12px;
+  padding: calc(4 * var(--px)) calc(12 * var(--px)) calc(3 * var(--px));
+  border: 0 solid transparent;
+  border-image: url(./ui/assets/chrome/v2/plate-leather.png) 11 fill / calc(11 * var(--px)) stretch;
+  color: var(--parchment);
+  font-family: var(--font-display);
+  font-size: var(--type-label);
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: var(--px);
 }
 .field input,
-.field select {
-  width: 100%;
-  min-height: var(--tap);
-  padding: 8px 12px;
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
-  background: var(--bg-sunken);
+.field select,
+.field:focus-within input,
+.field:focus-within select {
+  border-image-source: url(./ui/assets/chrome/v2/field-focus.png);
+}
+.field .hint {
+  margin-top: 4px;
 }
 .hint {
-  font-size: 0.8125rem;
-  color: var(--fg-muted);
+  font-size: var(--type-small);
+  color: var(--ink-soft);
 }
+/* A refusal or failure: a paper note with a rose disc carrying "!" (the words are in the text too). */
 .error {
-  border: 1px solid var(--warn);
-  border-left-width: 6px;
-  border-radius: var(--radius);
-  padding: 10px 12px;
+  position: relative;
+  border: 0 solid transparent;
+  border-image: url(./ui/assets/chrome/v2/note.png) 18 18 20 18 fill / calc(18 * var(--px)) calc(18 * var(--px)) calc(20 * var(--px)) calc(18 * var(--px)) round;
+  padding: 10px 12px 10px calc(50 * var(--px) + 20px);
   margin: 12px 0;
-  background: var(--bg-raised);
+  min-height: calc(50 * var(--px) + 20px);
+  font-size: var(--type-small);
+}
+.error::before {
+  content: "!";
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  display: grid;
+  place-items: center;
+  width: calc(50 * var(--px));
+  height: calc(50 * var(--px));
+  background: url(./ui/assets/chrome/v2/disc-rose.png) 0 0 / 100% 100%;
+  font-family: var(--font-display);
+  font-size: var(--type-label);
+  line-height: 1;
+}
+.cv-error.error {
+  padding: 10px 12px 10px 8px;
+  min-height: 0;
+  margin: 12px 0;
+}
+.cv-error.error::before {
+  content: none;
 }
 .error__code {
   font-family: ui-monospace, monospace;
-  font-size: 0.8125rem;
-  color: var(--fg-muted);
+  font-size: var(--type-small);
+  color: var(--ink-soft);
 }
 .error__detail {
   font-size: 0.75rem;
   overflow-wrap: anywhere;
 }
 .notice {
-  border: 1px solid var(--ok);
-  border-left-width: 6px;
-  border-radius: var(--radius);
-  padding: 10px 12px;
+  position: relative;
+  border: 0 solid transparent;
+  border-image: url(./ui/assets/chrome/v2/note.png) 18 18 20 18 fill / calc(18 * var(--px)) calc(18 * var(--px)) calc(20 * var(--px)) calc(18 * var(--px)) round;
+  padding: 10px 12px 10px 32px;
   margin: 12px 0;
-  background: var(--bg-raised);
+  font-size: var(--type-small);
+}
+.notice::before {
+  content: "\2713";
+  position: absolute;
+  left: 12px;
+  top: 10px;
+  font-weight: 700;
 }
 h1 {
-  font-size: 1.375rem;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: var(--type-title);
+  line-height: 1.05;
   margin: 0 0 8px;
 }
 h2 {
-  font-size: 1.125rem;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: var(--type-label);
+  line-height: 1.15;
+  text-transform: uppercase;
+  letter-spacing: var(--px);
   margin: 16px 0 8px;
 }
 .visually-hidden {
@@ -237,6 +363,12 @@ h2 {
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
+}
+h1.cv-sign {
+  display: inline-flex;
+  text-transform: none;
+  letter-spacing: 0;
+  margin: 18px 0 12px;
 }
 
 /* ---------- unlock webs ---------- */
@@ -392,17 +524,28 @@ h2 {
 /* bottom sheet for node details */
 .sheet {
   position: fixed;
-  left: 0;
-  right: 0;
+  left: 50%;
   bottom: var(--tab-h);
+  width: 100%;
+  max-width: 720px;
+  transform: translateX(-50%);
   max-height: 70vh;
   overflow: auto;
-  background: var(--bg-sunken);
-  border-top: 1px solid var(--line);
-  border-radius: 16px 16px 0 0;
-  padding: 12px 16px 20px;
+  background: var(--parchment) url(./ui/assets/tiles/parchment.png) 0 0 / calc(64 * var(--px)) repeat;
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 0 0 calc(2 * var(--px)) var(--ink);
+  padding: calc(24 * var(--px) + 12px) 16px 20px;
   z-index: 9;
-  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.5);
+}
+.sheet::before {
+  content: "";
+  position: absolute;
+  top: calc(9 * var(--px));
+  left: 50%;
+  width: calc(58 * var(--px));
+  height: calc(16 * var(--px));
+  margin-left: calc(-29 * var(--px));
+  background: url(./ui/assets/chrome/v2/grip.png) 0 0 / 100% 100%;
 }
 .sheet__head {
   display: flex;
@@ -412,10 +555,16 @@ h2 {
 }
 .sheet__title {
   margin: 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: var(--type-sheet-title);
+  line-height: 1;
+  text-transform: none;
+  letter-spacing: 0;
 }
 .sheet__title:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 4px;
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brass), 0 0 0 5px var(--ink);
   border-radius: 4px;
 }
 .sheet__subtitle {
@@ -441,39 +590,39 @@ h2 {
   font-size: 0.875rem;
 }
 
-/* confirm dialog */
+/* confirm dialog: the kit bottom sheet (torn top, grip) over a scrim; Modal supplies the rail / body / foot markup */
 .dialog-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--scrim);
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
-  padding: 16px;
   z-index: 20;
 }
 .dialog {
-  background: var(--bg-raised);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 16px;
   width: 100%;
-  max-width: 420px;
-  /* Chunk 17: a tall dialog (the merge preview) scrolls inside itself at 360×640 rather than hiding its actions. */
-  max-height: calc(100dvh - 32px);
-  overflow-y: auto;
+  max-width: 560px;
+  max-height: calc(100dvh - var(--hud-h));
+  display: flex;
+  flex-direction: column;
+  color: var(--ink);
+  font-family: var(--font-body);
+}
+.dialog > .cv-sheet__body {
+  min-height: 0;
 }
 .dialog__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-  margin-top: 16px;
-  position: sticky;
-  bottom: -16px;
-  padding: 8px 0;
-  background: var(--bg-raised);
+}
+.dialog__actions:empty {
+  display: none;
 }
 .dialog__actions .btn {
-  flex: 1;
+  flex: 1 1 8rem;
+  min-width: 0;
 }
 
 /* ---------- trail: the candidate summary (final play-test review N5) ---------- */
@@ -527,10 +676,10 @@ h2 {
   z-index: 5;
   width: 100%;
   height: var(--iso-h, clamp(13rem, 38vh, 24rem));
-  border-radius: var(--radius);
+  border-radius: 16px;
   overflow: hidden;
-  background: var(--bg-sunken);
-  border: 1px solid var(--line);
+  background: var(--sand-shade);
+  box-shadow: 0 0 0 calc(2 * var(--px)) var(--ink);
 }
 .iso__canvas {
   display: block;
@@ -548,7 +697,7 @@ h2 {
   justify-content: center;
   padding: 1rem;
   text-align: center;
-  background: var(--bg-raised);
+  background: var(--parchment) url(./ui/assets/tiles/parchment.png) 0 0 / calc(64 * var(--px)) repeat;
 }
 .h3 {
   font-size: 0.9375rem;
@@ -595,27 +744,32 @@ h2 {
   gap: 0.5rem;
 }
 .card {
+  position: relative;
   min-width: 0;
-  background: var(--bg-raised);
-  border: 1px solid var(--line);
-  border-left-width: 0.375rem;
-  border-radius: var(--radius);
-  padding: 0.625rem 0.75rem;
+  border: 0 solid transparent;
+  border-image: url(./ui/assets/chrome/v2/card.png) 26 26 29 26 fill / calc(26 * var(--px)) calc(26 * var(--px)) calc(29 * var(--px)) calc(26 * var(--px)) round;
+  padding: 12px 12px 14px;
+}
+.card .card,
+.card .candidate {
+  border-image: none;
+  border-top: calc(2 * var(--px)) solid var(--parchment-shade);
+  padding: 8px 0 4px;
 }
 .card--attacker {
-  border-left-color: var(--warn);
+  border-image-source: url(./ui/assets/chrome/v2/card-wood.png);
 }
 .candidate {
-  background: var(--bg-raised);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 0.75rem;
+  position: relative;
+  border: 0 solid transparent;
+  border-image: url(./ui/assets/chrome/v2/card.png) 26 26 29 26 fill / calc(26 * var(--px)) calc(26 * var(--px)) calc(29 * var(--px)) calc(26 * var(--px)) round;
+  padding: 12px 12px 14px;
 }
 .candidate .btn--block {
   margin: 0.5rem 0;
 }
 .card--siege {
-  border-left-color: #cc79a7;
+  border-image-source: url(./ui/assets/chrome/v2/card-canvas.png);
 }
 .card__head {
   display: flex;
@@ -672,9 +826,10 @@ h2 {
   min-height: var(--tap);
   text-align: left;
   padding: 0.5rem 0.75rem;
-  border-radius: var(--radius);
-  border: 2px solid var(--line);
-  background: var(--bg-raised);
+  border: 0 solid transparent;
+  border-radius: 999px;
+  border-image: url(./ui/assets/chrome/v2/pill-parch.png) 24 fill / calc(24 * var(--px)) stretch;
+  background: none;
   cursor: grab;
   /* Chunk 08 QA B4: a vertical swipe over the tray scrolls the page; a touch drag starts on
      a long press or a sideways move (trayGesture.ts). No callout or text selection on hold. */
@@ -688,18 +843,19 @@ h2 {
 }
 /* A chip the server's last answer named (QA S8): a dashed warning outline AND a word in the issue list, never colour alone. */
 .chip--issue .chip__btn {
-  border-color: var(--warn);
-  border-style: dashed;
+  outline: calc(2 * var(--px)) dashed var(--ink);
+  outline-offset: calc(-6 * var(--px));
 }
 .chip--selected .chip__btn {
-  border-color: var(--accent);
-  outline: 2px solid var(--accent);
+  border-image-source: url(./ui/assets/chrome/v2/pill-sm-brass.png);
+  outline: 2px solid var(--ink);
   outline-offset: 1px;
 }
 .chip--gone .chip__btn {
   cursor: default;
-  color: var(--fg-muted);
-  border-style: dashed;
+  color: var(--ink-soft);
+  outline: calc(2 * var(--px)) dashed var(--ink-soft);
+  outline-offset: calc(-6 * var(--px));
   text-decoration: line-through;
 }
 .chip__name {
@@ -720,17 +876,18 @@ h2 {
 .meter {
   display: block;
   width: 100%;
-  height: 0.625rem;
-  margin: 0.375rem 0;
-  border-radius: 0.3125rem;
-  background: var(--bg-sunken);
-  border: 1px solid var(--line);
+  height: calc(8 * var(--px));
+  margin: 0.5rem 0;
+  border-radius: calc(4 * var(--px));
+  background: var(--parchment-shade);
+  box-shadow: 0 0 0 calc(2 * var(--px)) var(--ink);
   overflow: hidden;
 }
 .meter__fill {
   display: block;
   height: 100%;
-  background: var(--info);
+  background: var(--brass);
+  box-shadow: inset 0 calc(-2 * var(--px)) 0 var(--brass-dark);
 }
 .stances__row {
   display: flex;
@@ -744,22 +901,17 @@ h2 {
   padding-left: 0.375rem;
   padding-right: 0.375rem;
 }
-.stances__btn--on {
-  border-color: var(--accent);
-  color: var(--accent);
-  font-weight: 600;
-}
 .stances {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border: calc(2 * var(--px)) solid var(--ink-soft);
+  border-radius: 16px;
   padding: 0.5rem 0.75rem 0.75rem;
   margin: 0.75rem 0 0;
 }
 .selection {
-  background: var(--bg-raised);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius);
-  padding: 0.75rem;
+  position: relative;
+  border: 0 solid transparent;
+  border-image: url(./ui/assets/chrome/v2/card-brass.png) 26 26 29 26 fill / calc(26 * var(--px)) calc(26 * var(--px)) calc(29 * var(--px)) calc(26 * var(--px)) round;
+  padding: 12px 12px 14px;
   margin: 0.75rem 0;
 }
 /* Final play-test review r2 N9: the pinned map used to cover the panel's heading and its
@@ -806,16 +958,13 @@ h2 {
 
 /* Chunk 08 QA S14: the scouting card of an attacker tapped on the canvas. */
 .card--selected {
-  outline: 2px solid var(--accent);
+  border-image-source: url(./ui/assets/chrome/v2/card-brass.png);
+  outline: 2px solid var(--ink);
   outline-offset: 2px;
 }
 .card--attacker:focus {
-  outline: 2px solid var(--accent);
-}
-.btn--small {
-  min-height: var(--tap);
-  padding: 0 0.75rem;
-  font-size: 0.875rem;
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
 }
 /* Chunk 08 QA D3: the DOM placement picker. */
 .picker {
@@ -839,11 +988,11 @@ h2 {
 /* ---------- chunk 20: packs and cosmetics ---------- */
 /* The sandbox banner is loud on purpose: a word, an icon-free heavy border and a stripe, never colour alone. */
 .sandbox-banner {
-  border: 3px dashed var(--accent);
-  border-radius: var(--radius);
+  border: 3px dashed var(--ink);
+  border-radius: 16px;
   padding: 0.75rem;
   margin: 0.75rem 0;
-  background: repeating-linear-gradient(135deg, var(--bg-raised), var(--bg-raised) 0.75rem, var(--bg-sunken) 0.75rem, var(--bg-sunken) 1.5rem);
+  background: repeating-linear-gradient(135deg, var(--parchment), var(--parchment) 0.75rem, var(--parchment-shade) 0.75rem, var(--parchment-shade) 1.5rem);
 }
 .sandbox-banner strong {
   display: block;
@@ -860,35 +1009,40 @@ h2 {
 }
 .pack-contents li {
   padding: 0.25rem 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: calc(2 * var(--px)) solid var(--parchment-shade);
   overflow-wrap: anywhere;
 }
 .pack-contents li:last-child {
   border-bottom: 0;
 }
 .forecast {
-  border-left: 0.375rem solid var(--ok);
+  border-left: 0.375rem double var(--ink);
   padding: 0.375rem 0.625rem;
   margin: 0.375rem 0 0.625rem;
-  background: var(--bg-sunken);
-  border-radius: 0.25rem;
+  background: var(--parchment-shade);
+  border-radius: 0.25rem 0.75rem 0.75rem 0.25rem;
   font-size: 0.875rem;
 }
 .forecast--warn {
-  border-left-color: var(--warn);
+  border-left-style: dashed;
 }
 .card--bought {
-  border-left-color: var(--ok);
+  border-image-source: url(./ui/assets/chrome/v2/card-brass.png);
 }
 .card--preview {
-  border-style: dashed;
+  outline: calc(2 * var(--px)) dashed var(--ink-soft);
+  outline-offset: calc(-8 * var(--px));
 }
 .badge {
   display: inline-block;
-  font-size: 0.8125rem;
-  padding: 0.125rem 0.5rem;
-  border: 1px solid var(--line);
-  border-radius: 999px;
+  min-height: calc(36 * var(--px));
+  padding: 0 calc(12 * var(--px));
+  border: 0 solid transparent;
+  border-image: url(./ui/assets/chrome/v2/pill-sm-parch.png) 18 fill / calc(18 * var(--px)) stretch;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: var(--type-label);
+  line-height: calc(36 * var(--px));
   white-space: nowrap;
 }
 .cosmetic-slot {
@@ -908,23 +1062,37 @@ h2 {
 /* ---------- the replay player (chunk 22) ---------- */
 /* Full-viewport dialog on a phone (no gutter to lose at 320 px), a wide column on desktop. */
 .dialog-backdrop--full {
+  align-items: stretch;
   padding: 0;
 }
 .dialog--full {
+  display: block;
   max-width: 720px;
   max-height: 100dvh;
   height: 100dvh;
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--parchment) url(./ui/assets/tiles/parchment.png) 0 0 / calc(64 * var(--px)) repeat;
   border-radius: 0;
 }
 @media (min-width: 760px) {
   .dialog-backdrop--full {
+    align-items: center;
     padding: 16px;
   }
   .dialog--full {
     height: auto;
     max-height: calc(100dvh - 32px);
-    border-radius: var(--radius);
+    border-radius: 20px;
+    box-shadow: 0 0 0 calc(2 * var(--px)) var(--ink);
   }
+}
+.dialog--full .dialog__actions {
+  position: sticky;
+  bottom: -16px;
+  margin-top: 16px;
+  padding: 8px 0;
+  background: var(--parchment) url(./ui/assets/tiles/parchment.png) 0 0 / calc(64 * var(--px)) repeat;
 }
 .replay {
   display: grid;
@@ -1042,11 +1210,6 @@ h2 {
   accent-color: var(--accent);
   touch-action: pan-y;
 }
-.replay .btn[aria-pressed="true"] {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 2px var(--accent);
-  font-weight: 600;
-}
 .replay__lines {
   max-height: 16rem;
   overflow-y: auto;
@@ -1061,30 +1224,8 @@ h2 {
 }
 
 /* ---------- chunk 29: the inbox ---------- */
-.shell__who {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.shell__headactions {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-}
-.inbox-button {
-  padding: 0 0.75rem;
-  white-space: nowrap;
-}
-.inbox-button__badge {
-  margin-left: 0.375rem;
-  background: var(--accent);
-  color: var(--accent-fg);
-  border-color: var(--accent);
-  font-weight: 700;
-}
 .card--unread {
-  border-left-color: var(--accent);
+  border-image-source: url(./ui/assets/chrome/v2/card-brass.png);
 }
 .inbox-new {
   font-weight: 700;
@@ -1122,23 +1263,37 @@ h2 {
 /* A card in the normal flow (never an overlay over the controls it points at). Marked by a
    word ("Guide"), a border style and a ✓ / ○ shape per step, not by colour alone. */
 .guide {
-  border: 2px dashed var(--info);
-  border-radius: var(--radius);
-  padding: 10px 12px;
-  margin: 12px 0;
-  background: var(--bg-raised);
+  position: relative;
+  border: calc(2 * var(--px)) dashed var(--brass-dark);
+  border-radius: 20px;
+  padding: 10px 12px 12px;
+  margin: 18px 0 12px;
+  background: var(--parchment) url(./ui/assets/tiles/parchment.png) 0 0 / calc(64 * var(--px)) repeat;
   overflow-wrap: anywhere;
+}
+.guide::before {
+  content: "";
+  position: absolute;
+  left: 28px;
+  top: calc(-10 * var(--px) - 2px);
+  width: calc(14 * var(--px));
+  height: calc(14 * var(--px));
+  background: var(--parchment) url(./ui/assets/tiles/parchment.png) 0 0 / calc(64 * var(--px)) repeat;
+  border-top: calc(2 * var(--px)) dashed var(--brass-dark);
+  border-left: calc(2 * var(--px)) dashed var(--brass-dark);
+  transform: rotate(45deg);
 }
 .guide__label {
   margin: 0;
-  font-size: 0.75rem;
+  font-family: var(--font-display);
+  font-size: var(--type-label);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--info);
+  letter-spacing: var(--px);
+  color: var(--ink-soft);
 }
 .guide__title {
   margin: 0.25rem 0 0.5rem;
-  font-size: 1.0625rem;
+  font-size: var(--type-label);
 }
 .guide__list {
   list-style: none;
@@ -1150,7 +1305,7 @@ h2 {
   grid-template-columns: 1.5rem 1fr;
   gap: 0.25rem;
   padding: 0.375rem 0;
-  border-top: 1px solid var(--line);
+  border-top: calc(2 * var(--px)) solid var(--parchment-shade);
 }
 .guide__item p {
   margin: 0.125rem 0;
@@ -1161,6 +1316,7 @@ h2 {
 .guide__mark {
   font-size: 1.125rem;
   line-height: 1.4;
+  font-weight: 700;
 }
 .guide__itemTitle {
   font-weight: 600;
@@ -1170,7 +1326,6 @@ h2 {
 }
 .guide__skip {
   margin-top: 0.5rem;
-  background: transparent;
 }
 /* QA S4: the guided arrangement shows its next step in full; the rest, and the why, fold away. */
 .guide__all {
@@ -1180,38 +1335,31 @@ h2 {
   font-weight: 400;
 }
 .welcome__lead {
-  font-size: 1.0625rem;
+  display: flex;
+  max-width: none;
+  margin: 14px 0 12px;
+  font-size: var(--type-body);
 }
 .welcome__side {
-  border-left: 4px solid var(--line);
+  border-left: calc(4 * var(--px)) solid var(--ink);
   padding-left: 10px;
   margin: 12px 0;
 }
 .welcome__side[data-side="active"] {
-  border-left-color: var(--accent);
+  border-left-style: double;
 }
 .welcome__side[data-side="passive"] {
-  border-left-color: var(--info);
   border-left-style: dashed;
 }
 .welcome__side h2 {
-  font-size: 1rem;
   margin: 0 0 0.25rem;
 }
 
 /* Chunk 30: the Account screen's destructive action. The danger is carried by the words and
    the border weight as well as the colour (never colour alone). */
 .card--danger {
-  border-left-color: var(--warn);
-  border-left-width: 0.5rem;
-}
-.btn--danger {
-  border-color: var(--warn);
-  border-width: 2px;
-  font-weight: 600;
-}
-.btn--danger:disabled {
-  opacity: 0.6;
+  outline: calc(2 * var(--px)) dashed var(--ink);
+  outline-offset: calc(-8 * var(--px));
 }
 /* ---------- chunk 32: the admin dashboard (operators only) ---------- */
 .admin-panel { margin-top: 12px; }

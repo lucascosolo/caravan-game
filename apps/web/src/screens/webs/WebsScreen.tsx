@@ -17,12 +17,15 @@ import { ApiError } from "../../api/client.ts";
 import type { CaravanSummary, PoolProgressView, SpendRequest, UnlockNodeView, UnlockPool, UnlockWebView } from "../../api/types.ts";
 import { useSession } from "../../auth/session.tsx";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
+import { Note } from "../../ui/Note.tsx";
+import { Sign } from "../../ui/Sign.tsx";
 import { STRINGS } from "../../strings.ts";
 import { displayNameOf } from "./catalogue.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { NodeDetail } from "./NodeDetail.tsx";
 import { PointsPanel } from "./PointsPanel.tsx";
 import { WebGraph } from "./WebGraph.tsx";
+import "./webs.css";
 
 // Re-exported so existing imports keep working; the component lives in src/shell now.
 export { ErrorBox } from "../../shell/ErrorBox.tsx";
@@ -150,11 +153,13 @@ export function WebsScreen(): JSX.Element {
   }
 
   return (
-    <section>
-      <h1>{w.title}</h1>
-      <p className="hint">{w.intro}</p>
+    <section className="webs">
+      <h1 className="webs-title">
+        <Sign variant="title">{w.title}</Sign>
+      </h1>
+      <p className="cv-small cv-soft">{w.intro}</p>
 
-      <div className="pooltabs" role="tablist" aria-label={w.title} onKeyDown={onTabKey}>
+      <div className="cv-tabs" role="tablist" aria-label={w.title} onKeyDown={onTabKey}>
         {POOLS.map((p) => (
           <button
             key={p}
@@ -165,7 +170,7 @@ export function WebsScreen(): JSX.Element {
             role="tab"
             id={`pooltab-${p}`}
             aria-controls={`poolpanel-${p}`}
-            className="pooltabs__tab"
+            className="cv-tabs__tab"
             aria-selected={pool === p}
             tabIndex={pool === p ? 0 : -1}
             onClick={() => choosePool(p)}
@@ -176,13 +181,13 @@ export function WebsScreen(): JSX.Element {
       </div>
 
       {loadError && <ErrorBox error={loadError} heading={w.fetchFailed} onRetry={() => void load()} />}
-      {!data && !loadError && <p className="hint">{STRINGS.app.loading}</p>}
-      {data && !web && <p className="hint">{w.noCaravan}</p>}
+      {!data && !loadError && <p className="cv-small">{STRINGS.app.loading}</p>}
+      {data && !web && <p className="cv-small">{w.noCaravan}</p>}
 
       {notice && (
-        <div className="notice" role="status">
-          {notice}
-        </div>
+        <Note>
+          <p role="status">{notice}</p>
+        </Note>
       )}
       {spendError && <ErrorBox error={spendError} heading={w.spendFailed} />}
 
@@ -195,21 +200,21 @@ export function WebsScreen(): JSX.Element {
 
       {web && selected && <NodeDetail node={selected} onUnlock={(n) => void beginSpend(n)} onClose={() => setSelectedId(null)} />}
       {checking && (
-        <p className="hint" data-testid="checking">
+        <p className="cv-small" data-testid="checking">
           {w.checking}
         </p>
       )}
 
       {web && pending && (
         <ConfirmDialog
-          title={w.confirmTitle}
+          title={w.confirmQuestion(displayNameOf(pending.node.id))}
           body={w.confirmBody(displayNameOf(pending.node.id), pending.node.cost, pending.available)}
           confirmLabel={spending ? w.spending : w.confirmYes}
           cancelLabel={w.confirmNo}
           busy={spending}
           onConfirm={() => void confirmSpend()}
           onCancel={() => setPending(null)}
-          restoreFocusTo={() => document.querySelector<HTMLElement>(".sheet__title")}
+          restoreFocusTo={() => document.querySelector<HTMLElement>("[data-testid=node-detail] h2")}
         />
       )}
     </section>

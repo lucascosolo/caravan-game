@@ -24,8 +24,13 @@ import { formatWhen } from "../../shell/issues.ts";
 import { navigate } from "../../shell/router.tsx";
 import { defenderLabel } from "../../shell/defender.ts";
 import { STRINGS } from "../../strings.ts";
+import { Button } from "../../ui/Button.tsx";
+import { Icon } from "../../ui/Icon.tsx";
+import { Note } from "../../ui/Note.tsx";
 import { WatchFight } from "../replay/WatchFight.tsx";
 import { AnalyticsToggle } from "./AnalyticsToggle.tsx";
+import { KitSwitch } from "./KitSwitch.tsx";
+import "./inbox.css";
 
 const T = STRINGS.inbox;
 
@@ -93,14 +98,14 @@ export function InboxScreen(props: InboxScreenProps = {}): JSX.Element {
 
   return (
     <section aria-labelledby="inbox-heading" className="inbox" data-testid="inbox-screen">
-      <div className="sheet__head">
-        <h1 id="inbox-heading" className="sheet__title">
-          {T.title}
+      <div className="inbox__head">
+        <h1 id="inbox-heading" className="cv-title">
+          <Icon name="letter" /> {T.title}
         </h1>
         {inbox.unreadCount > 0 && (
-          <button type="button" className="btn btn--small" disabled={busy} onClick={() => void markAll()} data-testid="inbox-mark-all">
+          <Button variant="secondary" disabled={busy} onClick={() => void markAll()} testId="inbox-mark-all">
             {T.markAll}
-          </button>
+          </Button>
         )}
       </div>
       <p className="hint">{T.intro}</p>
@@ -115,18 +120,20 @@ export function InboxScreen(props: InboxScreenProps = {}): JSX.Element {
           {T.empty}
         </p>
       ) : (
-        <ul className="cards" data-testid="inbox-items">
+        <ul className="inbox__list" data-testid="inbox-items">
           {inbox.items.map((item) => (
-            <li key={item.key} className={`card${item.unread ? " card--unread" : ""}`} data-testid={`inbox-item-${item.category}`} data-unread={item.unread ? "true" : "false"}>
-              <ItemBody item={item} api={api} onWatch={() => (item.unread ? void markOne(item) : undefined)} />
-              <div className="inbox-actions">
-                {item.unread && (
-                  <button type="button" className="btn btn--small" disabled={busy} onClick={() => void markOne(item)} data-testid={`inbox-mark-${item.key}`}>
-                    {T.markRead}
-                  </button>
-                )}
-                <ItemLink item={item} />
-              </div>
+            <li key={item.key} data-testid={`inbox-item-${item.category}`} data-unread={item.unread ? "true" : "false"}>
+              <Note nail={item.unread ? "brass" : "iron"} className="inbox__note">
+                <ItemBody item={item} api={api} onWatch={() => (item.unread ? void markOne(item) : undefined)} />
+                <div className="inbox-actions">
+                  {item.unread && (
+                    <Button variant="secondary" disabled={busy} onClick={() => void markOne(item)} testId={`inbox-mark-${item.key}`}>
+                      {T.markRead}
+                    </Button>
+                  )}
+                  <ItemLink item={item} />
+                </div>
+              </Note>
             </li>
           ))}
         </ul>
@@ -134,23 +141,29 @@ export function InboxScreen(props: InboxScreenProps = {}): JSX.Element {
       {inbox.olderStrikes && (
         <div className="inbox-older" data-testid="inbox-older">
           <p className="hint">{T.olderStrikes(inbox.olderStrikes.batchesPastLimit, inbox.olderStrikes.beforeHorizon)}</p>
-          <button type="button" className="btn btn--small" onClick={() => navigate("party")}>
+          <Button variant="secondary" onClick={() => navigate("party")}>
             {T.openFeed}
-          </button>
+          </Button>
         </div>
       )}
 
       <details className="disclosure" data-testid="inbox-prefs">
-        <summary className="btn btn--block">{T.prefsHeading}</summary>
+        <summary className="inbox__summary cv-label">{T.prefsHeading}</summary>
         <p className="hint">{T.prefsIntro}</p>
-        <div className="toggles" style={{ flexDirection: "column", alignItems: "flex-start" }}>
+        <div className="inbox__prefs">
           {inbox.preferences.map((p) => (
-            <label key={p.category}>
-              <input type="checkbox" checked={p.enabled} disabled={busy} onChange={(e) => void setPref(p.category, e.currentTarget.checked)} data-testid={`inbox-pref-${p.category}`} />
-              <span>
-                {T.category(p.category)} <span className="hint">({T.prefDefault(p.defaultEnabled)})</span>
-              </span>
-            </label>
+            <KitSwitch
+              key={p.category}
+              label={
+                <>
+                  {T.category(p.category)} <span className="hint">({T.prefDefault(p.defaultEnabled)})</span>
+                </>
+              }
+              checked={p.enabled}
+              disabled={busy}
+              onChange={(v) => void setPref(p.category, v)}
+              testId={`inbox-pref-${p.category}`}
+            />
           ))}
         </div>
         {/* Chunk 32: the usage-data opt-out lives with the other settings. */}
@@ -162,16 +175,16 @@ export function InboxScreen(props: InboxScreenProps = {}): JSX.Element {
 
 function Head({ title, item }: { readonly title: string; readonly item: InboxItemView }): JSX.Element {
   return (
-    <div className="card__head">
-      <div className="card__name">
+    <div className="inbox__top">
+      <div className="inbox__name">
         {item.unread && (
           <>
-            <span className="badge inbox-new">{T.unread}</span>{" "}
+            <span className="cv-pill cv-pill--brass cv-pill--sm inbox__stamp">{T.unread}</span>{" "}
           </>
         )}
         {title}
       </div>
-      <div className="card__line hint">{T.when(formatWhen(item.occurredAt))}</div>
+      <div className="inbox__line hint">{T.when(formatWhen(item.occurredAt))}</div>
     </div>
   );
 }
@@ -183,11 +196,11 @@ function ItemBody({ item, api, onWatch }: { readonly item: InboxItemView; readon
       return (
         <>
           <Head title={T.strikeTitle(d.count)} item={item} />
-          <div className="card__line">{T.strikeOutcomes(d.overran, d.held, d.stalemate, d.other)}</div>
-          <div className="card__line">{T.strikeEarned(d.coinEarned, d.reputationDelta, d.ladderPointsGained)}</div>
-          {d.coinTransferred > 0 && <div className="card__line hint">{T.strikeTransferred(d.coinTransferred)}</div>}
-          {d.coinDiscardedAtCap > 0 && <div className="card__line hint">{T.strikeDiscarded(d.coinDiscardedAtCap)}</div>}
-          <div className="card__line hint">{d.windowOpen === true ? T.strikeWindowOpen(formatWhen(d.windowStartMs)) : T.strikeWindow(formatWhen(d.windowStartMs), formatWhen(d.windowEndMs))}</div>
+          <div className="inbox__line">{T.strikeOutcomes(d.overran, d.held, d.stalemate, d.other)}</div>
+          <div className="inbox__line">{T.strikeEarned(d.coinEarned, d.reputationDelta, d.ladderPointsGained)}</div>
+          {d.coinTransferred > 0 && <div className="inbox__line hint">{T.strikeTransferred(d.coinTransferred)}</div>}
+          {d.coinDiscardedAtCap > 0 && <div className="inbox__line hint">{T.strikeDiscarded(d.coinDiscardedAtCap)}</div>}
+          <div className="inbox__line hint">{d.windowOpen === true ? T.strikeWindowOpen(formatWhen(d.windowStartMs)) : T.strikeWindow(formatWhen(d.windowStartMs), formatWhen(d.windowEndMs))}</div>
           <StrikeLines itemKey={item.key} detail={d} api={api} onWatch={onWatch} />
           {d.notListed > 0 && <p className="hint">{T.strikeNotListed(d.notListed)}</p>}
         </>
@@ -197,37 +210,37 @@ function ItemBody({ item, api, onWatch }: { readonly item: InboxItemView; readon
       return (
         <>
           <Head title={T.refugeesTitle} item={item} />
-          <div className="card__line">{T.refugeesBody(item.detail.caravanName)}</div>
-          {item.detail.currentMenuUnclaimed && <div className="card__line hint">{T.refugeesUnclaimed}</div>}
+          <div className="inbox__line">{T.refugeesBody(item.detail.caravanName)}</div>
+          {item.detail.currentMenuUnclaimed && <div className="inbox__line hint">{T.refugeesUnclaimed}</div>}
         </>
       );
     case "trip_cap_refilled":
       return (
         <>
           <Head title={T.tripCapTitle} item={item} />
-          <div className="card__line">{T.tripCapBody(item.detail.cap)}</div>
+          <div className="inbox__line">{T.tripCapBody(item.detail.cap)}</div>
         </>
       );
     case "mine_near_cap":
       return (
         <>
           <Head title={T.mineTitle(item.detail.atCap)} item={item} />
-          <div className="card__line">{T.mineBody(item.detail.balance, item.detail.cap)}</div>
-          {item.detail.capReachedAtMs !== null && <div className="card__line hint">{T.mineStops(item.detail.ratePerHour, formatWhen(item.detail.capReachedAtMs))}</div>}
+          <div className="inbox__line">{T.mineBody(item.detail.balance, item.detail.cap)}</div>
+          {item.detail.capReachedAtMs !== null && <div className="inbox__line hint">{T.mineStops(item.detail.ratePerHour, formatWhen(item.detail.capReachedAtMs))}</div>}
         </>
       );
     case "packs_rotated":
       return (
         <>
           <Head title={T.packsTitle} item={item} />
-          <div className="card__line">{T.packsBody(formatWhen(item.detail.startsAtMs))}</div>
+          <div className="inbox__line">{T.packsBody(formatWhen(item.detail.startsAtMs))}</div>
         </>
       );
     case "party_changed":
       return (
         <>
           <Head title={item.detail.empty ? T.partyChangedEmptyTitle : T.partyChangedTitle} item={item} />
-          <div className="card__line">{T.partyChangedBody(item.detail.reason, item.detail.carriedOver, item.detail.dropped, item.detail.unitsNow, item.detail.changes ?? 1)}</div>
+          <div className="inbox__line">{T.partyChangedBody(item.detail.reason, item.detail.carriedOver, item.detail.dropped, item.detail.unitsNow, item.detail.changes ?? 1)}</div>
         </>
       );
   }
@@ -257,9 +270,9 @@ function StrikeLines({ itemKey, detail, api, onWatch }: { readonly itemKey: stri
     return (
       <div className="inbox-actions">
         {error && <ErrorBox error={error} />}
-        <button type="button" className="btn btn--small" disabled={loading} onClick={() => void show()} data-testid={`inbox-show-${itemKey}`}>
+        <Button variant="secondary" disabled={loading} onClick={() => void show()} testId={`inbox-show-${itemKey}`}>
           {loading ? T.loadingStrikes : T.showStrikes(detail.count)}
-        </button>
+        </Button>
       </div>
     );
   }
@@ -267,9 +280,9 @@ function StrikeLines({ itemKey, detail, api, onWatch }: { readonly itemKey: stri
     <ul className="inbox-strikes">
       {lines.map((s) => (
         <li key={s.seq} data-testid={`inbox-strike-${s.seq}`}>
-          <div className="card__line">{T.strikeLine(defenderLabel(s.defender), s.encounterIndex)}</div>
-          <div className="card__line">{T.strikeOutcome(s.outcomeKind)}</div>
-          <div className="card__line hint">
+          <div className="inbox__line">{T.strikeLine(defenderLabel(s.defender), s.encounterIndex)}</div>
+          <div className="inbox__line">{T.strikeOutcome(s.outcomeKind)}</div>
+          <div className="inbox__line hint">
             {T.strikeLineEarned(s.coinEarned, s.reputationDelta)}
             {s.coinDiscardedAtCap > 0 ? ` ${T.strikeLineDiscarded(s.coinDiscardedAtCap)}` : ""} · {formatWhen(s.occurredAt)}
           </div>
@@ -294,9 +307,9 @@ function StrikeLines({ itemKey, detail, api, onWatch }: { readonly itemKey: stri
 /** Where an item's "go there" leads. Never the store, never a spend. */
 function ItemLink({ item }: { readonly item: InboxItemView }): JSX.Element | null {
   const link = (label: string, route: "party" | "town" | "trail"): JSX.Element => (
-    <button type="button" className="btn btn--small" onClick={() => navigate(route)}>
+    <Button variant="secondary" onClick={() => navigate(route)}>
       {label}
-    </button>
+    </Button>
   );
   switch (item.category) {
     case "party_strike":

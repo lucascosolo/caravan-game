@@ -17,6 +17,8 @@ import type { PartyConfigBody, PartyView } from "../../api/types.ts";
 import { prefillParty } from "../../onboarding/ShellGuide.tsx";
 import { navigate } from "../../shell/router.tsx";
 import { STRINGS } from "../../strings.ts";
+import { Button } from "../../ui/Button.tsx";
+import { ErrorPlate, StatusNote } from "./townBits.tsx";
 
 const T = STRINGS.town;
 
@@ -48,9 +50,7 @@ export function PartyDownBanner({ api, guideActive, rosterVersion }: { api: Api;
   if (guideActive) return null;
   if (state.kind === "raised") {
     return (
-      <p className="notice" role="status" data-testid="party-raised-banner">
-        {T.partyRaised(state.n)}
-      </p>
+      <StatusNote testId="party-raised-banner">{T.partyRaised(state.n)}</StatusNote>
     );
   }
   if (!view || view.config.units.length > 0) return null;
@@ -69,22 +69,18 @@ export function PartyDownBanner({ api, guideActive, rosterVersion }: { api: Api;
   };
 
   return (
-    <div className="card card--danger" role="region" aria-labelledby="party-down-title" data-testid="party-down-banner">
+    <div className="cv-card town-panel" role="region" aria-labelledby="party-down-title" data-testid="party-down-banner">
       <h2 id="party-down-title">{T.partyDownTitle}</h2>
       <p>{config ? T.partyDownBody : T.partyDownNoUnits}</p>
       {config && (
-        <button type="button" className="btn btn--primary btn--block" disabled={state.kind === "busy"} onClick={() => void raise()} data-testid="party-down-raise">
+        <Button variant="primary" block disabled={state.kind === "busy"} onClick={() => void raise()} testId="party-down-raise">
           {state.kind === "busy" ? T.partyRaising : T.partyDownRaise(config.units.length)}
-        </button>
+        </Button>
       )}
-      <button type="button" className="btn btn--block" onClick={() => navigate("party")}>
+      <Button block onClick={() => navigate("party")}>
         {T.partyDownOpen}
-      </button>
-      {state.kind === "failed" && (
-        <p className="error" role="alert">
-          {state.message}
-        </p>
-      )}
+      </Button>
+      {state.kind === "failed" && <ErrorPlate>{state.message}</ErrorPlate>}
     </div>
   );
 }

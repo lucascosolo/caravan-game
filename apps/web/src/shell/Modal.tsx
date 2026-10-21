@@ -38,14 +38,34 @@ export function Modal({ title, busy, onCancel, testId, children, actions, restor
 
   useModalFocus(ref, latest);
 
+  const full = size === "full";
   return createPortal(
-    <div className={size === "full" ? "dialog-backdrop dialog-backdrop--full" : "dialog-backdrop"} data-testid={testId} onClick={() => !latest.current.busy && latest.current.onCancel()}>
-      <div ref={ref} className={size === "full" ? "dialog dialog--full" : "dialog"} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={bodyId} tabIndex={-1} onClick={(e) => e.stopPropagation()}>
-        <h2 id={titleId} style={{ marginTop: 0 }}>
-          {title}
-        </h2>
-        <div id={bodyId}>{children}</div>
-        <div className="dialog__actions">{actions}</div>
+    <div className={full ? "dialog-backdrop dialog-backdrop--full" : "dialog-backdrop"} data-testid={testId} onClick={() => !latest.current.busy && latest.current.onCancel()}>
+      <div ref={ref} className={full ? "dialog dialog--full" : "dialog"} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={bodyId} tabIndex={-1} onClick={(e) => e.stopPropagation()}>
+        {full ? (
+          <>
+            <h2 id={titleId} className="cv-title">
+              {title}
+            </h2>
+            <div id={bodyId}>{children}</div>
+            <div className="dialog__actions">{actions}</div>
+          </>
+        ) : (
+          <>
+            <div className="cv-sheet__rail" aria-hidden="true">
+              <span className="cv-sheet__peg" />
+            </div>
+            <div className="cv-sheet__body">
+              <div className="cv-sheet__head">
+                <h2 id={titleId} className="cv-title">
+                  {title}
+                </h2>
+              </div>
+              <div id={bodyId}>{children}</div>
+            </div>
+            <div className="cv-sheet__foot dialog__actions">{actions}</div>
+          </>
+        )}
       </div>
     </div>,
     document.body,

@@ -30,11 +30,15 @@ import type { CosmeticsView, PackOfferView, PackTierView, PurchaseResult, StoreV
 import { useApi } from "../../auth/session.tsx";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { formatWhen } from "../../shell/issues.ts";
-import { Modal } from "../../shell/Modal.tsx";
 import { navigate } from "../../shell/router.tsx";
 import { STRINGS } from "../../strings.ts";
+import { Button } from "../../ui/Button.tsx";
+import { Icon } from "../../ui/Icon.tsx";
+import { Note } from "../../ui/Note.tsx";
+import { Sheet } from "../../ui/Sheet.tsx";
 import { SpendError, unconfirmed } from "../town/SpendError.tsx";
 import { OverflowLine, PackContents } from "./PackParts.tsx";
+import "./store.css";
 
 const T = STRINGS.store;
 
@@ -194,27 +198,33 @@ export function PacksScreen(props: PacksScreenProps = {}): JSX.Element {
 
   const top = (
     <>
-      <div className="row row--spread">
-        <button type="button" className="btn" onClick={() => navigate("town")}>
+      <div className="store__bar">
+        <Button variant="tertiary" onClick={() => navigate("town")}>
           {T.back}
-        </button>
-        <button type="button" className="btn" onClick={() => navigate("cosmetics")}>
+        </Button>
+        <Button variant="secondary" onClick={() => navigate("cosmetics")}>
           {T.toCosmetics}
-        </button>
+        </Button>
       </div>
-      <h1 ref={headingRef} tabIndex={-1}>
+      <h1 ref={headingRef} tabIndex={-1} className="cv-title">
         {T.title}
       </h1>
       {store?.mode === "off" ? (
-        <div className="sandbox-banner" role="note" data-testid="store-off-banner">
-          <strong>{T.offHeading}</strong>
-          <div>{T.offBody}</div>
+        <div className="cv-banner-sign store__sign" role="note" data-testid="store-off-banner">
+          <Icon name="padlock" />
+          <div className="cv-banner-sign__text">
+            <strong>{T.offHeading}</strong>
+            <div>{T.offBody}</div>
+          </div>
         </div>
       ) : (
-        <div className="sandbox-banner" role="note" data-testid="sandbox-banner">
-          <strong>{T.sandboxHeading}</strong>
-          <div>{T.sandboxBody}</div>
-          {store && <div className="hint">{store.backend.message}</div>}
+        <div className="cv-banner-sign store__sign" role="note" data-testid="sandbox-banner">
+          <Icon name="info" />
+          <div className="cv-banner-sign__text">
+            <strong>{T.sandboxHeading}</strong>
+            <div>{T.sandboxBody}</div>
+            {store && <div className="hint">{store.backend.message}</div>}
+          </div>
         </div>
       )}
     </>
@@ -245,8 +255,9 @@ export function PacksScreen(props: PacksScreenProps = {}): JSX.Element {
       <p className="hint">{T.powerNote}</p>
       {loadError && <ErrorBox error={loadError} heading={T.reloadFailed} onRetry={() => void load()} />}
 
-      <section aria-labelledby="ceiling-heading" className="card" data-testid="store-ceiling">
-        <h2 id="ceiling-heading" className="h3">
+      <section aria-labelledby="ceiling-heading" data-testid="store-ceiling">
+        <Note className="store__note">
+        <h2 id="ceiling-heading" className="cv-label">
           {T.ceilingHeading}
         </h2>
         <p>{T.ceilingLine(ceiling.weeklyPayCeiling, tierCount)}</p>
@@ -254,6 +265,7 @@ export function PacksScreen(props: PacksScreenProps = {}): JSX.Element {
         <p className="hint">{T.ceilingCap(ceiling.storageCap, ceiling.weeklyPayCeiling)}</p>
         <p className="hint">{T.ceilingRatio(ratioFromBp(ceiling.paidToFreeRatioBp), ceiling.freeWeeklyEarnEstimate)}</p>
         <p className="hint">{ceiling.note}</p>
+        </Note>
       </section>
 
       <p data-testid="store-balance">
@@ -262,65 +274,68 @@ export function PacksScreen(props: PacksScreenProps = {}): JSX.Element {
       </p>
 
       {status && (
-        <div className="notice" role="status" data-testid="store-status">
-          <div>{status.text}</div>
-          {status.extra.map((x) => (
-            <div key={x}>{x}</div>
-          ))}
-          {status.toCosmetics && (
-            <button type="button" className="btn btn--block" style={{ marginTop: 8 }} onClick={() => navigate("cosmetics")}>
-              {T.toCosmeticsAfter}
-            </button>
-          )}
+        <div className="cv-banner-sign store__sign" role="status" data-testid="store-status">
+          <div className="cv-banner-sign__text">
+            <div>{status.text}</div>
+            {status.extra.map((x) => (
+              <div key={x}>{x}</div>
+            ))}
+            {status.toCosmetics && (
+              <Button variant="secondary" block onClick={() => navigate("cosmetics")}>
+                {T.toCosmeticsAfter}
+              </Button>
+            )}
+          </div>
         </div>
       )}
       {error && <ErrorBox error={error.error} heading={error.heading} />}
 
-      <h2>{T.thisWeekHeading}</h2>
+      <h2 className="cv-label">{T.thisWeekHeading}</h2>
       <p className="hint">{T.weekLine(store.week.index, formatWhen(store.week.endsAtMs))}</p>
-      <ul className="cards" data-testid="store-offers">
+      <ul className="store__shelf" data-testid="store-offers">
         {store.offers.map((o) => (
-          <li key={o.id} className={o.purchased ? "card card--bought" : "card"} data-testid={`offer-${o.tier}`} data-purchased={o.purchased ? "yes" : "no"}>
-            <div className="card__head">
-              <span className="card__name">{T.tierHead(o.tier, o.priceDisplay)}</span>
-              {o.purchased && (
-                <span className="badge" data-testid={`offer-${o.tier}-bought`}>
-                  <span aria-hidden="true">✓ </span>
-                  {T.purchasedBadge}
-                </span>
-              )}
-            </div>
-            <div className="h3">{T.contentsHeading}</div>
-            <PackContents contents={o.contents} cosmetics={o.cosmetics} testId={`offer-${o.tier}-contents`} />
-            {o.purchased ? (
-              <p className="hint">{T.purchasedAt(o.purchasedAt ? formatWhen(o.purchasedAt) : "")}</p>
-            ) : (
-              <>
-                <div className="h3">{T.overflowHeading}</div>
-                <OverflowLine overflow={o.overflow} testId={`offer-${o.tier}-overflow`} />
-                {store.mode === "off" ? (
-                  <p className="hint" role="note" data-testid={`buy-${o.tier}-unavailable`}>
-                    {T.notAvailable}
-                  </p>
+          <li key={o.id} data-testid={`offer-${o.tier}`} data-purchased={o.purchased ? "yes" : "no"}>
+            <Note variant={o.purchased ? "shade" : "paper"} nail={o.purchased ? "iron" : "brass"} className="store__note">
+              <div className="store__top">
+                <span className="store__name">{T.tierHead(o.tier, o.priceDisplay)}</span>
+                {o.purchased ? (
+                  <span className="cv-pill cv-pill--parch cv-pill--sm" data-testid={`offer-${o.tier}-bought`}>
+                    <span aria-hidden="true">✓ </span>
+                    {T.purchasedBadge}
+                  </span>
                 ) : (
-                <button
-                  type="button"
-                  className="btn btn--primary btn--block"
-                  disabled={busy || quoting !== null}
-                  onClick={() => void open(o.tier)}
-                  data-testid={`buy-${o.tier}`}
-                >
-                  {quoting === o.tier ? T.quoting : T.buyButton(o.tier, o.priceDisplay)}
-                </button>
+                  <span className="cv-price" aria-hidden="true">
+                    <span className="cv-num">{o.priceDisplay}</span>
+                  </span>
                 )}
-              </>
-            )}
+              </div>
+              <div className="cv-label">{T.contentsHeading}</div>
+              <PackContents contents={o.contents} cosmetics={o.cosmetics} testId={`offer-${o.tier}-contents`} />
+              {o.purchased ? (
+                <p className="hint">{T.purchasedAt(o.purchasedAt ? formatWhen(o.purchasedAt) : "")}</p>
+              ) : (
+                <>
+                  <div className="cv-label">{T.overflowHeading}</div>
+                  <OverflowLine overflow={o.overflow} testId={`offer-${o.tier}-overflow`} />
+                  {store.mode === "off" ? (
+                    <p className="hint" role="note" data-testid={`buy-${o.tier}-unavailable`}>
+                      {T.notAvailable}
+                    </p>
+                  ) : (
+                    <Button variant="primary" block disabled={busy || quoting !== null} onClick={() => void open(o.tier)} testId={`buy-${o.tier}`}>
+                      {quoting === o.tier ? T.quoting : T.buyButton(o.tier, o.priceDisplay)}
+                    </Button>
+                  )}
+                </>
+              )}
+            </Note>
           </li>
         ))}
       </ul>
 
-      <section aria-labelledby="combined-heading" className="card" data-testid="store-combined">
-        <h2 id="combined-heading" className="h3">
+      <section aria-labelledby="combined-heading" data-testid="store-combined">
+        <Note className="store__note">
+        <h2 id="combined-heading" className="cv-label">
           {T.combinedHeading}
         </h2>
         {combined.tiers.length === 0 ? (
@@ -331,20 +346,23 @@ export function PacksScreen(props: PacksScreenProps = {}): JSX.Element {
             <OverflowLine overflow={combined.overflow} testId="combined-overflow" />
           </>
         )}
+        </Note>
       </section>
 
       {store.upcoming.map((w) => (
         <section key={w.weekIndex} aria-labelledby={`upcoming-${w.weekIndex}`} data-testid="store-upcoming">
-          <h2 id={`upcoming-${w.weekIndex}`}>{T.nextWeekHeading}</h2>
+          <h2 id={`upcoming-${w.weekIndex}`} className="cv-label">
+            {T.nextWeekHeading}
+          </h2>
           <p className="hint">{T.nextWeekLine(w.weekIndex, formatWhen(w.startsAtMs))}</p>
           <p className="hint">{T.nextWeekNote}</p>
-          <ul className="cards">
+          <ul className="store__shelf">
             {w.offers.map((o) => (
-              <li key={o.id} className="card card--preview" data-testid={`upcoming-${o.tier}`}>
-                <div className="card__head">
-                  <span className="card__name">{T.tierHead(o.tier, o.priceDisplay)}</span>
-                </div>
-                <PackContents contents={o.contents} cosmetics={o.cosmetics} />
+              <li key={o.id} data-testid={`upcoming-${o.tier}`}>
+                <Note variant="shade" className="store__note">
+                  <span className="store__name">{T.tierHead(o.tier, o.priceDisplay)}</span>
+                  <PackContents contents={o.contents} cosmetics={o.cosmetics} />
+                </Note>
               </li>
             ))}
           </ul>
@@ -352,25 +370,27 @@ export function PacksScreen(props: PacksScreenProps = {}): JSX.Element {
       ))}
 
       {confirm && (
-        <Modal
+        <Sheet
           title={T.confirmTitle(confirm.offer.tier, confirm.offer.priceDisplay)}
+          question
+          detent="full"
           busy={busy}
-          onCancel={cancel}
+          onClose={cancel}
           testId="purchase-dialog"
           restoreFocusTo={() => headingRef.current}
-          actions={
-            <>
-              <button type="button" className="btn" disabled={busy} onClick={cancel}>
+          footer={
+            <div className="store__foot">
+              <Button variant="tertiary" disabled={busy} onClick={cancel}>
                 {T.confirmCancel}
-              </button>
-              <button type="button" className="btn btn--primary" disabled={busy} onClick={() => void buy()} data-testid="purchase-confirm">
+              </Button>
+              <Button variant="primary" busy={busy} onClick={() => void buy()} testId="purchase-confirm">
                 {busy ? T.buying : confirm.lost ? STRINGS.town.spendTryAgain : T.confirmYes}
-              </button>
-            </>
+              </Button>
+            </div>
           }
         >
-          <p className="sandbox-banner sandbox-banner--inline">
-            <strong>{T.confirmSandbox}</strong>
+          <p className="store__sandbox">
+            <Icon name="info" /> <strong>{T.confirmSandbox}</strong>
           </p>
           {confirm.changed && (
             <div className="error" role="alert" data-testid="offer-changed">
@@ -382,12 +402,12 @@ export function PacksScreen(props: PacksScreenProps = {}): JSX.Element {
               <div>{T.changedBody}</div>
             </div>
           )}
-          <div className="h3">{T.confirmGrant}</div>
+          <div className="cv-label">{T.confirmGrant}</div>
           <PackContents contents={confirm.offer.contents} cosmetics={confirm.offer.cosmetics} {...(confirm.owned ? { owned: confirm.owned } : {})} testId="confirm-contents" />
-          <div className="h3">{T.confirmOverflowHeading}</div>
+          <div className="cv-label">{T.confirmOverflowHeading}</div>
           <OverflowLine overflow={confirm.offer.overflow} testId="confirm-overflow" />
           {confirm.lost && <SpendError error={confirm.lost} heading={T.refused} />}
-        </Modal>
+        </Sheet>
       )}
     </section>
   );

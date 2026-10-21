@@ -20,7 +20,11 @@ import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { formatWhen, humanizeText } from "../../shell/issues.ts";
 import { navigate } from "../../shell/router.tsx";
 import { STRINGS } from "../../strings.ts";
+import { Button } from "../../ui/Button.tsx";
+import { Icon } from "../../ui/Icon.tsx";
+import { Note } from "../../ui/Note.tsx";
 import { CosmeticLine, appliesToText } from "./PackParts.tsx";
+import "./store.css";
 
 const T = STRINGS.cosmetics;
 const S = STRINGS.store;
@@ -107,18 +111,19 @@ export function CosmeticsScreen(props: CosmeticsScreenProps = {}): JSX.Element {
 
   const top = (
     <>
-      <div className="row row--spread">
-        <button type="button" className="btn" onClick={() => navigate("town")}>
+      <div className="store__bar">
+        <Button variant="tertiary" onClick={() => navigate("town")}>
           {T.back}
-        </button>
-        <button type="button" className="btn" onClick={() => navigate("packs")}>
+        </Button>
+        <Button variant="secondary" onClick={() => navigate("packs")}>
           {T.toPacks}
-        </button>
+        </Button>
       </div>
-      <h1>{T.title}</h1>
-      <p className="notice" role="note" data-testid="cosmetics-visual-only">
-        {T.visualOnly}
-      </p>
+      <h1 className="cv-title">{T.title}</h1>
+      <div className="cv-banner-sign store__sign" role="note" data-testid="cosmetics-visual-only">
+        <Icon name="info" />
+        <p className="cv-banner-sign__text">{T.visualOnly}</p>
+      </div>
     </>
   );
 
@@ -144,37 +149,38 @@ export function CosmeticsScreen(props: CosmeticsScreenProps = {}): JSX.Element {
       {top}
       {loadError && <ErrorBox error={loadError} heading={T.loadFailed} onRetry={() => void load()} />}
       {status && (
-        <p className="notice" role="status" data-testid="cosmetics-status">
-          {status}
-        </p>
+        <div className="cv-banner-sign store__sign" role="status" data-testid="cosmetics-status">
+          <p className="cv-banner-sign__text">{status}</p>
+        </div>
       )}
       {error && <ErrorBox error={error} heading={T.refused} />}
 
-      <h2>{T.ownedHeading}</h2>
+      <h2 className="cv-label">{T.ownedHeading}</h2>
       {groups.length === 0 && <p data-testid="cosmetics-none">{T.noneOwned}</p>}
       {groups.map((g) => (
         <section key={g.kind} aria-labelledby={`kind-${g.kind}`} data-testid={`kind-${g.kind}`}>
-          <h3 id={`kind-${g.kind}`} className="h3">
+          <h3 id={`kind-${g.kind}`} className="cv-label">
             {T.kindHeading(S.cosmeticKind(g.kind), g.count)}
           </h3>
           {g.slots.map((s) => {
             const equippedId = view.equipped[s.slot];
             const equippedName = equippedId ? (names.get(equippedId) ?? equippedId) : null;
             return (
-              <div key={s.slot} className="card cosmetic-slot" data-testid={`slot-${s.slot}`} data-equipped={equippedId ?? ""}>
+              <div key={s.slot} data-testid={`slot-${s.slot}`} data-equipped={equippedId ?? ""}>
+                <Note className="store__note">
                 <div className="hint">{T.slotLine(`${S.cosmeticKind(s.sample.kind)} ${appliesToText(s.sample)}`)}</div>
                 <div data-testid={`slot-${s.slot}-state`}>{equippedName ? T.slotEquipped(equippedName) : T.slotEmpty}</div>
-                <ul className="plain pack-contents">
+                <ul className="store__contents">
                   {s.items.map((c) => {
                     const on = equippedId === c.id;
                     return (
                       <li key={c.id} data-cosmetic={c.id}>
-                        <div className="card__head">
+                        <div className="store__top">
                           <span>
                             <CosmeticLine cosmetic={c} />
                           </span>
                           {on && (
-                            <span className="badge">
+                            <span className="cv-pill cv-pill--brass cv-pill--sm">
                               <span aria-hidden="true">✓ </span>
                               {T.equippedBadge}
                             </span>
@@ -182,18 +188,19 @@ export function CosmeticsScreen(props: CosmeticsScreenProps = {}): JSX.Element {
                         </div>
                         <div className="hint">{T.grantedAt(formatWhen(c.grantedAt))}</div>
                         {on ? (
-                          <button type="button" className="btn btn--block" disabled={busy !== null} onClick={() => void unequip(s.slot, c.displayName)} data-testid={`unequip-${c.id}`}>
+                          <Button variant="secondary" block disabled={busy !== null} onClick={() => void unequip(s.slot, c.displayName)} testId={`unequip-${c.id}`}>
                             {busy === `unequip:${s.slot}` ? T.working : T.unequip(c.displayName)}
-                          </button>
+                          </Button>
                         ) : (
-                          <button type="button" className="btn btn--primary btn--block" disabled={busy !== null} onClick={() => void equip(c)} data-testid={`equip-${c.id}`}>
+                          <Button variant="primary" block disabled={busy !== null} onClick={() => void equip(c)} testId={`equip-${c.id}`}>
                             {busy === `equip:${c.id}` ? T.working : T.equip(c.displayName)}
-                          </button>
+                          </Button>
                         )}
                       </li>
                     );
                   })}
                 </ul>
+                </Note>
               </div>
             );
           })}
@@ -201,8 +208,8 @@ export function CosmeticsScreen(props: CosmeticsScreenProps = {}): JSX.Element {
       ))}
 
       <details className="disclosure" data-testid="cosmetics-catalog">
-        <summary>{T.catalogHeading}</summary>
-        <ul className="plain pack-contents">
+        <summary className="store__summary cv-label">{T.catalogHeading}</summary>
+        <ul className="store__contents">
           {view.catalog.map((c) => (
             <li key={c.id} data-cosmetic={c.id}>
               <CosmeticLine cosmetic={c} />

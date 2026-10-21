@@ -1,21 +1,23 @@
 /**
- * The bottom sheet for a selected node: what it grants (kind, flavor, the full stat block,
+ * The detail note for a selected node: what it grants (kind, flavor, the full stat block,
  * locked or not), its cost, prerequisites, state, and — only when the SERVER says the node
- * is affordable — the unlock button that opens the confirm step. The copy says "access"
+ * is affordable — the unlock button that opens the confirm sheet. The copy says "access"
  * every time: unlocking never hands over an instance, and the reached-state line says
  * where the type is actually used (recruit in town / deploy in the circle / add to the
  * party) per kind (QA-06 S6).
  *
- * Focus (QA-06 S4): opening the sheet, or switching it to another node, moves focus to its
- * heading so the change is announced and the next Tab lands inside it; closing it returns
+ * It stays on the page (not a modal) so the web remains tappable beside it. Focus (QA-06 S4):
+ * opening it, or switching it to another node, moves focus to its heading; closing it returns
  * focus to that node's card in the graph.
  */
 import { useEffect, useRef } from "react";
 import type { UnlockNodeView } from "../../api/types.ts";
 import { STRINGS } from "../../strings.ts";
+import { Button } from "../../ui/Button.tsx";
 import { AffinityIcon } from "./AffinityIcon.tsx";
 import { describeType, displayNameOf } from "./catalogue.ts";
 import { StateBadge, lockedReason, nodeState } from "./NodeCard.tsx";
+import "./webs.css";
 
 export interface NodeDetailProps {
   readonly node: UnlockNodeView;
@@ -51,46 +53,44 @@ export function NodeDetail({ node, onUnlock, onClose }: NodeDetailProps): JSX.El
   }, []);
 
   return (
-    <aside className="sheet" role="region" aria-label={w.detailsFor(granted.displayName)} data-testid="node-detail">
-      <div className="sheet__head">
-        <h2 ref={headingRef} tabIndex={-1} className="sheet__title">
+    <aside className="cv-note webs-detail" role="region" aria-label={w.detailsFor(granted.displayName)} data-testid="node-detail">
+      <div className="webs-detail__head">
+        <h2 ref={headingRef} tabIndex={-1} className="cv-title">
           {granted.displayName}
         </h2>
-        <button type="button" className="btn" onClick={onClose}>
+        <Button variant="tertiary" icon="cross" onClick={onClose}>
           {w.close}
-        </button>
+        </Button>
       </div>
-      <p className="hint">
+      <p className="cv-small">
         {w.tier(node.tier)} · {node.starting ? w.costFree : w.cost(node.cost)} · <StateBadge state={state} />
       </p>
-      <p className="hint">
-        {node.requires.length === 0 ? w.requiresNone : `${w.requires}: ${node.requires.map(displayNameOf).join(", ")}`}
-        {reason ? ` — ${reason}` : ""}
-      </p>
-      <p>{state === "reached" ? w.accessGranted(granted.kind) : w.accessNote}</p>
+      <p className="cv-small">{node.requires.length === 0 ? w.requiresNone : `${w.requires}: ${node.requires.map(displayNameOf).join(", ")}`}</p>
+      {reason && <p className="cv-reason">{reason}</p>}
+      <p className="cv-body">{state === "reached" ? w.accessGranted(granted.kind) : w.accessNote}</p>
 
-      <h3 className="sheet__subtitle">
+      <h3 className="cv-label">
         {w.grantsHeading}: {granted.kindLabel}
       </h3>
-      {granted.flavor && <p className="flavor">{granted.flavor}</p>}
+      {granted.flavor && <p className="cv-small cv-soft">{granted.flavor}</p>}
       {granted.affinity && (
-        <p>
+        <p className="cv-small">
           {w.affinity}: <AffinityIcon affinity={granted.affinity} />
         </p>
       )}
-      <dl className="statlist" aria-label={w.statsHeading}>
-        {granted.stats.map((s) => (
-          <div key={s.label} style={{ display: "contents" }}>
-            <dt>{s.label}</dt>
-            <dd>{s.value}</dd>
+      <dl className="cv-stats" aria-label={w.statsHeading}>
+        {granted.stats.map((st) => (
+          <div key={st.label} className="cv-stat">
+            <dt>{st.label}</dt>
+            <dd className="cv-num">{st.value}</dd>
           </div>
         ))}
       </dl>
 
       {state === "affordable" && (
-        <button type="button" className="btn btn--primary btn--block" onClick={() => onUnlock(node)}>
+        <Button variant="primary" block icon="coin-pip" onClick={() => onUnlock(node)}>
           {w.unlockButton(granted.displayName, node.cost)}
-        </button>
+        </Button>
       )}
     </aside>
   );

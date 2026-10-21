@@ -65,7 +65,7 @@ export function AccountScreen({ api: apiOverride, saveFile = browserDownload }: 
   const guest = view.account.guest;
   return (
     <section data-testid="account-screen">
-      <h1>{T.title}</h1>
+      <h1 className="cv-sign cv-sign--title">{T.title}</h1>
       {guest ? (
         <LinkCard
           api={api}

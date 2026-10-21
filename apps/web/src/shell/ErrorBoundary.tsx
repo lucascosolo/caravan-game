@@ -46,7 +46,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, State> {
   override render(): ReactNode {
     if (this.state.error) {
       return (
-        <div className="shell">
+        <div className="shell cv-root">
           <main className="shell__main" data-testid="render-error">
             <ErrorBox error={this.state.error} heading={STRINGS.app.genericError} onRetry={this.reset} />
           </main>

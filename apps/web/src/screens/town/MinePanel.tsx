@@ -11,6 +11,7 @@
 import type { EconomyView } from "../../api/types.ts";
 import { formatWhen } from "../../shell/issues.ts";
 import { STRINGS } from "../../strings.ts";
+import { ErrorPlate, Meter } from "./townBits.tsx";
 
 const T = STRINGS.town;
 
@@ -18,30 +19,26 @@ export function MinePanel({ economy, forecast }: { economy: EconomyView; forecas
   const fill = economy.cap > 0 ? Math.min(100, (economy.balance / economy.cap) * 100) : 100;
   const warn = economy.atCap || (forecast?.warn ?? false);
   return (
-    <section aria-labelledby="mine-heading" data-testid="mine-panel" data-at-cap={economy.atCap ? "true" : "false"}>
-      <h2 id="mine-heading">{T.mineHeading}</h2>
+    <section className="town-panel" aria-labelledby="mine-heading" data-testid="mine-panel" data-at-cap={economy.atCap ? "true" : "false"}>
+      <h2 id="mine-heading" tabIndex={-1}>{T.mineHeading}</h2>
       <p data-testid="mine-balance">
         <strong>{T.mineBalance(economy.balance, economy.cap)}</strong>
       </p>
-      <span className="meter" role="img" aria-label={T.mineBalance(economy.balance, economy.cap)}>
-        <span className="meter__fill" style={{ width: `${fill}%` }} />
-      </span>
+      <Meter label={T.mineBalance(economy.balance, economy.cap)} fill={fill} over={warn} />
       <p data-testid="mine-rate">{T.mineRate(economy.trickle.ratePerHour)}</p>
       {warn && (
-        <p className="error" role="alert" data-testid="mine-warn">
-          {economy.atCap ? T.mineAtCap : forecast ? T.mineNearCap(forecast.message) : null}
-        </p>
+        <ErrorPlate testId="mine-warn">{economy.atCap ? T.mineAtCap : forecast ? T.mineNearCap(forecast.message) : null}</ErrorPlate>
       )}
       {/* Final play-test review r2 N13: the explanation is one tap away, not a screenful. */}
-      <details className="disclosure" data-testid="mine-details">
+      <details className="cv-card" data-testid="mine-details">
         <summary>{T.mineMore}</summary>
-        <p className="hint">{T.mineIntro}</p>
-        {economy.trickle.pending > 0 && <p className="hint">{T.minePending(economy.trickle.pending)}</p>}
+        <p className="cv-small">{T.mineIntro}</p>
+        {economy.trickle.pending > 0 && <p className="cv-small">{T.minePending(economy.trickle.pending)}</p>}
         <p data-testid="mine-room">{T.mineRoom(economy.room)}</p>
-        <p className="hint" data-testid="mine-accrued">
+        <p className="cv-small" data-testid="mine-accrued">
           {T.mineAccrued(formatWhen(economy.trickle.accruedThroughMs))}
         </p>
-        <p className="hint">{T.mineNoUpgrade}</p>
+        <p className="cv-small">{T.mineNoUpgrade}</p>
       </details>
     </section>
   );

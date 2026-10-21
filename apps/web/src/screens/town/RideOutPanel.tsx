@@ -17,9 +17,12 @@ import { tripCapRefusalShape } from "../../api/tripShapes.ts";
 import type { TripCapRefusal, TripStatusView } from "../../api/tripTypes.ts";
 import { formatSeconds, monotonic, useAnchoredCountdown } from "../../shell/countdown.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
-import { Modal } from "../../shell/Modal.tsx";
 import { navigate } from "../../shell/router.tsx";
 import { STRINGS } from "../../strings.ts";
+import { Button, CommitBanner } from "../../ui/Button.tsx";
+import { Icon } from "../../ui/Icon.tsx";
+import { Sheet } from "../../ui/Sheet.tsx";
+import { ErrorPlate } from "./townBits.tsx";
 
 const T = STRINGS.trip;
 
@@ -40,8 +43,11 @@ export function TripCapLine({ status, now = monotonic }: { readonly status: Trip
   const waitMs = cap.nextRegenAtMs === null ? 0 : Math.max(0, cap.nextRegenAtMs - status.nowMs);
   const left = useAnchoredCountdown(status, waitMs, now);
   return (
-    <p data-testid="trip-cap" data-available={cap.available} data-seconds-left={left}>
-      {T.capLine(cap.available, cap.cap)} {cap.nextRegenAtMs === null ? T.capFull : left > 0 ? T.capNext(formatSeconds(left)) : T.capNextNow}
+    <p className="town-row" data-testid="trip-cap" data-available={cap.available} data-seconds-left={left}>
+      <Icon name={left > 0 ? "hourglass" : "wheel"} />
+      <span>
+        {T.capLine(cap.available, cap.cap)} {cap.nextRegenAtMs === null ? T.capFull : left > 0 ? T.capNext(formatSeconds(left)) : T.capNextNow}
+      </span>
     </p>
   );
 }
@@ -114,77 +120,74 @@ export function RideOutPanel({ api, caravanId, status, initialError = null, onSt
   };
 
   return (
-    <section aria-labelledby="ride-out-heading" data-testid="ride-out">
+    <section className="town-panel" aria-labelledby="ride-out-heading" data-testid="ride-out">
       <h2 id="ride-out-heading">{T.packedTitle}</h2>
-      <p className="hint">{T.packedBody}</p>
+      <p className="cv-small">{T.packedBody}</p>
       <TripCapLine status={status} now={now} />
-      <p className="hint">{T.capRule(Math.round(cap.regenMs / 60_000))}</p>
+      <p className="cv-small">{T.capRule(Math.round(cap.regenMs / 60_000))}</p>
       {refusal && (
-        <p className="error" role="alert" data-testid="ride-out-refused">
-          {refusedLeft > 0 ? T.rideOutCapRefused(formatSeconds(refusedLeft)) : T.rideOutCapBack}
-        </p>
+        <ErrorPlate testId="ride-out-refused">{refusedLeft > 0 ? T.rideOutCapRefused(formatSeconds(refusedLeft)) : T.rideOutCapBack}</ErrorPlate>
       )}
       {error?.code === "trip_open" && (
-        <div className="error" role="alert" data-testid="ride-out-open">
-          <div>{T.rideOutAlready}</div>
-          <button type="button" className="btn btn--block" onClick={() => navigate("trail")}>
+        <ErrorPlate testId="ride-out-open">
+          <span style={{ display: "block" }}>{T.rideOutAlready}</span>
+          <Button block onClick={() => navigate("trail")}>
             {T.toTrail}
-          </button>
-        </div>
+          </Button>
+        </ErrorPlate>
       )}
       {error?.code === "not_packed" && (
-        <p className="error" role="alert" data-testid="ride-out-not-packed">
-          {T.rideOutNotPacked}
-        </p>
+        <ErrorPlate testId="ride-out-not-packed">{T.rideOutNotPacked}</ErrorPlate>
       )}
       {error && !refusal && error.code !== "trip_open" && error.code !== "not_packed" && <ErrorBox error={error} />}
-      <button
-        type="button"
-        className="btn btn--primary btn--block"
-        disabled={!canRide}
-        onClick={() => {
-          setError(null);
-          setConfirming(true);
-        }}
-        data-testid="ride-out-open-confirm"
-      >
-        {T.rideOut}
-      </button>
       {onUnpacked && (
-        <button type="button" className="btn btn--block" disabled={busy} onClick={() => void unpack()} data-testid="ride-out-unpack">
+        <Button block disabled={busy} onClick={() => void unpack()} testId="ride-out-unpack">
           {T.unpack}
-        </button>
+        </Button>
       )}
+      <div className="town-shelf">
+        <CommitBanner
+          icon="wheel"
+          disabled={!canRide}
+          onClick={() => {
+            setError(null);
+            setConfirming(true);
+          }}
+          testId="ride-out-open-confirm"
+        >
+          {T.rideOut}
+        </CommitBanner>
+      </div>
       {confirming && (
-        <Modal
+        <Sheet
           title={T.rideOutTitle}
+          question
           busy={busy}
-          onCancel={() => {
+          onClose={() => {
             setConfirming(false);
             setLost(null);
           }}
           testId="ride-out-dialog"
           restoreFocusTo={() => document.getElementById("ride-out-heading")}
-          actions={
-            <>
-              <button type="button" className="btn" disabled={busy} onClick={() => setConfirming(false)}>
+          footer={
+            <div className="town-actions">
+              <Button disabled={busy} onClick={() => setConfirming(false)}>
                 {T.rideOutNo}
-              </button>
-              <button type="button" className="btn btn--primary" disabled={busy} onClick={() => void start()} data-testid="ride-out-confirm">
+              </Button>
+              <Button variant="primary" icon="wheel" disabled={busy} onClick={() => void start()} testId="ride-out-confirm">
                 {busy ? T.ridingOut : lost ? T.rideOutTryAgain : T.rideOutYes}
-              </button>
-            </>
+              </Button>
+            </div>
           }
         >
           <p>{T.rideOutBody(cap.available, cap.cap)}</p>
           {lost && (
-            <div className="error" role="alert" data-testid="ride-out-unconfirmed">
-              <div>{T.rideOutUnconfirmed}</div>
-              <div>{T.rideOutUnconfirmedBody}</div>
-              <div className="error__code">{lost.code}</div>
-            </div>
+            <ErrorPlate heading={T.rideOutUnconfirmed} testId="ride-out-unconfirmed">
+              <span style={{ display: "block" }}>{T.rideOutUnconfirmedBody}</span>
+              <code className="cv-small">{lost.code}</code>
+            </ErrorPlate>
           )}
-        </Modal>
+        </Sheet>
       )}
     </section>
   );
