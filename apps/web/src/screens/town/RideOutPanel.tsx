@@ -174,8 +174,8 @@ export function RideOutPanel({ api, caravanId, status, initialError = null, onSt
               <Button disabled={busy} onClick={() => setConfirming(false)}>
                 {T.rideOutNo}
               </Button>
-              <Button variant="primary" icon="wheel" disabled={busy} onClick={() => void start()} testId="ride-out-confirm">
-                {busy ? T.ridingOut : lost ? T.rideOutTryAgain : T.rideOutYes}
+              <Button variant="primary" hold icon="wheel" disabled={busy} onClick={() => void start()} testId="ride-out-confirm">
+                {busy ? T.ridingOut : lost ? T.rideOutTryAgain : T.rideOutHold}
               </Button>
             </div>
           }

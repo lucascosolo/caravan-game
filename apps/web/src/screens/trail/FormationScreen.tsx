@@ -42,9 +42,16 @@ import { onViewerReset } from "../../auth/session.tsx";
 import type { FormationView, IssueView, ManifestView } from "../../api/types.ts";
 import { IsoCanvas, campFrameOf, cellToWorld, type CampFrame, type CellRect, type FrameRect, type HitResult, type IsoCanvasHandle, type IsoSceneState, type SceneGeometry } from "../../iso/index.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
-import { Modal } from "../../shell/Modal.tsx";
 import { formatWhen, humanizeIssue } from "../../shell/issues.ts";
 import { STRINGS } from "../../strings.ts";
+import { Button, CommitBanner } from "../../ui/Button.tsx";
+import { Icon, cx } from "../../ui/Icon.tsx";
+import { Note } from "../../ui/Note.tsx";
+import { Pop } from "../../ui/Pop.tsx";
+import { Poster } from "../../ui/Poster.tsx";
+import { Sheet } from "../../ui/Sheet.tsx";
+import { Sign } from "../../ui/Sign.tsx";
+import { Toast } from "../../ui/Toast.tsx";
 import { CommitDialog, type CommitCheck } from "./CommitDialog.tsx";
 import { ManifestTray } from "./ManifestTray.tsx";
 import {
@@ -74,6 +81,7 @@ import type { ScoutedEncounter } from "./scoutTypes.ts";
 import { SelectionPanel } from "./SelectionPanel.tsx";
 import { manifestNames } from "./stats.ts";
 import { TrayGesture, TRAY_LONG_PRESS_MS } from "./trayGesture.ts";
+import "./formation.css";
 
 const T = STRINGS.trail;
 
@@ -196,12 +204,13 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
   const [confirming, setConfirming] = useState(false);
   const [check, setCheck] = useState<CommitCheck>({ state: "checking" });
   const [clearing, setClearing] = useState(false);
+  const [arrangeOpen, setArrangeOpen] = useState(false);
   const [scoutOpen, setScoutOpen] = useState(true);
   const [canvasDown, setCanvasDown] = useState<string | null>(null);
   const [focusAfter, setFocusAfter] = useState<Focus>(null);
   const isoRef = useRef<IsoCanvasHandle>(null);
   const openedWith = useRef(formation);
-  const noticeRef = useRef<HTMLParagraphElement>(null);
+  const noticeRef = useRef<HTMLDivElement>(null);
   const issuesRef = useRef<HTMLDivElement>(null);
 
   const committedAt = saved?.committedAt ?? null;
@@ -672,6 +681,7 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
     setStatus(message);
   };
   const fenceLeft = nextFenceRef(manifest, formation) !== null;
+  const toggleArrange = useCallback(() => setArrangeOpen((o) => !o), []);
 
   const minGaps = RING_SEGMENTS.length - TUNABLES.FENCE_MATERIAL_BUDGET;
   const selectedUnplaced = selectedRef !== null && !isPlaced(formation, selectedRef);
@@ -685,9 +695,9 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
           {i.subject && names.has(i.subject) && kindOfRef(manifest, i.subject) && !locked && (
             <>
               {" "}
-              <button type="button" className="btn btn--small" onClick={() => onPick(i.subject!)} data-testid={`issue-show-${i.subject}`}>
+              <Button onClick={() => onPick(i.subject!)} testId={`issue-show-${i.subject}`}>
                 {T.issueShow}
-              </button>
+              </Button>
             </>
           )}
         </li>
@@ -696,13 +706,34 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
   );
 
   return (
-    <section className="formation" data-testid="formation-screen" data-encounter={encounterIndex} data-committed={committedAt ? "true" : "false"}>
-      <h1>{T.encounter(encounterIndex)}</h1>
+    <section className="formation fm" data-testid="formation-screen" data-encounter={encounterIndex} data-committed={committedAt ? "true" : "false"}>
+      <h1 className="fm-title">
+        <Sign variant="title">{T.encounter(encounterIndex)}</Sign>
+      </h1>
       {committedAt && (
-        <p className="notice" data-testid="committed-notice" tabIndex={-1} ref={noticeRef}>
-          {T.committedAt(formatWhen(committedAt))}
-        </p>
+        <div className="fm-committed" data-testid="committed-notice" tabIndex={-1} ref={noticeRef}>
+          <Note nail="brass">{T.committedAt(formatWhen(committedAt))}</Note>
+        </div>
       )}
+
+      <div className="fm-top">
+        <Poster className="fm-poster" kicker={T.posterKicker} title={scout.owner.displayName}>
+          <span className="cv-small">{T.summaryRaiders(scout.scout.units.length)}</span>
+        </Poster>
+        <div className="cv-compass cv-compass--sm" role="group" aria-label={T.compassLabel}>
+          {ENTRY_EDGES.map((edge) => {
+            const n = scout.scout.units.filter((u) => u.edge === edge).length;
+            return (
+              <span key={edge} className={cx("cv-compass__edge", `cv-compass__edge--${edge[0]}`, n === 0 && "is-open")} role="img" aria-label={T.compassEdge(T.edgeName(edge), n)}>
+                <span className={cx("cv-pill", n === 0 && "cv-pill--parch")}>
+                  {n > 0 && <i aria-hidden="true" className="cv-art cv-mk-raider" />}
+                  {n}
+                </span>
+              </span>
+            );
+          })}
+        </div>
+      </div>
 
       <IsoCanvas
         ref={isoRef}
@@ -721,9 +752,9 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
         openCamp={CIRCLE_CAMP}
         onUnavailable={() => setCanvasDown(T.canvasUnavailable)}
       />
-      {canvasDown && <p className="hint">{canvasDown}</p>}
+      {canvasDown && <Toast>{canvasDown}</Toast>}
 
-      <div className="toggles">
+      <div className="toggles fm-toggles">
         <label>
           <input type="checkbox" checked={showRadii} onChange={(e) => setShowRadii(e.target.checked)} /> {T.showRadii}
         </label>
@@ -752,48 +783,25 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
       )}
 
       {refused && (
-        <p className="notice" role="status" data-testid="drop-refused" data-code={refused.refusal.code}>
-          {T.refusedDrop(refused.name, refused.refusal.message)}
-        </p>
-      )}
-
-      {!locked && (
-        <section className="quick" aria-labelledby="quick-heading" data-testid="quick-arrange">
-          <h2 id="quick-heading" className="h3">
-            {T.quickHeading}
-          </h2>
-          <div className="quick__sides">
-            {ENTRY_EDGES.map((edge) => {
-              const open = openOnSide(formation, edge);
-              const raiders = scout.scout.units.filter((u) => u.edge === edge).length;
-              return (
-                <button
-                  key={edge}
-                  type="button"
-                  className="btn"
-                  disabled={open === 0 || !fenceLeft}
-                  onClick={() => applyQuick(fenceSide(manifest, formation, edge), null)}
-                  data-testid={`fence-side-${edge}`}
-                >
-                  {T.fenceSide(T.edgeName(edge), raiders)}
-                </button>
-              );
-            })}
-          </div>
-          <p className="hint">{T.quickHint}</p>
-        </section>
+        <div role="status" data-testid="drop-refused" data-code={refused.refusal.code}>
+          <Pop tail="top" at={30}>
+            {T.refusedDrop(refused.name, refused.refusal.message)}
+          </Pop>
+        </div>
       )}
 
       <h2>{T.ringHeading}</h2>
       <p data-testid="budget-meter">{T.budgetMeter(budget.placed, budget.placed + budget.remaining, budget.ring)}</p>
-      <span className="meter" role="img" aria-label={T.budgetMeter(budget.placed, budget.placed + budget.remaining, budget.ring)}>
-        <span className="meter__fill" style={{ width: `${(budget.placed / budget.ring) * 100}%` }} />
+      <span className="fm-slots" role="img" aria-label={T.budgetMeter(budget.placed, budget.placed + budget.remaining, budget.ring)}>
+        {Array.from({ length: budget.placed + budget.remaining }, (_, i) => (
+          <Icon key={i} name={i < budget.placed ? "fence-rail" : "fence-rail-ghost"} />
+        ))}
       </span>
-      <p className="hint">{T.budgetNote(minGaps)}</p>
+      <p className="cv-small">{T.budgetNote(minGaps)}</p>
       <p data-testid="gaps-line">{T.gapsLine(gaps)}</p>
 
       <h3 className="h3">{T.threatHeading}</h3>
-      <p className="hint">{T.threatIntro}</p>
+      <p className="cv-small">{T.threatIntro}</p>
       <ul className="plain" data-testid="edge-reports">
         {reports.map((r) => (
           <li key={r.edge} data-edge={r.edge}>
@@ -801,7 +809,7 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
           </li>
         ))}
       </ul>
-      <p className="hint">{T.threatReachNote}</p>
+      <p className="cv-small">{T.threatReachNote}</p>
 
       {selectedRef && (
         <SelectionPanel
@@ -824,19 +832,44 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
         />
       )}
       {selectedRef && !locked && selectedUnplaced && (
-        <p className="hint" data-testid="tap-to-place-hint">
-          {T.traySelectedHint(nameOf(selectedRef))}
-        </p>
+        <div data-testid="tap-to-place-hint">
+          <Pop tail="top" at={20}>
+            {T.traySelectedHint(nameOf(selectedRef))}
+          </Pop>
+        </div>
       )}
       {selectedRef && !locked && kindOfRef(manifest, selectedRef) && (
         <PlacementPicker manifest={manifest} formation={formation} itemRef={selectedRef} name={nameOf(selectedRef)} onPlace={placeSelected} />
       )}
 
-      <ManifestTray manifest={manifest} formation={formation} selectedRef={selectedRef} locked={locked} flagged={flagged} onPick={onPick} onDragStart={onTrayDragStart} />
+      {arrangeOpen && !locked && (
+        <section className="fm-arrange" aria-label={T.quickHeading} data-testid="quick-arrange">
+          <Pop tail="bottom" at={88} who={T.quickHeading}>
+            <span className="fm-arrange__body">
+              <span className="fm-arrange__sides">
+                {ENTRY_EDGES.map((edge) => {
+                  const open = openOnSide(formation, edge);
+                  const raiders = scout.scout.units.filter((u) => u.edge === edge).length;
+                  return (
+                    <Button key={edge} disabled={open === 0 || !fenceLeft} onClick={() => applyQuick(fenceSide(manifest, formation, edge), null)} testId={`fence-side-${edge}`}>
+                      {T.fenceSide(T.edgeName(edge), raiders)}
+                    </Button>
+                  );
+                })}
+              </span>
+              <span className="cv-small">{T.quickHint}</span>
+            </span>
+          </Pop>
+        </section>
+      )}
+
+      <ManifestTray manifest={manifest} formation={formation} selectedRef={selectedRef} locked={locked} flagged={flagged} onPick={onPick} onDragStart={onTrayDragStart} arrangeOpen={arrangeOpen} onArrange={toggleArrange} />
 
       {/* The full scouting report sits above the commit controls: nothing is committed without it on screen. */}
       <details open={scoutOpen} className="scout-details" onToggle={(e) => setScoutOpen((e.currentTarget as HTMLDetailsElement).open)}>
-        <summary className="btn btn--block">{T.scoutHeading}</summary>
+        <summary className="cv-btn cv-btn--secondary cv-btn--block fm-scoutsum">
+          <span>{T.scoutHeading}</span>
+        </summary>
         <p data-testid="facing-line">
           {T.chosenLine(scout.owner.displayName)} {T.candidateRating(scout.reputation.rating, scout.reputation.band.low, scout.reputation.band.high)}
         </p>
@@ -844,70 +877,68 @@ export function FormationScreen({ api, caravanId, trip, encounterIndex, initial,
       </details>
 
       {serverIssues.length > 0 && (
-        <div className="error" role="alert" data-testid="server-issues" tabIndex={-1} ref={issuesRef}>
-          <div>{T.serverIssuesHeading}</div>
-          {issueList(serverIssues)}
+        <div data-testid="server-issues" tabIndex={-1} ref={issuesRef}>
+          <Toast tone="error" title={T.serverIssuesHeading}>
+            {issueList(serverIssues)}
+          </Toast>
         </div>
       )}
       {serverIssues.length === 0 && autosaveIssues.length > 0 && !committedAt && (
-        <div className="notice" role="status" data-testid="autosave-pending">
-          <div>{T.autosavePending}</div>
+        <Toast testId="autosave-pending">
+          <span>{T.autosavePending}</span>
           {issueList(autosaveIssues)}
-        </div>
+        </Toast>
       )}
       {error && serverIssues.length === 0 && (
         <div tabIndex={-1} ref={issuesRef}>
           <ErrorBox error={error} />
         </div>
       )}
-      {status && (
-        <p className="notice" role="status">
-          {status}
-        </p>
-      )}
+      {status && <Toast tone="ok">{status}</Toast>}
 
       {!committedAt && (
-        <div className="actions">
-          <button type="button" className="btn" disabled={busy || isEmptyFormation(formation)} onClick={() => setClearing(true)} data-testid="clear-open">
+        <div className="fm-actions">
+          <Button disabled={busy || isEmptyFormation(formation)} onClick={() => setClearing(true)} testId="clear-open">
             {T.clear}
-          </button>
-          <button type="button" className="btn" disabled={busy} onClick={() => void saveDraft()} data-testid="save-draft">
+          </Button>
+          <Button disabled={busy} onClick={() => void saveDraft()} testId="save-draft">
             {busy ? T.saving : T.saveDraft}
-          </button>
-          <button type="button" className="btn btn--primary" disabled={busy} onClick={() => void openCommit()} data-testid="commit-open">
+          </Button>
+        </div>
+      )}
+      {!committedAt && (
+        <div className="cv-shelf fm-shelf">
+          <CommitBanner icon="wheel" disabled={busy} onClick={() => void openCommit()} testId="commit-open">
             {T.commit}
-          </button>
+          </CommitBanner>
         </div>
       )}
 
       {clearing && (
-        <Modal
+        <Sheet
           title={T.clearTitle}
-          busy={false}
-          onCancel={() => setClearing(false)}
+          question
+          onClose={() => setClearing(false)}
           testId="clear-dialog"
-          actions={
-            <>
-              <button type="button" className="btn" onClick={() => setClearing(false)}>
-                {T.clearNo}
-              </button>
-              <button
-                type="button"
-                className="btn btn--primary"
+          footer={
+            <div className="fm-pair">
+              <Button onClick={() => setClearing(false)}>{T.clearNo}</Button>
+              <Button
+                variant="danger"
                 onClick={() => {
                   setFormation(clearAll());
                   setSelectedRef(null);
                   setClearing(false);
                 }}
-                data-testid="clear-confirm"
+                testId="clear-confirm"
               >
                 {T.clearYes}
-              </button>
-            </>
+              </Button>
+            </div>
           }
         >
           <p>{T.clearBody}</p>
-        </Modal>
+        </Sheet>
       )}
 
       {confirming && (

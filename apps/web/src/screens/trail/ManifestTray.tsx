@@ -17,8 +17,10 @@ import { getFenceTier, getTrapType } from "@caravan/content";
 import type { Formation, Manifest } from "@caravan/circle";
 import { memo, type PointerEvent } from "react";
 import { STRINGS } from "../../strings.ts";
+import { Icon, cx } from "../../ui/Icon.tsx";
+import { Medallion } from "../../ui/Medallion.tsx";
 import { AffinityIcon } from "../webs/AffinityIcon.tsx";
-import { fenceBudget, nextFenceRef, segmentNumber, unplacedFences } from "./placement.ts";
+import { fenceBudget, nextFenceRef, segmentNumber, unpostedUnits, unplacedFences, unplacedTraps } from "./placement.ts";
 import { defenderCard } from "./stats.ts";
 import { StatPair } from "./ScoutPanel.tsx";
 
@@ -33,6 +35,33 @@ export interface ManifestTrayProps {
   readonly flagged: ReadonlySet<string>;
   readonly onPick: (ref: string) => void;
   readonly onDragStart: (ref: string, e: PointerEvent<HTMLButtonElement>) => void;
+  /** The ARRANGE medallion: shown when the screen passes a toggle. */
+  readonly arrangeOpen?: boolean;
+  readonly onArrange?: () => void;
+}
+
+/** A round tray source with its count pill: tap picks the next piece of its kind, a drag carries it (same gesture as a chip). */
+function Disc({ icon, word, have, of, next, locked, onPick, onDragStart }: { icon: string; word: string; have: number; of: number; next: string | null; locked: boolean; onPick: (ref: string) => void; onDragStart: (ref: string, e: PointerEvent<HTMLButtonElement>) => void }): JSX.Element {
+  const inert = locked || next === null;
+  return (
+    <button
+      type="button"
+      className={cx("cv-tray__src", of > 0 && have >= of && "is-full")}
+      aria-label={T.trayDisc(word, have, of)}
+      aria-disabled={inert}
+      onClick={() => next && !inert && onPick(next)}
+      onPointerDown={(e) => next && !inert && onDragStart(next, e)}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      <Icon name={icon} />
+      <span className="cv-tray__txt">
+        <span className="cv-num">
+          {have}/{of}
+        </span>
+        <span className="cv-tray__word">{word}</span>
+      </span>
+    </button>
+  );
 }
 
 function Chip({
@@ -80,8 +109,12 @@ function Chip({
   );
 }
 
-export const ManifestTray = memo(function ManifestTray({ manifest, formation, selectedRef, locked, flagged, onPick, onDragStart }: ManifestTrayProps): JSX.Element {
+export const ManifestTray = memo(function ManifestTray({ manifest, formation, selectedRef, locked, flagged, onPick, onDragStart, arrangeOpen = false, onArrange }: ManifestTrayProps): JSX.Element {
   const budget = fenceBudget(manifest, formation);
+  const trapsLeft = unplacedTraps(manifest, formation);
+  const trapsTotal = manifest.traps.filter((t) => !t.spent).length;
+  const unposted = unpostedUnits(manifest, formation);
+  const livingTotal = manifest.units.filter((u) => u.hp > 0).length;
   const next = nextFenceRef(manifest, formation);
   const unplaced = unplacedFences(manifest, formation);
   const damaged = unplaced.filter((f) => f.hp < f.maxHp);
@@ -92,9 +125,15 @@ export const ManifestTray = memo(function ManifestTray({ manifest, formation, se
   return (
     <section className="tray" aria-labelledby="tray-heading" data-testid="manifest-tray">
       <h2 id="tray-heading">{T.trayHeading}</h2>
-      <p className="hint">{T.trayIntro}</p>
-      <p className="hint">{T.trayDragHint}</p>
-      <p className="hint">{T.trayLongPress}</p>
+      <div className="cv-tray fm-discs">
+        <Disc icon="fence-rail" word={T.trayFenceWord} have={budget.placed} of={budget.placed + budget.remaining} next={next} locked={locked} onPick={onPick} onDragStart={onDragStart} />
+        <Disc icon="trap-jaw" word={T.trayTrapsWord} have={trapsTotal - trapsLeft.length} of={trapsTotal} next={trapsLeft[0]?.ref ?? null} locked={locked} onPick={onPick} onDragStart={onDragStart} />
+        <Disc icon="hat" word={T.trayPostsWord} have={livingTotal - unposted.length} of={livingTotal} next={unposted[0]?.ref ?? null} locked={locked} onPick={onPick} onDragStart={onDragStart} />
+        {onArrange && !locked && <Medallion label={T.arrangeLabel} caption={T.arrangeCaption} icon="compass" material="brass" pressed={arrangeOpen} onClick={onArrange} />}
+      </div>
+      <p className="cv-small">{T.trayIntro}</p>
+      <p className="cv-small">{T.trayDragHint}</p>
+      <p className="cv-small">{T.trayLongPress}</p>
 
       <h3 className="h3">{T.trayUnits}</h3>
       <ul className="chips">
@@ -128,7 +167,7 @@ export const ManifestTray = memo(function ManifestTray({ manifest, formation, se
 
       <h3 className="h3">{T.trayTraps}</h3>
       {manifest.traps.length === 0 ? (
-        <p className="hint">—</p>
+        <p className="cv-small">—</p>
       ) : (
         <ul className="chips">
           {manifest.traps.map((t) => {
@@ -169,7 +208,7 @@ export const ManifestTray = memo(function ManifestTray({ manifest, formation, se
       )}
       {damaged.length > 0 && (
         <>
-          <p className="hint">{T.fenceDamaged}</p>
+          <p className="cv-small">{T.fenceDamaged}</p>
           <ul className="chips">
             {damaged.map((f) => (
               <Chip

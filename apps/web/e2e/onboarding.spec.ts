@@ -115,6 +115,7 @@ async function commit(page: Page): Promise<void> {
   await expect(page.getByTestId("commit-confirm")).toBeEnabled({ timeout: 15_000 });
   await copyIsTheRightWayRound(page);
   await page.getByRole("dialog").getByTestId("commit-confirm").click();
+  await page.getByTestId("commit-confirm-tap").click();
   await skipAutoplay(page);
 }
 

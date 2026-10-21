@@ -9,6 +9,7 @@
 import { ENTRY_EDGES, type Cell, type Formation, type Manifest } from "@caravan/circle";
 import { memo, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { STRINGS } from "../../strings.ts";
+import { Button } from "../../ui/Button.tsx";
 import { pickerOptions } from "./placement.ts";
 
 const T = STRINGS.trail;
@@ -47,8 +48,8 @@ export const PlacementPicker = memo(function PlacementPicker({ manifest, formati
       <h3 className="h3" id={`${id}-h`}>
         {T.pickerHeading(name)}
       </h3>
-      <p className="hint">{T.pickerIntro}</p>
-      {!isFence && <p className="hint">{T.pickerReserved}</p>}
+      <p className="cv-small">{T.pickerIntro}</p>
+      {!isFence && <p className="cv-small">{T.pickerReserved}</p>}
       <div className="row">
         <select className="picker__select" aria-labelledby={`${id}-h`} value={choice} onChange={(e) => setChoice(e.target.value)} data-testid="picker-select">
           <option value="">{T.pickerChoose}</option>
@@ -67,9 +68,7 @@ export const PlacementPicker = memo(function PlacementPicker({ manifest, formati
             );
           })}
         </select>
-        <button
-          type="button"
-          className="btn"
+        <Button
           disabled={!chosen}
           onClick={() => {
             if (!chosen) return;
@@ -77,10 +76,10 @@ export const PlacementPicker = memo(function PlacementPicker({ manifest, formati
             onPlace(chosen.cell);
             setChoice("");
           }}
-          data-testid="picker-place"
+          testId="picker-place"
         >
           {T.pickerPlace}
-        </button>
+        </Button>
       </div>
     </section>
   );

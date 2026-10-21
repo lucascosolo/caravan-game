@@ -22,11 +22,12 @@ export interface SheetProps {
   readonly onClose: () => void;
   readonly footer?: ReactNode;
   readonly testId?: string;
+  readonly describedBy?: string;
   readonly restoreFocusTo?: () => HTMLElement | null;
   readonly children: ReactNode;
 }
 
-export function Sheet({ title, question = false, kicker, detent = "half", busy = false, onClose, footer, testId, restoreFocusTo, children }: SheetProps): JSX.Element {
+export function Sheet({ title, question = false, kicker, detent = "half", busy = false, onClose, footer, testId, describedBy, restoreFocusTo, children }: SheetProps): JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const [at, setAt] = useState<Detent>(detent);
@@ -37,7 +38,7 @@ export function Sheet({ title, question = false, kicker, detent = "half", busy =
   const close = <Medallion label={STRINGS.ui.close} icon="cross" size="sm" disabled={busy} onClick={onClose} />;
   return createPortal(
     <div className="cv-root cv-sheet-host" data-testid={testId} onClick={() => !latest.current.busy && onClose()}>
-      <div ref={ref} className={cx("cv-sheet", `cv-sheet--${at}`)} data-detent={at} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onClick={(e) => e.stopPropagation()}>
+      <div ref={ref} className={cx("cv-sheet", `cv-sheet--${at}`)} data-detent={at} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={describedBy} tabIndex={-1} onClick={(e) => e.stopPropagation()}>
         <div className="cv-sheet__rail">
           <button type="button" className="cv-sheet__peg" aria-label={STRINGS.ui.resize} onClick={() => setAt((d) => NEXT[d])} />
         </div>

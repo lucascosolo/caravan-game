@@ -1,0 +1,35 @@
+.trail { display: flex; flex-direction: column; gap: 12px; padding-bottom: calc(24 * var(--px)); min-width: 0; }
+.trail h1, .trail h2, .trail h3, .trail p, .trail dl, .trail ul { margin: 0; }
+.trail h1 { font-weight: 400; }
+.trail-h2 { font-family: var(--font-display); font-size: var(--type-label); font-weight: 400; text-transform: uppercase; letter-spacing: var(--px); }
+.trail-list { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.trail-list > li { min-width: 0; }
+
+.trail-stops { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.trail-stop { position: relative; display: inline-flex; flex-direction: column; align-items: center; gap: 2px; }
+.trail-stop__now { margin: 0; font-family: var(--font-display); font-size: var(--type-title); font-weight: 400; line-height: 1.05; }
+.trail-stamp { font-family: var(--font-display); font-size: var(--type-label); text-transform: uppercase; letter-spacing: var(--px); color: var(--ink); border: calc(2 * var(--px)) solid var(--ink); padding: 0 calc(6 * var(--px)); transform: rotate(-6deg); }
+
+.trail-meta { display: flex; flex-direction: column; gap: 6px; }
+.trail-meta__row { display: flex; align-items: center; gap: 8px; }
+.trail-meta__row > .trail-grow { flex: 1; min-width: 0; }
+.trail-pop { margin-top: 4px; }
+
+.trail-posters { display: flex; flex-direction: column; gap: 32px; padding: 12px 0 20px; }
+.trail-posters > li { position: relative; min-width: 0; }
+.trail-poster .cv-poster__plaque { border-image-source: url(../../ui/assets/chrome/v2/plate-iron.png); color: var(--highlight); }
+.trail-poster { padding-bottom: calc(30 * var(--px)); }
+.trail-poster__body { display: flex; align-items: center; gap: 22px; padding: 6px 0 0 16px; }
+.trail-poster__body .cv-compass { margin: 10px 8px; }
+.trail-poster__facts { flex: 1; min-width: 0; }
+.trail-poster__line { text-align: center; }
+.trail-poster__details > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); text-transform: uppercase; letter-spacing: var(--px); }
+.trail-poster__choose { margin-top: 10px; }
+
+.trail .scout-summary { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; }
+.trail .scout-summary dt { font-family: var(--font-display); font-size: var(--type-label); text-transform: uppercase; }
+.trail .scout-summary dd { margin: 0; font-size: var(--type-small); min-width: 0; overflow-wrap: anywhere; }
+
+.trail-scout { display: flex; flex-direction: column; gap: 8px; }
+.trail-unit.is-selected { outline: calc(2 * var(--px)) solid var(--brass); outline-offset: calc(2 * var(--px)); }
+.trail-unit__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

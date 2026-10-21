@@ -104,6 +104,7 @@ async function commit(page: Page): Promise<void> {
   const dialog = page.getByRole("dialog");
   await expect(page.getByTestId("commit-confirm")).toBeEnabled({ timeout: 15_000 });
   await dialog.getByTestId("commit-confirm").click();
+  await page.getByTestId("commit-confirm-tap").click();
   // The fight resolves on the server; the screen waits on it, then shows the result (S4: its replay first).
   await skipAutoplay(page);
   await expect(page.getByTestId("encounter-results").or(page.getByTestId("trip-summary"))).toBeVisible({ timeout: 20_000 });

@@ -1,7 +1,6 @@
 /**
- * The commit confirmation (chunk 08): the shell's REAL modal (shell/Modal.tsx — focus
- * trapped, the app shell `inert`, Escape cancels, the opener captured ONCE and given focus
- * back, callbacks read through a ref so a re-render never re-runs the focus logic: QA S6).
+ * The commit confirmation (chunk 08): the kit Sheet in question mode, whose useModalFocus is the
+ * real modal (focus trapped, the app shell `inert`, Escape cancels, focus given back: QA S6).
  *
  * It itemizes exactly what will stand: every fence run, the open positions (as a count,
  * never a warning), every trap laid and the ones held back BY NAME, the fence material
@@ -12,10 +11,13 @@
  */
 import { getFenceTier, getTrapType, getUnitType } from "@caravan/content";
 import type { Formation, Manifest } from "@caravan/circle";
+import { useId } from "react";
 import type { IssueView } from "../../api/types.ts";
-import { Modal } from "../../shell/Modal.tsx";
 import { humanizeIssue } from "../../shell/issues.ts";
 import { STRINGS } from "../../strings.ts";
+import { Button } from "../../ui/Button.tsx";
+import { Sheet } from "../../ui/Sheet.tsx";
+import { Toast } from "../../ui/Toast.tsx";
 import { fenceBudget, fenceRuns, fencesBySide, itemize, unplacedTraps, unpostedUnits } from "./placement.ts";
 
 const T = STRINGS.trail;
@@ -45,25 +47,28 @@ export function CommitDialog({ manifest, formation, gaps, busy, check, names, on
   const name = (kind: "fence" | "trap" | "post", typeId: string): string =>
     (kind === "fence" ? getFenceTier(typeId)?.displayName : kind === "trap" ? getTrapType(typeId)?.displayName : getUnitType(typeId)?.displayName) ?? T.unknownThing;
   const canCommit = !busy && check.state === "ok";
+  const summaryId = useId();
   return (
-    <Modal
+    <Sheet
       title={T.confirmTitle}
+      question
       busy={busy}
-      onCancel={onCancel}
+      onClose={onCancel}
       testId="commit-dialog"
-      actions={
-        <>
-          <button type="button" className="btn" onClick={onCancel} disabled={busy}>
+      describedBy={summaryId}
+      footer={
+        <div className="fm-pair">
+          <Button disabled={busy} onClick={onCancel}>
             {T.confirmNo}
-          </button>
-          <button type="button" className="btn btn--primary" onClick={onConfirm} disabled={!canCommit} data-testid="commit-confirm">
+          </Button>
+          <Button variant="primary" hold icon="wheel" disabled={!canCommit} onClick={onConfirm} testId="commit-confirm">
             {busy ? T.committing : T.confirmYes}
-          </button>
-        </>
+          </Button>
+        </div>
       }
     >
       <p>{T.confirmIntro}</p>
-      <ul className="plain">
+      <ul className="plain" id={summaryId}>
         <li>{formation.fences.length === 0 ? T.confirmFencesNone : T.confirmFences(formation.fences.length, runs)}</li>
         {/* Final play-test review N14: the fence by side, at a glance. */}
         {formation.fences.length > 0 && (
@@ -87,20 +92,19 @@ export function CommitDialog({ manifest, formation, gaps, busy, check, names, on
         <ul className="plain dialog__items" aria-label={T.confirmIntro}>
           {items.map((it) => (
             <li key={it.ref} data-testid={`commit-item-${it.ref}`}>
-              <span className="hint">{it.kind === "fence" ? T.kindFence : it.kind === "trap" ? T.kindTrap : T.kindPost}</span> {name(it.kind, it.typeId)} · {it.where}
+              <span className="cv-small">{it.kind === "fence" ? T.kindFence : it.kind === "trap" ? T.kindTrap : T.kindPost}</span> {name(it.kind, it.typeId)} · {it.where}
               {it.detail ? ` · ${it.detail}` : ""}
             </li>
           ))}
         </ul>
       </details>
       {check.state === "checking" && (
-        <p className="hint" role="status">
+        <p className="cv-small" role="status">
           {T.confirmChecking}
         </p>
       )}
       {check.state === "refused" && (
-        <div className="error" role="alert" data-testid="commit-refused">
-          <div>{T.confirmRefused}</div>
+        <Toast tone="error" title={T.confirmRefused} testId="commit-refused">
           <ul className="issues">
             {check.issues.map((i, n) => (
               <li key={`${i.code}-${n}`} data-code={i.code}>
@@ -108,8 +112,8 @@ export function CommitDialog({ manifest, formation, gaps, busy, check, names, on
               </li>
             ))}
           </ul>
-        </div>
+        </Toast>
       )}
-    </Modal>
+    </Sheet>
   );
 }

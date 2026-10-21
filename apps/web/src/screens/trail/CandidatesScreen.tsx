@@ -1,9 +1,10 @@
 /**
  * The candidates screen (chunk 08, fed by chunk 14): the three scoutable parties for the
- * next encounter. Each is shown IN FULL (ScoutPanel, open by default and ABOVE its "Face …"
- * button, QA N1) with its owner, Reputation band, gap from the caravan, the part of that
- * gap beyond the band searched, and the earn multiplier. How much of the menu is authored,
- * and whether it reached outside the band to fill, is said as the server reports it (B1).
+ * next encounter, each a wanted poster. Each is shown IN FULL (ScoutPanel, one tap under its
+ * summary and ABOVE its "Face …" button, QA N1) with its owner, Reputation band, gap from the
+ * caravan, the part of that gap beyond the band searched, and the earn multiplier (the bounty).
+ * How much of the menu is authored, and whether it reached outside the band to fill, is said as
+ * the server reports it (B1).
  *
  * The reroll is free and time-gated (GUARDRAILS §2; no Coin anywhere on this screen). Its
  * countdown never reads the device clock against server timestamps (QA S4): at receipt it
@@ -16,15 +17,25 @@
  * The server decides everything here — who is offered, whether a search is open, whether
  * a choice stands. The screen only renders the menu and relays the player's choice.
  */
+import { useState } from "react";
 import { ApiError } from "../../api/client.ts";
 import type { CaravanLoadoutView, CandidateMenuView, CandidateView } from "../../api/types.ts";
 import { monotonic, useAnchoredCountdown } from "../../shell/countdown.ts";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
 import { STRINGS } from "../../strings.ts";
+import { Button } from "../../ui/Button.tsx";
+import { Icon } from "../../ui/Icon.tsx";
+import { Medallion } from "../../ui/Medallion.tsx";
+import { Note } from "../../ui/Note.tsx";
+import { Pop } from "../../ui/Pop.tsx";
+import { Poster } from "../../ui/Poster.tsx";
+import { Sign } from "../../ui/Sign.tsx";
+import { Toast } from "../../ui/Toast.tsx";
 import { rangedCount } from "@caravan/circle";
 import { TUNABLES } from "@caravan/content";
 import { ScoutPanel } from "./ScoutPanel.tsx";
 import type { ScoutedParty } from "./scoutTypes.ts";
+import "./trail.css";
 
 const T = STRINGS.trail;
 
@@ -77,6 +88,48 @@ function ScoutSummary({ scout, index, loadout }: { scout: ScoutedParty; index: n
   );
 }
 
+const COMPASS = [
+  ["north", "n"],
+  ["east", "e"],
+  ["south", "s"],
+  ["west", "w"],
+] as const;
+
+/** Entry sides as counts on the rim; an open side reads 0 on a parchment pill. The words are in the summary beside it. */
+function Compass({ scout }: { scout: ScoutedParty }): JSX.Element {
+  const counts = COMPASS.map(([edge, key]) => ({ edge, key, n: scout.units.filter((u) => u.edge === edge).length }));
+  const approach = counts
+    .filter((c) => c.n > 0)
+    .map((c) => `${T.edgeName(c.edge)} ${c.n}`)
+    .join(", ");
+  return (
+    <span className="cv-compass cv-compass--sm" role="img" aria-label={T.candidateCompassLabel(approach)}>
+      {counts.map((c) => (
+        <span key={c.key} className={`cv-pill${c.n > 0 ? "" : " cv-pill--parch is-open"} cv-compass__edge cv-compass__edge--${c.key}`} aria-hidden="true">
+          {c.n}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** The encounter stops: those behind you nailed up and stamped Held, this one on a canvas note. */
+export function EncounterStops({ index }: { index: number }): JSX.Element {
+  return (
+    <div className="trail-stops" role="group" aria-label={T.stopsLabel}>
+      {Array.from({ length: index - 1 }, (_, i) => (
+        <span key={i} className="trail-stop">
+          <Sign variant="nailed">{T.encounter(i + 1)}</Sign>
+          <span className="trail-stamp">{T.stopHeld}</span>
+        </span>
+      ))}
+      <Note variant="canvas" nail="brass">
+        <h1 className="trail-stop__now">{T.encounter(index)}</h1>
+      </Note>
+    </div>
+  );
+}
+
 export interface CandidatesScreenProps {
   readonly encounterIndex: number;
   readonly menu: CandidateMenuView;
@@ -95,33 +148,45 @@ export function CandidateCard({ candidate, busy, onChoose, index, loadout = null
   const rep = candidate.reputation;
   const pct = Math.round((rep.sandbagEarnMultiplier * 100) / 1024);
   return (
-    <li className="candidate" data-testid={`candidate-${index}`} data-candidate-id={candidate.candidateId}>
-      <div className="card__head">
-        <span className="card__name">{T.candidateOwner(candidate.owner.displayName)}</span>
-        {candidate.owner.authored && <span className="hint">{T.candidateAuthored}</span>}
-      </div>
-      {candidate.owner.flavor && (
-        <p className="hint" data-testid={`candidate-flavor-${index}`}>
-          {candidate.owner.flavor}
+    <li data-testid={`candidate-${index}`} data-candidate-id={candidate.candidateId}>
+      <Poster
+        className="trail-poster"
+        kicker={T.wantedKicker}
+        title={T.candidateOwner(candidate.owner.displayName)}
+        plaque={candidate.owner.authored ? T.candidateAuthored : undefined}
+        bounty={T.candidateSandbag(pct)}
+      >
+        {candidate.owner.flavor && (
+          <p className="cv-poster__flavour cv-small" data-testid={`candidate-flavor-${index}`}>
+            {candidate.owner.flavor}
+          </p>
+        )}
+        <p className="cv-small trail-poster__line">
+          {T.candidateRating(rep.rating, rep.band.low, rep.band.high)} · {T.candidateGap(rep.gapFromCaravan)} · {T.candidateBeyondBand(rep.gapBeyondBand)}
         </p>
-      )}
-      <p className="card__line">
-        {T.candidateRating(rep.rating, rep.band.low, rep.band.high)} · {T.candidateGap(rep.gapFromCaravan)} · {T.candidateBeyondBand(rep.gapBeyondBand)} · {T.candidateSandbag(pct)}
-      </p>
-      <ScoutSummary scout={candidate.scout} index={index} loadout={loadout} />
-      {/* N5: the full report is collapsed under the summary: one tap away, nothing hidden. */}
-      <details className="scout-details">
-        <summary className="btn btn--block">{T.scoutFullReport}</summary>
-        <ScoutPanel scout={candidate.scout} idSuffix={`-${index}`} />
-      </details>
-      <button type="button" className="btn btn--primary btn--block" disabled={busy} onClick={() => onChoose(candidate)} data-testid={`choose-${index}`}>
-        {busy ? T.choosing : T.chooseButton(candidate.owner.displayName)}
-      </button>
+        <div className="trail-poster__body">
+          <Compass scout={candidate.scout} />
+          <div className="trail-poster__facts">
+            <ScoutSummary scout={candidate.scout} index={index} loadout={loadout} />
+          </div>
+        </div>
+        {/* N5: the full report is collapsed under the summary: one tap away, nothing hidden. */}
+        <details className="trail-poster__details">
+          <summary>{T.scoutFullReport}</summary>
+          <ScoutPanel scout={candidate.scout} idSuffix={`-${index}`} />
+        </details>
+        <div className="trail-poster__choose">
+          <Button variant="primary" block disabled={busy} onClick={() => onChoose(candidate)} testId={`choose-${index}`}>
+            {busy ? T.choosing : T.chooseButton(candidate.owner.displayName)}
+          </Button>
+        </div>
+      </Poster>
     </li>
   );
 }
 
 export function CandidatesScreen({ encounterIndex, menu, busy, error, onSearchAgain, onChoose, now = monotonic }: CandidatesScreenProps): JSX.Element {
+  const [infoOpen, setInfoOpen] = useState(false);
   const waitMs = menu.reroll.available ? 0 : Math.max(0, menu.reroll.availableAtMs - menu.searchedAtMs);
   const left = useAnchoredCountdown(menu, waitMs, now);
   const refusal = error?.code === "reroll_cooldown" ? error : null;
@@ -129,49 +194,58 @@ export function CandidatesScreen({ encounterIndex, menu, busy, error, onSearchAg
   const refusedLeft = useAnchoredCountdown(refusal, retryAfter * 1000, now);
   const canReroll = left === 0 && refusedLeft === 0 && !busy;
   const share = menu.authoredShare;
+  const wait = Math.max(left, refusedLeft);
   return (
-    <section data-testid="candidates-screen" data-encounter={encounterIndex}>
-      <h1>{T.encounter(encounterIndex)}</h1>
-      <h2>{T.candidatesHeading}</h2>
-      <p className="hint">{T.candidatesIntro}</p>
-      <p className="hint" data-testid="caravan-band">
-        {T.caravanBand(menu.caravan.rating, menu.caravan.band.low, menu.caravan.band.high)}
-      </p>
-      {/* N6: say where this search looked, relative to the caravan, not "within your band". */}
-      <p className="hint" data-testid="search-centre">
-        {T.searchCentre(menu.centre, menu.caravan.rating, encounterIndex)}
-        {menu.raiderCap ? ` ${T.raiderCap(menu.raiderCap.cap, menu.raiderCap.packedUnits, menu.raiderCap.relaxed)}` : ""}
-      </p>
-      <p className="hint">{T.menuMeta(menu.searchSeq, menu.centre, menu.bandWidthUsed)}</p>
-      {menu.widened && <p className="hint">{T.widened}</p>}
-      {menu.authoredOutsideBand && (
-        <p className="hint" data-testid="authored-outside-band">
-          {T.authoredFallback}
-        </p>
-      )}
-      {/* Final play-test review r3: an authored-only menu says why, never the live pool's 30 % share. */}
-      <p className="hint" data-testid="authored-share" data-authored-only={menu.authoredOnlyTrip === true ? "true" : "false"}>
-        {menu.authoredOnlyTrip === true ? T.authoredOnlyTrip(TUNABLES.AUTHORED_ONLY_UNTIL_BANKS) : T.authoredShare(share.authored, share.of, Math.round(share.maxShareBp / 100))}
-      </p>
-      {menu.authoredOnlyTrip !== true && menu.authoredServed?.weightedDown && <p className="hint">{T.authoredWeightedDown}</p>}
+    <section className="trail" data-testid="candidates-screen" data-encounter={encounterIndex}>
+      <EncounterStops index={encounterIndex} />
+      <h2 className="trail-h2">{T.candidatesHeading}</h2>
+      <Note>
+        <div className="trail-meta">
+          <p className="cv-small">{T.candidatesIntro}</p>
+          <p className="cv-small" data-testid="caravan-band">
+            {T.caravanBand(menu.caravan.rating, menu.caravan.band.low, menu.caravan.band.high)}
+          </p>
+          {/* N6: say where this search looked, relative to the caravan, not "within your band". */}
+          <p className="cv-small" data-testid="search-centre">
+            {T.searchCentre(menu.centre, menu.caravan.rating, encounterIndex)}
+            {menu.raiderCap ? ` ${T.raiderCap(menu.raiderCap.cap, menu.raiderCap.packedUnits, menu.raiderCap.relaxed)}` : ""}
+          </p>
+          {menu.widened && <p className="cv-small">{T.widened}</p>}
+          {menu.authoredOutsideBand && (
+            <p className="cv-small" data-testid="authored-outside-band">
+              {T.authoredFallback}
+            </p>
+          )}
+          {/* Final play-test review r3: an authored-only menu says why, never the live pool's 30 % share. */}
+          <p className="cv-small" data-testid="authored-share" data-authored-only={menu.authoredOnlyTrip === true ? "true" : "false"}>
+            {menu.authoredOnlyTrip === true ? T.authoredOnlyTrip(TUNABLES.AUTHORED_ONLY_UNTIL_BANKS) : T.authoredShare(share.authored, share.of, Math.round(share.maxShareBp / 100))}
+          </p>
+          {menu.authoredOnlyTrip !== true && menu.authoredServed?.weightedDown && <p className="cv-small">{T.authoredWeightedDown}</p>}
+          <div className="trail-meta__row">
+            <Medallion label={T.searchDetailLabel} icon="info" size="sm" pressed={infoOpen} onClick={() => setInfoOpen((o) => !o)} />
+          </div>
+          {infoOpen && (
+            <Pop tail="top" className="trail-pop">
+              {T.menuMeta(menu.searchSeq, menu.centre, menu.bandWidthUsed)}
+            </Pop>
+          )}
+        </div>
+      </Note>
 
-      <div className="actions">
-        <button type="button" className="btn" disabled={!canReroll} aria-disabled={!canReroll} onClick={onSearchAgain} data-testid="reroll" data-seconds-left={Math.max(left, refusedLeft)}>
-          {busy ? T.searching : Math.max(left, refusedLeft) > 0 ? T.rerollIn(Math.max(left, refusedLeft)) : T.rerollButton}
-        </button>
-      </div>
+      <button type="button" className={`cv-btn cv-btn--secondary cv-btn--block${canReroll ? "" : " is-disabled"}`} disabled={!canReroll} aria-disabled={!canReroll} onClick={onSearchAgain} data-testid="reroll" data-seconds-left={wait}>
+        <Icon name="hourglass" off={!canReroll} />
+        <span>{busy ? T.searching : wait > 0 ? T.rerollIn(wait) : T.rerollButton}</span>
+      </button>
 
       {refusal ? (
-        <div className="error" role="alert" data-testid="reroll-refused">
-          <div>{refusal.message}</div>
-          <div>{T.rerollRefused(refusedLeft)}</div>
-          <div className="error__code">{refusal.code}</div>
-        </div>
+        <Toast tone="error" testId="reroll-refused">
+          <span>{refusal.message}</span> <span>{T.rerollRefused(refusedLeft)}</span> <code className="cv-small">{refusal.code}</code>
+        </Toast>
       ) : (
         error && <ErrorBox error={error} />
       )}
 
-      <ul className="cards" aria-label={T.candidatesHeading} data-testid="candidate-list">
+      <ul className="trail-posters" aria-label={T.candidatesHeading} data-testid="candidate-list">
         {menu.candidates.map((c, i) => (
           <CandidateCard key={c.candidateId} candidate={c} busy={busy} onChoose={onChoose} index={i} loadout={menu.caravanLoadout ?? null} />
         ))}

@@ -16,10 +16,12 @@ import { rangedCount } from "@caravan/circle";
 import { getFenceTier, getTrapType } from "@caravan/content";
 import { memo } from "react";
 import { STRINGS } from "../../strings.ts";
+import { Note } from "../../ui/Note.tsx";
 import { fixedToText } from "../webs/catalogue.ts";
 import { AffinityIcon } from "../webs/AffinityIcon.tsx";
 import type { ScoutedParty } from "./scoutTypes.ts";
 import { attackerCard, type UnitCard } from "./stats.ts";
+import "./trail.css";
 
 const T = STRINGS.trail;
 const EDGES = ["north", "east", "south", "west"] as const;
@@ -84,11 +86,11 @@ export const ScoutPanel = memo(function ScoutPanel({ scout, source = "matchmakin
   const headingId = `scout-heading${idSuffix}`;
   const typeName = (id: string): string => getFenceTier(id)?.displayName ?? getTrapType(id)?.displayName ?? id;
   return (
-    <section className="scout" aria-labelledby={headingId} data-testid={`scout-panel${idSuffix}`}>
-      <h2 id={headingId}>{T.scoutHeading}</h2>
-      <p className="hint">{T.scoutIntro}</p>
+    <section className="scout trail-scout" aria-labelledby={headingId} data-testid={`scout-panel${idSuffix}`}>
+      <h2 id={headingId} className="trail-h2">{T.scoutHeading}</h2>
+      <p className="cv-small">{T.scoutIntro}</p>
       {source === "fixture" && (
-        <p className="hint" data-testid="scout-fixture-hint">
+        <p className="cv-small" data-testid="scout-fixture-hint">
           {T.scoutFixture}
         </p>
       )}
@@ -99,12 +101,12 @@ export const ScoutPanel = memo(function ScoutPanel({ scout, source = "matchmakin
       <p data-testid={`scout-panel-ranged${idSuffix}`}>
         {T.summaryRangedLabel}: {T.summaryRanged(rangedCount(scout).ranged, scout.units.length)}
       </p>
-      <p className="hint">
+      <p className="cv-small">
         {T.unitSlots(scout.unitSlots.used, scout.unitSlots.cap)} · {T.siegeSlots(scout.siegeSlots.used, scout.siegeSlots.cap)}
       </p>
 
-      <h3 className="h3">{T.scoutApproach}</h3>
-      <ul className="plain" data-testid={`scout-approach${idSuffix}`}>
+      <h3 className="trail-h2">{T.scoutApproach}</h3>
+      <ul className="trail-list" data-testid={`scout-approach${idSuffix}`}>
         {EDGES.map((edge) => {
           const n = scout.units.filter((u) => u.edge === edge).length;
           return (
@@ -115,48 +117,52 @@ export const ScoutPanel = memo(function ScoutPanel({ scout, source = "matchmakin
         })}
       </ul>
 
-      <ul className="cards" aria-label={T.scoutUnits(scout.units.length)}>
+      <ul className="trail-list" aria-label={T.scoutUnits(scout.units.length)}>
         {cards.map(({ unit, card }) => (
           <li
             key={unit.ref}
-            className={`card card--attacker${selectedRef === unit.ref ? " card--selected" : ""}`}
+            className={`trail-unit${selectedRef === unit.ref ? " is-selected" : ""}`}
             data-testid={`scout-unit-${unit.ref}${idSuffix}`}
             data-selected={selectedRef === unit.ref ? "true" : "false"}
             tabIndex={-1}
           >
-            <div className="card__head">
-              <span className="card__name">{card.displayName}</span>
+            <Note variant="shade">
+            <div className="trail-unit__head">
+              <span className="cv-label">{card.displayName}</span>
               <AffinityIcon affinity={card.affinity} />
             </div>
-            <p className="hint">
+            <p className="cv-small">
               {T.mergeLevel(unit.mergeLevel)} · {T.hpOf(unit.hp, unit.hp)}
             </p>
-            <p className="card__line">{T.attackerStance(unit.stance)}</p>
-            <p className="card__line">{T.startsAt(T.edgeName(unit.edge), unit.cell.x, unit.cell.y)}</p>
+            <p className="cv-small">{T.attackerStance(unit.stance)}</p>
+            <p className="cv-small">{T.startsAt(T.edgeName(unit.edge), unit.cell.x, unit.cell.y)}</p>
             <UnitStatBlock card={card} />
+            </Note>
           </li>
         ))}
       </ul>
 
-      <h3 className="h3">{T.scoutSiege(scout.siege.length)}</h3>
+      <h3 className="trail-h2">{T.scoutSiege(scout.siege.length)}</h3>
       {scout.siege.length === 0 ? (
-        <p className="hint">{T.scoutNoSiege}</p>
+        <p className="cv-small">{T.scoutNoSiege}</p>
       ) : (
-        <ul className="cards" aria-label={T.scoutSiege(scout.siege.length)}>
+        <ul className="trail-list" aria-label={T.scoutSiege(scout.siege.length)}>
           {scout.siege.map((s) => (
-            <li key={s.typeId} className="card card--siege" data-testid={`scout-siege-${s.typeId}${idSuffix}`}>
-              <div className="card__head">
-                <span className="card__name">{s.displayName}</span>
+            <li key={s.typeId} className="trail-unit" data-testid={`scout-siege-${s.typeId}${idSuffix}`}>
+              <Note variant="shade">
+              <div className="trail-unit__head">
+                <span className="cv-label">{s.displayName}</span>
               </div>
-              <p className="card__line">{T.siegeCounters(s.counters.category, s.counters.kind === "fence" ? T.siegeKindFence : T.siegeKindTrap)}</p>
-              <p className="card__line">
+              <p className="cv-small">{T.siegeCounters(s.counters.category, s.counters.kind === "fence" ? T.siegeKindFence : T.siegeKindTrap)}</p>
+              <p className="cv-small">
                 {T.siegeEffect(s.effect)}
                 {s.fenceDamageMult !== null ? ` · ${T.siegeMult(fixedToText(s.fenceDamageMult))}` : ""}
               </p>
-              <p className="hint">{T.siegeTargets(s.targetTypeIds.map(typeName).join(", "))}</p>
+              <p className="cv-small">{T.siegeTargets(s.targetTypeIds.map(typeName).join(", "))}</p>
+              </Note>
             </li>
           ))}
-          <li className="hint">{T.siegeTrapNote}</li>
+          <li className="cv-small">{T.siegeTrapNote}</li>
         </ul>
       )}
     </section>

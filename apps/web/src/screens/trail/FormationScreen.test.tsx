@@ -8,6 +8,7 @@ import { ApiError, BAD_PAYLOAD, type Api } from "../../api/client.ts";
 import type { ManifestView } from "../../api/types.ts";
 import type { IsoCanvasProps } from "../../iso/index.ts";
 import { survivorsManifest } from "../../test/circleFixtures.ts";
+import { confirmHold } from "../../test/confirmHold.ts";
 import { formationIfAnyVia } from "../../test/townFixtures.ts";
 import { STRINGS } from "../../strings.ts";
 import { FormationScreen, clearLocalDrafts } from "./FormationScreen.tsx";
@@ -554,7 +555,7 @@ describe("FormationScreen", () => {
 
     await user.click(opener);
     await waitFor(() => expect(screen.getByTestId("commit-confirm")).toBeEnabled());
-    await user.click(screen.getByTestId("commit-confirm"));
+    await confirmHold(user, "commit-confirm");
     const notice = await screen.findByTestId("committed-notice");
     expect(saveFormation).toHaveBeenCalledTimes(1);
     expect(commitEncounter).toHaveBeenCalledWith("c1", 3);
@@ -582,7 +583,7 @@ describe("FormationScreen", () => {
     await user.click(screen.getByText("tap-12-12"));
     await user.click(screen.getByTestId("commit-open"));
     await waitFor(() => expect(screen.getByTestId("commit-confirm")).toBeEnabled());
-    await user.click(screen.getByTestId("commit-confirm"));
+    await confirmHold(user, "commit-confirm");
     await waitFor(() => expect(onCommitted).toHaveBeenCalledTimes(1));
     expect(commitEncounter).toHaveBeenCalledWith("c1", 3);
     expect(screen.queryByRole("alert")).toBeNull();

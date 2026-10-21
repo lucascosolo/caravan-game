@@ -1,0 +1,38 @@
+.fm { display: flex; flex-direction: column; gap: 10px; }
+.fm > * { min-width: 0; }
+.fm h1, .fm h2, .fm h3, .fm p, .fm ul { margin: 0; }
+.fm-title { display: flex; justify-content: center; }
+
+.fm-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.fm-poster { flex: 0 1 62%; padding: 14px 12px 12px; gap: 4px; }
+.fm-poster .cv-poster__title { font-size: var(--type-label); padding-bottom: 2px; overflow-wrap: anywhere; }
+.fm-poster .cv-small { text-align: center; }
+.fm-top .cv-compass { margin: 8px 18px 0 0; }
+
+.fm-toggles { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.fm-hints { display: flex; flex-direction: column; gap: 14px; }
+.fm-hints .cv-pop { max-width: none; width: 100%; box-sizing: border-box; }
+.fm-leftout { align-self: stretch; }
+.fm-leftout ul { padding-left: 1.1rem; }
+
+.fm-selpop { display: flex; max-width: none; width: 100%; box-sizing: border-box; }
+.fm-selpop > span { flex: 1; min-width: 0; }
+.fm-selpop__body { display: flex; flex-direction: column; gap: 8px; }
+.fm-selpop .card__head { display: flex; align-items: center; gap: 8px; }
+.fm-selpop .card__name { font-family: var(--font-display); font-size: var(--type-label); text-transform: uppercase; letter-spacing: var(--px); }
+.fm-stances { display: flex; flex-direction: column; gap: 6px; }
+.fm-stances__row { display: flex; justify-content: center; gap: 18px; flex-wrap: wrap; padding-bottom: 4px; }
+.fm-pair { display: flex; flex-wrap: wrap; gap: 8px; }
+.fm-pair > * { flex: 1 1 auto; }
+
+.fm-slots { display: flex; flex-wrap: wrap; gap: 2px; }
+.fm-discs { padding-left: 0; padding-right: 0; }
+.fm-arrange .cv-pop { max-width: none; width: 100%; box-sizing: border-box; }
+.fm-arrange__body { display: flex; flex-direction: column; gap: 8px; }
+.fm-arrange__sides { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+.fm-scoutsum { display: flex; cursor: pointer; list-style: none; }
+.fm-scoutsum::-webkit-details-marker { display: none; }
+.fm-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.fm-actions > * { flex: 1 1 auto; }
+.fm-shelf { position: sticky; bottom: var(--shelf-bottom, 8px); z-index: 4; padding: 0; }

@@ -1,11 +1,15 @@
 /**
- * The selected placed thing (chunk 08): its full stat block, and for a post the stance
- * picker — three 44px buttons (guard / hold / reserve, QA D1) with what each means and
- * the radii legend — plus "take back". Tapping a placed fence shows its HP and tier.
+ * The selected placed thing (chunk 08): a pop-up pointing at the canvas with its full stat
+ * block, and for a post the stance picker — three medallions (guard / hold / reserve, QA D1;
+ * pressed = current) with the one-line meaning and the radii legend — plus "take back".
+ * Tapping a placed fence shows its HP and tier.
  */
 import { getFenceTier, getTrapType } from "@caravan/content";
 import { DEFENSIVE_STANCES, ringSegment, type DefensiveStance, type Formation, type Manifest } from "@caravan/circle";
 import { STRINGS } from "../../strings.ts";
+import { Button } from "../../ui/Button.tsx";
+import { Icon, cx } from "../../ui/Icon.tsx";
+import { Pop } from "../../ui/Pop.tsx";
 import { AffinityIcon } from "../webs/AffinityIcon.tsx";
 import { kindOfRef, segmentNumber } from "./placement.ts";
 import { UnitStatBlock } from "./ScoutPanel.tsx";
@@ -39,31 +43,36 @@ export function SelectionPanel({ manifest, formation, selectedRef, locked, onSta
           <span className="card__name">{c?.displayName ?? T.unknownThing}</span>
           {c && <AffinityIcon affinity={c.affinity} />}
         </div>
-        <p className="hint">
+        <p className="cv-small">
           {T.mergeLevel(u.mergeLevel)} · {T.hpOf(u.hp, u.maxHp)} · {post ? T.posted(post.cell.x, post.cell.y) : T.notPlaced}
         </p>
         {c && <UnitStatBlock card={c} />}
         {post && (
-          <fieldset className="stances" data-testid="stance-picker">
-            <legend className="h3">{T.stanceHeading}</legend>
-            <div className="stances__row" role="radiogroup" aria-label={T.stanceHeading}>
+          <div className="fm-stances" data-testid="stance-picker">
+            <span className="cv-label">{T.stanceHeading}</span>
+            <div className="fm-stances__row" role="radiogroup" aria-label={T.stanceHeading}>
               {DEFENSIVE_STANCES.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  role="radio"
-                  aria-checked={post.stance === s}
-                  className={`btn stances__btn${post.stance === s ? " stances__btn--on" : ""}`}
-                  disabled={locked}
-                  onClick={() => onStance(selectedRef, s)}
-                >
-                  {T.stanceName(s)}
-                </button>
+                <span key={s} className={cx("cv-medlab", post.stance === s && "is-on")}>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={post.stance === s}
+                    aria-label={T.stanceName(s)}
+                    className={cx("cv-medal", post.stance === s && "is-on")}
+                    disabled={locked}
+                    onClick={() => onStance(selectedRef, s)}
+                  >
+                    <Icon name={`stance-${s}`} off={locked} />
+                  </button>
+                  <span className="cv-medlab__word" aria-hidden="true">
+                    {T.stanceName(s)}
+                  </span>
+                </span>
               ))}
             </div>
-            <p className="hint">{T.stanceDesc(post.stance)}</p>
-            <p className="hint">{T.radiiLegend}</p>
-          </fieldset>
+            <p className="cv-small">{T.stanceDesc(post.stance)}</p>
+            <p className="cv-small">{T.radiiLegend}</p>
+          </div>
         )}
       </>
     );
@@ -78,7 +87,7 @@ export function SelectionPanel({ manifest, formation, selectedRef, locked, onSta
           <span className="card__name">{type?.displayName ?? T.unknownThing}</span>
           {type && <AffinityIcon affinity={type.affinity} />}
         </div>
-        <p className="hint">{t.spent ? T.trapSpent : laid ? `${T.trapSingleUse} ${T.laid(laid.cell.x, laid.cell.y)}` : `${T.trapSingleUse} ${T.notPlaced}`}</p>
+        <p className="cv-small">{t.spent ? T.trapSpent : laid ? `${T.trapSingleUse} ${T.laid(laid.cell.x, laid.cell.y)}` : `${T.trapSingleUse} ${T.notPlaced}`}</p>
         {type && (
           <dl className="statlist statlist--compact">
             <dt>{STRINGS.webs.stat.category}</dt>
@@ -99,7 +108,7 @@ export function SelectionPanel({ manifest, formation, selectedRef, locked, onSta
         <div className="card__head">
           <span className="card__name">{tier?.displayName ?? T.unknownThing}</span>
         </div>
-        <p className="hint">
+        <p className="cv-small">
           {T.fenceSegment(segmentNumber(manifest, f.ref), f.hp, f.maxHp)}
           {on ? ` · ${T.ringPosition(on.segment, T.edgeName(ringSegment(on.segment).edge))}` : ` · ${T.notPlaced}`}
         </p>
@@ -115,23 +124,25 @@ export function SelectionPanel({ manifest, formation, selectedRef, locked, onSta
     );
   }
   return (
-    <section className="selection" aria-labelledby="selection-heading" data-testid="selection-panel">
-      <div className="sheet__head">
-        <h2 id="selection-heading" style={{ margin: 0 }}>
-          {T.selectedHeading}
-        </h2>
-        <div className="row">
-          {placed && !locked && (
-            <button type="button" className="btn" onClick={() => onRemove(selectedRef)} data-testid="selection-remove">
-              {T.remove}
-            </button>
-          )}
-          <button type="button" className="btn" onClick={onClose}>
-            {T.deselect}
-          </button>
+    <section className="fm-selection" aria-labelledby="selection-heading" data-testid="selection-panel">
+      <h2 id="selection-heading" className="cv-sr">
+        {T.selectedHeading}
+      </h2>
+      <Pop tail="top" className="fm-selpop">
+        <div className="fm-selpop__body">
+          {body}
+          <div className="fm-pair">
+            {placed && !locked && (
+              <Button icon="minus" onClick={() => onRemove(selectedRef)} testId="selection-remove">
+                {T.remove}
+              </Button>
+            )}
+            <Button variant="tertiary" onClick={onClose}>
+              {T.deselect}
+            </Button>
+          </div>
         </div>
-      </div>
-      {body}
+      </Pop>
     </section>
   );
 }

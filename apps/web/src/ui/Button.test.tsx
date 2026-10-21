@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STRINGS } from "../strings.ts";
 import { Button, CommitBanner } from "./Button.tsx";
@@ -105,5 +105,58 @@ describe("Button hold", () => {
     fireEvent.keyUp(b, { key: "Enter" });
     act(() => { vi.advanceTimersByTime(2000); });
     expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("a plain click opens an in-place confirm row; its confirm calls onClick once and closes it", () => {
+    const fn = vi.fn();
+    render(<Button hold testId="sell" onClick={fn}>Sell</Button>);
+    expect(screen.queryByRole("group")).toBeNull();
+    fireEvent.click(screen.getByTestId("sell"));
+    expect(fn).not.toHaveBeenCalled();
+    const row = screen.getByRole("group", { name: STRINGS.ui.holdTap });
+    expect(within(row).getByTestId("sell-tap-cancel")).toHaveTextContent(STRINGS.ui.holdCancel);
+    expect(within(row).getByTestId("sell-tap")).toHaveTextContent("Sell");
+    expect(screen.getByTestId("sell-tap")).toHaveFocus();
+    fireEvent.click(screen.getByTestId("sell-tap"));
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("group")).toBeNull();
+  });
+  it("cancel closes the confirm row without firing", () => {
+    const fn = vi.fn();
+    render(<Button hold testId="sell" onClick={fn}>Sell</Button>);
+    fireEvent.click(screen.getByTestId("sell"));
+    fireEvent.click(screen.getByTestId("sell-tap-cancel"));
+    expect(screen.queryByRole("group")).toBeNull();
+    expect(fn).not.toHaveBeenCalled();
+  });
+  it("the click after a completed pointer hold fires once and does not open the row", () => {
+    const fn = vi.fn();
+    render(<Button hold testId="sell" onClick={fn}>Sell</Button>);
+    const b = screen.getByTestId("sell");
+    fireEvent.pointerDown(b);
+    act(() => { vi.advanceTimersByTime(700); });
+    expect(fn).toHaveBeenCalledTimes(1);
+    fireEvent.pointerUp(b);
+    fireEvent.click(b);
+    expect(screen.queryByRole("group")).toBeNull();
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+  it("disabled and busy hold buttons never show the confirm row", () => {
+    const fn = vi.fn();
+    const { rerender } = render(<Button hold disabled testId="sell" onClick={fn}>Sell</Button>);
+    fireEvent.click(screen.getByTestId("sell"));
+    expect(screen.queryByRole("group")).toBeNull();
+    rerender(<Button hold busy testId="sell" onClick={fn}>Sell</Button>);
+    fireEvent.click(screen.getByTestId("sell"));
+    expect(screen.queryByRole("group")).toBeNull();
+    expect(fn).not.toHaveBeenCalled();
+  });
+  it("an open confirm row closes when the button becomes disabled", () => {
+    const fn = vi.fn();
+    const { rerender } = render(<Button hold testId="sell" onClick={fn}>Sell</Button>);
+    fireEvent.click(screen.getByTestId("sell"));
+    expect(screen.getByRole("group")).toBeInTheDocument();
+    rerender(<Button hold busy testId="sell" onClick={fn}>Sell</Button>);
+    expect(screen.queryByRole("group")).toBeNull();
   });
 });

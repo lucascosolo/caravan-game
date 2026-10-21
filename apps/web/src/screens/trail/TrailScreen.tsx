@@ -29,10 +29,13 @@ import type { Api } from "../../api/client.ts";
 import { STRINGS } from "../../strings.ts";
 import { navigate } from "../../shell/router.tsx";
 import { BankOrPushScreen, type Decided } from "./BankOrPushScreen.tsx";
-import { CandidatesScreen } from "./CandidatesScreen.tsx";
+import { CandidatesScreen, EncounterStops } from "./CandidatesScreen.tsx";
 import { EncounterResult } from "./EncounterResult.tsx";
 import { RecentFights } from "../replay/RecentFights.tsx";
 import { ErrorBox } from "../../shell/ErrorBox.tsx";
+import { Button, CommitBanner } from "../../ui/Button.tsx";
+import { Note } from "../../ui/Note.tsx";
+import { Sign } from "../../ui/Sign.tsx";
 import { FormationScreen } from "./FormationScreen.tsx";
 import { ResolvingScreen } from "./ResolvingScreen.tsx";
 import { rememberCommitted, takeCommitted } from "./committedFight.ts";
@@ -42,6 +45,7 @@ import { useOnboarding } from "../../onboarding/OnboardingProvider.tsx";
 import type { FormationGuideContext } from "./FormationScreen.tsx";
 import { ArrangeGuide, FreeGuide, ResultGuide, ScoutGuide, SearchGuide, showsAt, stepForMoment, type TrailMoment } from "../../onboarding/TrailGuide.tsx";
 import { AssistAdvice, AssistArrange } from "../../onboarding/AssistGuide.tsx";
+import "./trail.css";
 
 const T = STRINGS.trail;
 const P = STRINGS.trip;
@@ -297,40 +301,52 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
   const guiding = showsAt(guideStep, moment);
   const isFirst = "encounterIndex" in moment && moment.encounterIndex <= 1;
 
-  const title = <h1>{T.title}</h1>;
+  const title = (
+    <h1>
+      <Sign variant="title">{T.title}</Sign>
+    </h1>
+  );
   const noticeLine = notice && (
-    <p className="notice" role="status" data-testid="trail-notice">
-      {notice}
-    </p>
+    <div role="status" data-testid="trail-notice">
+      <Note variant="canvas" nail="brass">
+        <p className="cv-small">{notice}</p>
+      </Note>
+    </div>
   );
   switch (state.kind) {
     case "loading":
       return (
-        <section>
+        <section className="trail">
           {title}
-          <p className="hint" role="status">
-            {STRINGS.app.loading}
-          </p>
+          <div role="status">
+            <Note>
+              <p className="cv-small">{STRINGS.app.loading}</p>
+            </Note>
+          </div>
         </section>
       );
     case "in_town":
       return (
-        <section data-testid="trail-in-town">
+        <section className="trail" data-testid="trail-in-town">
           {title}
-          <p>{T.inTown}</p>
-          <p className="hint">{T.inTownBody}</p>
+          <Note>
+            <p>{T.inTown}</p>
+            <p className="cv-small">{T.inTownBody}</p>
+          </Note>
           <RecentFights api={api} />
         </section>
       );
     case "packed":
       return (
-        <section data-testid="trail-no-trip">
+        <section className="trail" data-testid="trail-no-trip">
           {title}
-          <p>{T.noTrip}</p>
-          <p className="hint">{T.noTripBody}</p>
-          <button type="button" className="btn btn--primary btn--block" onClick={() => navigate("town")}>
+          <Note>
+            <p>{T.noTrip}</p>
+            <p className="cv-small">{T.noTripBody}</p>
+          </Note>
+          <CommitBanner icon="wheel" onClick={() => navigate("town")}>
             {P.toTown}
-          </button>
+          </CommitBanner>
           <RecentFights api={api} />
         </section>
       );
@@ -345,29 +361,33 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
       );
     case "error":
       return (
-        <section>
+        <section className="trail">
           {title}
           <ErrorBox error={state.error} heading={T.loadFailed} onRetry={() => void load()} />
         </section>
       );
     case "unsearched":
       return (
-        <section data-testid="trail-unsearched" data-encounter={state.encounterIndex}>
-          <h1>{T.encounter(state.encounterIndex)}</h1>
+        <section className="trail" data-testid="trail-unsearched" data-encounter={state.encounterIndex}>
+          <EncounterStops index={state.encounterIndex} />
           {noticeLine}
           {guiding && (isFirst ? <SearchGuide /> : <FreeGuide />)}
-          <h2>{T.candidatesHeading}</h2>
-          <p className="hint">{T.candidatesIntro}</p>
+          <h2 className="trail-h2">{T.candidatesHeading}</h2>
+          <Note>
+            <p className="cv-small">{T.candidatesIntro}</p>
+          </Note>
           {actionError && actionError.code !== "pool_empty" && <ErrorBox error={actionError} />}
-          <button type="button" className="btn btn--primary btn--block" disabled={busy} onClick={() => void search(state.caravanId, state.encounterIndex)} data-testid="search">
+          <CommitBanner icon="compass" disabled={busy} onClick={() => void search(state.caravanId, state.encounterIndex)} testId="search">
             {busy ? T.searching : T.searchButton}
-          </button>
+          </CommitBanner>
           {actionError?.code === "pool_empty" && (
-            <div className="notice" role="alert" data-testid="pool-empty">
-              <p>{T.returnToTownBody}</p>
-              <button type="button" className="btn btn--block" disabled={busy} onClick={() => void returnToTown(state.caravanId, state.encounterIndex)} data-testid="return-to-town">
-                {busy ? T.returningToTown : T.returnToTown}
-              </button>
+            <div role="alert" data-testid="pool-empty">
+              <Note variant="canvas">
+                <p>{T.returnToTownBody}</p>
+                <Button block disabled={busy} onClick={() => void returnToTown(state.caravanId, state.encounterIndex)} testId="return-to-town">
+                  {busy ? T.returningToTown : T.returnToTown}
+                </Button>
+              </Note>
             </div>
           )}
         </section>
@@ -395,12 +415,14 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
           {/* Round 3: the guided steps also come at every later guided encounter (below the circle); this card says so. */}
           {guiding && !isFirst && <FreeGuide />}
           {state.initial?.committedAt && (
-            <div className="notice" data-testid="committed-unsent">
-              <p>{P.committedUnsent}</p>
-              {actionError && <ErrorBox error={actionError} />}
-              <button type="button" className="btn btn--primary btn--block" disabled={busy} onClick={() => void sendToFight(state.caravanId, state.encounterIndex)} data-testid="send-to-fight">
-                {busy ? P.sending : P.sendToFight}
-              </button>
+            <div data-testid="committed-unsent">
+              <Note variant="canvas" nail="brass">
+                <p>{P.committedUnsent}</p>
+                {actionError && <ErrorBox error={actionError} />}
+                <CommitBanner icon="wheel" disabled={busy} onClick={() => void sendToFight(state.caravanId, state.encounterIndex)} testId="send-to-fight">
+                  {busy ? P.sending : P.sendToFight}
+                </CommitBanner>
+              </Note>
             </div>
           )}
           <FormationScreen
@@ -441,12 +463,16 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
       );
     case "unavailable":
       return (
-        <section data-testid="resolution-unavailable">
-          <h1>{P.unavailableTitle(state.encounterIndex)}</h1>
-          <p>{P.unavailableBody}</p>
-          <button type="button" className="btn btn--block" onClick={() => void load()}>
+        <section className="trail" data-testid="resolution-unavailable">
+          <h1>
+            <Sign variant="title">{P.unavailableTitle(state.encounterIndex)}</Sign>
+          </h1>
+          <Note>
+            <p>{P.unavailableBody}</p>
+          </Note>
+          <Button block onClick={() => void load()}>
             {STRINGS.app.retry}
-          </button>
+          </Button>
         </section>
       );
     case "decide":
@@ -456,16 +482,14 @@ export function TrailScreen(props: TrailScreenProps = {}): JSX.Element {
         <BankOrPushScreen api={api} caravanId={state.caravanId} tripId={state.tripId} encounterIndex={state.encounter.index} onDecided={decided} onStale={stale} />
         </>
       ) : (
-        <section data-testid="encounter-results">
-          <h1>{T.encounter(state.encounter.index)}</h1>
+        <section className="trail" data-testid="encounter-results">
+          <EncounterStops index={state.encounter.index} />
           {noticeLine}
           {guiding && <ResultGuide encounter={state.encounter} deciding={false} />}
           <EncounterResult encounter={state.encounter} autoplay={state.autoplay} />
-          <div className="actions">
-            <button type="button" className="btn btn--primary btn--block" onClick={() => setDeciding(true)} data-testid="to-decision">
-              {P.toDecision}
-            </button>
-          </div>
+          <CommitBanner icon="wheel" onClick={() => setDeciding(true)} testId="to-decision">
+            {P.toDecision}
+          </CommitBanner>
         </section>
       );
   }

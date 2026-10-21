@@ -258,6 +258,11 @@ export const STRINGS = {
     summarySiegeVsYours: (n: number, kind: string): string =>
       n === 0 ? `— none of your packed ${kind === "fence" ? "fence" : "traps"} is of that kind` : `— counters ${n} of your packed ${kind === "fence" ? `fence segment${n === 1 ? "" : "s"}` : `trap${n === 1 ? "" : "s"}`}`,
     scoutFullReport: "Full scouting report",
+    wantedKicker: "Wanted",
+    stopHeld: "Held",
+    stopsLabel: "Encounters on this trip",
+    candidateCompassLabel: (approach: string): string => `Comes from: ${approach || "no side"}`,
+    searchDetailLabel: "How this search was drawn",
     /** S1: the cold-start raider cap (a caravan rebuilding a small roster; r2 D1). */
     raiderCap: (cap: number, packed: number, relaxed: boolean): string =>
       relaxed
@@ -455,6 +460,15 @@ export const STRINGS = {
     issueAbout: (name: string): string => `${name}:`,
     // autosave
     autosaved: "Draft saved automatically.",
+    posterKicker: "Wanted",
+    compassLabel: "Where they come from",
+    compassEdge: (edge: string, n: number): string => `${edge}: ${n} raider${n === 1 ? "" : "s"}`,
+    trayFenceWord: "Fence",
+    trayTrapsWord: "Traps",
+    trayPostsWord: "Posts",
+    trayDisc: (word: string, have: number, of: number): string => `${word}: ${have} of ${of}`,
+    arrangeCaption: "Arrange",
+    arrangeLabel: "Arrange for me",
     autosavePending: "Not saved yet: the server needs every living unit posted before it keeps a draft. Your arrangement is kept on this device while you switch tabs.",
     // actions
     clear: "Clear the ground",
@@ -465,10 +479,10 @@ export const STRINGS = {
     saveDraft: "Save draft",
     saving: "Saving…",
     saved: "Draft saved.",
-    commit: "Commit this arrangement",
+    commit: "Circle the wagons",
     committing: "Committing…",
     committedAt: (when: string): string => `Committed ${when}. Frozen for this encounter: this is what will stand when the party arrives.`,
-    confirmTitle: "Commit the arrangement?",
+    confirmTitle: "Circle the wagons?",
     confirmIntro: "Once committed it cannot change. This is what will stand when the party arrives:",
     confirmFences: (n: number, runs: string): string => `${n} fence segment${n === 1 ? "" : "s"} on ring positions ${runs}`,
     confirmFencesNone: "No fence placed.",
@@ -481,7 +495,7 @@ export const STRINGS = {
     confirmFenceLeft: (n: number): string => `${n} fence segment${n === 1 ? "" : "s"} left in the wagon`,
     confirmChecking: "Checking the arrangement with the server…",
     confirmRefused: "The server will not take this arrangement yet:",
-    confirmYes: "Commit",
+    confirmYes: "Hold: circle the wagons",
     confirmNo: "Keep arranging",
     kindFence: "Fence",
     kindTrap: "Trap",
@@ -506,6 +520,7 @@ export const STRINGS = {
     rideOutTitle: "Ride out now?",
     rideOutBody: (available: number, cap: number): string => `This uses 1 of your ${available} available trip${available === 1 ? "" : "s"} (of ${cap}). The packed caravan is all that is at risk; the town, its roster and your banked Coin are never attacked.`,
     rideOutYes: "Ride out",
+    rideOutHold: "Hold: ride out",
     rideOutNo: "Not yet",
     rideOutCapRefused: (mmss: string): string => `No trip is available right now. The next one returns in ${mmss}; the caravan stays packed until then.`,
     rideOutCapBack: "A trip has returned: you can ride out now.",

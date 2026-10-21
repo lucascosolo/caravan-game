@@ -195,6 +195,7 @@ test("search, scout three candidates, choose, drag a fence and a post, set a sta
   await expect(dialog).toContainText("2 units posted");
   await expect(dialog).toContainText("Hold");
   await page.getByTestId("commit-confirm").click();
+  await page.getByTestId("commit-confirm-tap").click();
   // Chunk 23: the commit goes through the trip loop (frozen + queued); the Trail moves on to the
   // fight, which the e2e server resolves with chunk 15's test double (CARAVAN_TEST_RESOLVER).
   await expect(page.getByTestId("resolving-screen").or(page.getByTestId("encounter-results"))).toBeVisible({ timeout: 15_000 });

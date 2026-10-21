@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, type Api } from "../../api/client.ts";
 import type { IsoCanvasProps } from "../../iso/index.ts";
 import { ACCOUNT_ID, CARAVAN_ID, economyView, fakeApi, meWith, mergePreview, recruitView, refugeeView, uid, type FixtureUnit } from "../../test/townFixtures.ts";
+import { confirmHold } from "../../test/confirmHold.ts";
 import { capRefused, statusArranging, statusPacked, statusResolving, withCap } from "../../test/tripFixtures.ts";
 import { RefugeePanel } from "./RefugeePanel.tsx";
 import { RideOutPanel } from "./RideOutPanel.tsx";
@@ -485,7 +486,7 @@ describe("Town: the caravan's state from the trip loop, the trip cap and riding 
     const dialog = screen.getByRole("dialog", { name: "Ride out now?" });
     expect(dialog).toHaveTextContent("This uses 1 of your 3 available trips (of 3).");
     expect(startTrip).not.toHaveBeenCalled();
-    await user.click(within(dialog).getByTestId("ride-out-confirm"));
+    await confirmHold(user, "ride-out-confirm", within(dialog));
     expect(startTrip).toHaveBeenCalledWith(CARAVAN_ID);
     await waitFor(() => expect(window.location.hash).toBe("#/trail"));
     window.location.hash = "";
@@ -537,7 +538,7 @@ describe("RideOutPanel (chunk 23)", () => {
     });
     render(<RideOutPanel api={fakeApi({ startTrip })} caravanId={CARAVAN_ID} status={statusPacked()} onStarted={() => {}} />);
     await user.click(screen.getByTestId("ride-out-open-confirm"));
-    await user.click(screen.getByTestId("ride-out-confirm"));
+    await confirmHold(user, "ride-out-confirm");
     expect(await screen.findByTestId("ride-out-open")).toHaveTextContent("The caravan is already on a trip.");
     expect(within(screen.getByTestId("ride-out-open")).getByRole("button", { name: "To the trail" })).toBeInTheDocument();
   });
@@ -553,10 +554,10 @@ describe("RideOutPanel (chunk 23)", () => {
     const onStarted = vi.fn();
     render(<RideOutPanel api={fakeApi({ startTrip })} caravanId={CARAVAN_ID} status={statusPacked()} onStarted={onStarted} />);
     await user.click(screen.getByTestId("ride-out-open-confirm"));
-    await user.click(screen.getByTestId("ride-out-confirm"));
+    await confirmHold(user, "ride-out-confirm");
     expect(await screen.findByTestId("ride-out-unconfirmed")).toHaveTextContent("Could not confirm whether the caravan rode out");
     expect(screen.getByTestId("ride-out-confirm")).toHaveTextContent("Try again");
-    await user.click(screen.getByTestId("ride-out-confirm"));
+    await confirmHold(user, "ride-out-confirm");
     expect(onStarted).toHaveBeenCalledWith(null, true);
     expect(startTrip).toHaveBeenCalledTimes(2);
   });

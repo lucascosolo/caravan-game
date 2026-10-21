@@ -9,6 +9,9 @@ import { getFenceTier, getTrapType, getUnitType } from "@caravan/content";
 import { useState, type JSX } from "react";
 import type { LayoutView } from "../../api/types.ts";
 import { STRINGS } from "../../strings.ts";
+import { Icon } from "../../ui/Icon.tsx";
+import { Note } from "../../ui/Note.tsx";
+import { Pop } from "../../ui/Pop.tsx";
 
 const T = STRINGS.trail;
 const side = (e: string): string => T.edgeName(e).toLowerCase();
@@ -21,14 +24,14 @@ function nameOf(kind: LeftOut["kind"], typeId: string): string {
 export function LayoutLeftOutNote({ layout }: { readonly layout: LayoutView }): JSX.Element | null {
   if (layout.unavailable) {
     return (
-      <p className="notice" data-testid="layout-unavailable">
+      <Note testId="layout-unavailable" className="cv-leftout">
         {T.layoutUnavailable}
-      </p>
+      </Note>
     );
   }
   if (layout.leftOut.length === 0) return null;
   return (
-    <section className="notice" data-testid="layout-left-out">
+    <Note testId="layout-left-out" className="cv-leftout fm-leftout">
       <p>{T.layoutLeftOutHeading}</p>
       <ul>
         {layout.leftOut.map((l, i) => (
@@ -37,7 +40,7 @@ export function LayoutLeftOutNote({ layout }: { readonly layout: LayoutView }): 
           </li>
         ))}
       </ul>
-    </section>
+    </Note>
   );
 }
 
@@ -56,14 +59,16 @@ export function LayoutHints({ layout, formation, scout, names }: { readonly layo
   const hints = layoutHints(formation, scout, layout.savedSides).filter((h) => !dismissed.has(keyOf(h)));
   if (hints.length === 0) return null;
   return (
-    <div className="layout-hints">
+    <div className="fm-hints">
       {hints.map((h) => (
-        <p key={keyOf(h)} className="hint" data-testid="layout-hint" data-hint={keyOf(h)}>
-          {textOf(h, names)}{" "}
-          <button type="button" className="btn btn--small" data-testid="layout-hint-dismiss" onClick={() => setDismissed((d) => new Set([...d, keyOf(h)]))}>
-            {T.layoutHintDismiss}
-          </button>
-        </p>
+        <div key={keyOf(h)} data-testid="layout-hint" data-hint={keyOf(h)}>
+          <Pop tail="top" at={82}>
+            <span>{textOf(h, names)}</span>
+            <button type="button" className="cv-medal cv-medal--sm" aria-label={T.layoutHintDismiss} data-testid="layout-hint-dismiss" onClick={() => setDismissed((d) => new Set([...d, keyOf(h)]))}>
+              <Icon name="cross" />
+            </button>
+          </Pop>
+        </div>
       ))}
     </div>
   );

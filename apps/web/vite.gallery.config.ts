@@ -5,5 +5,5 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [react()],
   base: "./",
-  build: { rollupOptions: { input: ["gallery.html", "gallery-results.html"] }, modulePreload: false, target: "es2022" },
+  build: { rollupOptions: { input: ["gallery.html", "gallery-results.html", "gallery-trail.html"] }, modulePreload: false, target: "es2022" },
 });
