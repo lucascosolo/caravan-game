@@ -150,7 +150,7 @@ async function fixedDefender(n: number, region: string, livingRep: number): Prom
   await pool.query("UPDATE pool_progress SET reputation = $2 WHERE caravan_id = $1 AND pool = 'living'", [p.caravanId, livingRep]);
   expect((await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: p.units, traps: [], fence: null })).statusCode).toBe(201);
   const manifest = await pool.query<{ id: string }>("SELECT id FROM wagon_manifest WHERE caravan_id = $1 AND closed_at IS NULL", [p.caravanId]);
-  await pool.query("INSERT INTO trip (id, caravan_id, manifest_id) VALUES ($1, $2, $3)", [fixedId(3, n), p.caravanId, manifest.rows[0]!.id]);
+  await pool.query("INSERT INTO trip (id, caravan_id, manifest_id, battlefield_version) VALUES ($1, $2, $3, 3)", [fixedId(3, n), p.caravanId, manifest.rows[0]!.id]);
   return { ...p, caravan: (await findCaravanById(pool, p.caravanId))!, tripId: fixedId(3, n) };
 }
 

@@ -36,6 +36,9 @@ import {
   scoutParty,
   isUnitAlive,
   packManifest,
+  isCoreCell,
+  isInsideRing,
+  isRingOrAnchorCell,
   ringSegment,
   validateFormation,
   type Cell,
@@ -76,9 +79,7 @@ const PLACEABLE: Cell[] = (() => {
   const band = TUNABLES.ENTRY_BAND_DEPTH;
   for (let y = band; y < TUNABLES.GRID_HEIGHT - band; y++) {
     for (let x = band; x < TUNABLES.GRID_WIDTH - band; x++) {
-      const r = cheb({ x, y });
-      if (r === TUNABLES.PERIMETER_RING_RADIUS) continue; // the ring and its anchors
-      if (r <= Math.floor(TUNABLES.CORE_SIZE / 2)) continue; // the core
+      if (isRingOrAnchorCell({ x, y }) || isCoreCell({ x, y })) continue; // the ring, its wagon cells and the core
       out.push({ x, y });
     }
   }
@@ -177,7 +178,7 @@ const GAP_PLANS: Readonly<Record<string, GapPlan>> = {
 };
 
 /** Naive gap plans: no scout read. */
-const SPREAD_GAPS = [0, 3, 7, 10, 14, 17, 21, 24]; // two per side, evenly
+const SPREAD_GAPS = [0, 3, 6, 10, 13]; // the 5 forced gaps of the 16-position ring, spread round it
 function spreadOrder(): number[] {
   const gaps = new Set(SPREAD_GAPS);
   return [...RING_SEGMENTS.map((s) => s.index).filter((i) => !gaps.has(i)), ...SPREAD_GAPS];
@@ -185,7 +186,7 @@ function spreadOrder(): number[] {
 
 /** Post spots: the cells to post on, best first, given the focus side and its gap. */
 type PostPlan = (focus: EntryEdge, focusSeg: number, n: number, taken: Set<string>) => Cell[];
-const inside = (c: Cell) => cheb(c) < TUNABLES.PERIMETER_RING_RADIUS;
+const inside = (c: Cell) => isInsideRing(c);
 const POST_PLANS: Readonly<Record<string, PostPlan>> = {
   // Just inside the gap (two cells in), clustered.
   behind: (focus, seg, n, taken) => nearestCells(add(ringSegment(seg).cell, OUT[focus], -2), taken, inside).slice(0, n),
@@ -264,7 +265,7 @@ function assemble(m: Manifest, fences: Formation["fences"], trapCells: Cell[], p
   const refs = postOrder(m);
   if (postCells.length < refs.length) return null;
   const f: Formation = {
-    v: 2,
+    v: 3,
     fences,
     traps: traps.slice(0, trapCells.length).map((t, i) => ({ ref: t.ref, cell: trapCells[i]! })),
     posts: refs.map((ref, i) => ({ ref, cell: postCells[i]!, stance: stanceFor(mode, ref, m) })),

@@ -70,6 +70,9 @@ const JOB_ID = /^encounter:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 export const DEPTH_MEASURE = { scale: DEPTH_SCALE, measuredFrom: "ring_line", lootCurve: "depth_pow_1_5" } as const;
 
 /** Chunk 22 / QA-13 S1: why a fight resolved without a stored log (the dev/test double) has no replay. */
+/** Chunk 50: the first resolver version fought on the round wagon circle; earlier logs name the old square camp's ring. */
+export const ROUND_CIRCLE_RESOLVER_VERSION = 10;
+export const OLD_SQUARE_CAMP_REASON = "resolved on the old square camp";
 export const NO_LOG_REASON = "no replay log was recorded for this fight";
 
 const NO_LABELS = { units: [], fences: [], traps: [] } as const;
@@ -232,6 +235,9 @@ export async function replayRoutes(app: FastifyInstance): Promise<void> {
     const stored = owner ? null : { rawBytes: row.raw_bytes, storedBytes: row.stored_bytes, encoding: row.encoding, sha256: row.log_sha256, contentHash: row.content_hash, createdAt: row.created_at.toISOString() };
     const unrenderable = (reason: string, log: unknown = null) =>
       send({ ...base, resolverVersion: row.resolver_version, logFormat: row.log_format, renderable: false, reason, labels: noLabels, stored, log });
+
+    // Chunk 50: a log from before the round wagon circle would be drawn on the wrong ring.
+    if (row.resolver_version < ROUND_CIRCLE_RESOLVER_VERSION) return unrenderable(OLD_SQUARE_CAMP_REASON);
 
     // N1: an undecodable body is a verdict, not a 500.
     let text: string;

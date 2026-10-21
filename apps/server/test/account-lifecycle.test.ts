@@ -100,7 +100,7 @@ async function raiseParty(p: Player): Promise<void> {
 async function packStrong(p: Player): Promise<void> {
   const units = [...(await giveUnits(p, 2, "desert.dust_rider", 5)), ...(await giveUnits(p, 2, "desert.well_digger", 5))];
   await pool.query("UPDATE pool_progress SET reputation = $2 WHERE caravan_id = $1 AND pool = 'living'", [p.caravanId, TUNABLES.REPUTATION_START]);
-  const res = await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 12 } });
+  const res = await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 11 } });
   expect(res.statusCode, res.body).toBe(201);
   expect((await call(p, "POST", `/me/caravans/${p.caravanId}/trip/start`)).statusCode).toBe(201);
 }
@@ -108,7 +108,7 @@ async function packStrong(p: Player): Promise<void> {
 function arrangement(m: { units: { ref: string; hp: number }[]; traps: { ref: string; spent: boolean }[]; fences: { ref: string; hp: number }[] }): Formation {
   const postCells = [{ x: 15, y: 13 }, { x: 13, y: 15 }, { x: 17, y: 15 }, { x: 15, y: 17 }];
   return {
-    v: 2,
+    v: 3,
     fences: m.fences.filter((f) => f.hp > 0).map((f, k) => ({ ref: f.ref, segment: k % RING_SEGMENTS.length })),
     traps: m.traps.filter((t) => !t.spent).map((t) => ({ ref: t.ref, cell: { x: 15, y: 9 } })),
     posts: m.units.filter((u) => u.hp > 0).map((u, k) => ({ ref: u.ref, cell: postCells[k]!, stance: "hold" as const })),

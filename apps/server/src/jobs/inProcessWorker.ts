@@ -23,6 +23,7 @@
 import { hostname } from "node:os";
 import type pg from "pg";
 import type { ResolutionJobRow } from "../db/types.js";
+import { voidTripsOfOtherGeometry } from "../trip/service.js";
 import { drain, parkOtherVersions, type HandlerRegistry, type RunOutcome, type WorkerOptions } from "./worker.js";
 
 /** Operational, not balance: how often an idle server looks for ready jobs. */
@@ -102,6 +103,9 @@ export class EncounterWorkerLoop {
             onHookError: (err) => this.opts.onError(err),
           });
           if (parked.length > 0) this.opts.onParkedOtherVersion?.(parked);
+          // Chunk 50: open trips of another battlefield geometry with nothing committed cannot be
+          // arranged any more; void them through the same path.
+          await voidTripsOfOtherGeometry(this.pool);
           const outcomes = await drain(this.pool, {
             workerId: this.workerId,
             handlers: this.opts.handlers,

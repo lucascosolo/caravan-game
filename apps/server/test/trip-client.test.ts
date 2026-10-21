@@ -6,7 +6,7 @@
  *   - CARAVAN_TEST_RESOLVER=double: refused in production, unknown values refused, and when
  *     installed a committed encounter resolves in-process with no worker call from the test.
  */
-import { entryBand, RING_ANCHORS, type PartyConfig } from "@caravan/circle";
+import { entryBand, INTERIOR_POST_CELLS, type PartyConfig } from "@caravan/circle";
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
 import type pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -76,12 +76,12 @@ async function fight(p: Player, n: number, posts: string[], withTrapAndFence: bo
   const s = await call(p, "POST", `/me/caravans/${p.caravanId}/encounters/${n}/search`);
   expect(s.statusCode, s.body).toBe(201);
   expect((await call(p, "POST", `/me/caravans/${p.caravanId}/encounters/${n}/choose`, { candidateId: s.json().menu.candidates[0].candidateId })).statusCode).toBe(200);
-  const c = RING_ANCHORS[0]!;
+  const cells = INTERIOR_POST_CELLS;
   const formation = {
-    v: 2,
+    v: 3,
     fences: withTrapAndFence ? [{ ref: "f0", segment: 0 }] : [],
-    traps: withTrapAndFence ? [{ ref: "t0", cell: { x: c.x + 1, y: c.y + 1 } }] : [],
-    posts: posts.map((ref, i) => ({ ref, cell: { x: c.x + 2 + i, y: c.y + 2 }, stance: "guard" })),
+    traps: withTrapAndFence ? [{ ref: "t0", cell: { x: cells[0]!.x, y: cells[0]!.y } }] : [],
+    posts: posts.map((ref, i) => ({ ref, cell: { x: cells[1 + i]!.x, y: cells[1 + i]!.y }, stance: "guard" })),
   };
   const f = await call(p, "PUT", `/caravans/${p.caravanId}/encounters/${n}/formation`, formation);
   expect(f.statusCode, f.body).toBe(200);
@@ -125,7 +125,7 @@ describe("the trip status the client renders (chunk 23), over a whole trip resol
     const p = await register();
     const riders = await units(p, 2);
     await pool.query("UPDATE pool_progress SET reputation = 1000 WHERE caravan_id = $1 AND pool = 'living'", [p.caravanId]);
-    expect((await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: riders, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 20 } })).statusCode).toBe(201);
+    expect((await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: riders, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 11 } })).statusCode).toBe(201);
     const before = Date.now();
     const packed = await status(p);
     // In town: no open trip (the fixture's earlier, finished trip may be shown as the last one).

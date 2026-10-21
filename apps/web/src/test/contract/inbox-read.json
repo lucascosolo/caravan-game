@@ -15,7 +15,7 @@
           "overran": 0,
           "stalemate": 0,
           "other": 0,
-          "coinEarned": 384,
+          "coinEarned": 515,
           "coinTransferred": 0,
           "coinDiscardedAtCap": 0,
           "reputationDelta": 0,
@@ -37,7 +37,7 @@
                 "regionId": "desert",
                 "departed": false
               },
-              "coinEarned": 172,
+              "coinEarned": 303,
               "coinTransferred": 0,
               "coinDiscardedAtCap": 0,
               "reputationDelta": 0,

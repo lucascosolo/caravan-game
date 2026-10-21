@@ -163,7 +163,7 @@ describe("final guardrail review r4 N4: a menu drawn under other rules is never 
     const [unit] = await unitIds(d);
     const ref = (await pool.query<{ packed: { units: { ref: string }[] } }>("SELECT packed FROM wagon_manifest WHERE caravan_id = $1 AND closed_at IS NULL", [d.caravanId])).rows[0]!.packed.units[0]!.ref;
     expect(ref).toBe(unit);
-    const put = await call(d, "PUT", `/caravans/${d.caravanId}/encounters/1/formation`, { v: 2, fences: [], traps: [], posts: [{ ref, cell: { x: 13, y: 13 }, stance: "guard" }] });
+    const put = await call(d, "PUT", `/caravans/${d.caravanId}/encounters/1/formation`, { v: 3, fences: [], traps: [], posts: [{ ref, cell: { x: 13, y: 13 }, stance: "guard" }] });
     expect(put.statusCode, put.body).toBe(200);
     await ageMenu(tripId, 1);
     const commit = await call(d, "POST", `/me/caravans/${d.caravanId}/trip/encounters/1/commit`);

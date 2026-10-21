@@ -6,7 +6,7 @@
     "viewer": "caravan",
     "tripId": "00000000-0000-4000-8000-000000000001",
     "encounterIndex": 1,
-    "currentResolverVersion": 9,
+    "currentResolverVersion": 10,
     "outcome": {
       "kind": "caravan_held",
       "loot": 212,

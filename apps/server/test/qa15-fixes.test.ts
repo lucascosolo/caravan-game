@@ -7,7 +7,7 @@
  * survival; N4 the raw formation-commit route gated; N5 a replayed bank's balance; N7 the DB tie
  * between a trip and its trip-cap use.
  */
-import { RING_ANCHORS, RING_SEGMENTS, entryBand, type Formation, type PartyConfig } from "@caravan/circle";
+import { INTERIOR_POST_CELLS, RING_SEGMENTS, entryBand, type Formation, type PartyConfig } from "@caravan/circle";
 import { TUNABLES } from "@caravan/content";
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
 import type pg from "pg";
@@ -129,12 +129,11 @@ async function survivors(d: Player): Promise<ManifestJson> {
 
 /** Every usable fence, trap and living unit placed (chunk 07's test arrangement). */
 function arrangement(m: ManifestJson): Formation {
-  const corner = RING_ANCHORS[0]!;
   const cells: { x: number; y: number }[] = [];
-  for (let y = corner.y + 1; y < corner.y + 4; y++) for (let x = corner.x + 1; x < corner.x + 8; x++) cells.push({ x, y });
+  for (const c of INTERIOR_POST_CELLS.slice(0, 21)) cells.push({ x: c.x, y: c.y });
   let i = 0;
   return {
-    v: 2,
+    v: 3,
     fences: m.fences.filter((f) => f.hp > 0).map((f, k) => ({ ref: f.ref, segment: k % RING_SEGMENTS.length })),
     traps: m.traps.filter((t) => !t.spent).map((t) => ({ ref: t.ref, cell: cells[i++]! })),
     posts: m.units.filter((u) => u.hp > 0).map((u) => ({ ref: u.ref, cell: cells[i++]!, stance: "guard" as const })),
@@ -534,7 +533,7 @@ describe("N7: a trip is tied to its trip-cap use in the database (as the app rol
     const e = await makeDefender();
     await pack(e);
     const manifestId = (await pool.query("SELECT id FROM wagon_manifest WHERE caravan_id = $1 AND closed_at IS NULL", [e.caravanId])).rows[0].id;
-    const bare = (await appRole.query("INSERT INTO trip (caravan_id, manifest_id) VALUES ($1, $2) RETURNING id", [e.caravanId, manifestId])).rows[0].id as string;
+    const bare = (await appRole.query("INSERT INTO trip (caravan_id, manifest_id, battlefield_version) VALUES ($1, $2, 3) RETURNING id", [e.caravanId, manifestId])).rows[0].id as string;
     expect((await expectDbError(appRole, "INSERT INTO trip_cap_use (trip_id, account_id, tat_ms) VALUES ($1, $2, 123)", [bare, e.accountId]))?.message).toMatch(/trip cap stands at/);
     expect((await expectDbError(appRole, "INSERT INTO trip_cap_use (trip_id, account_id, tat_ms) VALUES ($1, $2, $3)", [bare, d.accountId, tat]))?.message).toMatch(/is not a trip of account/);
     expect((await expectDbError(appRole, "INSERT INTO trip_cap_use (trip_id, account_id, tat_ms, legacy) VALUES ($1, $2, NULL, true)", [bare, e.accountId]))?.message).toMatch(/legacy/);

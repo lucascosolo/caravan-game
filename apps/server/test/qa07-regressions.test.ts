@@ -5,7 +5,7 @@
  * geometry) are covered in packages/circle/test; this file covers the server boundary.
  */
 import { TUNABLES } from "@caravan/content";
-import { RING_ANCHORS, RING_SEGMENTS, canonicalJson, formationFromJson, serializeFormation, type Formation } from "@caravan/circle";
+import { INTERIOR_POST_CELLS, RING_ANCHORS, RING_SEGMENTS, canonicalJson, formationFromJson, serializeFormation, type Formation } from "@caravan/circle";
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
 import type pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -52,9 +52,8 @@ type Survivors = { units: { ref: string; hp: number }[]; traps: { ref: string; s
 
 /** Inner cells one in from the north-west anchor, row by row. */
 function innerCells(): { x: number; y: number }[] {
-  const corner = RING_ANCHORS[0]!;
   const cells: { x: number; y: number }[] = [];
-  for (let y = corner.y + 1; y < corner.y + 4; y++) for (let x = corner.x + 1; x < corner.x + 8; x++) cells.push({ x, y });
+  for (const c of INTERIOR_POST_CELLS.slice(0, 21)) cells.push({ x: c.x, y: c.y });
   return cells;
 }
 
@@ -63,7 +62,7 @@ function arrangement(s: Survivors, first = 0): Formation {
   const cells = innerCells();
   let i = 0;
   return {
-    v: 2,
+    v: 3,
     fences: s.fences.filter((f) => f.hp > 0).map((f, k) => ({ ref: f.ref, segment: (first + k) % RING_SEGMENTS.length })),
     traps: s.traps.filter((t) => !t.spent).map((t) => ({ ref: t.ref, cell: cells[i++]! })),
     posts: s.units.filter((u) => u.hp > 0).map((u) => ({ ref: u.ref, cell: cells[i++]!, stance: "guard" as const })),
@@ -203,37 +202,37 @@ describe("D1 / D2 / S8 at the HTTP boundary", () => {
     expect(v1.json().message).toMatch(/unsupported formation version 1/);
   });
 
-  it("D2: the ring has 28 fence positions and 20 of material; anchors are reserved cells", async () => {
+  it("D2: the ring has 16 fence positions and 11 of material; anchors are reserved cells", async () => {
     const { p, base, survivors } = await newTrip();
-    expect(TUNABLES.PERIMETER_SEGMENTS).toBe(28);
-    expect(TUNABLES.FENCE_MATERIAL_BUDGET).toBe(20);
+    expect(TUNABLES.PERIMETER_SEGMENTS).toBe(16);
+    expect(TUNABLES.FENCE_MATERIAL_BUDGET).toBe(11);
     const url = `${base}/encounters/1/formation`;
     const f = arrangement(survivors);
-    const seg28 = await call(p, "PUT", url, { ...f, fences: [{ ref: "f0", segment: 28 }, ...f.fences.slice(1)] });
-    expect(seg28.statusCode).toBe(400);
-    expect(seg28.json().message).toMatch(/not a ring position/);
+    const seg16 = await call(p, "PUT", url, { ...f, fences: [{ ref: "f0", segment: 16 }, ...f.fences.slice(1)] });
+    expect(seg16.statusCode).toBe(400);
+    expect(seg16.json().message).toMatch(/not a ring position/);
     for (const a of RING_ANCHORS) {
       const onAnchor = await call(p, "PUT", url, { ...f, traps: [{ ref: "t0", cell: a }, ...f.traps.slice(1)] });
       expect(onAnchor.statusCode).toBe(400);
       expect(onAnchor.json().issues.map((i: { code: string }) => i.code)).toEqual(["cell_reserved"]);
     }
-    // 21 segments cannot be packed; 20 can, and the ring still has 8 gaps.
+    // 12 segments cannot be packed; 11 can, and the ring still has 5 gaps.
     const q = await registerPlayer();
     await giveUnit(q, "rider", "desert.dust_rider");
-    const over = await call(q, "POST", `/caravans/${q.caravanId}/manifest`, { units: [q.units["rider"]], fence: { tierId: "fence.brush_pile", count: 21 } });
+    const over = await call(q, "POST", `/caravans/${q.caravanId}/manifest`, { units: [q.units["rider"]], fence: { tierId: "fence.brush_pile", count: 12 } });
     expect(over.json().issues.map((i: { code: string }) => i.code)).toEqual(["fence_budget"]);
-    const full = await call(q, "POST", `/caravans/${q.caravanId}/manifest`, { units: [q.units["rider"]], fence: { tierId: "fence.brush_pile", count: 20 } });
+    const full = await call(q, "POST", `/caravans/${q.caravanId}/manifest`, { units: [q.units["rider"]], fence: { tierId: "fence.brush_pile", count: 11 } });
     expect(full.statusCode).toBe(201);
     const fq = arrangement(full.json().manifest.survivors);
     const savedQ = await call(q, "PUT", `/caravans/${q.caravanId}/encounters/1/formation`, fq);
     expect(savedQ.statusCode).toBe(200);
-    expect(savedQ.json().formation.gaps).toHaveLength(8);
+    expect(savedQ.json().formation.gaps).toHaveLength(5);
   });
 
   it("S8: an oversized formation is refused cheaply with a small response", async () => {
     const { p, base } = await newTrip();
     const url = `${base}/encounters/1/formation`;
-    const big = { v: 2, fences: [], traps: [], posts: Array.from({ length: 20_000 }, (_, i) => ({ ref: `z${i}`, cell: { x: 12, y: 12 } })) };
+    const big = { v: 3, fences: [], traps: [], posts: Array.from({ length: 20_000 }, (_, i) => ({ ref: `z${i}`, cell: { x: 12, y: 12 } })) };
     const t0 = performance.now();
     const res = await call(p, "PUT", url, big);
     const ms = performance.now() - t0;
@@ -242,11 +241,11 @@ describe("D1 / D2 / S8 at the HTTP boundary", () => {
     expect(res.json().message).toMatch(/20000 posts placed; a formation carries at most 8/);
     expect(res.body.length).toBeLessThan(400);
     expect(ms).toBeLessThan(1000);
-    const nine = await call(p, "PUT", url, { v: 2, fences: [], traps: [], posts: Array.from({ length: 9 }, (_, i) => ({ ref: `z${i}`, cell: { x: 12 + i, y: 12 } })) });
+    const nine = await call(p, "PUT", url, { v: 3, fences: [], traps: [], posts: Array.from({ length: 9 }, (_, i) => ({ ref: `z${i}`, cell: { x: 12 + i, y: 12 } })) });
     expect(nine.statusCode).toBe(400);
     expect(nine.json().message).toMatch(/9 posts placed/);
     // A legal-sized formation with many problems reports at most 50 issues.
-    const noisy = { v: 2, fences: Array.from({ length: 28 }, (_, i) => ({ ref: `nope${i}`, segment: i })), traps: [], posts: [] };
+    const noisy = { v: 3, fences: Array.from({ length: 16 }, (_, i) => ({ ref: `nope${i}`, segment: i })), traps: [], posts: [] };
     const capped = await call(p, "PUT", url, noisy);
     expect(capped.statusCode).toBe(400);
     expect(capped.json().issues.length).toBeLessThanOrEqual(50);

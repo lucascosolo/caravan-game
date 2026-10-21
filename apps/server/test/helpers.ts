@@ -88,7 +88,7 @@ export async function seasonCaravan(db: pg.Pool, caravanId: string): Promise<voi
          INSERT INTO wagon_manifest (caravan_id, packed, survivors, closed_at, created_at)
          VALUES ($1, $2::jsonb, $2::jsonb, now() - interval '1 day', now() - interval '1 day') RETURNING id
        )
-       INSERT INTO trip (caravan_id, manifest_id, started_at, ended_at, end_reason) SELECT $1, m.id, now() - interval '1 day', now() - interval '1 day', 'banked' FROM m`,
+       INSERT INTO trip (caravan_id, manifest_id, battlefield_version, started_at, ended_at, end_reason) SELECT $1, m.id, 3, now() - interval '1 day', now() - interval '1 day', 'banked' FROM m`,
       [caravanId, empty],
     );
   }

@@ -79,7 +79,7 @@ async function makeDefender(strong: boolean, band: number): Promise<Player> {
     await giveUnits(p, 2, "desert.well_digger", 4);
   } else await giveUnits(p, 1, "desert.dust_rider", 1);
   await pool.query("UPDATE pool_progress SET reputation = $2 WHERE caravan_id = $1 AND pool = 'living'", [p.caravanId, bandCentre(band)]);
-  const loadout = strong ? { units: p.units, traps: ["trap.spike_pit", "trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 20 } } : { units: p.units, traps: [], fence: { tierId: "fence.brush_pile", count: 0 } };
+  const loadout = strong ? { units: p.units, traps: ["trap.spike_pit", "trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 11 } } : { units: p.units, traps: [], fence: { tierId: "fence.brush_pile", count: 0 } };
   const res = await call(p, "POST", `/caravans/${p.caravanId}/manifest`, loadout);
   expect(res.statusCode, res.body).toBe(201);
   return p;
@@ -96,7 +96,7 @@ function arrangement(m: ManifestJson, variant: number): Formation {
   const trapCells = [{ x: 15, y: 9 }, { x: 9, y: 15 }];
   const stances = ["hold", "guard", "reserve"] as const;
   return {
-    v: 2,
+    v: 3,
     fences: m.fences.filter((f) => f.hp > 0).map((f, k) => ({ ref: f.ref, segment: (k + variant * 3) % RING_SEGMENTS.length })),
     traps: m.traps.filter((t) => !t.spent).map((t, k) => ({ ref: t.ref, cell: trapCells[k]! })),
     posts: m.units.filter((u) => u.hp > 0).map((u, k) => ({ ref: u.ref, cell: postCells[k]!, stance: stances[(k + variant) % 3]! })),

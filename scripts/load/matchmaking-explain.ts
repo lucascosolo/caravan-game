@@ -107,7 +107,7 @@ try {
     [HEAVY_TRIPS, TRIPS, ACTIVE],
   );
   await step("manifest rows", `INSERT INTO wagon_manifest (id, caravan_id, packed, survivors, created_at, closed_at) SELECT manifest_id, caravan_id, '{"v":1}', '{"v":1}', started_at, started_at + interval '20 minutes' FROM load_trip`);
-  await step("trip rows", `INSERT INTO trip (id, caravan_id, manifest_id, started_at, ended_at, end_reason) SELECT trip_id, caravan_id, manifest_id, started_at, started_at + interval '20 minutes', 'banked' FROM load_trip`);
+  await step("trip rows", `INSERT INTO trip (id, caravan_id, manifest_id, battlefield_version, started_at, ended_at, end_reason) SELECT trip_id, caravan_id, manifest_id, 3, started_at, started_at + interval '20 minutes', 'banked' FROM load_trip`);
   // Three encounters a trip; each a stored menu of three candidates sized like real ones (party snapshot + scout view).
   await step(
     "menus",

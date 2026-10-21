@@ -18,7 +18,7 @@
  *    must never exceed FENCE_HIT_SEGMENT_CAP — and how many fights broke at least one segment.
  */
 import { CONTENT, FIXED_ONE, REGION_IDS, TUNABLES, getUnitType, type RegionId } from "../../packages/content/src/index.js";
-import { RING_SEGMENTS, entryBand, packManifest, type Formation, type Party } from "../../packages/circle/src/index.js";
+import { INTERIOR_POST_CELLS, RING_SEGMENTS, entryBand, packManifest, type Formation, type Party } from "../../packages/circle/src/index.js";
 import { resolve } from "../../packages/resolver/src/index.js";
 import { resolverInputOf } from "../../apps/server/src/trip/resolverAdapter.js";
 import { runParallel, serveIfChild } from "./parallel.js";
@@ -56,7 +56,7 @@ function work(t: Task): HealerRow | BreakerRow {
   if (!m.ok) throw new Error("breaker probe manifest");
   // Fence north, east and west, and the south side's two ends: the only gaps are on the far (south) side.
   const order = RING_SEGMENTS.filter((s) => s.edge !== "south").map((s) => s.index);
-  const f: Formation = { v: 2, fences: m.value.fences.map((x, i) => ({ ref: x.ref, segment: order[i]! })), traps: [], posts: [{ ref: "u0", cell: { x: 15, y: 20 }, stance: "hold" }] };
+  const f: Formation = { v: 3, fences: m.value.fences.map((x, i) => ({ ref: x.ref, segment: order[i]! })), traps: [], posts: [{ ref: "u0", cell: { x: INTERIOR_POST_CELLS[0]!.x, y: INTERIOR_POST_CELLS[0]!.y }, stance: "hold" }] };
   const party: Party = { v: 1, units: [{ ref: "b0", typeId: t.typeId, mergeLevel: t.level, stance: "core", edge: "north", cell: entryBand("north")[15]! }], siege: t.siege ? [{ typeId: counter.id }] : [] };
   const out = resolve(resolverInputOf({ tripId: "probe", encounterIndex: 1, formation: f, survivors: m.value, party, contentHash: null }));
   const dealt = new Map<string, number>();

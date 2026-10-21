@@ -6,18 +6,18 @@
     "viewer": "caravan",
     "tripId": "00000000-0000-4000-8000-000000000001",
     "encounterIndex": 1,
-    "currentResolverVersion": 9,
+    "currentResolverVersion": 10,
     "outcome": {
       "kind": "caravan_held",
-      "loot": 172,
-      "depth": 446,
+      "loot": 303,
+      "depth": 651,
       "units": [
         {
-          "hp": 1016,
+          "hp": 1100,
           "ref": "00000000-0000-4000-8000-000000000002"
         },
         {
-          "hp": 425,
+          "hp": 341,
           "ref": "00000000-0000-4000-8000-000000000003"
         }
       ],
@@ -47,7 +47,7 @@
           "ref": "f5"
         }
       ],
-      "endTick": 605,
+      "endTick": 749,
       "spentTraps": [
         "t0"
       ]
@@ -56,8 +56,8 @@
       "scale": 1024,
       "measuredFrom": "ring_line",
       "lootCurve": "depth_pow_1_5",
-      "value": 446,
-      "lootShare": 293
+      "value": 651,
+      "lootShare": 518
     },
     "party": {
       "partyId": "00000000-0000-4000-8000-000000000004",
@@ -103,7 +103,7 @@
         "unbankedCoin": 600
       }
     },
-    "resolverVersion": 9,
+    "resolverVersion": 10,
     "logFormat": 2,
     "renderable": false,
     "reason": "this fight's tick log was larger than the replay size budget, so only its results summary was kept",
@@ -123,8 +123,8 @@
       ]
     },
     "stored": {
-      "rawBytes": 4097,
-      "storedBytes": 1228,
+      "rawBytes": 3558,
+      "storedBytes": 1067,
       "encoding": null,
       "sha256": "a000000000000000000000000000000000000000000000000000000000000002",
       "contentHash": "a000000000000000000000000000000000000000000000000000000000000003",

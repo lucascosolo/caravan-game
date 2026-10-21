@@ -43,6 +43,7 @@ import {
   type Manifest,
 } from "@caravan/circle";
 import { TUNABLES } from "@caravan/content";
+import { BATTLEFIELD_VERSION } from "@caravan/resolver";
 import type pg from "pg";
 import { applyOutcome, closeManifest } from "../circle/service.js";
 import { findFormation, findManifestById, findOpenManifest, type WagonManifestRow } from "../circle/repo.js";
@@ -409,7 +410,7 @@ export interface TripVoidedPayload extends JsonObject {
   /** The parked job's last error, or (r4 S1, `cause: "no_menu"`) why the player was let return. */
   reason: string;
   /** Final guardrail review r4 S1: "parked" (the encounter's job parked) or "no_menu" (no menu could be served; the player returned to town). Absent on older events (= parked). */
-  cause?: "parked" | "no_menu";
+  cause?: "parked" | "no_menu" | "upgrade";
   /** Banked as of this encounter (0: nothing survived, nothing credited). */
   encountersSurvived: number;
   unbankedCoin: number;
@@ -433,7 +434,7 @@ export interface TripVoidedPayload extends JsonObject {
  * them), the refit, manifest closed, caravan in town. With k = 0 nothing is credited and no
  * unit changes. The trip-cap use is not refunded. `trip_voided` records it, with the reason.
  */
-async function voidTripTx(client: pg.PoolClient, caravan: CaravanRow, tripId: string, n: number, nowMs: number, cause: "parked" | "no_menu" = "parked"): Promise<SettleState> {
+async function voidTripTx(client: pg.PoolClient, caravan: CaravanRow, tripId: string, n: number, nowMs: number, cause: "parked" | "no_menu" | "upgrade" = "parked"): Promise<SettleState> {
   const jobId = encounterJobId(tripId, n);
   await lockCaravanForResolution(client, caravan.id);
   await lockAccountForAppend(client, caravan.account_id);
@@ -470,7 +471,7 @@ async function voidTripTx(client: pg.PoolClient, caravan: CaravanRow, tripId: st
     manifestId: manifest.id,
     voidedEncounter: n,
     jobId,
-    reason: cause === "no_menu" ? NO_MENU_VOID_REASON : job?.last_error ?? "the resolution job parked",
+    reason: cause === "no_menu" ? NO_MENU_VOID_REASON : cause === "upgrade" ? UPGRADE_VOID_REASON : job?.last_error ?? "the resolution job parked",
     cause,
     encountersSurvived: k,
     unbankedCoin: unbanked,
@@ -484,6 +485,45 @@ async function voidTripTx(client: pg.PoolClient, caravan: CaravanRow, tripId: st
   };
   await appendEvents(client, tripCausation.voided(tripId), [{ type: "trip_voided", accountId: caravan.account_id, caravanId: caravan.id, payload: voided }, ...deMergeDrafts]);
   return { state: "voided", tripId, encounterIndex: n, jobId, created: true, voided };
+}
+
+/** Chunk 50: the reason an `upgrade` void records (the voided-trip summary shows it). */
+export const UPGRADE_VOID_REASON =
+  "The wagon circle was rebuilt as a round camp while this trip was out, so the formation you were arranging no longer fits. Nothing of the encounter applied; the trip ended as a bank after the last encounter you survived.";
+
+/**
+ * Chunk 50, the upgrade step beside the park call: void every open trip that rode out under another
+ * battlefield geometry and has NO job for its open encounter (an uncommitted encounter: a draft
+ * on `wagon_formation`, or none yet). A trip with a job of any status is left to the job's own
+ * path: a queued/leased job of another resolver version is parked and its trip voided by the
+ * `afterParked` hook, a completed one settles as usual (its trip, still on the old geometry, is
+ * picked up here on the next pass). Each void is its own transaction through `voidTripTx` (banked
+ * as of the last survived encounter; the trip-cap use is not refunded); a trip another worker
+ * voided or advanced in the meantime is skipped. Returns the trips this call voided.
+ */
+export async function voidTripsOfOtherGeometry(pool: pg.Pool, nowMs: number = Date.now()): Promise<string[]> {
+  const stale = await pool.query<{ id: string; caravan_id: string }>(
+    "SELECT id, caravan_id FROM trip WHERE ended_at IS NULL AND battlefield_version <> $1 ORDER BY started_at, id",
+    [BATTLEFIELD_VERSION],
+  );
+  const voided: string[] = [];
+  for (const row of stale.rows) {
+    const done = await withTransaction(pool, async (client): Promise<boolean> => {
+      await lockCaravanForResolution(client, row.caravan_id);
+      const trip = await findOpenTrip(client, row.caravan_id, true);
+      if (!trip || trip.id !== row.id || trip.battlefield_version === BATTLEFIELD_VERSION) return false;
+      const manifest = await findManifestById(client, trip.manifest_id);
+      if (!manifest) return false;
+      const n = manifest.encounters_resolved + 1;
+      if (await getJob(client, encounterJobId(trip.id, n))) return false;
+      const c = await client.query<CaravanRow>("SELECT * FROM caravan WHERE id = $1", [row.caravan_id]);
+      if (!c.rows[0]) return false;
+      const res = await voidTripTx(client, c.rows[0], trip.id, n, nowMs, "upgrade");
+      return res.state === "voided" && res.created;
+    });
+    if (done) voided.push(row.id);
+  }
+  return voided;
 }
 
 /** r4 S1: the reason a `no_menu` void records (the voided-trip summary shows it). */

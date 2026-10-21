@@ -66,8 +66,8 @@ async function seedSynthetic(): Promise<void> {
     const carv = (t: string): string => `md5('tsyn-c' || ((${t}) % ${ACCOUNTS} + 1))::uuid`;
     await c.query(`INSERT INTO wagon_manifest (id, caravan_id, packed, survivors, closed_at) SELECT md5('tsyn-m' || t)::uuid, ${carv("t")}, '{}', '{}', now() FROM generate_series(1, ${TRIPS}) t`);
     await c.query(
-      `INSERT INTO trip (id, caravan_id, manifest_id, started_at, ended_at, end_reason)
-       SELECT md5('tsyn-t' || t)::uuid, ${carv("t")}, md5('tsyn-m' || t)::uuid, ${at("t")}, ${at("t")} + interval '20 minutes',
+      `INSERT INTO trip (id, caravan_id, manifest_id, battlefield_version, started_at, ended_at, end_reason)
+       SELECT md5('tsyn-t' || t)::uuid, ${carv("t")}, md5('tsyn-m' || t)::uuid, 3, ${at("t")}, ${at("t")} + interval '20 minutes',
               CASE t % 3 WHEN 0 THEN 'overrun' ELSE 'banked' END FROM generate_series(1, ${TRIPS}) t`,
     );
     await c.query(

@@ -301,7 +301,7 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     const posted = [...riders.slice(0, 2), veteran!];
     // N10 (final play-test review): nothing packed yet is an empty state, 200.
     await record("manifest-empty", "GET /caravans/:id/manifest (nothing packed)", await call(p, "GET", `/caravans/${p.caravanId}/manifest`), 200);
-    await record("manifest-pack", "POST /caravans/:id/manifest", await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: posted, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 20 } }), 201);
+    await record("manifest-pack", "POST /caravans/:id/manifest", await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: posted, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 11 } }), 201);
     await record("manifest", "GET /caravans/:id/manifest", await call(p, "GET", `/caravans/${p.caravanId}/manifest`), 200);
     const tripUrl = `/me/caravans/${p.caravanId}/trip`;
     await record("trip-status-packed", "GET /me/caravans/:id/trip", await call(p, "GET", tripUrl), 200);
@@ -317,7 +317,7 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     await record("formation-empty", "GET /caravans/:id/encounters/:n/formation?ifNone=null (no draft yet)", await call(p, "GET", `/caravans/${p.caravanId}/encounters/1/formation?ifNone=null`), 200);
     const ordered = [...posted].sort();
     const formation = {
-      v: 2,
+      v: 3,
       fences: [{ ref: "f0", segment: 0 }],
       traps: [{ ref: "t0", cell: { x: 14, y: 12 } }],
       posts: ordered.map((ref, i) => ({ ref, cell: { x: 13 + i * 5, y: 13 }, stance: i === 0 ? "hold" : "guard" })),
@@ -345,7 +345,7 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     const s2 = (await call(p, "POST", `/me/caravans/${p.caravanId}/encounters/2/search`)).json() as { menu: { candidates: { candidateId: string; owner: { displayName: string } }[] } };
     const c2 = [...s2.menu.candidates].sort((a, b) => (a.owner.displayName < b.owner.displayName ? -1 : 1))[0]!;
     expect((await call(p, "POST", `/me/caravans/${p.caravanId}/encounters/2/choose`, { candidateId: c2.candidateId })).statusCode).toBe(200);
-    const formation2 = { v: 2, fences: [{ ref: "f1", segment: 1 }], traps: [], posts: formation.posts };
+    const formation2 = { v: 3, fences: [{ ref: "f1", segment: 1 }], traps: [], posts: formation.posts };
     expect((await call(p, "PUT", `/caravans/${p.caravanId}/encounters/2/formation`, formation2)).statusCode).toBe(200);
     expect((await call(p, "POST", `${tripUrl}/encounters/2/commit`)).statusCode).toBe(202);
     await resolve({ 2: { kind: "caravan_held", unitDamage: 150, kill: [veteran!] } });
@@ -357,7 +357,7 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     // A second trip that is overrun at its first encounter (a fifth party: two are recent opponents now).
     const e = await register("contract_owner_e");
     expect((await call(e, "PUT", "/me/party", partyOf(await giveUnits(e, ["desert.dust_rider", "desert.well_digger"])))).statusCode).toBe(200);
-    expect((await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: posted, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 20 } })).statusCode).toBe(201);
+    expect((await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: posted, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 11 } })).statusCode).toBe(201);
     expect((await call(p, "POST", `${tripUrl}/start`)).statusCode).toBe(201);
     const s3r = await call(p, "POST", `/me/caravans/${p.caravanId}/encounters/1/search`);
     expect(s3r.statusCode, s3r.body).toBe(201);
@@ -407,7 +407,7 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     const v = await register("contract_viewer");
     await seasonCaravan(pool, v.caravanId); // r2 S2: not its first trip, so the contract owners are served
     const diggers = await giveUnits(v, ["desert.well_digger", "desert.well_digger"]);
-    expect((await call(v, "POST", `/caravans/${v.caravanId}/manifest`, { units: diggers, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 20 } })).statusCode).toBe(201);
+    expect((await call(v, "POST", `/caravans/${v.caravanId}/manifest`, { units: diggers, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 11 } })).statusCode).toBe(201);
     const vTrip = `/me/caravans/${v.caravanId}/trip`;
     expect((await call(v, "POST", `${vTrip}/start`)).statusCode).toBe(201);
     const sv = (await call(v, "POST", `/me/caravans/${v.caravanId}/encounters/1/search`)).json() as { menu: { candidates: { candidateId: string; owner: { displayName: string } }[] } };
@@ -416,7 +416,7 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     expect(fought, cv.owner.displayName).toBeDefined();
     expect((await call(v, "POST", `/me/caravans/${v.caravanId}/encounters/1/choose`, { candidateId: cv.candidateId })).statusCode).toBe(200);
     const vPosts = [...diggers].sort().map((ref, i) => ({ ref, cell: { x: 13 + i * 5, y: 13 }, stance: i === 0 ? "hold" : "guard" }));
-    const vFormation = { v: 2, fences: [0, 1, 2, 3, 4, 5].map((segment) => ({ ref: `f${segment}`, segment })), traps: [{ ref: "t0", cell: { x: 14, y: 12 } }], posts: vPosts };
+    const vFormation = { v: 3, fences: [0, 1, 2, 3, 4, 5].map((segment) => ({ ref: `f${segment}`, segment })), traps: [{ ref: "t0", cell: { x: 14, y: 12 } }], posts: vPosts };
     expect((await call(v, "PUT", `/caravans/${v.caravanId}/encounters/1/formation`, vFormation)).statusCode).toBe(200);
     const commit = (await call(v, "POST", `${vTrip}/encounters/1/commit`)).json() as { jobId: string };
     const replayUrl = `/me/encounters/${encodeURIComponent(commit.jobId)}/replay`;
@@ -457,7 +457,7 @@ describe("client–server contract (chunk 08 QA D4)", () => {
     const [wVet] = await giveUnits(w, ["desert.dust_rider"], 2);
     const wRiders = await giveUnits(w, ["desert.dust_rider", "desert.dust_rider"]);
     const wUnits = [wVet!, ...wRiders];
-    expect((await call(w, "POST", `/caravans/${w.caravanId}/manifest`, { units: wUnits, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 20 } })).statusCode).toBe(201);
+    expect((await call(w, "POST", `/caravans/${w.caravanId}/manifest`, { units: wUnits, traps: ["trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 11 } })).statusCode).toBe(201);
     const wTrip = `/me/caravans/${w.caravanId}/trip`;
     const wStartRes = await call(w, "POST", `${wTrip}/start`);
     expect(wStartRes.statusCode, wStartRes.body).toBe(201);
@@ -480,10 +480,10 @@ describe("client–server contract (chunk 08 QA D4)", () => {
       const commit = await call(w, "POST", `${wTrip}/encounters/${n}/commit`);
       expect(commit.statusCode, commit.body).toBe(202);
     };
-    await wFight(1, { v: 2, fences: [{ ref: "f0", segment: 0 }], traps: [{ ref: "t0", cell: { x: 14, y: 12 } }], posts: wPosts });
+    await wFight(1, { v: 3, fences: [{ ref: "f0", segment: 0 }], traps: [{ ref: "t0", cell: { x: 14, y: 12 } }], posts: wPosts });
     await resolve({ 1: { kind: "caravan_held", unitDamage: 100, spendTraps: 1, kill: [wVet!] } });
     expect((await call(w, "POST", `${wTrip}/push`, { tripId: wStarted.tripId, encounterIndex: 1 })).statusCode).toBe(200);
-    await wFight(2, { v: 2, fences: [{ ref: "f1", segment: 1 }], traps: [], posts: wPosts.filter((x) => x.ref !== wVet) });
+    await wFight(2, { v: 3, fences: [{ ref: "f1", segment: 1 }], traps: [], posts: wPosts.filter((x) => x.ref !== wVet) });
     // An outcome that heals a unit is refused by the server (not retryable): the job parks.
     await resolve({ 2: { kind: "caravan_held", tamper: (o) => ({ ...o, units: o.units.map((u) => ({ ...u, hp: u.hp + 1 })) }) } });
     const voided = (await record("trip-status-voided", "GET /me/caravans/:id/trip (voided)", await call(w, "GET", wTrip), 200)) as {

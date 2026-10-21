@@ -10,7 +10,7 @@
  */
 import { TUNABLES, getUnitType } from "@caravan/content";
 import { RESOLVER_VERSION } from "@caravan/resolver";
-import { RING_ANCHORS, RING_SEGMENTS, entryBand, partyFromJson, raiseOrder, scoutParty, serializePartyConfig, type Formation, type PartyConfig } from "@caravan/circle";
+import { INTERIOR_POST_CELLS, RING_SEGMENTS, entryBand, partyFromJson, raiseOrder, scoutParty, serializePartyConfig, type Formation, type PartyConfig } from "@caravan/circle";
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -485,12 +485,11 @@ describe("a unit both in the party and packed on a trip", () => {
 
   /** Fences on consecutive ring positions; posts on inner cells (chunk 07's test helper). */
   function arrangement(manifest: { units: { ref: string; hp: number }[]; traps: { ref: string; spent: boolean }[]; fences: { ref: string; hp: number }[] }): Formation {
-    const corner = RING_ANCHORS[0]!;
     const cells: { x: number; y: number }[] = [];
-    for (let y = corner.y + 1; y < corner.y + 4; y++) for (let x = corner.x + 1; x < corner.x + 8; x++) cells.push({ x, y });
+    for (const c of INTERIOR_POST_CELLS.slice(0, 21)) cells.push({ x: c.x, y: c.y });
     let i = 0;
     return {
-      v: 2,
+      v: 3,
       fences: manifest.fences.filter((f) => f.hp > 0).map((f, k) => ({ ref: f.ref, segment: k % RING_SEGMENTS.length })),
       traps: manifest.traps.filter((t) => !t.spent).map((t) => ({ ref: t.ref, cell: cells[i++]! })),
       posts: manifest.units.filter((u) => u.hp > 0).map((u) => ({ ref: u.ref, cell: cells[i++]!, stance: "guard" as const })),

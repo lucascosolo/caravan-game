@@ -80,7 +80,7 @@ async function makeDefender(strength: "strong" | "weak" = "strong"): Promise<Pla
     await giveUnits(p, 2, "desert.well_digger", 5);
   } else await giveUnits(p, 1, "desert.dust_rider", 1);
   await pool.query("UPDATE pool_progress SET reputation = 1000 WHERE caravan_id = $1 AND pool = 'living'", [p.caravanId]);
-  const loadout = strength === "strong" ? { units: p.units, traps: ["trap.spike_pit", "trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 20 } } : { units: p.units, traps: [], fence: { tierId: "fence.brush_pile", count: 0 } };
+  const loadout = strength === "strong" ? { units: p.units, traps: ["trap.spike_pit", "trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 11 } } : { units: p.units, traps: [], fence: { tierId: "fence.brush_pile", count: 0 } };
   const res = await call(p, "POST", `/caravans/${p.caravanId}/manifest`, loadout);
   expect(res.statusCode, res.body).toBe(201);
   return p;
@@ -101,7 +101,7 @@ function arrangement(m: ManifestJson): Formation {
   const postCells = [{ x: 15, y: 13 }, { x: 13, y: 15 }, { x: 17, y: 15 }, { x: 15, y: 17 }];
   const trapCells = [{ x: 15, y: 9 }, { x: 9, y: 15 }];
   return {
-    v: 2,
+    v: 3,
     fences: m.fences.filter((f) => f.hp > 0).map((f, k) => ({ ref: f.ref, segment: k % RING_SEGMENTS.length })),
     traps: m.traps.filter((t) => !t.spent).map((t, k) => ({ ref: t.ref, cell: trapCells[k]! })),
     posts: m.units.filter((u) => u.hp > 0).map((u, k) => ({ ref: u.ref, cell: postCells[k]!, stance: "hold" as const })),
@@ -433,7 +433,7 @@ describe("GET /me/encounters/:jobId/replay", () => {
     // A resolved job whose recorded log is an old format: its own job, result naming that log's sha256.
     const job = (await getJob(pool, jobId))!;
     const oldId = jobId.replace(/:1$/, ":7");
-    const oldText = JSON.stringify({ ...log, v: 99, resolverVersion: 6 });
+    const oldText = JSON.stringify({ ...log, v: 99, resolverVersion: RESOLVER_VERSION });
     const oldSha = createHash("sha256").update(oldText).digest("hex");
     const body = gzipSync(Buffer.from(oldText));
     await pool.query(
@@ -443,11 +443,11 @@ describe("GET /me/encounters/:jobId/replay", () => {
     );
     await ownerUnguarded(
       `INSERT INTO encounter_log (job_id, caravan_id, defender_account_id, party_owner_account_id, resolver_version, log_format, encoding, log, raw_bytes, stored_bytes, log_sha256, formation_sha256, survivors_sha256, party_sha256, content_hash)
-       VALUES ($1, $2, $3, $4, 6, 99, 'gzip', $5, $6, $7, $8, $9, $10, $11, $12)`,
+       VALUES ($1, $2, $3, $4, ${RESOLVER_VERSION}, 99, 'gzip', $5, $6, $7, $8, $9, $10, $11, $12)`,
       [oldId, row.caravan_id, row.defender_account_id, row.party_owner_account_id, body, oldText.length, body.length, oldSha, row.formation_sha256, row.survivors_sha256, row.party_sha256, row.content_hash],
     );
     const old = (await call(d, "GET", `/me/encounters/${oldId}/replay`)).json();
-    expect(old).toMatchObject({ renderable: false, logFormat: 99, resolverVersion: 6 });
+    expect(old).toMatchObject({ renderable: false, logFormat: 99, resolverVersion: RESOLVER_VERSION });
     expect(old.reason).toMatch(/not readable/);
     // Pruned: the row gone (as the owner, guards off — the app role cannot delete a fresh replay).
     await ownerUnguarded("DELETE FROM encounter_log WHERE job_id = $1", [oldId]);

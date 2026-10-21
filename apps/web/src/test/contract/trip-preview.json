@@ -161,60 +161,6 @@
           "tierId": "fence.brush_pile",
           "hp": 300,
           "maxHp": 300
-        },
-        {
-          "ref": "f11",
-          "tierId": "fence.brush_pile",
-          "hp": 300,
-          "maxHp": 300
-        },
-        {
-          "ref": "f12",
-          "tierId": "fence.brush_pile",
-          "hp": 300,
-          "maxHp": 300
-        },
-        {
-          "ref": "f13",
-          "tierId": "fence.brush_pile",
-          "hp": 300,
-          "maxHp": 300
-        },
-        {
-          "ref": "f14",
-          "tierId": "fence.brush_pile",
-          "hp": 300,
-          "maxHp": 300
-        },
-        {
-          "ref": "f15",
-          "tierId": "fence.brush_pile",
-          "hp": 300,
-          "maxHp": 300
-        },
-        {
-          "ref": "f16",
-          "tierId": "fence.brush_pile",
-          "hp": 300,
-          "maxHp": 300
-        },
-        {
-          "ref": "f17",
-          "tierId": "fence.brush_pile",
-          "hp": 300,
-          "maxHp": 300
-        },
-        {
-          "ref": "f18",
-          "tierId": "fence.brush_pile",
-          "hp": 300,
-          "maxHp": 300
-        },
-        {
-          "ref": "f19",
-          "tierId": "fence.brush_pile",
-          "hp": 300,
-          "maxHp": 300
         }
       ],
       "destroyed": [

@@ -15,7 +15,7 @@
  *     recipient;
  *   - the rebuild cost of a worst-case collapse (recorded in the chunk file).
  */
-import { RING_ANCHORS, RING_SEGMENTS, entryBand, type Formation, type PartyConfig } from "@caravan/circle";
+import { INTERIOR_POST_CELLS, RING_SEGMENTS, entryBand, type Formation, type PartyConfig } from "@caravan/circle";
 import { FIXED_ONE, TUNABLES } from "@caravan/content";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -173,12 +173,11 @@ async function survivors(d: Player): Promise<ManifestJson> {
 }
 
 function arrangement(m: ManifestJson): Formation {
-  const corner = RING_ANCHORS[0]!;
   const cells: { x: number; y: number }[] = [];
-  for (let y = corner.y + 1; y < corner.y + 4; y++) for (let x = corner.x + 1; x < corner.x + 8; x++) cells.push({ x, y });
+  for (const c of INTERIOR_POST_CELLS.slice(0, 21)) cells.push({ x: c.x, y: c.y });
   let i = 0;
   return {
-    v: 2,
+    v: 3,
     fences: m.fences.filter((f) => f.hp > 0).map((f, k) => ({ ref: f.ref, segment: k % RING_SEGMENTS.length })),
     traps: m.traps.filter((t) => !t.spent).map((t) => ({ ref: t.ref, cell: cells[i++]! })),
     posts: m.units.filter((u) => u.hp > 0).map((u) => ({ ref: u.ref, cell: cells[i++]!, stance: "guard" as const })),

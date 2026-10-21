@@ -838,11 +838,11 @@ describe("final play-test review N10 / N5: empty states are 200, and the read ca
     const p = await registerPlayer("desert");
     await giveUnits(p, 2, "desert.dust_rider");
     await setLivingRep(p.caravanId, 7_660);
-    const packed = await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: p.units, traps: ["trap.spike_pit", "trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 12 } });
+    const packed = await call(p, "POST", `/caravans/${p.caravanId}/manifest`, { units: p.units, traps: ["trap.spike_pit", "trap.spike_pit"], fence: { tierId: "fence.brush_pile", count: 11 } });
     expect(packed.statusCode, packed.body).toBe(201);
     await withTransaction(pool, (c) => createTrip(c, p.caravanId));
     const menu = await search(p);
-    const loadout = { fences: [{ tierId: "fence.brush_pile", displayName: expect.any(String), category: expect.any(String), standing: 12, packed: 12 }], traps: [{ typeId: "trap.spike_pit", displayName: expect.any(String), category: expect.any(String), ready: 2, packed: 2 }] };
+    const loadout = { fences: [{ tierId: "fence.brush_pile", displayName: expect.any(String), category: expect.any(String), standing: 11, packed: 11 }], traps: [{ typeId: "trap.spike_pit", displayName: expect.any(String), category: expect.any(String), ready: 2, packed: 2 }] };
     expect(menu.caravanLoadout).toEqual(loadout);
     expect((await call(p, "GET", `/me/caravans/${p.caravanId}/encounters/1/candidates`)).json().menu.caravanLoadout).toEqual(loadout);
     const chosen = await call(p, "POST", `/me/caravans/${p.caravanId}/encounters/1/choose`, { candidateId: menu.candidates[0]!.candidateId });
@@ -882,7 +882,7 @@ describe("final play-test review r2 S2 / r3 S2(a): a caravan meets authored outf
     const ended = async (reason: "banked" | "overrun" | "voided"): Promise<void> => {
       await pool.query(
         `WITH m AS (INSERT INTO wagon_manifest (caravan_id, packed, survivors, closed_at, created_at) VALUES ($1, $2::jsonb, $2::jsonb, now() - interval '1 day', now() - interval '1 day') RETURNING id)
-         INSERT INTO trip (caravan_id, manifest_id, started_at, ended_at, end_reason) SELECT $1, m.id, now() - interval '1 day', now() - interval '1 day', $3 FROM m`,
+         INSERT INTO trip (caravan_id, manifest_id, battlefield_version, started_at, ended_at, end_reason) SELECT $1, m.id, 3, now() - interval '1 day', now() - interval '1 day', $3 FROM m`,
         [p.caravanId, JSON.stringify({ v: 1, units: [], traps: [], fences: [] }), reason],
       );
     };

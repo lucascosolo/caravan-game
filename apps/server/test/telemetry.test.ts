@@ -15,7 +15,7 @@
  *     with the account;
  *   - analytics never feed back: nothing outside src/analytics and its routes reads them.
  */
-import { RING_ANCHORS, entryBand, type PartyConfig } from "@caravan/circle";
+import { INTERIOR_POST_CELLS, entryBand, type PartyConfig } from "@caravan/circle";
 import { TUNABLES, UNLOCK_WEBS, weekIndexAt } from "@caravan/content";
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
@@ -85,12 +85,12 @@ async function encounter(d: Player, posts: string[], n: number, plan: EncounterP
   const cand = (s.json().menu.candidates as { candidateId: string; owner: { displayName: string } }[]).find((c) => mains.includes(c.owner.displayName));
   expect(cand, "a main owner's party is in the menu").toBeDefined();
   expect((await call(d, "POST", `/me/caravans/${d.caravanId}/encounters/${n}/choose`, { candidateId: cand!.candidateId })).statusCode).toBe(200);
-  const c = RING_ANCHORS[0]!;
+  const cells = INTERIOR_POST_CELLS;
   const formation = {
-    v: 2,
+    v: 3,
     fences: n === 1 ? [{ ref: "f0", segment: 0 }] : [],
-    traps: n === 1 ? [{ ref: "t0", cell: { x: c.x + 1, y: c.y + 1 } }] : [],
-    posts: posts.map((ref, i) => ({ ref, cell: { x: c.x + 2 + i, y: c.y + 2 }, stance: "guard" })),
+    traps: n === 1 ? [{ ref: "t0", cell: { x: cells[0]!.x, y: cells[0]!.y } }] : [],
+    posts: posts.map((ref, i) => ({ ref, cell: { x: cells[1 + i]!.x, y: cells[1 + i]!.y }, stance: "guard" })),
   };
   const f = await call(d, "PUT", `/caravans/${d.caravanId}/encounters/${n}/formation`, formation);
   expect(f.statusCode, f.body).toBe(200);

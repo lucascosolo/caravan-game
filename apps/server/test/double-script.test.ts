@@ -13,7 +13,7 @@ const input = (encounterIndex: number, fences: number, traps: number): Encounter
     tripId: "t",
     encounterIndex,
     formation: {
-      v: 2,
+      v: 3,
       fences: Array.from({ length: fences }, (_, i) => ({ ref: `f${i}`, segment: i })),
       traps: Array.from({ length: traps }, (_, i) => ({ ref: `t${i}`, cell: { x: 10 + i, y: 10 } })),
       posts: [

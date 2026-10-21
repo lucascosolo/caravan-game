@@ -367,6 +367,10 @@ ENV_FILE="$PT_ENV" node apps/server/dist/seed.js   # a changed authored set upda
 sudo systemctl restart caravan  # (start, if you drained)
 ```
 
+The resolver v10 upgrade (the round wagon circle, chunk 50) also voids every open trip whose next
+encounter is still uncommitted (its formation names segments of the old square ring), at boot and on
+every poll, banked as of the last encounter survived.
+
 If a drain was skipped, or a crash interrupted it, nothing is stuck: at boot and on every poll the
 server parks each fight of another resolver version (queued, or leased with an expired lease) and
 voids its trip through the usual void path. The trip is banked as of the last encounter survived;

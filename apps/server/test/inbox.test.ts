@@ -108,7 +108,7 @@ async function commitAgainst(owner: Player, via: FastifyInstance = app): Promise
   const cand = (s.json().menu.candidates as { candidateId: string; owner: { displayName: string } }[]).find((c) => c.owner.displayName === owner.caravanName);
   expect(cand, `${owner.caravanName} (${owner.username}) is in the menu`).toBeDefined();
   expect((await call(d, "POST", `/me/caravans/${d.caravanId}/encounters/1/choose`, { candidateId: cand!.candidateId })).statusCode).toBe(200);
-  const formation = { v: 2, fences: [{ ref: "f0", segment: 0 }], traps: [], posts: [...units].sort().map((ref, i) => ({ ref, cell: { x: 13 + i * 5, y: 13 }, stance: "guard" })) };
+  const formation = { v: 3, fences: [{ ref: "f0", segment: 0 }], traps: [], posts: [...units].sort().map((ref, i) => ({ ref, cell: { x: 13 + i * 5, y: 13 }, stance: "guard" })) };
   expect((await call(d, "PUT", `/caravans/${d.caravanId}/encounters/1/formation`, formation)).statusCode).toBe(200);
   const c = await via.inject({ method: "POST", url: `${trip}/encounters/1/commit`, headers: { authorization: `Bearer ${d.token}` } });
   expect(c.statusCode, c.body).toBe(202);

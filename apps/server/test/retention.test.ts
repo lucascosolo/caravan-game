@@ -87,7 +87,7 @@ async function commitFirstEncounter(d: Player): Promise<string> {
   expect((await call(d, "POST", `/me/caravans/${d.caravanId}/encounters/1/choose`, { candidateId: live.candidateId })).statusCode).toBe(200);
   const m = (await call(d, "GET", `/caravans/${d.caravanId}/manifest`)).json().manifest.survivors as { units: { ref: string }[]; traps: { ref: string }[]; fences: { ref: string }[] };
   const formation: Formation = {
-    v: 2,
+    v: 3,
     fences: m.fences.map((f, k) => ({ ref: f.ref, segment: k % RING_SEGMENTS.length })),
     traps: m.traps.map((t) => ({ ref: t.ref, cell: { x: 15, y: 9 } })),
     posts: m.units.map((u, k) => ({ ref: u.ref, cell: { x: 13 + 4 * k, y: 15 }, stance: "hold" as const })),

@@ -40,8 +40,8 @@
             "tierId": "fence.brush_pile",
             "displayName": "Brush Pile",
             "category": "timber",
-            "standing": 20,
-            "packed": 20
+            "standing": 11,
+            "packed": 11
           }
         ],
         "traps": [

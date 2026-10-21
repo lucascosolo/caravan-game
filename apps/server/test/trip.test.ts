@@ -8,7 +8,7 @@
  * racing). Production resolves with the real resolver since chunk 13 (ENCOUNTER_RESOLUTION_WIRED);
  * the same loop under it is exercised in trip-resolver.test.ts.
  */
-import { RING_ANCHORS, RING_SEGMENTS, entryBand, type Formation, type PartyConfig } from "@caravan/circle";
+import { INTERIOR_POST_CELLS, RING_SEGMENTS, entryBand, type Formation, type PartyConfig } from "@caravan/circle";
 import { FIXED_ONE, TUNABLES } from "@caravan/content";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -135,12 +135,11 @@ async function survivors(d: Player): Promise<ManifestJson> {
 
 /** Every usable fence, trap and living unit placed (chunk 07's test arrangement). */
 function arrangement(m: ManifestJson): Formation {
-  const corner = RING_ANCHORS[0]!;
   const cells: { x: number; y: number }[] = [];
-  for (let y = corner.y + 1; y < corner.y + 4; y++) for (let x = corner.x + 1; x < corner.x + 8; x++) cells.push({ x, y });
+  for (const c of INTERIOR_POST_CELLS.slice(0, 21)) cells.push({ x: c.x, y: c.y });
   let i = 0;
   return {
-    v: 2,
+    v: 3,
     fences: m.fences.filter((f) => f.hp > 0).map((f, k) => ({ ref: f.ref, segment: k % RING_SEGMENTS.length })),
     traps: m.traps.filter((t) => !t.spent).map((t) => ({ ref: t.ref, cell: cells[i++]! })),
     posts: m.units.filter((u) => u.hp > 0).map((u) => ({ ref: u.ref, cell: cells[i++]!, stance: "guard" as const })),
@@ -476,9 +475,9 @@ describe("the encounter chain: attrition carries forward, nothing is repaired, b
     await searchAndChoose(d, 3);
     const m = await survivors(d);
     const legal = arrangement(m);
-    const usingSpent = { ...legal, traps: [...legal.traps, { ref: "t0", cell: { x: RING_ANCHORS[0]!.x + 2, y: RING_ANCHORS[0]!.y + 3 } }] };
+    const usingSpent = { ...legal, traps: [...legal.traps, { ref: "t0", cell: { x: INTERIOR_POST_CELLS[30]!.x, y: INTERIOR_POST_CELLS[30]!.y } }] };
     expect((await call(d, "PUT", `/caravans/${d.caravanId}/encounters/3/formation`, usingSpent)).statusCode).toBe(400);
-    const postingDead = { ...legal, posts: [...legal.posts, { ref: d.third, cell: { x: RING_ANCHORS[0]!.x + 3, y: RING_ANCHORS[0]!.y + 3 }, stance: "guard" }] };
+    const postingDead = { ...legal, posts: [...legal.posts, { ref: d.third, cell: { x: INTERIOR_POST_CELLS[31]!.x, y: INTERIOR_POST_CELLS[31]!.y }, stance: "guard" }] };
     expect((await call(d, "PUT", `/caravans/${d.caravanId}/encounters/3/formation`, postingDead)).statusCode).toBe(400);
     const jobId = await arrangeAndCommit(d, 3);
 

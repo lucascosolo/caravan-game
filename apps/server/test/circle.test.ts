@@ -4,7 +4,7 @@
  * lock guards holding against the server's own role.
  */
 import { TUNABLES } from "@caravan/content";
-import { RING_ANCHORS, RING_SEGMENTS, formationFromJson, serializeFormation, type Formation } from "@caravan/circle";
+import { INTERIOR_POST_CELLS, RING_SEGMENTS, formationFromJson, serializeFormation, type Formation } from "@caravan/circle";
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
 import type pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -55,12 +55,11 @@ const STARTER_PACK = (p: Player) => ({
 
 /** Fences on `count` consecutive ring positions from `first`; traps and posts on inner cells. */
 function arrangement(manifest: { units: { ref: string; hp: number }[]; traps: { ref: string; spent: boolean }[]; fences: { ref: string; hp: number }[] }, first = 0): Formation {
-  const corner = RING_ANCHORS[0]!; // the north-west wagon anchor; inner cells start one in
   const cells: { x: number; y: number }[] = [];
-  for (let y = corner.y + 1; y < corner.y + 4; y++) for (let x = corner.x + 1; x < corner.x + 8; x++) cells.push({ x, y });
+  for (const c of INTERIOR_POST_CELLS.slice(0, 21)) cells.push({ x: c.x, y: c.y });
   let i = 0;
   return {
-    v: 2,
+    v: 3,
     fences: manifest.fences.filter((f) => f.hp > 0).map((f, k) => ({ ref: f.ref, segment: (first + k) % RING_SEGMENTS.length })),
     traps: manifest.traps.filter((t) => !t.spent).map((t) => ({ ref: t.ref, cell: cells[i++]! })),
     posts: manifest.units.filter((u) => u.hp > 0).map((u) => ({ ref: u.ref, cell: cells[i++]!, stance: "guard" as const })),
@@ -237,7 +236,7 @@ describe("arranging the formation per encounter, and carry-forward", () => {
   }
 
   it("rejects malformed and illegal formations with the full issue list", async () => {
-    const malformed = await call(p, "PUT", url(1), { v: 2, fences: [], traps: [], posts: [], elevation: [] });
+    const malformed = await call(p, "PUT", url(1), { v: 3, fences: [], traps: [], posts: [], elevation: [] });
     expect(malformed.statusCode).toBe(400);
     expect(malformed.json().error).toBe("malformed_formation");
     expect(malformed.json().message).toMatch(/unknown key 'elevation'/);
@@ -270,7 +269,7 @@ describe("arranging the formation per encounter, and carry-forward", () => {
     expect(first.json().formation.committedAt).toBeNull();
 
     // Re-arranged: the gap moves. Stored draft changes, hash changes.
-    const second = await call(p, "PUT", url(1), arrangement(s, 16));
+    const second = await call(p, "PUT", url(1), arrangement(s, 6));
     expect(second.statusCode).toBe(200);
     expect(second.json().formation.hash).not.toBe(first.json().formation.hash);
     expect(second.json().formation.gaps[0]).toBe(0);
@@ -280,7 +279,7 @@ describe("arranging the formation per encounter, and carry-forward", () => {
     const commit = await call(p, "POST", url(1, "/commit"));
     expect(commit.statusCode).toBe(200);
     expect(commit.json().formation.committedAt).not.toBeNull();
-    const canonical = serializeFormation(arrangement(s, 16));
+    const canonical = serializeFormation(arrangement(s, 6));
     expect(commit.json().formation.hash).toBe(formationHash(canonical));
     // jsonb normalizes key order on storage; the canonical re-serialization of what comes
     // back is byte-identical to what went in, and the stored hash is of that text.
@@ -320,12 +319,12 @@ describe("arranging the formation per encounter, and carry-forward", () => {
     expect(m2.survivors.fences.find((f: { ref: string }) => f.ref === "f1").hp).toBe(17);
 
     // Encounter 2: the encounter-1 arrangement is no longer legal — every carried-forward loss bites.
-    const stale = arrangement(before, 16);
+    const stale = arrangement(before, 6);
     const res = await call(p, "PUT", url(2), stale);
     expect(res.statusCode).toBe(400);
     expect(res.json().issues.map((i: { code: string }) => i.code).sort()).toEqual(["fence_destroyed", "trap_spent", "unit_dead"]);
     // Arranged from what survives, it is legal; the chipped segment keeps its 17 hp into the fight.
-    const fresh = arrangement(m2.survivors, 16);
+    const fresh = arrangement(m2.survivors, 6);
     expect(fresh.traps.map((t) => t.ref)).toEqual(["t1"]);
     expect(fresh.fences).toHaveLength(9);
     expect((await call(p, "PUT", url(2), fresh)).statusCode).toBe(200);

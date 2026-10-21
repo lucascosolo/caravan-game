@@ -323,7 +323,7 @@ try {
     await inject(d, "POST", `/me/caravans/${d.caravanId}/encounters/1/choose`, { candidateId: menu[i % menu.length]!.candidateId });
     const m = (await inject(d, "GET", `/caravans/${d.caravanId}/manifest`)).json().manifest.survivors as { units: { ref: string }[]; traps: { ref: string }[]; fences: { ref: string }[] };
     const formation = {
-      v: 2,
+      v: 3,
       fences: m.fences.map((f, k) => ({ ref: f.ref, segment: (k * 3 + i) % RING_SEGMENTS.length })),
       traps: m.traps.map((tr, k) => ({ ref: tr.ref, cell: [{ x: 15, y: 9 }, { x: 9, y: 15 }][k]! })),
       posts: m.units.map((u, k) => ({ ref: u.ref, cell: [{ x: 15, y: 13 }, { x: 13, y: 15 }, { x: 17, y: 15 }, { x: 15, y: 17 }][k]!, stance: (["hold", "guard"] as const)[(i + k) % 2] })),

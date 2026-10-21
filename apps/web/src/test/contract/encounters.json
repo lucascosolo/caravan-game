@@ -8,7 +8,7 @@
         "tripId": "00000000-0000-4000-8000-000000000001",
         "encounterIndex": 1,
         "outcome": "caravan_held",
-        "depth": 446,
+        "depth": 651,
         "settledAt": "2026-10-11T12:00:00.000Z",
         "replay": "log"
       }

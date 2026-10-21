@@ -6,6 +6,7 @@
  *
  * CARAVAN-level (GUARDRAILS §5). No geography, no route, no travel timer (chunk 15 brief).
  */
+import { BATTLEFIELD_VERSION } from "@caravan/resolver";
 import type pg from "pg";
 import { findOpenManifest } from "../circle/repo.js";
 import type { Queryable } from "../db/pool.js";
@@ -17,6 +18,8 @@ export interface TripRow {
   manifest_id: string;
   started_at: Date;
   ended_at: Date | null;
+  /** Chunk 50 (migration 031): the battlefield geometry the trip rode out under; immutable. */
+  battlefield_version: number;
   /** Chunk 15 (migration 012): how the trip ended. Null while open, and for a bare endTrip(). */
   end_reason: TripEndReason | null;
 }
@@ -32,7 +35,7 @@ export async function createTrip(client: pg.PoolClient, caravanId: string): Prom
   const manifest = await findOpenManifest(client, caravanId);
   if (!manifest) throw new AppError(404, "no_open_manifest", "this caravan is in town with nothing packed");
   if (await findOpenTrip(client, caravanId)) throw conflict("trip_open", "this caravan is already on a trip");
-  const res = await client.query<TripRow>("INSERT INTO trip (caravan_id, manifest_id) VALUES ($1, $2) RETURNING *", [caravanId, manifest.id]);
+  const res = await client.query<TripRow>("INSERT INTO trip (caravan_id, manifest_id, battlefield_version) VALUES ($1, $2, $3) RETURNING *", [caravanId, manifest.id, BATTLEFIELD_VERSION]);
   return res.rows[0]!;
 }
 
